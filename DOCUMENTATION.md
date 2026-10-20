@@ -2590,6 +2590,14 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Kommt ein Gutschein anonymisiert an (`…@removed.invalid`), wird sein älterer Verlauf getilgt.
   - Das Anonymisieren in WordPress selbst (Vorschlag an den Plugin-Chat) gehört in `TIX_Account_Delete`.
   - `vergleich-wp.php` und `datenschutz-scan.sql` melden „Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer“. Migration `20261017150000_mirror_coupon_privacy.sql`.
+- **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
+  - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
+  - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.
+  - Übernommene Vorschauen sind keine Sandbox mehr und kommen normal in den Spiegel. Der Sandbox-Stand wird je Cron-Lauf neu bestimmt.
+  - `vergleich-wp.php` zählt Sandbox nicht mit. `datenschutz-scan.sql` meldet Sandbox-Spuren.
+  - Zweite Sicherung: Bestellungen mit Zahlart `demo` und Gutscheine mit `demo` = 1 gelten immer als Sandbox.
+  - Getestet mit dem echten `TIX_Sales` (1.38.508, `wp tixomat demo reset`): Vom Demo Club kommt nichts im Spiegel an.
+- **Löschungen gebündelt:** Lösch-Operationen `{site, <spalte>=eq.<wert>}` einer Runde gehen je Tabelle und Spalte als ein Aufruf mit `in.(…)` raus, in Paketen à 100. Ein Demo-Reset mit 20 Bestellungen braucht so 7 statt 124 Aufrufe.
 - **Nicht gespiegelt: Support-Anfragen** (`tix_support_ticket`, Nachrichten, `_tix_sp_*`). Sie können Freitext mit IBAN, Gesundheits- oder Zahlungsdaten enthalten. Die Auszahlungs-Anfrage beim Konto-Löschen (1.38.499, `_tix_sp_retain_until`, `_tix_sp_wallet_payout`) behält ihre Frist nur in WordPress; `mirror_forget` kollidiert damit nicht.
 - **Guthaben beim Konto-Löschen (1.38.499):**
   - Der Bonus verfällt als Buchung `type = expire`.

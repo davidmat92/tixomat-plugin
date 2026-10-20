@@ -61,6 +61,53 @@ class TIX_Mirror_Map {
         return $plan !== null ? $plan : new WP_Error('entity', 'Unbekannter Typ ' . $entity);
     }
 
+    // ═══════════════ Sandbox (Live-Demo Vertrieb) ═══════════════
+    // Demo Club und Vorschau-Veranstalter dürfen NIE in den Spiegel (Vertrag Live-Demo, Entscheid 4).
+    // Quelle: TIX_Sales::is_sandbox_organizer($oid), zusätzlich Filter tix_sandbox_organizer.
+    // Übernommene Vorschauen sind danach keine Sandbox mehr und kommen normal in den Spiegel.
+
+    private static $sandbox_orgs = [];
+    private static $sandbox_events = [];
+
+    public static function sandbox_reset() { self::$sandbox_orgs = []; self::$sandbox_events = []; }
+
+    public static function is_sandbox_org($oid) {
+        $oid = (int) $oid;
+        if ($oid <= 0) return false;
+        if (!isset(self::$sandbox_orgs[$oid])) {
+            $v = class_exists('TIX_Sales') && method_exists('TIX_Sales', 'is_sandbox_organizer') ? (bool) TIX_Sales::is_sandbox_organizer($oid) : false;
+            self::$sandbox_orgs[$oid] = (bool) apply_filters('tix_sandbox_organizer', $v, $oid);
+        }
+        return self::$sandbox_orgs[$oid];
+    }
+
+    /** Event eines Sandbox-Veranstalters (maßgeblich ist der Haupt-Veranstalter). */
+    public static function is_sandbox_event($eid) {
+        $eid = (int) $eid;
+        if ($eid <= 0) return false;
+        if (!isset(self::$sandbox_events[$eid])) self::$sandbox_events[$eid] = self::is_sandbox_org((int) get_post_meta($eid, '_tix_organizer_id', true));
+        return self::$sandbox_events[$eid];
+    }
+
+    /** Bestellung mit mindestens einer Position eines Sandbox-Events (bzw. Kasse an einem solchen Event). */
+    public static function is_sandbox_order($order_id) {
+        global $wpdb;
+        $order_id = (int) $order_id;
+        if ($order_id <= 0) return false;
+        $prev = $wpdb->suppress_errors(true);
+        $eids = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id));
+        $wpdb->suppress_errors($prev);
+        // Zweite Sicherung: Demo-Bestellungen tragen die Zahlart 'demo' (TIX_Sales, 1.38.508)
+        $prev = $wpdb->suppress_errors(true);
+        $pm = (string) $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+        $wpdb->suppress_errors($prev);
+        if ($pm === 'demo') return true;
+        $pos = get_option('_tix_pos_order_' . $order_id, null);
+        if (is_array($pos) && !empty($pos['event_id'])) $eids[] = (int) $pos['event_id'];
+        foreach ((array) $eids as $e) if (self::is_sandbox_event((int) $e)) return true;
+        return false;
+    }
+
     /** Markierung anonymisierter Datensätze (TIX_Account_Delete, 1.38.460). */
     const ANON_MARK = '@removed.invalid';
 
@@ -143,7 +190,7 @@ class TIX_Mirror_Map {
 
     private static function plan_event($site, $id) {
         $p = get_post($id);
-        if (!$p || $p->post_type !== 'event' || $p->post_status === 'auto-draft') {
+        if (!$p || $p->post_type !== 'event' || $p->post_status === 'auto-draft' || self::is_sandbox_event($id)) {
             return [self::del('events', $site, $id),
                     ['delete', 'ticket_categories', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]],
                     ['delete', 'guests', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]]];
@@ -327,6 +374,7 @@ class TIX_Mirror_Map {
         foreach ((array) get_user_meta($user_id) as $k => $vals) {
             if (!preg_match('/^_tix_loyalty_points(?:_o(\d+))?$/', $k, $m)) continue;
             $org = isset($m[1]) ? (int) $m[1] : 0;
+            if ($org && self::is_sandbox_org($org)) continue; // Demo/Vorschau
             $sfx = $org ? '_o' . $org : '';
             $log = get_user_meta($user_id, '_tix_loyalty_log' . $sfx, true);
             $stamped = get_user_meta($user_id, '_tix_loyalty_stamped' . $sfx, true);
@@ -348,6 +396,10 @@ class TIX_Mirror_Map {
         global $wpdb;
         $o = $wpdb->get_row($wpdb->prepare("SELECT *, UNIX_TIMESTAMP(date_modified) AS modified_ts FROM {$wpdb->prefix}tix_orders WHERE id = %d", $id), ARRAY_A);
         if (!$o) {
+            return [self::del('orders', $site, $id), self::del('payments', $site, $id),
+                    ['delete', 'order_items', ['site' => 'eq.' . $site, 'order_id' => 'eq.' . $id]]];
+        }
+        if (self::is_sandbox_order($id)) { // Demo/Vorschau: nie im Spiegel
             return [self::del('orders', $site, $id), self::del('payments', $site, $id),
                     ['delete', 'order_items', ['site' => 'eq.' . $site, 'order_id' => 'eq.' . $id]]];
         }
@@ -481,7 +533,7 @@ class TIX_Mirror_Map {
 
     private static function plan_ticket($site, $id) {
         $p = get_post($id);
-        if (!$p || $p->post_type !== 'tix_ticket') return [self::del('tickets', $site, $id)];
+        if (!$p || $p->post_type !== 'tix_ticket' || self::is_sandbox_event((int) get_post_meta($id, '_tix_ticket_event_id', true))) return [self::del('tickets', $site, $id)];
         $g = function ($k) use ($id) { return get_post_meta($id, $k, true); };
         $ct = (string) $g('_tix_ticket_checkin_time');
         $ct_iso = null;
@@ -522,6 +574,10 @@ class TIX_Mirror_Map {
 
     private static function plan_event_row($site, $table, $id, $payload) {
         if (!is_array($payload)) return new WP_Error('payload', 'Ereignis ohne Inhalt');
+        // Demo/Vorschau: Check-ins und Stornos von Sandbox-Events nie spiegeln
+        if (!empty($payload['event_id']) && self::is_sandbox_event((int) $payload['event_id'])) return [];
+        if (!empty($payload['ticket_id']) && self::is_sandbox_event((int) get_post_meta((int) $payload['ticket_id'], '_tix_ticket_event_id', true))) return [];
+        if ($table === 'refunds' && !empty($payload['order_id']) && self::is_sandbox_order((int) $payload['order_id'])) return [];
         $row = array_merge($payload, ['site' => $site, 'id' => (string) $id]);
         return [['upsert', $table, [self::json_safe($row)]]];
     }

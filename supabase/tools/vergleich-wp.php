@@ -36,7 +36,21 @@ $q = function ($sql) use ($wpdb) {
 $posts = function ($type) use ($q, $wpdb) {
     return $q($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status <> 'auto-draft'", $type));
 };
+// Demo/Vorschau (Sandbox-Veranstalter) gehören nie in den Spiegel → hier nicht mitzählen
+$sbo = []; $sbe = [];
+if (class_exists('TIX_Mirror_Reconcile') && method_exists('TIX_Mirror_Reconcile', 'any_sandbox') && TIX_Mirror_Reconcile::any_sandbox()) {
+    foreach ((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft'") as $o) if (TIX_Mirror_Map::is_sandbox_org((int) $o)) $sbo[] = (int) $o;
+}
 $event_ids = array_map('intval', $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'event' AND post_status <> 'auto-draft'"));
+if ($sbo) {
+    $sbe = array_values(array_filter($event_ids, function ($e) { return TIX_Mirror_Map::is_sandbox_event($e); }));
+    $event_ids = array_values(array_diff($event_ids, $sbe));
+    echo "Sandbox (Demo/Vorschau, nie im Spiegel): " . count($sbo) . " Veranstalter, " . count($sbe) . " Events – nicht mitgezählt\n";
+}
+// Platzhalter -1 (kommt nie vor): ohne Sandbox filtert NOT IN nichts weg – auch nicht Veranstalter 0 (= Seite)
+$in_e = $sbe ? implode(',', array_map('intval', $sbe)) : '-1';
+$in_o = $sbo ? implode(',', array_map('intval', $sbo)) : '-1';
+$sb_orders = $sbe ? "SELECT DISTINCT order_id FROM {$wpdb->prefix}tix_order_items WHERE event_id IN ($in_e) UNION SELECT id FROM {$wpdb->prefix}tix_orders WHERE payment_method = 'demo'" : "SELECT id FROM {$wpdb->prefix}tix_orders WHERE payment_method = 'demo'";
 $cats = 0; $guests = 0;
 foreach ($event_ids as $eid) {
     $c = get_post_meta($eid, '_tix_ticket_categories', true);
@@ -44,28 +58,32 @@ foreach ($event_ids as $eid) {
     $guests += count(TIX_Mirror_Map::guest_rows('', $eid));
 }
 $coupons = get_option('tix_coupons', []);
-$coupons = is_array($coupons) ? count(array_filter($coupons, function ($c, $code) { return is_array($c) && (string) $code !== ''; }, ARRAY_FILTER_USE_BOTH)) : 0;
-$orders = $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders");
+$coupons = is_array($coupons) ? count(array_filter($coupons, function ($c, $code) use ($sbo) {
+    if (!is_array($c) || (string) $code === '') return false;
+    if (!empty($c['demo']) || ($sbo && (TIX_Mirror_Map::is_sandbox_org($c['organizer_id'] ?? ($c['gift_organizer_id'] ?? 0)) || (!empty($c['order_id']) && TIX_Mirror_Map::is_sandbox_order((int) $c['order_id']))))) return false;
+    return true;
+}, ARRAY_FILTER_USE_BOTH)) : 0;
+$orders = $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders WHERE id NOT IN ($sb_orders)");
 $wp = [
     'sites'               => 1,
     'events'              => count($event_ids),
     'ticket_categories'   => $cats,
     'guests'              => $guests,
     'customers'           => $q("SELECT COUNT(*) FROM {$wpdb->users}"),
-    'loyalty'             => $q("SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key REGEXP '^_tix_loyalty_points(_o[0-9]+)?$'"),
+    'loyalty'             => $q("SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key REGEXP '^_tix_loyalty_points(_o[0-9]+)?$'" . ($sbo ? " AND meta_key NOT IN ('" . implode("','", array_map(function ($o) { return '_tix_loyalty_points_o' . (int) $o; }, $sbo)) . "')" : '')),
     'orders'              => $orders,
-    'order_items'         => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_order_items"),
+    'order_items'         => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_order_items WHERE order_id NOT IN ($sb_orders)"),
     'payments'            => $orders,
-    'tickets'             => $posts('tix_ticket'),
-    'organizers'          => $posts('tix_organizer'),
+    'tickets'             => $sbe ? $q("SELECT COUNT(*) FROM {$wpdb->posts} p WHERE p.post_type = 'tix_ticket' AND p.post_status <> 'auto-draft' AND NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} m WHERE m.post_id = p.ID AND m.meta_key = '_tix_ticket_event_id' AND m.meta_value IN ($in_e))") : $posts('tix_ticket'),
+    'organizers'          => $posts('tix_organizer') === null ? null : $posts('tix_organizer') - count($sbo),
     'coupons'             => $coupons,
-    'wallets'             => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_wallets"),
-    'wallet_transactions' => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_wallet_tx"),
-    'settlements'         => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlements"),
-    'settlement_items'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlement_items"),
-    'invoices'            => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoices"),
+    'wallets'             => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_wallets WHERE organizer_id NOT IN ($in_o)"),
+    'wallet_transactions' => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_wallet_tx x JOIN {$wpdb->prefix}tix_wallets w ON w.id = x.wallet_id WHERE w.organizer_id NOT IN ($in_o)" . ($sbo ? " AND x.organizer_id NOT IN ($in_o)" : '')),
+    'settlements'         => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlements WHERE organizer_id NOT IN ($in_o)"),
+    'settlement_items'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlement_items WHERE organizer_id NOT IN ($in_o)"),
+    'invoices'            => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoices WHERE organizer_id NOT IN ($in_o) AND order_id NOT IN ($sb_orders)"),
     'invoice_counters'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoice_counters"),
-    'audit_log'           => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_audit_log"),
+    'audit_log'           => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_audit_log" . ($sbo ? " WHERE scope NOT REGEXP ':(" . implode('|', array_map('intval', $sbo)) . ")$'" : '')),
     'checkins'            => null, // nur im Spiegel (Verlauf ab Einrichtung)
     'refunds'             => null, // nur im Spiegel (Verlauf ab Einrichtung)
 ];
@@ -100,7 +118,7 @@ $one = function ($table, $id) use ($site) {
 };
 $cnt = function ($table, $col, $id) use ($site) { return TIX_Mirror_Client::count($table, ['site' => 'eq.' . $site, $col => 'eq.' . $id]); };
 
-foreach ((array) $wpdb->get_results("SELECT id, status, total, billing_email FROM {$wpdb->prefix}tix_orders ORDER BY id DESC LIMIT 5", ARRAY_A) as $o) {
+foreach ((array) $wpdb->get_results("SELECT id, status, total, billing_email FROM {$wpdb->prefix}tix_orders WHERE id NOT IN ($sb_orders) ORDER BY id DESC LIMIT 5", ARRAY_A) as $o) {
     $oid = (int) $o['id'];
     $items = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $oid));
     $tix = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->postmeta} m JOIN {$wpdb->posts} p ON p.ID = m.post_id AND p.post_type = 'tix_ticket' WHERE m.meta_key = '_tix_ticket_order_id' AND m.meta_value = %s", (string) $oid));
@@ -108,7 +126,7 @@ foreach ((array) $wpdb->get_results("SELECT id, status, total, billing_email FRO
     if ($row) { $row['_items'] = $cnt('order_items', 'order_id', $oid); $row['_tickets'] = $cnt('tickets', 'order_id', $oid); }
     $cmp("Bestellung #{$oid}", ['status' => $o['status'], 'total' => (float) $o['total'], 'billing_email' => $o['billing_email'], '_items' => $items, '_tickets' => $tix], $row);
 }
-foreach ((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status <> 'auto-draft' ORDER BY ID DESC LIMIT 5") as $tid) {
+foreach (array_slice(array_values(array_filter((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status <> 'auto-draft' ORDER BY ID DESC LIMIT 40"), function ($t) use ($sbe) { return !$sbe || !in_array((int) get_post_meta($t, '_tix_ticket_event_id', true), $sbe, true); })), 0, 5) as $tid) {
     $ci = get_post_meta($tid, '_tix_ticket_checked_in', true);
     $cmp("Ticket #{$tid}", [
         'code'        => (string) get_post_meta($tid, '_tix_ticket_code', true),

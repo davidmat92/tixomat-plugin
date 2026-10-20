@@ -498,6 +498,69 @@ foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'number
 $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $boid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $boid]);
 TIX_Mirror::touch('order', $boid);
 
+// ── 13. Sandbox (Live-Demo Vertrieb): Demo Club / Vorschau-Veranstalter nie im Spiegel ──
+$sb_on = [];
+$sb_filter = function ($v, $oid) use (&$sb_on) { return in_array((int) $oid, $sb_on, true) ? true : $v; };
+add_filter('tix_sandbox_organizer', $sb_filter, 10, 2);
+$sb_reset = function () { TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset(); };
+// Veranstalter erst normal gespiegelt (z. B. Vorschau vor dem Schalter), dann als Sandbox markiert → wird entfernt
+$demo = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "Demo Club $sfx"]);
+$posts[] = $demo;
+m2_run();
+t2_true('Veranstalter zunächst gespiegelt', m2_one('organizers', $demo) !== null);
+$sb_on[] = $demo; $sb_reset();
+TIX_Mirror::touch('organizer', $demo);
+m2_run();
+t2_eq('Sandbox-Veranstalter aus dem Spiegel entfernt', null, m2_one('organizers', $demo));
+// Daten des Demo Club
+$dev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Live-Demo-Abend $sfx"]);
+$posts[] = $dev;
+update_post_meta($dev, '_tix_organizer_id', $demo);
+update_post_meta($dev, '_tix_ticket_categories', [['name' => 'Demo', 'price' => '0', 'qty' => 99, 'stock' => 99]]);
+update_post_meta($dev, '_tix_guest_list', [['id' => 'dg1', 'name' => 'Demo Gast', 'email' => "dgast$sfx@example.test"]]);
+$doid = TIX_Native_Checkout::create_order(['total' => 15.0, 'payment_method' => 'bank', 'billing_first_name' => 'Demo', 'billing_last_name' => 'Käufer',
+    'billing_email' => "kauf$sfx@example.test", 'items' => [['event_id' => $dev, 'cat_index' => 0, 'qty' => 1, 'price' => 15.0, 'name' => 'Demo', 'event_title' => 'x']]]);
+TIX_Native_Checkout::update_order_status($doid, 'completed', 'admin');
+$dtix = get_posts(['post_type' => 'tix_ticket', 'numberposts' => 1, 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $doid, 'fields' => 'ids']);
+if ($dtix) TIX_Tickets::checkin_ticket($dtix[0], 'demo');
+$cp = get_option('tix_coupons', []); $cp = is_array($cp) ? $cp : [];
+$cp["DEMO$sfx"] = ['code' => "DEMO$sfx", 'discount_type' => 'percent', 'value' => 10, 'used' => 0, 'organizer_id' => $demo];
+update_option('tix_coupons', $cp);
+if (class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) $daid = TIX_Customers::audit('customer_export', '', ['scope' => 'org', 'oid' => $demo], ['rows' => 3]);
+m2_run();
+t2_eq('Demo-Event nicht gespiegelt', null, m2_one('events', $dev));
+t2_eq('Demo-Kategorien/Gäste nicht gespiegelt', 0, count(m2_rows('ticket_categories', ['event_id' => 'eq.' . $dev])) + count(m2_rows('guests', ['event_id' => 'eq.' . $dev])));
+t2_eq('Demo-Bestellung nicht gespiegelt', null, m2_one('orders', $doid));
+t2_eq('Demo-Positionen/Zahlung nicht gespiegelt', 0, count(m2_rows('order_items', ['order_id' => 'eq.' . $doid])) + count(m2_rows('payments', ['id' => 'eq.' . $doid])));
+t2_eq('Demo-Tickets nicht gespiegelt', 0, count(m2_rows('tickets', ['order_id' => 'eq.' . $doid])));
+if ($dtix) t2_eq('Demo-Check-in nicht gespiegelt', 0, count(m2_rows('checkins', ['ticket_id' => 'eq.' . $dtix[0]])));
+t2_eq('Demo-Gutschein nicht gespiegelt', null, m2_one('coupons', "DEMO$sfx"));
+if (!empty($daid)) t2_eq('Protokoll des Demo Club nicht gespiegelt', null, m2_one('audit_log', $daid));
+t2_eq('kein Verlauf der Demo-Bestellung', 0, count(array_filter(m2_rows('change_log', ['entity' => 'eq.orders', 'object_id' => 'eq.' . $doid]))));
+// Schon gespiegelt (z. B. vor dem Update): Abgleich entfernt es
+TIX_Mirror_Client::upsert('events', [['site' => $site, 'id' => $dev, 'title' => 'alt gespiegelt', 'status' => 'publish']]);
+$sb_reset();
+$rep = m2_reconcile();
+m2_run(2);
+t2_eq('Abgleich entfernt bereits gespiegeltes Demo-Event', null, m2_one('events', $dev));
+t2_eq('Abgleich zählt Sandbox nicht als fehlend', 0, (int) ($rep['tables']['orders']['missing'] ?? 0) + (int) ($rep['tables']['tickets']['missing'] ?? 0));
+$vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+t2_true('Vergleich: Sandbox ausgenommen und gleich', strpos($vout, 'Sandbox (Demo/Vorschau') !== false && strpos($vout, 'alles gleich und sauber') !== false);
+// Übernommene Vorschau: keine Sandbox mehr → kommt in den Spiegel
+$sb_on = []; $sb_reset();
+TIX_Mirror::touch('organizer', $demo); TIX_Mirror::touch('event', $dev);
+m2_run();
+t2_true('übernommen: Veranstalter jetzt im Spiegel', m2_one('organizers', $demo) !== null);
+t2_true('übernommen: Event jetzt im Spiegel', m2_one('events', $dev) !== null);
+$rep = m2_reconcile(); m2_run(2);
+t2_true('übernommen: Bestellung über den Abgleich nachgeholt', m2_one('orders', $doid) !== null);
+remove_filter('tix_sandbox_organizer', $sb_filter, 10);
+$cp = get_option('tix_coupons', []); unset($cp["DEMO$sfx"]); update_option('tix_coupons', $cp);
+if (!empty($daid)) { $wpdb->delete($wpdb->prefix . 'tix_audit_log', ['id' => $daid]); TIX_Mirror::touch('audit', $daid); }
+foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'numberposts' => -1, 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $doid, 'fields' => 'ids']) as $tid) wp_delete_post($tid, true);
+$wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $doid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $doid]);
+TIX_Mirror::touch('order', $doid);
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

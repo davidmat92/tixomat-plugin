@@ -281,6 +281,9 @@ class TIX_Mirror {
     public static function cron_run() {
         if (!self::active()) return;
         if (!self::lock()) return;
+        // Sandbox-Stand (Demo/Vorschau) je Lauf neu bestimmen: übernommene Vorschauen kommen sofort in den Spiegel
+        if (class_exists('TIX_Mirror_Map')) TIX_Mirror_Map::sandbox_reset();
+        if (class_exists('TIX_Mirror_Reconcile')) TIX_Mirror_Reconcile::sandbox_reset();
         self::mute();
         try {
             @set_time_limit(120);
@@ -528,7 +531,30 @@ class TIX_Mirror {
             if (!$res['ok']) foreach ($purges as $e) $failed[$e[0]] = 'Verlauf tilgen: ' . $res['error'];
         }
 
-        foreach ($others as [$rid, $op]) {
+        // Löschungen bündeln: {site, <spalte>=eq.<wert>} je Tabelle und Spalte → ein Aufruf mit in.(…)
+        // (z. B. nächtlicher Demo-Reset: 150 Bestellungen = wenige Aufrufe statt ~1.000)
+        $grouped = []; $rest = [];
+        foreach ($others as $e) {
+            [$rid, $op] = $e;
+            if ($op[0] === 'delete' && count($op[2]) === 2 && isset($op[2]['site'])) {
+                $k = array_values(array_diff(array_keys($op[2]), ['site']))[0];
+                if (strpos((string) $op[2][$k], 'eq.') === 0) { $grouped[$op[1] . '|' . $k . '|' . $op[2]['site']][] = [$rid, substr((string) $op[2][$k], 3)]; continue; }
+            }
+            $rest[] = $e;
+        }
+        foreach ($grouped as $gk => $list) {
+            [$table, $col, $site_f] = explode('|', $gk, 3);
+            $list = array_values(array_filter($list, function ($x) use ($failed) { return !isset($failed[$x[0]]); }));
+            foreach (array_chunk($list, 100) as $chunk) {
+                $vals = array_values(array_unique(array_map(function ($x) {
+                    return preg_match('/^-?\d+$/', $x[1]) ? $x[1] : '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $x[1]) . '"';
+                }, $chunk)));
+                $res = TIX_Mirror_Client::delete($table, ['site' => $site_f, $col => 'in.(' . implode(',', $vals) . ')']);
+                if (!$res['ok']) foreach ($chunk as $x) $failed[$x[0]] = $table . ': ' . $res['error'];
+            }
+        }
+
+        foreach ($rest as [$rid, $op]) {
             if (isset($failed[$rid])) continue;
             if ($op[0] === 'delete') {
                 $res = TIX_Mirror_Client::delete($op[1], $op[2]);

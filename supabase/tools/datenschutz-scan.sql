@@ -23,3 +23,7 @@ select 'Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer: ' || count(
   join orders o on o.site = c.site and o.id = c.order_id
  where o.billing_email like '%@removed.invalid'
    and regexp_replace(c.data::text, '[^" ]*@removed\.invalid', '', 'g') ~* '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}';
+-- Live-Demo Vertrieb: Demo Club / Vorschau-Veranstalter dürfen nie im Spiegel sein (Sandbox)
+select 'Sandbox-Spuren (Demo/Vorschau) im Spiegel: ' || ((select count(*) from organizers where data ? '_tix_org_demo' or data ? '_tix_preview')
+       + (select count(*) from orders where billing_email ilike '%@demo.invalid')
+       + (select count(*) from change_log where data::text ilike '%@demo.invalid%'));

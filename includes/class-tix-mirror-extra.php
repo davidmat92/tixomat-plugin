@@ -93,7 +93,7 @@ class TIX_Mirror_Extra {
 
     private static function plan_organizer($site, $id) {
         $p = get_post($id);
-        if (!$p || $p->post_type !== 'tix_organizer' || $p->post_status === 'auto-draft') return [self::del('organizers', $site, $id)];
+        if (!$p || $p->post_type !== 'tix_organizer' || $p->post_status === 'auto-draft' || TIX_Mirror_Map::is_sandbox_org($id)) return [self::del('organizers', $site, $id)];
         $g = function ($k) use ($id) { return get_post_meta($id, $k, true); };
         $pd = $g('_tix_payout_data');
         $pd = is_array($pd) ? $pd : [];
@@ -167,6 +167,8 @@ class TIX_Mirror_Extra {
         $rows = [];
         foreach ($all as $code => $c) {
             if (!is_array($c) || (string) $code === '') continue;
+            // Demo/Vorschau: nie im Spiegel (fehlt dann auch in den Prüfsummen → wird im Spiegel aufgeräumt)
+            if (!empty($c['demo']) || TIX_Mirror_Map::is_sandbox_org($c['organizer_id'] ?? ($c['gift_organizer_id'] ?? 0)) || (!empty($c['order_id']) && TIX_Mirror_Map::is_sandbox_order((int) $c['order_id']))) continue;
             $row = self::coupon_row($site, $code, $c);
             $fp[(string) $code] = md5(wp_json_encode($row));
             if ($full || ($prev[(string) $code] ?? '') !== $fp[(string) $code]) $rows[] = $row;
@@ -188,7 +190,7 @@ class TIX_Mirror_Extra {
     private static function plan_wallet($site, $id) {
         global $wpdb;
         $w = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_wallets WHERE id = %d", $id), ARRAY_A);
-        if (!$w) return [self::del('wallets', $site, $id)];
+        if (!$w || TIX_Mirror_Map::is_sandbox_org($w['organizer_id'])) return [self::del('wallets', $site, $id)];
         return [['upsert', 'wallets', [[
             'site' => $site, 'id' => $id,
             'user_id'       => (int) $w['user_id'],
@@ -205,6 +207,9 @@ class TIX_Mirror_Extra {
     private static function plan_wallet_tx($site, $id) {
         global $wpdb;
         $x = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_wallet_tx WHERE id = %d", $id), ARRAY_A);
+        if ($x && (TIX_Mirror_Map::is_sandbox_org($x['organizer_id'] ?? 0)
+            || TIX_Mirror_Map::is_sandbox_org((int) $wpdb->get_var($wpdb->prepare("SELECT organizer_id FROM {$wpdb->prefix}tix_wallets WHERE id = %d", (int) $x['wallet_id'])))
+            || (!empty($x['order_id']) && TIX_Mirror_Map::is_sandbox_order((int) $x['order_id'])))) $x = null; // Demo/Vorschau
         if (!$x) return [self::del('wallet_transactions', $site, $id)];
         $meta = json_decode((string) $x['meta'], true);
         $meta = is_array($meta) ? array_filter($meta, function ($k) { return !TIX_Mirror_Map::is_sensitive($k); }, ARRAY_FILTER_USE_KEY) : [];
@@ -279,6 +284,10 @@ class TIX_Mirror_Extra {
     private static function plan_settlement($site, $id) {
         global $wpdb;
         $s = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_settlements WHERE id = %d", $id), ARRAY_A);
+        if ($s && TIX_Mirror_Map::is_sandbox_org($s['organizer_id'])) {
+            // Demo/Vorschau: Abrechnung und alle Positionen des Veranstalters aus dem Spiegel
+            return [self::del('settlements', $site, $id), ['delete', 'settlement_items', ['site' => 'eq.' . $site, 'organizer_id' => 'eq.' . (int) $s['organizer_id']]]];
+        }
         if (!$s) return [self::del('settlements', $site, $id)];
         $ops = [['upsert', 'settlements', [self::settlement_row($site, $s)]]];
         // Positionen dieser Abrechnung und offene Posten des Veranstalters; Aufräumen je Veranstalter.
@@ -297,7 +306,7 @@ class TIX_Mirror_Extra {
     private static function plan_settlement_item($site, $id) {
         global $wpdb;
         $i = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_settlement_items WHERE id = %d", $id), ARRAY_A);
-        if (!$i) return [self::del('settlement_items', $site, $id)];
+        if (!$i || TIX_Mirror_Map::is_sandbox_org($i['organizer_id'])) return [self::del('settlement_items', $site, $id)];
         return [['upsert', 'settlement_items', [self::settlement_item_row($site, $i)]]];
     }
 
@@ -380,6 +389,7 @@ class TIX_Mirror_Extra {
     private static function plan_invoice($site, $id) {
         global $wpdb;
         $r = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_invoices WHERE id = %d", $id), ARRAY_A);
+        if ($r && (TIX_Mirror_Map::is_sandbox_org($r['organizer_id']) || (!empty($r['order_id']) && TIX_Mirror_Map::is_sandbox_order((int) $r['order_id'])))) $r = null; // Demo/Vorschau
         if (!$r) return [self::del('invoices', $site, $id)];
         $ops = [['upsert', 'invoices', [self::invoice_row($site, $r)]]];
         $c = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_invoice_counters WHERE issuer_key = %s AND series = %s AND year = %d",
@@ -405,6 +415,7 @@ class TIX_Mirror_Extra {
         $prev = $wpdb->suppress_errors(true);
         $r = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_audit_log WHERE id = %d", $id), ARRAY_A);
         $wpdb->suppress_errors($prev);
+        if ($r && preg_match('/:(\d+)$/', (string) $r['scope'], $sm) && TIX_Mirror_Map::is_sandbox_org((int) $sm[1])) $r = null; // Demo/Vorschau
         if (!$r) return [self::del('audit_log', $site, $id)];
         $summary = json_decode((string) $r['summary'], true);
         // Freitext (z. B. Grund einer Gutschrift) vorsichtshalber wie Fehlertexte behandeln

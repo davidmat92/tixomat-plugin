@@ -117,6 +117,8 @@ class TIX_Mirror_Reconcile {
         $wp = self::wp_fingerprints($table, $after, self::CHUNK);
         $done = count($wp) < self::CHUNK;
         $last = $wp ? max(array_keys($wp)) : $after;
+        // Demo/Vorschau (Sandbox) erst NACH der Paketgrenze herausnehmen: gilt dann im Spiegel als „zu viel“ und wird gelöscht
+        $wp = self::without_sandbox($table, $wp);
         $to = $done ? PHP_INT_MAX : $last;
         $res = TIX_Mirror_Client::rpc('mirror_fingerprints', ['p_site' => TIX_Mirror::site(), 'p_table' => $table, 'p_from' => $after, 'p_to' => $to]);
         if (!$res['ok']) return new WP_Error('rpc', $res['error']);
@@ -168,6 +170,70 @@ class TIX_Mirror_Reconcile {
             'differences' => $diff,
             'report'      => $report,
         ]]);
+    }
+
+    // ═══════════════ Sandbox (Live-Demo) ═══════════════
+
+    private static $any_sandbox = null;
+
+    /** Gibt es auf dieser Seite überhaupt Sandbox-Veranstalter? (sonst kein Mehraufwand) */
+    public static function any_sandbox() {
+        if (self::$any_sandbox === null) {
+            global $wpdb;
+            self::$any_sandbox = false;
+            foreach ((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft'") as $oid) {
+                if (TIX_Mirror_Map::is_sandbox_org((int) $oid)) { self::$any_sandbox = true; break; }
+            }
+        }
+        return self::$any_sandbox;
+    }
+
+    public static function sandbox_reset() { self::$any_sandbox = null; }
+
+    /** Prüfsummen ohne Datensätze von Sandbox-Veranstaltern (Demo Club, Vorschauen). */
+    public static function without_sandbox($table, array $wp) {
+        if (!$wp || !self::any_sandbox()) return $wp;
+        global $wpdb;
+        $ids = array_map('intval', array_keys($wp));
+        $in = implode(',', $ids);
+        $drop = [];
+        $prev = $wpdb->suppress_errors(true);
+        switch ($table) {
+            case 'events':     foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event($id)) $drop[] = $id; break;
+            case 'tickets':    foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event((int) get_post_meta($id, '_tix_ticket_event_id', true))) $drop[] = $id; break;
+            case 'organizers': foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_org($id)) $drop[] = $id; break;
+            case 'orders':
+                foreach ((array) $wpdb->get_results("SELECT DISTINCT order_id, event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id IN ($in)", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_event((int) $r['event_id'])) $drop[] = (int) $r['order_id'];
+                }
+                break;
+            case 'wallets':
+            case 'settlements':
+            case 'settlement_items':
+            case 'invoices':
+                $t = ['wallets' => 'tix_wallets', 'settlements' => 'tix_settlements', 'settlement_items' => 'tix_settlement_items', 'invoices' => 'tix_invoices'][$table];
+                foreach ((array) $wpdb->get_results("SELECT id, organizer_id FROM {$wpdb->prefix}{$t} WHERE id IN ($in)", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_org((int) $r['organizer_id'])) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'wallet_transactions':
+                foreach ((array) $wpdb->get_results("SELECT x.id, w.organizer_id AS wo FROM {$wpdb->prefix}tix_wallet_tx x LEFT JOIN {$wpdb->prefix}tix_wallets w ON w.id = x.wallet_id WHERE x.id IN ($in)", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_org((int) $r['wo'])) $drop[] = (int) $r['id'];
+                }
+                // ab Wallet-DB 3 trägt die Buchung selbst den Veranstalter (Plattform-Cashless)
+                foreach ((array) $wpdb->get_results("SELECT id, organizer_id FROM {$wpdb->prefix}tix_wallet_tx WHERE id IN ($in) AND organizer_id <> 0", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_org((int) $r['organizer_id'])) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'audit_log':
+                foreach ((array) $wpdb->get_results("SELECT id, scope FROM {$wpdb->prefix}tix_audit_log WHERE id IN ($in)", ARRAY_A) as $r) {
+                    if (preg_match('/:(\d+)$/', (string) $r['scope'], $m) && TIX_Mirror_Map::is_sandbox_org((int) $m[1])) $drop[] = (int) $r['id'];
+                }
+                break;
+        }
+        $wpdb->suppress_errors($prev);
+        foreach ($drop as $id) unset($wp[$id]);
+        return $wp;
     }
 
     // ═══════════════ Prüfsummen auf WordPress-Seite ═══════════════

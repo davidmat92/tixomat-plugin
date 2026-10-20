@@ -213,9 +213,10 @@ t_eq('angehalten', 'paused', $paused['state']);
 TIX_Mirror_Backfill::resume();
 for ($i = 0; $i < 30 && (TIX_Mirror_Backfill::get()['state'] !== 'done' || TIX_Mirror::pending_count() > 0); $i++) m_run();
 t_eq('Erstbefüllung fertig', 'done', TIX_Mirror_Backfill::get()['state']);
-$wp_events  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'event' AND post_status <> 'auto-draft'");
-$wp_tickets = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status <> 'auto-draft'");
-$wp_orders  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders");
+// Sandbox (Demo Club/Vorschau, Live-Demo) wird nie gespiegelt → nicht mitzählen
+$wp_events  = count(array_filter(array_map('intval', $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'event' AND post_status <> 'auto-draft'")), function ($e) { return !TIX_Mirror_Map::is_sandbox_event($e); }));
+$wp_tickets = count(array_filter(array_map('intval', $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_ticket' AND post_status <> 'auto-draft'")), function ($t) { return !TIX_Mirror_Map::is_sandbox_event((int) get_post_meta($t, '_tix_ticket_event_id', true)); }));
+$wp_orders  = count(array_filter(array_map('intval', $wpdb->get_col("SELECT id FROM {$wpdb->prefix}tix_orders")), function ($o) { return !TIX_Mirror_Map::is_sandbox_order($o); }));
 $wp_users   = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->users}");
 t_eq('Events vollständig', $wp_events, count(m_rows('events', ['select' => 'id'])));
 t_eq('Tickets vollständig', $wp_tickets, count(m_rows('tickets', ['select' => 'id'])));
