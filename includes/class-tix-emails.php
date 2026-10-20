@@ -860,6 +860,8 @@ class TIX_Emails {
 
         // Admin notification (new_order) — kann per Flag unterdrückt werden
         $skip_admin = get_transient('_tix_skip_admin_email_' . $order_id);
+        // Demo Club / Vorschau (1.38.508): nie „Neue Bestellung“ an das Team
+        if (!$skip_admin && class_exists('TIX_Sales') && TIX_Sales::is_sandbox_order($order_id)) $skip_admin = 1;
         if ($skip_admin) {
             delete_transient('_tix_skip_admin_email_' . $order_id);
         } else {

@@ -404,6 +404,8 @@ class TIX_Settlement {
                     ['key' => '_tix_syndicated', 'value' => '1', 'compare' => '!='],
                 ],
                 ['key' => '_tix_date_start', 'value' => $since ? wp_date('Y-m-d', $since_ts - 60 * DAY_IN_SECONDS) : '1970-01-01', 'compare' => '>='],
+                // Demo Club / Vorschau nie abrechnen (1.38.508)
+                class_exists('TIX_Sales') && TIX_Sales::event_clause() ? TIX_Sales::event_clause() : ['key' => '_tix_organizer_id', 'compare' => 'EXISTS'],
             ],
         ]);
         $due = [];
@@ -468,7 +470,7 @@ class TIX_Settlement {
         ]);
         foreach ($events as $eid) {
             $oid = intval(get_post_meta($eid, '_tix_organizer_id', true));
-            if (!$oid) continue;
+            if (!$oid || (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid))) continue;
             foreach (self::event_orders($eid, true) as $row) {
                 $line = self::order_line($row, $eid);
                 self::insert_item(['settlement_id' => 0, 'organizer_id' => $oid, 'event_id' => $eid, 'order_id' => intval($row->id),
@@ -499,6 +501,7 @@ class TIX_Settlement {
 
     public static function insert_item(array $d) {
         global $wpdb;
+        if (class_exists('TIX_Sales') && TIX_Sales::sandbox(intval($d['organizer_id'] ?? 0))) return 0; // nie für Demo/Vorschau (1.38.508)
         $row = array_merge([
             'settlement_id' => 0, 'organizer_id' => 0, 'event_id' => 0, 'order_id' => 0, 'type' => 'order',
             'gross' => 0, 'refund' => 0, 'platform_fee' => 0, 'gateway_fee' => 0, 'gateway_fee_source' => '',
@@ -562,6 +565,7 @@ class TIX_Settlement {
         $event_id = intval($event_id);
         $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
         if (!$oid || get_post_meta($event_id, '_tix_syndicated', true) === '1') return 0;
+        if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return 0; // Demo/Vorschau: keine Abrechnung, keine EVR-Nummer (1.38.508)
         if (!$force && get_post_meta($event_id, '_tix_settled_at', true)) return 0;
         $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE event_id = %d AND type = 'event' AND status <> 'void'", $event_id));
         if ($existing) { update_post_meta($event_id, '_tix_settled_at', time()); return 0; }
@@ -593,6 +597,7 @@ class TIX_Settlement {
     /** Saldo-Abrechnung ohne Event (offene Korrekturen/Nachverkäufe). */
     public static function create_balance($organizer_id) {
         $oid = intval($organizer_id);
+        if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return 0; // 1.38.508
         if (abs(self::open_total($oid)) < 0.01) return 0;
         $sid = self::insert_settlement([
             'type' => 'balance', 'organizer_id' => $oid, 'event_title' => 'Saldo-Abrechnung',
@@ -610,7 +615,7 @@ class TIX_Settlement {
         $event_id = intval($event_id);
         $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
         $pct = $percent !== null ? floatval($percent) : floatval(get_post_meta($oid, self::META_ADVANCE, true));
-        if (!$oid || $pct <= 0) return new WP_Error('tix_no_advance', 'Für diesen Veranstalter ist kein Abschlag freigeschaltet.');
+        if (!$oid || $pct <= 0 || (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid))) return new WP_Error('tix_no_advance', 'Für diesen Veranstalter ist kein Abschlag freigeschaltet.');
         $final = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE event_id = %d AND type = 'event' AND status <> 'void'", $event_id));
         if ($final) return new WP_Error('tix_settled', 'Für dieses Event gibt es schon die Abrechnung.');
         $net = 0.0;

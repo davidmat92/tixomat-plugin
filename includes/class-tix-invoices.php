@@ -594,6 +594,8 @@ class TIX_Invoices {
         if (!$o || !in_array($o->status, ['completed', 'processing'], true)) return $out;
         // Abendkasse (pos_cash/pos_card): Kassenbeleg/TSE kommt in Phase 5 – Rechnungen nur mit Schalter tix_invoice_pos
         if (strpos((string) $o->payment_method, 'pos_') === 0 && get_option('tix_invoice_pos', '0') !== '1') return $out;
+        // Demo Club / Vorschau: nie Rechnungen, kein Nummernkreis (1.38.508)
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_order($order_id)) return $out;
         if (!self::lock($order_id)) return $out;
         try {
             $have = [];

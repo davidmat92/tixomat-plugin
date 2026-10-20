@@ -147,6 +147,8 @@ class TIX_App_Scope {
             'logo'    => $logo,
             // Freigabe-Status + fehlende Pflichtangaben (TIX_Org_Approval)
             'approval' => class_exists('TIX_Org_Approval') ? TIX_Org_Approval::payload($p->ID, $uid) : null,
+            // Demo Club (Vertrieb, 1.38.508)
+            'demo'    => class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer($p->ID),
         ];
     }
 
@@ -286,6 +288,7 @@ class TIX_App_Scope {
         $modules = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::modules($oid) : [];
         $p = get_post($oid);
         return [
+            'demo'        => class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer($oid), // 1.38.508
             'ok'          => true,
             'id'          => intval($oid),
             'name'        => html_entity_decode((string) $p->post_title, ENT_QUOTES, 'UTF-8'),

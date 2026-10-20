@@ -57,6 +57,7 @@ class TIX_Meta_Catalog {
             'meta_query'     => [
                 'relation' => 'AND',
                 ['key' => '_tix_tickets_enabled', 'value' => '1'],
+                class_exists('TIX_Sales') && TIX_Sales::event_clause() ? TIX_Sales::event_clause() : ['key' => '_tix_tickets_enabled', 'compare' => 'EXISTS'], // Demo/Vorschau nie (1.38.508)
                 [
                     'relation' => 'OR',
                     ['key' => '_tix_is_past', 'compare' => 'NOT EXISTS'],

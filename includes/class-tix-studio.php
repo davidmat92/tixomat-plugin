@@ -442,6 +442,8 @@ class TIX_Studio {
             // App-Funktionen an/aus (1.38.498): {scope, organizer_id, features {<key>: {key, label, enabled, status, can_edit, scope, available, hint}}, order[]} (awareness zusätzlich report/alarm)
             'app_features' => class_exists('TIX_Features') ? TIX_Features::payload() : null,
             'profile'    => $multi ? 'platform' : 'single',
+            // Demo Club (Vertrieb, 1.38.508): Studio des Aufrufers gehört zum Demo-Veranstalter
+            'demo'       => $multi && class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(TIX_App_Scope::organizer_id_for_user())),
             'features'   => [
                 'register'  => $multi && class_exists('TIX_Register_API'),
                 'money'     => $multi && class_exists('TIX_Payout_Details'),

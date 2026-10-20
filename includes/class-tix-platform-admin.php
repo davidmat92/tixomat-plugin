@@ -249,6 +249,9 @@ class TIX_Platform_Admin {
         $in = array_flip(self::ST_OUT);
         $where = "status <> 'void'";
         if ($status !== 'all' && isset($in[$status])) $where = $wpdb->prepare('status = %s', $in[$status]);
+        // Demo Club / Vorschau nie in Plattform-Abrechnungen (1.38.508)
+        $sbx = class_exists('TIX_Sales') ? TIX_Sales::sql_ids() : '0';
+        $where .= " AND organizer_id NOT IN ($sbx)";
         $rows = (array) $wpdb->get_results("SELECT * FROM $t WHERE $where ORDER BY created DESC LIMIT 500");
         $q = mb_strtolower(trim((string) $req->get_param('q')));
         $out = [];
@@ -257,7 +260,7 @@ class TIX_Platform_Admin {
             if ($q !== '' && mb_strpos(mb_strtolower($row['organizer']['name'] . ' ' . $row['event']['title'] . ' ' . $row['number']), $q) === false) continue;
             $out[] = $row;
         }
-        $sum = function ($st) use ($wpdb, $t) { return round(floatval($wpdb->get_var("SELECT SUM(payout_amount) FROM $t WHERE status IN ('" . implode("','", array_map('esc_sql', (array) $st)) . "')")), 2); };
+        $sum = function ($st) use ($wpdb, $t, $sbx) { return round(floatval($wpdb->get_var("SELECT SUM(payout_amount) FROM $t WHERE organizer_id NOT IN ($sbx) AND status IN ('" . implode("','", array_map('esc_sql', (array) $st)) . "')")), 2); };
         return rest_ensure_response(['ok' => true, 'settlements' => $out, 'totals' => ['open' => $sum(['draft', 'ready', 'held']), 'released' => $sum('approved'), 'paid' => $sum('paid')]]);
     }
 

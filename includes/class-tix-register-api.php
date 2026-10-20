@@ -338,6 +338,7 @@ class TIX_Register_API {
 
     /** POST /register/organizer */
     public static function rest_organizer(WP_REST_Request $req) {
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()) return self::error('rest_forbidden', 'Mit einem Vertriebs-Zugang kann kein eigener Veranstalter angelegt werden.', 403);
         if (self::limited('organizer', 3, HOUR_IN_SECONDS) || self::limited('organizer_day', 10, DAY_IN_SECONDS)) {
             return self::error('tix_rate_limit', 'Zu viele Registrierungen von diesem Anschluss. Bitte versuche es später noch einmal.', 429);
         }

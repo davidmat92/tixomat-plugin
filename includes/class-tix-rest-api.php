@@ -805,6 +805,7 @@ class TIX_REST_API {
             $out['multi_organizer'] = true;
             $out['organizer']       = TIX_App_Scope::me_payload($user->ID);
             $out['is_admin']        = $user->has_cap('manage_options');
+            $out['sales']           = class_exists('TIX_Sales') && TIX_Sales::is_sales_user($user); // Vertrieb (1.38.508)
         }
         return rest_ensure_response($out);
     }
@@ -2713,6 +2714,8 @@ class TIX_REST_API {
             $event['evendis_url'] = get_post_meta($id, '_tix_syndicate', true) === '1' && get_post_meta($id, '_tix_syndicate_status', true) === 'synced'
                 && get_post_meta($id, '_tix_syndicate_remote_id', true) && $syn_url !== '' ? $syn_url : null;
         }
+        // Demo Club (1.38.508)
+        $event['demo'] = class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true)));
         // KI-Schutz (1.38.505): {flagged, reason, checked_at, approved}
         $event['guard'] = class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info') ? TIX_Content_Guard::guard_info($id) : null;
 

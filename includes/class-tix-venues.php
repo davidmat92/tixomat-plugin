@@ -157,6 +157,7 @@ class TIX_Venues {
             $tagline = trim((string) get_post_meta($lid, '_tix_loc_tagline', true));
             if ($tagline === '') $tagline = trim((string) get_post_meta($lid, '_tix_loc_short_desc', true));
             $oid = intval(get_post_meta($lid, '_tix_loc_organizer_id', true));
+            if ($oid && class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) continue; // 1.38.508
             $seen[$cid] = true;
             $v = [
                 'id'             => $cid,

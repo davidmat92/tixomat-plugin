@@ -146,6 +146,7 @@ class TIX_Mail_Follow {
 
     private static function organizer_ok($oid) {
         if (get_post_type($oid) !== 'tix_organizer' || get_post_status($oid) !== 'publish') return false;
+        if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return false; // 1.38.508
         return !class_exists('TIX_Org_Approval') || TIX_Org_Approval::is_public($oid);
     }
 
@@ -357,7 +358,7 @@ class TIX_Mail_Follow {
             $eid = intval($eid);
             if (get_post_status($eid) !== 'publish' || get_post_meta($eid, '_tix_system_giftcard_event', true) || get_post_meta($eid, '_tix_system_wallet_event', true)) continue;
             $oid = intval(get_post_meta($eid, '_tix_organizer_id', true));
-            if (!$oid) continue;
+            if (!$oid || (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid))) continue;
             $list = get_post_meta($oid, self::META_QUEUE, true);
             $list = is_array($list) ? $list : [];
             if (!in_array($eid, $list, true)) $list[] = $eid;

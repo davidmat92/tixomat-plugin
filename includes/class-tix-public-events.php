@@ -231,6 +231,8 @@ class TIX_Public_Events {
             // Freier Eintritt ohne Tickets (1.38.363): Apps zeigen „Eintritt frei“ statt Preis/Kasse
             'free_entry'      => $free !== null,
             'free_entry_note' => (string) ($free['note'] ?? ''),
+            // Demo Club (1.38.508): nur im Detail sichtbar, mit Kennzeichen
+            'demo'            => class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true))),
         ];
         // Suchmaschinen/Vorschau (Website): Titel, Kurzbeschreibung ≤ 160 Zeichen, großes Bild
         $out['seo'] = self::seo($post, $out['image']);
@@ -497,6 +499,8 @@ class TIX_Public_Events {
                 $dist = self::distance_km($geo['near'][0], $geo['near'][1], $v['lat'], $v['lng']);
                 if ($dist > $geo['radius']) continue;
             }
+            // Demo Club / Vorschau nie in Listen (1.38.508), nur im Detail
+            if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($id)) continue;
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
@@ -569,6 +573,7 @@ class TIX_Public_Events {
             if ($end && $end < $now) continue;
             $span = self::day_span($id);
             if (!$span || $span[0] > $to || $span[1] < $lo) continue;
+            if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($id)) continue;
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;

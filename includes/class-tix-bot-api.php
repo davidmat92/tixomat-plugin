@@ -87,6 +87,7 @@ class TIX_Bot_API {
             'orderby'        => 'meta_value',
             'order'          => 'ASC',
             'meta_query'     => [
+                class_exists('TIX_Sales') && TIX_Sales::event_clause() ? TIX_Sales::event_clause() : ['key' => '_tix_date_start', 'compare' => 'EXISTS'], // Demo/Vorschau nie (1.38.508)
                 [
                     'key'     => '_tix_date_start',
                     'value'   => $today,

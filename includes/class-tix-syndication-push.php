@@ -59,7 +59,8 @@ class TIX_Syndication_Push {
     /** Gutschein-, Guthaben- und Test-Events werden nie verteilt. */
     public static function is_system_event($post_id) {
         return get_post_meta($post_id, '_tix_system_giftcard_event', true) === '1' || get_post_meta($post_id, '_tix_system_wallet_event', true) === '1'
-            || get_post_meta($post_id, '_tix_awareness_test', true) !== '' || (string) get_post_meta($post_id, '_tix_giftcard_organizer', true) !== '';
+            || get_post_meta($post_id, '_tix_awareness_test', true) !== '' || (string) get_post_meta($post_id, '_tix_giftcard_organizer', true) !== ''
+            || (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($post_id)); // Demo/Vorschau (1.38.508)
     }
 
     /** save_post_event (Prio 1): neues Event ohne Entscheidung → „auf evendis teilen“ vorbelegen (je Event abwählbar). */

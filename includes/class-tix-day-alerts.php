@@ -155,6 +155,7 @@ class TIX_Day_Alerts {
         if (!$users) return 0;
         $p = TIX_Public_Events::payload($event_id, false);
         if (!$p || !empty($p['is_past'])) return 0;
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($event_id)) return 0; // 1.38.508
         $today = current_time('Y-m-d');
         $days = TIX_Public_Events::days_in_range(TIX_Public_Events::day_span($event_id), $today, '9999-12-31');
         if (!$days) return 0;

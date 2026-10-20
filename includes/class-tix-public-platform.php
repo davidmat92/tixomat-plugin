@@ -278,6 +278,7 @@ class TIX_Public_Platform {
             // Veranstalter-Seite (evendis): Steckbrief, FAQ, Vertrauen, Galerie, Anfahrt, schema_type
             if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) $out += TIX_Organizer_Page::public_extra($oid);
         }
+        if (class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer($oid)) $out['demo'] = true; // 1.38.508
         return $out;
     }
 
@@ -305,6 +306,7 @@ class TIX_Public_Platform {
         $events = self::upcoming_payloads();
         $list = [];
         foreach (self::organizer_ids() as $oid) {
+            if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) continue; // Demo Club / Vorschau nie in Listen (1.38.508)
             $o = self::organizer_payload($oid, false, $events);
             if (!$o) continue;
             if ($q !== '' && strpos(strtolower($o['name'] . ' ' . $o['city'] . ' ' . $o['short_desc']), $q) === false) continue;

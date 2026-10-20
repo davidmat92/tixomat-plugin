@@ -134,7 +134,10 @@ class TIX_Export {
     public static function accessible_event_ids() {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::scoped()) return TIX_App_Scope::own_event_ids();
         $all = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids']);
-        return array_values(array_filter(array_map('intval', $all), ['TIX_REST_API', 'can_access_event']));
+        $ids = array_values(array_filter(array_map('intval', $all), ['TIX_REST_API', 'can_access_event']));
+        // Plattform-Sicht: Demo Club / Vorschau nicht mitzählen (1.38.508)
+        if (class_exists('TIX_Sales') && TIX_Sales::multi()) $ids = array_values(array_filter($ids, function ($id) { return !TIX_Sales::is_sandbox_event($id); }));
+        return $ids;
     }
 
     private static function team_can($perm) {

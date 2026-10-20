@@ -109,7 +109,8 @@ class TIX_Customers {
             $rows = $wpdb->get_results("SELECT * FROM $o WHERE id IN ($ids) AND status IN ($st) AND billing_email <> '' AND billing_email NOT LIKE '%@removed.invalid' ORDER BY date_created ASC, id ASC");
         } else {
             $items = $wpdb->get_results("SELECT order_id, SUM(total) own_total, SUM(quantity) qty FROM $i GROUP BY order_id", OBJECT_K);
-            $rows = $wpdb->get_results("SELECT * FROM $o WHERE status IN ($st) AND billing_email <> '' AND billing_email NOT LIKE '%@removed.invalid' ORDER BY date_created ASC, id ASC");
+            // Plattform: ohne Demo-Bestellungen (1.38.508)
+            $rows = $wpdb->get_results("SELECT * FROM $o WHERE status IN ($st) AND billing_email <> '' AND billing_email NOT LIKE '%@removed.invalid' AND billing_email NOT LIKE '%@demo.invalid' AND payment_method <> 'demo' ORDER BY date_created ASC, id ASC");
         }
         $out = [];
         foreach ((array) $rows as $r) {

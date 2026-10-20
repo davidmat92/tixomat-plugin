@@ -250,6 +250,7 @@ class TIX_App_Events {
         $guard = ($id && class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info')) ? TIX_Content_Guard::guard_info($id) : null;
         return [
             'guard'              => $guard, // KI-Schutz (1.38.505)
+            'demo'               => $id && class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true))), // 1.38.508
             'id'                 => intval($id),
             'title'              => $post ? (string) $post->post_title : '',
             'excerpt'            => $post ? (string) $post->post_excerpt : '',

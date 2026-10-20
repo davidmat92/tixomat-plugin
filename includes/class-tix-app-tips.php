@@ -610,6 +610,7 @@ class TIX_App_Tips {
 
         $event_id = intval(get_post_meta($id, '_tix_tip_event_id', true));
         $event = ($event_id && class_exists('TIX_Public_Events')) ? TIX_Public_Events::payload($event_id, false) : null;
+        if ($event && class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($event_id)) $event = null; // Demo nie in Tipps (1.38.508)
         if (!$event) $event_id = 0;
 
         $img_id     = intval(get_post_meta($id, '_tix_tip_image', true));

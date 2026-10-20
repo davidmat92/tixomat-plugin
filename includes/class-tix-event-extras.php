@@ -312,6 +312,7 @@ class TIX_Event_Extras {
         foreach (array_slice(array_map('intval', $ids), 0, 6) as $eid) {
             if ($eid === intval($id) || get_post_status($eid) !== 'publish' || get_post_type($eid) !== 'event') continue;
             if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($eid)) continue;
+            if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($eid) && !TIX_Sales::is_sandbox_event($id)) continue; // 1.38.508
             $date = (string) get_post_meta($eid, '_tix_date_start', true);
             if ($date !== '' && $date < $today) continue;
             $out[] = [

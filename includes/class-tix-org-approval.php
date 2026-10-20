@@ -81,13 +81,22 @@ class TIX_Org_Approval {
 
     /** Nicht freigegebene Veranstalter nicht in die WordPress-Sitemap. */
     public static function filter_sitemap($args, $post_type) {
-        if ($post_type !== 'tix_organizer' || !self::multi()) return $args;
+        if (!self::multi()) return $args;
         $mq = isset($args['meta_query']) && is_array($args['meta_query']) ? $args['meta_query'] : [];
+        // Demo Club und Vorschauen nie in der Sitemap (1.38.508)
+        if ($post_type === 'event') {
+            $c = class_exists('TIX_Sales') ? TIX_Sales::event_clause() : null;
+            if ($c) { $mq[] = $c; $args['meta_query'] = $mq; }
+            return $args;
+        }
+        if ($post_type !== 'tix_organizer') return $args;
         $mq[] = [
             'relation' => 'OR',
             ['key' => self::META_STATUS, 'compare' => 'NOT EXISTS'],
             ['key' => self::META_STATUS, 'value' => 'approved'],
         ];
+        $mq[] = ['key' => '_tix_org_demo', 'compare' => 'NOT EXISTS'];
+        $mq[] = ['key' => '_tix_org_preview', 'compare' => 'NOT EXISTS'];
         $args['meta_query'] = $mq;
         return $args;
     }
@@ -277,6 +286,9 @@ class TIX_Org_Approval {
                         'done' => self::terms_accepted($oid),
                         'hint' => 'Zustimmung zur aktuellen Version (' . $t['version'] . ')'];
         }
+        // Demo Club (1.38.508): nichts offen – keine echten Auszahlungs- oder Vertragsdaten
+        if (class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer($oid)) foreach ($items as &$it) $it['done'] = true;
+        unset($it);
         return $items;
     }
 
