@@ -344,7 +344,7 @@ class TIX_Register_API {
         }
         $p = $req->get_json_params();
         $p = is_array($p) ? $p : $req->get_params();
-        // Vorschau des Vertriebs übernehmen (1.38.510): claim_token → vorhandener Vorschau-Veranstalter, Events bleiben Entwürfe
+        // Vorschau des Vertriebs übernehmen (1.38.510; seit 1.38.514 Paket → neuer Veranstalter + Event-Entwürfe aus dem Paket)
         $claim_oid = 0;
         $claim = is_scalar($p['claim_token'] ?? null) ? trim((string) $p['claim_token']) : '';
         if ($claim !== '') {
@@ -365,10 +365,7 @@ class TIX_Register_API {
         }
         // Studio fragt das Passwort nur einmal ab (Wiederholung optional)
         $in['password_confirm'] = isset($p['password_confirm']) ? (string) $p['password_confirm'] : $in['password'];
-        if ($claim_oid) {
-            $in['claim_org_id'] = $claim_oid;
-            if (trim($in['organizer_name']) === '') $in['organizer_name'] = (string) get_the_title($claim_oid);
-        }
+        if ($claim_oid && trim($in['organizer_name']) === '') $in['organizer_name'] = TIX_Sales_Previews::claim_name($claim_oid);
         $master = self::check_master($p);
         if (is_wp_error($master)) return $master;
         // Telefon für Rückfragen bei der Prüfung (privat, nicht im Profil; 1.38.457)
@@ -382,15 +379,10 @@ class TIX_Register_API {
             $again = TIX_Sales_Previews::claim_target($claim);
             if (is_wp_error($again)) return $again;
         }
-        // Nur hier wird die Sperre der Vorschau aufgehoben (1.38.513)
-        if ($claim_oid) TIX_Sales_Previews::begin_claim($claim_oid);
-        try {
-            $r = TIX_Register_Event::register($in);
-            $claimed_events = (!is_wp_error($r) && $claim_oid && intval($r['org_id']) === $claim_oid) ? TIX_Sales_Previews::complete_claim($claim_oid, $r['user_id']) : null;
-        } finally {
-            if ($claim_oid) TIX_Sales_Previews::end_claim();
-        }
+        $r = TIX_Register_Event::register($in);
         if (is_wp_error($r)) return $r;
+        // Paket → echte Event-Entwürfe am neuen Veranstalter (1.38.514)
+        $claimed_events = ($claim_oid && $r['org_id']) ? TIX_Sales_Previews::complete_claim($claim_oid, $r['user_id'], $r['org_id']) : null;
 
         // Bild aus der Analyse (vorläufiger Anhang) wird Event-Bild
         $img = intval($p['image_id'] ?? 0);

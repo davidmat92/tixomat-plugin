@@ -2,29 +2,37 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Sales_Previews – Vorschauen für den Vertrieb (Live-Demo Paket 2, 1.38.510, Vertrag uebergaben/vertrag-live-demo.md D–H,
- * nur Mehr-Veranstalter-Modus, sonst 404).
+ * TIX_Sales_Previews – Vorschauen für den Vertrieb (Live-Demo, Verträge uebergaben/vertrag-live-demo.md D–H und
+ * uebergaben/vertrag-vorschau-pakete.md; nur Mehr-Veranstalter-Modus, sonst 404).
  *
- *  - Ein Vertriebler (Rolle tix_sales) oder Admin legt aus Link, Text oder Flyer eine Vorschau an: Veranstalter als Entwurf
- *    (Meta _tix_org_preview = Sandbox, _tix_preview_data = Datensatz) mit bis zu 12 Event-Entwürfen (Meta _tix_preview).
- *    Logo und Akzentfarbe kommen von der Quellseite, sonst gilt die evendis-Vorgabe.
- *  - Der Kunde sieht sie ohne Login unter /public/previews/{token} (noindex, no-store) und übernimmt sie mit
- *    POST /register/organizer + claim_token: neuer Inhaber, Freigabe „pending“, Events bleiben Entwürfe, keine Sandbox mehr.
- *  - Erstes Öffnen und Übernehmen melden sich beim Vertriebler (Glocke Typ sales + Mail).
- *  - Stündlich werden abgelaufene, nicht übernommene Vorschauen samt Bildern gelöscht; der Link antwortet danach noch
- *    30 Tage mit 410 (Token-Hash in tix_preview_gone), dann 404.
+ *  - Seit 1.38.514 ist eine Vorschau ein Paket in der Tabelle {prefix}tix_previews (kein Veranstalter-, kein Event-Post):
+ *    data.organizer {name, logo_id, accent, …}, data.events [{key, vid, title, excerpt, slug, image_id, term_id, meta}],
+ *    data.template. Bilder sind Anhänge mit Meta _tix_preview = Paket-ID.
+ *  - Editor-Felder generisch: Anlegen und PATCH laufen über die echte Editor-Funktion (TIX_App_Events::apply_body) auf
+ *    einem kurzlebigen, gesperrten Arbeits-Entwurf; dessen _tix_*-Meta wird ins Paket übernommen. GET …/edit und die
+ *    öffentlichen Antworten entstehen aus „virtuellen“ Posts nur im Objekt-Cache (IDs ab 900000000) mit denselben
+ *    Payload-Funktionen wie echte Events. Neue Editor-Felder ziehen so automatisch mit (Laden, Speichern, Übernahme).
+ *  - Test-Tickets hängen an technischen Entwurf-Events unter dem unsichtbaren Sandbox-Veranstalter „Vorschau (technisch)“.
+ *  - Übernahme (POST /register/organizer + claim_token): neuer Veranstalter (pending) + echte Event-Entwürfe aus dem Paket.
+ *  - Harte Sperre (1.38.513) bleibt: technische Posts und Altbestand kommen nie in einen öffentlichen Status.
  */
 class TIX_Sales_Previews {
 
     const NS = 'tixomat/v1';
-    const META = '_tix_preview_data';      // Datensatz am Veranstalter
-    const META_TOKEN = '_tix_preview_token';
-    const META_CLAIM = '_tix_preview_claim';
-    const META_OWNER = '_tix_preview_owner';
-    const META_ITEM = '_tix_preview';       // Events und Bilder der Vorschau
-    const META_ACCENT = '_tix_org_accent';
+    const TABLE = 'tix_previews';
+    const DB_VERSION = '1';
+    const OPT_DB = 'tix_previews_db';
+    const OPT_MIG = 'tix_preview_pkg_migrated';
+    const OPT_MIG_REPORT = 'tix_preview_pkg_migration';
+    const OPT_TECH = 'tix_preview_tech_org';
+    const META_ITEM = '_tix_preview';            // technische Posts, Arbeits-Entwürfe; Bilder: = Paket-ID
+    const META_PKG = '_tix_preview_pkg';         // technischer Event: Paket-ID
+    const META_KEY = '_tix_preview_key';         // technischer Event: Event-Schlüssel im Paket
+    const META_SCRATCH = '_tix_preview_scratch'; // Arbeits-Entwurf (wird sofort wieder gelöscht)
     const META_LOGO = '_tix_org_landing_logo_id';
-    const META_ARCHIVE = '_tix_preview_archive'; // Nutzer: gelöschte Vorschauen (für die Auswertung)
+    const META_ACCENT = '_tix_org_accent';
+    const META_TEMPLATE = '_tix_org_site_template';
+    const META_ARCHIVE = '_tix_preview_archive'; // Nutzer: gelöschte Vorschauen (Auswertung)
     const OPT_GONE = 'tix_preview_gone';
     const CRON = 'tix_preview_expire';
     const DAYS = 14;
@@ -32,33 +40,77 @@ class TIX_Sales_Previews {
     const PER_PAGE = 20;
     const GONE_DAYS = 30;
     const DEFAULT_ACCENT = '#FC2F55';
-
-    /** Veranstalter, dessen Vorschau gerade öffentlich ausgeliefert wird (Entwürfe nur dann in den Payloads). */
-    private static $render = 0;
-    /** Vorschau, die gerade übernommen wird (einziger Weg, der die Sperre aufhebt). */
-    private static $claiming = 0;
-
+    const VID_BASE = 900000000;
+    const TEMPLATES = ['club', 'festival', 'klar'];
     const PUBLIC_STATI = ['publish', 'future', 'pending', 'private'];
+    /** Editor-Felder, die eine Vorschau nicht kennt (Rest geht 1:1 an den Event-Editor). */
+    const NOT_IN_PREVIEW = ['published', 'post_status', 'organizer_id', 'id'];
+
+    /** virtueller Veranstalter, dessen Vorschau gerade ausgeliefert wird */
+    private static $render = 0;
+    /** eingehängte virtuelle Post-IDs */
+    private static $mounted = [];
+    /** Altbestand (vor 1.38.514): Vorschau-Veranstalter, der gerade übernommen wird */
+    private static $claiming = 0;
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
-        // Harte Sperre (1.38.513): Vorschau-Veranstalter und ihre Events kommen auf keinem Weg in einen öffentlichen Status
+        add_action(self::CRON, [__CLASS__, 'expire']);
+        add_action('init', [__CLASS__, 'boot'], 40);
+        // Harte Sperre (1.38.513): Vorschau-Posts kommen auf keinem Weg in einen öffentlichen Status
         add_filter('wp_insert_post_data', [__CLASS__, 'guard_insert'], 999, 2);
         add_action('transition_post_status', [__CLASS__, 'guard_transition'], 1, 3);
         add_action('added_post_meta', [__CLASS__, 'guard_meta'], 999, 4);
         add_action('updated_post_meta', [__CLASS__, 'guard_meta'], 999, 4);
-        // Studio-Event-Routen (/events/{id}…) auch für Admins gesperrt (1.38.513)
         add_filter('rest_pre_dispatch', [__CLASS__, 'guard_rest'], 5, 3);
-        add_action(self::CRON, [__CLASS__, 'expire']);
-        add_action('init', [__CLASS__, 'schedule'], 30);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat previews', [__CLASS__, 'cli']);
     }
 
-    public static function schedule() {
+    /** Tabelle anlegen, Cron, einmalige Migration der Vorschau-Posts (1.38.514). */
+    public static function boot() {
         if (!class_exists('TIX_Sales') || !TIX_Sales::multi()) {
             if (wp_next_scheduled(self::CRON)) wp_clear_scheduled_hook(self::CRON);
             return;
         }
+        if (get_option(self::OPT_DB) !== self::DB_VERSION) self::install();
         if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 600, 'hourly', self::CRON);
+        // automatisch beim ersten Web-/Cron-Aufruf nach dem Update; per WP-CLI erst mit `wp tixomat previews migrate` (Probelauf möglich)
+        if (!(defined('WP_CLI') && WP_CLI) && !get_option(self::OPT_MIG) && !get_transient('tix_preview_mig_lock')) {
+            set_transient('tix_preview_mig_lock', 1, 300);
+            self::migrate();
+            delete_transient('tix_preview_mig_lock');
+        }
+    }
+
+    public static function install() {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $t = self::table();
+        dbDelta("CREATE TABLE $t (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  token varchar(40) NOT NULL,
+  claim varchar(40) NOT NULL,
+  owner bigint(20) unsigned NOT NULL DEFAULT 0,
+  status varchar(10) NOT NULL DEFAULT 'active',
+  name varchar(190) NOT NULL DEFAULT '',
+  created_at int(10) unsigned NOT NULL DEFAULT 0,
+  expires_at int(10) unsigned NOT NULL DEFAULT 0,
+  opened_at int(10) unsigned NOT NULL DEFAULT 0,
+  claimed_at int(10) unsigned NOT NULL DEFAULT 0,
+  claimed_org bigint(20) unsigned NOT NULL DEFAULT 0,
+  data longtext NOT NULL,
+  PRIMARY KEY  (id),
+  UNIQUE KEY token (token),
+  UNIQUE KEY claim (claim),
+  KEY owner (owner),
+  KEY status (status)
+) " . $wpdb->get_charset_collate() . ";");
+        update_option(self::OPT_DB, self::DB_VERSION, false);
+    }
+
+    public static function table() {
+        global $wpdb;
+        return $wpdb->prefix . self::TABLE;
     }
 
     // ═══════════════ Harte Sperre (1.38.513) ═══════════════
@@ -151,7 +203,8 @@ class TIX_Sales_Previews {
         return new WP_Error('tix_preview_locked', 'Das ist eine Vorschau – hier können keine Tickets verkauft werden.', ['status' => 403]);
     }
 
-    // ═══════════════ Vorschau-Modus der öffentlichen Payloads ═══════════════
+
+    // ═══════════════ Virtuelle Posts (öffentliche Antworten, Editor-Format) ═══════════════
 
     public static function rendering_org($oid) {
         return self::$render > 0 && intval($oid) === self::$render;
@@ -162,29 +215,138 @@ class TIX_Sales_Previews {
         return intval(get_post_meta(intval($event_id), '_tix_organizer_id', true)) === self::$render && (bool) get_post_meta(intval($event_id), self::META_ITEM, true);
     }
 
-    // ═══════════════ Datensatz ═══════════════
-
-    private static function data($oid) {
-        $d = get_post_meta(intval($oid), self::META, true);
-        return is_array($d) && !empty($d['token']) ? $d : null;
+    private static function org_vid(array $d) {
+        return self::VID_BASE + intval($d['id']) * 100;
     }
 
-    private static function save($oid, array $d) {
-        update_post_meta(intval($oid), self::META, $d);
+    private static function event_vid(array $d, array $ev) {
+        return self::org_vid($d) + intval($ev['vid']);
+    }
+
+    private static function cache_post($id, array $f) {
+        $now = gmdate('Y-m-d H:i:s', intval($f['modified'] ?? time()));
+        $local = get_date_from_gmt($now);
+        $raw = (object) [
+            'ID' => intval($id), 'post_author' => 0, 'post_date' => $local, 'post_date_gmt' => $now, 'post_content' => (string) ($f['content'] ?? ''),
+            'post_title' => (string) ($f['title'] ?? ''), 'post_excerpt' => (string) ($f['excerpt'] ?? ''), 'post_status' => 'draft', 'comment_status' => 'closed',
+            'ping_status' => 'closed', 'post_password' => '', 'post_name' => (string) ($f['slug'] ?? ''), 'to_ping' => '', 'pinged' => '', 'post_modified' => $local,
+            'post_modified_gmt' => $now, 'post_content_filtered' => '', 'post_parent' => 0, 'guid' => '', 'menu_order' => 0, 'post_type' => (string) $f['type'],
+            'post_mime_type' => '', 'comment_count' => 0, 'filter' => 'raw',
+        ];
+        wp_cache_set(intval($id), $raw, 'posts', 120);
+        $meta = [];
+        foreach ((array) ($f['meta'] ?? []) as $k => $v) $meta[$k] = [maybe_serialize($v)];
+        wp_cache_set(intval($id), $meta, 'post_meta', 120);
+        foreach (get_object_taxonomies((string) $f['type']) as $tax) {
+            wp_cache_set(intval($id), $tax === 'event_category' && !empty($f['term_id']) ? [intval($f['term_id'])] : [], $tax . '_relationships', 120);
+        }
+        self::$mounted[intval($id)] = (string) $f['type'];
+    }
+
+    /** Paket als virtuelle Posts einhängen → [Veranstalter-ID, [key => Event-ID]] */
+    private static function mount(array $d) {
+        $o = (array) ($d['organizer'] ?? []);
+        $ovid = self::org_vid($d);
+        self::cache_post($ovid, ['type' => 'tix_organizer', 'title' => (string) ($o['name'] ?? $d['name']), 'modified' => $d['updated_at'] ?? $d['created_at'],
+            'meta' => array_filter([TIX_Sales::META_PREVIEW => '1', self::META_LOGO => intval($o['logo_id'] ?? 0) ?: null, self::META_ACCENT => self::hex($o['accent'] ?? '') ?: null,
+                '_tix_org_short_desc' => (string) ($o['short_desc'] ?? '') ?: null, '_tix_org_city' => (string) ($o['city'] ?? '') ?: null,
+                '_tix_org_landing_social' => !empty($o['social']) && is_array($o['social']) ? $o['social'] : null], function ($v) { return $v !== null; })]);
+        $ids = [];
+        foreach ((array) ($d['events'] ?? []) as $ev) {
+            $vid = self::event_vid($d, $ev);
+            $meta = (array) ($ev['meta'] ?? []);
+            $meta['_tix_organizer_id'] = $ovid;
+            $meta['_tix_organizer'] = (string) ($o['name'] ?? $d['name']);
+            $meta[self::META_ITEM] = '1';
+            if (!empty($ev['image_id'])) $meta['_thumbnail_id'] = intval($ev['image_id']);
+            self::cache_post($vid, ['type' => 'event', 'title' => $ev['title'], 'excerpt' => $ev['excerpt'] ?? '', 'slug' => $ev['slug'], 'modified' => $ev['updated_at'] ?? null,
+                'term_id' => $ev['term_id'] ?? 0, 'meta' => $meta]);
+            $ids[$ev['key']] = $vid;
+        }
+        self::$render = $ovid;
+        return [$ovid, $ids];
+    }
+
+    private static function unmount() {
+        foreach (self::$mounted as $id => $type) {
+            wp_cache_delete($id, 'posts');
+            wp_cache_delete($id, 'post_meta');
+            foreach (get_object_taxonomies($type) as $tax) wp_cache_delete($id, $tax . '_relationships');
+        }
+        self::$mounted = [];
+        self::$render = 0;
+    }
+
+    /** $fn() mit eingehängtem Paket ausführen (immer wieder aushängen). */
+    private static function with_mounted(array $d, callable $fn) {
+        $m = self::mount($d);
+        try {
+            return $fn($m[0], $m[1]);
+        } finally {
+            self::unmount();
+        }
+    }
+
+    // ═══════════════ Datensatz ═══════════════
+
+    const COLS = ['id', 'token', 'claim', 'owner', 'status', 'name', 'created_at', 'expires_at', 'opened_at', 'claimed_at', 'claimed_org'];
+
+    private static function hydrate($row) {
+        if (!$row) return null;
+        $d = json_decode((string) $row->data, true);
+        $d = is_array($d) ? $d : [];
+        foreach (self::COLS as $c) $d[$c] = in_array($c, ['token', 'claim', 'status', 'name'], true) ? (string) $row->$c : intval($row->$c);
+        $d['events'] = array_values((array) ($d['events'] ?? []));
+        $d['organizer'] = (array) ($d['organizer'] ?? []);
+        return $d;
+    }
+
+    /** Paket per ID → Datensatz | null */
+    private static function get($id) {
+        global $wpdb;
+        if (!self::table_ready()) return null;
+        return self::hydrate($wpdb->get_row($wpdb->prepare('SELECT * FROM ' . self::table() . ' WHERE id = %d', intval($id))));
+    }
+
+    private static function by_token($token, $col) {
+        global $wpdb;
+        $token = (string) $token;
+        if (!preg_match('/^[pc]_[A-Za-z0-9]{32}$/', $token) || !self::table_ready()) return null;
+        return self::hydrate($wpdb->get_row($wpdb->prepare('SELECT * FROM ' . self::table() . " WHERE $col = %s", $token)));
+    }
+
+    private static $ready = null;
+    private static function table_ready() {
+        if (self::$ready === null) self::$ready = get_option(self::OPT_DB) === self::DB_VERSION;
+        return self::$ready;
+    }
+
+    private static function split(array $d) {
+        $cols = [];
+        foreach (self::COLS as $c) if ($c !== 'id' && array_key_exists($c, $d)) $cols[$c] = $d[$c];
+        $data = array_diff_key($d, array_flip(self::COLS));
+        $cols['data'] = wp_json_encode($data);
+        return $cols;
+    }
+
+    private static function save(array &$d) {
+        global $wpdb;
+        $d['updated_at'] = time();
+        $d['status'] = !empty($d['claimed_at']) ? 'claimed' : 'active';
+        $wpdb->update(self::table(), self::split($d), ['id' => intval($d['id'])]);
+    }
+
+    private static function insert(array $d) {
+        global $wpdb;
+        $d['updated_at'] = time();
+        $wpdb->insert(self::table(), self::split($d));
+        return intval($wpdb->insert_id);
     }
 
     /** active | expired | claimed */
     public static function status(array $d) {
         if (!empty($d['claimed_at'])) return 'claimed';
         return intval($d['expires_at'] ?? 0) <= time() ? 'expired' : 'active';
-    }
-
-    private static function by_token($token, $meta) {
-        $token = (string) $token;
-        if (!preg_match('/^[pc]_[A-Za-z0-9]{32}$/', $token)) return 0;
-        $ids = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
-            'suppress_filters' => true, 'meta_key' => $meta, 'meta_value' => $token]);
-        return $ids ? intval($ids[0]) : 0;
     }
 
     private static function new_token($prefix) {
@@ -217,18 +379,23 @@ class TIX_Sales_Previews {
         return $ts > 0 ? wp_date('c', $ts) : null;
     }
 
-    /** Events der Vorschau (bzw. nach der Übernahme des Veranstalters), nach Beginn sortiert. */
-    private static function event_ids($oid, $only_preview = true) {
-        $mq = [['key' => '_tix_organizer_id', 'value' => strval(intval($oid))]];
-        if ($only_preview) $mq[] = ['key' => self::META_ITEM, 'compare' => 'EXISTS'];
-        $ids = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'future', 'private'], 'posts_per_page' => 100,
-            'fields' => 'ids', 'no_found_rows' => true, 'suppress_filters' => true, 'meta_query' => $mq]));
-        usort($ids, function ($a, $b) {
-            $x = (string) get_post_meta($a, '_tix_date_start', true) . ' ' . (string) get_post_meta($a, '_tix_time_start', true);
-            $y = (string) get_post_meta($b, '_tix_date_start', true) . ' ' . (string) get_post_meta($b, '_tix_time_start', true);
-            return strcmp($x, $y) ?: $a - $b;
+    /** Events nach Beginn sortiert */
+    private static function sorted_events(array $d) {
+        $ev = (array) ($d['events'] ?? []);
+        usort($ev, function ($a, $b) {
+            $x = (string) ($a['meta']['_tix_date_start'] ?? '') . ' ' . (string) ($a['meta']['_tix_time_start'] ?? '');
+            $y = (string) ($b['meta']['_tix_date_start'] ?? '') . ' ' . (string) ($b['meta']['_tix_time_start'] ?? '');
+            return strcmp($x, $y) ?: intval($a['vid']) - intval($b['vid']);
         });
-        return $ids;
+        return $ev;
+    }
+
+    private static function find_event(array $d, $key) {
+        $key = (string) $key;
+        foreach ((array) $d['events'] as $i => $ev) {
+            if ($ev['key'] === $key || (ctype_digit($key) && intval($key) === self::event_vid($d, $ev)) || (string) ($ev['slug'] ?? '') === $key) return $i;
+        }
+        return -1;
     }
 
     // ═══════════════ Links, Marke ═══════════════
@@ -269,14 +436,6 @@ class TIX_Sales_Previews {
         return $a !== '' ? $a : self::DEFAULT_ACCENT;
     }
 
-    public static function accent($oid) {
-        return self::hex(get_post_meta(intval($oid), self::META_ACCENT, true)) ?: self::default_accent();
-    }
-
-    private static function logo_url($oid) {
-        $id = intval(get_post_meta(intval($oid), self::META_LOGO, true));
-        return $id ? (string) (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
-    }
 
     /** Farbe brauchbar als Akzent (nicht grau, nicht fast weiß/schwarz)? */
     private static function colorful($hex) {
@@ -466,16 +625,29 @@ class TIX_Sales_Previews {
     }
 
     /** Bild herunterladen (nur JPG/PNG/WebP/GIF, robots.txt beachtet) → Anhang-ID | 0 */
-    private static function sideload($url, $parent = 0) {
+
+    public static function accent_of(array $d) {
+        return self::hex($d['organizer']['accent'] ?? '') ?: self::default_accent();
+    }
+
+    private static function logo_of(array $d) {
+        $id = intval($d['organizer']['logo_id'] ?? 0);
+        return $id && get_post_type($id) === 'attachment' ? (string) (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
+    }
+
+    // ═══════════════ Bilder ═══════════════
+
+    /** Bild herunterladen (nur JPG/PNG/WebP/GIF, robots.txt beachtet) → Anhang-ID des Pakets | 0 */
+    private static function sideload($url, $pkg) {
         $url = esc_url_raw((string) $url, ['http', 'https']);
         if ($url === '' || !TIX_Event_Import::robots_allows($url)) return 0;
         $r = wp_safe_remote_get($url, ['timeout' => 10, 'redirection' => 3, 'user-agent' => TIX_Event_Import::user_agent(), 'limit_response_size' => 8 * MB_IN_BYTES]);
         if (is_wp_error($r) || intval(wp_remote_retrieve_response_code($r)) !== 200) return 0;
-        return self::store_bytes((string) wp_remote_retrieve_body($r), $parent, 'logo');
+        return self::store_bytes((string) wp_remote_retrieve_body($r), $pkg, 'vorschau');
     }
 
-    /** Bilddaten als Anhang der Vorschau speichern → Anhang-ID | 0 */
-    private static function store_bytes($bytes, $parent, $name) {
+    /** Bilddaten als Anhang des Pakets speichern → Anhang-ID | 0 */
+    private static function store_bytes($bytes, $pkg, $name) {
         $info = @getimagesizefromstring((string) $bytes);
         $mime = is_array($info) ? (string) ($info['mime'] ?? '') : '';
         $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'][$mime] ?? '';
@@ -485,147 +657,245 @@ class TIX_Sales_Previews {
         require_once ABSPATH . 'wp-admin/includes/image.php';
         $up = wp_upload_bits(sanitize_file_name($name) . '-' . wp_generate_password(8, false, false) . '.' . $ext, null, (string) $bytes);
         if (!empty($up['error'])) return 0;
-        $id = wp_insert_attachment(['post_mime_type' => $mime, 'post_title' => $name, 'post_status' => 'inherit', 'post_parent' => intval($parent)], $up['file']);
+        $id = wp_insert_attachment(['post_mime_type' => $mime, 'post_title' => $name, 'post_status' => 'inherit', 'post_parent' => 0], $up['file']);
         if (!$id || is_wp_error($id)) return 0;
         wp_update_attachment_metadata($id, wp_generate_attachment_metadata($id, $up['file']));
-        self::own_attachment($id, $parent);
+        self::own_attachment($id, $pkg);
         return intval($id);
     }
 
-    /** Anhang gehört zur Vorschau (Meta, kein Autor – Vertriebler sehen ihn nicht in eigenen Medien). */
-    private static function own_attachment($id, $parent) {
+    /** Anhang gehört dem Paket (Meta = Paket-ID, kein Autor, kein Eltern-Post). */
+    private static function own_attachment($id, $pkg) {
         global $wpdb;
-        update_post_meta($id, self::META_ITEM, '1');
+        update_post_meta($id, self::META_ITEM, (string) intval($pkg));
         if (class_exists('TIX_Register_API') && defined('TIX_Register_API::TMP_META')) delete_post_meta($id, TIX_Register_API::TMP_META);
-        $wpdb->update($wpdb->posts, ['post_author' => 0, 'post_parent' => intval($parent)], ['ID' => intval($id)]);
+        $wpdb->update($wpdb->posts, ['post_author' => 0, 'post_parent' => 0], ['ID' => intval($id)]);
         clean_post_cache($id);
     }
 
-    private static function unique_slug($oid, $title) {
+    /** Anhang darf ins Paket: Bild, gehört schon dem Paket, dem Aufrufer oder Aufrufer ist Admin. */
+    private static function image_allowed($id, array $d) {
+        $id = intval($id);
+        if (!$id || get_post_type($id) !== 'attachment' || strpos((string) get_post_mime_type($id), 'image/') !== 0) return false;
+        return (string) get_post_meta($id, self::META_ITEM, true) === (string) $d['id'] || intval(get_post_field('post_author', $id)) === get_current_user_id() || current_user_can('manage_options');
+    }
+
+    private static function pkg_attachments($pkg) {
+        return array_map('intval', get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+            'meta_query' => [['key' => self::META_ITEM, 'value' => (string) intval($pkg)]]]));
+    }
+
+    // ═══════════════ Editor-Brücke (generisch) ═══════════════
+
+    /** Unsichtbarer Sandbox-Veranstalter für technische Posts (Arbeits-Entwürfe, Test-Ticket-Events). */
+    public static function tech_org() {
+        global $wpdb;
+        $id = intval(get_option(self::OPT_TECH, 0));
+        if ($id && get_post_type($id) === 'tix_organizer' && get_post_meta($id, TIX_Sales::META_PREVIEW, true)) return $id;
+        $id = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'draft', 'post_title' => 'Vorschau (technisch)',
+            'meta_input' => [TIX_Sales::META_PREVIEW => '1', '_tix_org_approval' => 'approved', self::META_ITEM => 'tech']], true);
+        if (is_wp_error($id) || !$id) return 0;
+        $wpdb->update($wpdb->posts, ['post_author' => 0], ['ID' => intval($id)]);
+        clean_post_cache($id);
+        update_option(self::OPT_TECH, intval($id), false);
+        TIX_Sales::flush();
+        return intval($id);
+    }
+
+    /** Meta-Schlüssel, die das Paket vom Editor übernimmt: alle _tix_* außer Zuordnung, Status und interne Merker. */
+    private static function capturable($key) {
+        $key = (string) $key;
+        if (strpos($key, '_tix_') !== 0) return false;
+        foreach (['_tix_preview', '_tix_organizer', '_tix_org_', '_tix_co_organizer', '_tix_publish_held', '_tix_syndicat', '_tix_guard', '_tix_ai_', '_tix_status',
+            '_tix_archived', '_tix_held', '_tix_source_', '_tix_web_', '_tix_mirror'] as $p) {
+            if (strpos($key, $p) === 0) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Event des Pakets auf einen kurzlebigen, gesperrten Arbeits-Entwurf legen, $body mit der echten Editor-Funktion anwenden,
+     * Ergebnis (Titel, Kurztext, Bild, Sparte, alle _tix_*-Meta) zurücklesen, Entwurf löschen. → neues Event | WP_Error
+     */
+    private static function apply_editor(array $ev, array $body, $is_new) {
+        global $wpdb;
+        $tech = self::tech_org();
+        if (!$tech) return new WP_Error('tix_preview_failed', 'Die Vorschau konnte nicht gespeichert werden.', ['status' => 500]);
+        $sid = wp_insert_post(['post_type' => 'event', 'post_status' => 'draft', 'post_title' => (string) ($ev['title'] ?? '') ?: 'Vorschau',
+            'post_excerpt' => (string) ($ev['excerpt'] ?? ''), 'post_name' => (string) ($ev['slug'] ?? ''),
+            'meta_input' => ['_tix_organizer_id' => $tech, self::META_ITEM => '1', self::META_SCRATCH => time()]], true);
+        if (is_wp_error($sid) || !$sid) return new WP_Error('tix_preview_failed', 'Die Vorschau konnte nicht gespeichert werden.', ['status' => 500]);
+        try {
+            foreach ((array) ($ev['meta'] ?? []) as $k => $v) if (self::capturable($k)) update_post_meta($sid, $k, wp_slash($v));
+            if (!empty($ev['image_id'])) update_post_meta($sid, '_thumbnail_id', intval($ev['image_id']));
+            if (!empty($ev['term_id'])) wp_set_object_terms($sid, [intval($ev['term_id'])], 'event_category');
+            $r = TIX_App_Events::apply_body($sid, $body, $is_new);
+            if (is_wp_error($r)) return $r;
+            clean_post_cache($sid);
+            wp_cache_delete($sid, 'post_meta');
+            $p = get_post($sid);
+            $meta = [];
+            foreach ((array) get_post_meta($sid) as $k => $vals) if (self::capturable($k) && isset($vals[0])) $meta[$k] = maybe_unserialize($vals[0]);
+            $terms = wp_get_object_terms($sid, 'event_category', ['fields' => 'ids']);
+            $ev['title'] = (string) $p->post_title;
+            $ev['excerpt'] = (string) $p->post_excerpt;
+            $ev['meta'] = $meta;
+            $ev['term_id'] = (!is_wp_error($terms) && $terms) ? intval($terms[0]) : 0;
+            $ev['updated_at'] = time();
+            return $ev;
+        } finally {
+            wp_delete_post($sid, true);
+        }
+    }
+
+    private static function unique_slug(array $d, $title, $skip_key = '') {
         $base = sanitize_title($title) ?: 'event';
         $used = [];
-        foreach (self::event_ids($oid) as $eid) $used[(string) get_post_field('post_name', $eid)] = true;
+        foreach ((array) $d['events'] as $ev) if ($ev['key'] !== $skip_key) $used[(string) $ev['slug']] = true;
         $slug = $base;
         for ($i = 2; isset($used[$slug]); $i++) $slug = $base . '-' . $i;
         return $slug;
     }
 
-    private static function date_ok($v) {
-        return preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $v) ? (string) $v : '';
+    private static function next_slot(array $d) {
+        $used = array_map(function ($e) { return intval($e['vid']); }, (array) $d['events']);
+        for ($i = 1; $i < 100; $i++) if (!in_array($i, $used, true)) return $i;
+        return 0;
     }
 
-    private static function time_ok($v) {
-        return preg_match('/^\d{1,2}:\d{2}$/', (string) $v) ? substr('0' . $v, -5) : '';
+    private static function new_event(array $d, $title) {
+        return ['key' => 'e_' . strtolower(wp_generate_password(8, false, false)), 'vid' => self::next_slot($d), 'title' => (string) $title, 'excerpt' => '',
+            'slug' => self::unique_slug($d, $title), 'image_id' => 0, 'term_id' => 0, 'meta' => [], 'updated_at' => time()];
     }
 
-    /** Event-Entwurf der Vorschau aus Import-Feldern → Event-ID | 0 */
-    private static function create_event($oid, array $f, $image_id = 0) {
-        global $wpdb;
-        $title = mb_substr(sanitize_text_field((string) ($f['title'] ?? '')), 0, 200);
-        if ($title === '') return 0;
-        $eid = wp_insert_post([
-            'post_type' => 'event', 'post_title' => $title, 'post_status' => 'draft', 'post_name' => self::unique_slug($oid, $title),
-            'post_excerpt' => sanitize_textarea_field((string) ($f['excerpt'] ?? '')),
-            'meta_input' => ['_tix_organizer_id' => intval($oid), '_tix_organizer' => (string) get_the_title($oid), self::META_ITEM => '1'],
-        ], true);
-        if (is_wp_error($eid) || !$eid) return 0;
-        // kein Autor: Vorschau-Events gehören niemandem, bis der Kunde übernimmt
-        $wpdb->update($wpdb->posts, ['post_author' => 0], ['ID' => intval($eid)]);
-        clean_post_cache($eid);
-        foreach (['date_start' => '_tix_date_start', 'date_end' => '_tix_date_end'] as $k => $mk) if (($v = self::date_ok($f[$k] ?? '')) !== '') update_post_meta($eid, $mk, $v);
-        foreach (['time_start' => '_tix_time_start', 'time_end' => '_tix_time_end', 'time_doors' => '_tix_time_doors'] as $k => $mk) if (($v = self::time_ok($f[$k] ?? '')) !== '') update_post_meta($eid, $mk, $v);
-        foreach (['description' => '_tix_info_description', 'lineup' => '_tix_info_lineup', 'specials' => '_tix_info_specials', 'extra_info' => '_tix_info_extra_info', 'excerpt' => '_tix_info_excerpt'] as $k => $mk) {
-            if (trim((string) ($f[$k] ?? '')) !== '') update_post_meta($eid, $mk, wp_kses_post((string) $f[$k]));
+    /** Import-Felder (KI bzw. strukturierte Daten) → Body des Event-Editors */
+    private static function body_from_fields(array $f) {
+        $b = ['title' => mb_substr(sanitize_text_field((string) ($f['title'] ?? '')), 0, 200), 'excerpt' => sanitize_textarea_field((string) ($f['excerpt'] ?? ''))];
+        foreach (['date_start', 'date_end'] as $k) if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($f[$k] ?? ''))) $b[$k] = (string) $f[$k];
+        foreach (['time_start', 'time_end', 'time_doors'] as $k) if (preg_match('/^\d{1,2}:\d{2}$/', (string) ($f[$k] ?? ''))) $b[$k] = substr('0' . $f[$k], -5);
+        // Ort als Freitext (location_id 0 wie im Studio-Formular)
+        if (trim((string) ($f['location'] ?? '')) !== '' || trim((string) ($f['location_address'] ?? '')) !== '') {
+            $b['location_id'] = 0;
+            $b['location'] = sanitize_text_field((string) ($f['location'] ?? ''));
+            $b['address'] = sanitize_text_field((string) ($f['location_address'] ?? ''));
         }
-        if (trim((string) ($f['location'] ?? '')) !== '') update_post_meta($eid, '_tix_location', sanitize_text_field((string) $f['location']));
-        if (trim((string) ($f['location_address'] ?? '')) !== '') update_post_meta($eid, '_tix_address', sanitize_text_field((string) $f['location_address']));
-        if (intval($f['age_limit'] ?? 0) > 0) update_post_meta($eid, '_tix_info_age_limit', intval($f['age_limit']));
+        $info = [];
+        foreach (['description', 'lineup', 'specials', 'extra_info'] as $k) if (trim((string) ($f[$k] ?? '')) !== '') $info[$k] = (string) $f[$k];
+        if (intval($f['age_limit'] ?? 0) > 0) $info['age_limit'] = intval($f['age_limit']);
+        if ($info) $b['info'] = $info;
         $cats = [];
         foreach ((array) ($f['tickets'] ?? []) as $t) {
             if (!is_array($t) || trim((string) ($t['name'] ?? '')) === '') continue;
-            $qty = max(0, intval($t['qty'] ?? 0));
-            $c = ['name' => mb_substr(sanitize_text_field((string) $t['name']), 0, 80), 'price' => max(0, round(floatval(str_replace(',', '.', (string) ($t['price'] ?? 0))), 2)),
-                'qty' => $qty, 'desc' => sanitize_text_field((string) ($t['description'] ?? ($t['desc'] ?? ''))), 'sale_mode' => 'online', 'product_id' => '', 'tc_event_id' => '', 'sku' => ''];
-            if ($qty > 0) $c['stock'] = $qty;
-            $cats[] = $c;
+            $cats[] = ['name' => mb_substr(sanitize_text_field((string) $t['name']), 0, 80), 'price' => max(0, round(floatval(str_replace(',', '.', (string) ($t['price'] ?? 0))), 2)),
+                'qty' => max(0, intval($t['qty'] ?? 0)), 'desc' => sanitize_text_field((string) ($t['description'] ?? ($t['desc'] ?? '')))];
             if (count($cats) >= 12) break;
         }
-        if ($cats) {
-            update_post_meta($eid, '_tix_ticket_categories', $cats);
-            update_post_meta($eid, '_tix_tickets_enabled', '1');
-        }
-        // Sparte: aus der KI (category_ids) bzw. dem erkannten Typ
-        $term = 0;
+        if ($cats) { $b['categories'] = $cats; $b['tickets_enabled'] = true; }
         $ids = array_map('intval', (array) ($f['category_ids'] ?? []));
-        if ($ids && get_term($ids[0], 'event_category')) $term = $ids[0];
-        if (!$term && trim((string) ($f['event_type'] ?? '')) !== '') {
-            $t = get_term_by('slug', sanitize_title((string) $f['event_type']), 'event_category');
-            if ($t) $term = intval($t->term_id);
-        }
-        if ($term) wp_set_object_terms($eid, [$term], 'event_category');
-        // Bild: Flyer, von der KI übernommen (suggested_image_id) oder aus den strukturierten Daten
-        $img = intval($image_id) ?: intval($f['suggested_image_id'] ?? 0);
-        if (!$img && !empty($f['_image'])) {
-            $orig = TIX_Event_Import::original_image((string) $f['_image']);
-            $img = self::sideload($orig ?: (string) $f['_image'], $eid);
-        }
-        if ($img && get_post_type($img) === 'attachment') {
-            self::own_attachment($img, $eid);
-            set_post_thumbnail($eid, $img);
-        }
-        if (class_exists('TIX_Sync')) TIX_Sync::save_breakdance_meta($eid, $cats);
-        return intval($eid);
+        $term = $ids ? get_term($ids[0], 'event_category') : null;
+        if (!$term && trim((string) ($f['event_type'] ?? '')) !== '') $term = get_term_by('slug', sanitize_title((string) $f['event_type']), 'event_category');
+        if ($term && !is_wp_error($term)) $b['event_category'] = (string) $term->slug;
+        return $b;
     }
 
-    /** Importierte Events anlegen (ohne Doppelte zur Vorschau) → neue Event-IDs */
-    private static function add_events($oid, array $imp) {
+    /** Importierte Events ins Paket (ohne Doppelte) → neue Schlüssel */
+    private static function add_events(array &$d, array $imp) {
         $have = [];
-        foreach (self::event_ids($oid) as $eid) $have[mb_strtolower(get_the_title($eid)) . '|' . get_post_meta($eid, '_tix_date_start', true)] = true;
-        $room = self::MAX_EVENTS - count($have);
+        foreach ((array) $d['events'] as $ev) $have[mb_strtolower($ev['title']) . '|' . (string) ($ev['meta']['_tix_date_start'] ?? '')] = true;
         $new = [];
         $flyer = $imp['flyer'] ?? null;
         foreach ($imp['events'] as $f) {
-            $k = mb_strtolower(sanitize_text_field((string) ($f['title'] ?? ''))) . '|' . self::date_ok($f['date_start'] ?? '');
-            if (isset($have[$k]) || $room <= 0) {
-                // nicht genutztes Bild der KI wieder entfernen
-                if (!empty($f['suggested_image_id']) && !get_post_field('post_parent', intval($f['suggested_image_id']))) wp_delete_attachment(intval($f['suggested_image_id']), true);
+            $body = self::body_from_fields($f);
+            $k = mb_strtolower($body['title']) . '|' . (string) ($body['date_start'] ?? '');
+            $ai_img = intval($f['suggested_image_id'] ?? 0);
+            if ($body['title'] === '' || isset($have[$k]) || count($d['events']) >= self::MAX_EVENTS) {
+                if ($ai_img && !get_post_field('post_parent', $ai_img)) wp_delete_attachment($ai_img, true);
                 continue;
             }
-            // Flyer (Import aus Bild) wird Bild des ersten Events
-            $fid = $flyer ? self::store_bytes($flyer[0], 0, 'flyer') : 0;
+            $ev = self::new_event($d, $body['title']);
+            // Bild: Flyer (Import aus Bild), von der KI übernommen, sonst aus den strukturierten Daten
+            $img = $flyer ? self::store_bytes($flyer[0], $d['id'], 'flyer') : 0;
             $flyer = null;
-            $eid = self::create_event($oid, $f, $fid);
-            if (!$eid) { if ($fid) wp_delete_attachment($fid, true); continue; }
+            if (!$img && $ai_img && get_post_type($ai_img) === 'attachment') { self::own_attachment($ai_img, $d['id']); $img = $ai_img; }
+            if (!$img && !empty($f['_image'])) {
+                $orig = TIX_Event_Import::original_image((string) $f['_image']);
+                $img = self::sideload($orig ?: (string) $f['_image'], $d['id']);
+            }
+            $ev['image_id'] = $img;
+            $ev = self::apply_editor($ev, $body, true);
+            if (is_wp_error($ev)) continue;
+            $d['events'][] = $ev;
             $have[$k] = true;
-            $new[] = $eid;
-            $room--;
+            $new[] = ['key' => $ev['key'], 'id' => self::event_vid($d, $ev), 'title' => (string) $ev['title']];
         }
-        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
         return $new;
+    }
+
+    /** Editor-Body auf ein Paket-Event anwenden: Bild selbst (Paket-Bilder), Rest über den Event-Editor → [Event, ignored] | WP_Error */
+    private static function patch_event(array $d, array $ev, array $body) {
+        // Hülle {fields: {…}} wie POST …/events
+        if (isset($body['fields']) && is_array($body['fields'])) $body = $body['fields'] + array_diff_key($body, ['fields' => 1]);
+        // Info-Abschnitte auch flach (description, lineup, specials, extra_info, age_limit, … wie info_sections des Editors)
+        $secs = method_exists('TIX_App_Events', 'edit_response') ? array_column((array) (TIX_App_Events::edit_response(0)['info_sections'] ?? []), 'key') : ['description', 'lineup', 'specials', 'extra_info', 'age_limit'];
+        foreach ($secs as $sk) {
+            if (!array_key_exists($sk, $body) || is_array($body[$sk])) continue;
+            $body['info'] = (isset($body['info']) && is_array($body['info']) ? $body['info'] : []) + [$sk => $body[$sk]];
+            unset($body[$sk]);
+        }
+        // Ort ohne location_id = Freitext (der Editor übernimmt ihn sonst nicht)
+        if ((array_key_exists('location', $body) || array_key_exists('address', $body)) && !array_key_exists('location_id', $body)) {
+            $body['location_id'] = 0;
+            $body += ['location' => (string) ($ev['meta']['_tix_location'] ?? ''), 'address' => (string) ($ev['meta']['_tix_address'] ?? '')];
+        }
+        $ignored = array_values(array_intersect(array_keys($body), self::NOT_IN_PREVIEW));
+        foreach (self::NOT_IN_PREVIEW as $k) unset($body[$k]);
+        if (array_key_exists('image_id', $body)) {
+            $img = intval($body['image_id']);
+            if ($img > 0 && !self::image_allowed($img, $d)) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden oder nicht erlaubt.', ['status' => 400, 'field' => 'image_id']);
+            if ($img > 0) self::own_attachment($img, $d['id']);
+            $ev['image_id'] = max(0, $img);
+            unset($body['image_id']);
+        }
+        if (array_key_exists('title', $body) && trim((string) $body['title']) === '') return new WP_Error('missing_title', 'Bitte einen Titel eingeben.', ['status' => 400, 'field' => 'title']);
+        $ev = self::apply_editor($ev, $body, false);
+        if (is_wp_error($ev)) return $ev;
+        return [$ev, $ignored];
+    }
+
+    /** Editor-Format (wie GET /events/{id}/edit) eines Paket-Events */
+    private static function edit_of(array $d, $key) {
+        return self::with_mounted($d, function ($ovid, $ids) use ($key, $d) {
+            if (!isset($ids[$key]) || !method_exists('TIX_App_Events', 'edit_response')) return null;
+            $r = TIX_App_Events::edit_response($ids[$key]);
+            $r['event']['key'] = $key;
+            $r['event']['preview'] = true;
+            return $r;
+        });
     }
 
     // ═══════════════ Payload ═══════════════
 
-    /** PREVIEW laut Vertrag (D) */
-    public static function payload($oid) {
-        $d = self::data($oid);
-        $p = get_post($oid);
-        if (!$d || !$p) return null;
+    /** PREVIEW laut Vertrag (D, Pakete) */
+    public static function payload($d) {
+        if (is_numeric($d)) $d = self::get($d);
+        if (!$d) return null;
         $st = self::status($d);
         $events = [];
-        foreach (self::event_ids($oid, $st !== 'claimed') as $eid) {
-            $events[] = ['id' => $eid, 'title' => (string) get_the_title($eid), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true),
-                'image' => (string) (get_the_post_thumbnail_url($eid, 'medium_large') ?: '')];
+        foreach (self::sorted_events($d) as $ev) {
+            $img = intval($ev['image_id'] ?? 0);
+            $events[] = ['id' => self::event_vid($d, $ev), 'key' => $ev['key'], 'title' => (string) $ev['title'], 'date_start' => (string) ($ev['meta']['_tix_date_start'] ?? ''),
+                'image' => $img ? (string) (wp_get_attachment_image_url($img, 'medium_large') ?: wp_get_attachment_url($img)) : ''];
         }
         $public = self::link('public', $d['token']);
         $owner = get_userdata(intval($d['owner']));
         return [
-            'id'             => intval($oid),
+            'id'             => intval($d['id']),
             'token'          => (string) $d['token'],
             'status'         => $st,
-            'name'           => (string) $p->post_title,
-            'logo'           => self::logo_url($oid) ?: null,
-            'accent'         => self::accent($oid),
+            'name'           => (string) $d['name'],
+            'logo'           => self::logo_of($d) ?: null,
+            'accent'         => self::accent_of($d),
+            'template'       => self::template_of($d),
             'source_url'     => (string) ($d['source_url'] ?? ''),
             'created_at'     => self::iso($d['created_at'] ?? 0),
             'expires_at'     => self::iso($d['expires_at'] ?? 0),
@@ -634,9 +904,10 @@ class TIX_Sales_Previews {
             'views'          => intval($d['views'] ?? 0),
             'last_view_at'   => self::iso($d['last_view_at'] ?? 0),
             'claimed_at'     => self::iso($d['claimed_at'] ?? 0),
+            'claimed_org'    => intval($d['claimed_org'] ?? 0) ?: null,
             'customer_email' => (string) ($d['customer_email'] ?? '') ?: null,
             'note'           => (string) ($d['note'] ?? ''),
-            'events_count'   => count($events),
+            'events_count'   => $st === 'claimed' ? intval($d['claimed_events'] ?? 0) : count($events),
             'events'         => $events,
             'links'          => [
                 'hub'      => self::link('hub', $d['token']),
@@ -650,6 +921,11 @@ class TIX_Sales_Previews {
             'read_mode'      => (string) ($d['read_mode'] ?? 'direct'),
             'notice'         => $d['notice'] ?? null,
         ];
+    }
+
+    private static function template_of(array $d) {
+        $t = (string) ($d['template'] ?? '');
+        return in_array($t, self::TEMPLATES, true) ? $t : 'club';
     }
 
     // ═══════════════ REST ═══════════════
@@ -667,6 +943,7 @@ class TIX_Sales_Previews {
     public static function routes() {
         $s = ['permission_callback' => [__CLASS__, 'perm_sales']];
         $pub = ['permission_callback' => [__CLASS__, 'perm_public']];
+        $ek = '(?P<event_key>[A-Za-z0-9_-]+)';
         register_rest_route(self::NS, '/sales/previews', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list']] + $s,
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create']] + $s,
@@ -677,7 +954,12 @@ class TIX_Sales_Previews {
             ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete']] + $s,
         ]);
         register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/events', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_add_events']] + $s);
-        register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/events/(?P<event_id>\d+)', ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete_event']] + $s);
+        register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/events/' . $ek, [
+            ['methods' => 'PATCH', 'callback' => [__CLASS__, 'rest_patch_event']] + $s,
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete_event']] + $s,
+        ]);
+        register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/events/' . $ek . '/edit', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_edit_event']] + $s);
+        register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/events/' . $ek . '/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_event_image']] + $s);
         register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/logo', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_logo']] + $s);
         register_rest_route(self::NS, '/sales/previews/(?P<id>\d+)/claim', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_claim']] + $s);
         register_rest_route(self::NS, '/sales/summary', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_summary']] + $s);
@@ -701,13 +983,12 @@ class TIX_Sales_Previews {
         return new WP_Error('tix_preview_claimed', 'Diese Vorschau wurde schon übernommen.', ['status' => 409]);
     }
 
-    /** Vorschau für /sales/* laden: eigene (Admin alle) → [oid, data] | WP_Error */
+    /** Paket für /sales/* laden: eigenes (Admin alle) → Datensatz | WP_Error */
     private static function load($id) {
-        $oid = intval($id);
-        $d = ($oid && get_post_type($oid) === 'tix_organizer') ? self::data($oid) : null;
+        $d = self::get($id);
         if (!$d) return self::err_unknown();
         if (!current_user_can('manage_options') && intval($d['owner']) !== get_current_user_id()) return new WP_Error('rest_forbidden', 'Das ist nicht deine Vorschau.', ['status' => 403]);
-        return [$oid, $d];
+        return $d;
     }
 
     /** Änderbar? claimed → 409, abgelaufen → 410 */
@@ -718,8 +999,8 @@ class TIX_Sales_Previews {
         return null;
     }
 
-    private static function respond($oid, $status = 200, array $extra = []) {
-        $r = rest_ensure_response(['ok' => true, 'preview' => self::payload($oid)] + $extra);
+    private static function respond($d, $status = 200, array $extra = []) {
+        $r = rest_ensure_response(['ok' => true, 'preview' => self::payload($d)] + $extra);
         $r->set_status($status);
         return $r;
     }
@@ -728,12 +1009,20 @@ class TIX_Sales_Previews {
         return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited($bucket, $max, $window, 'u' . get_current_user_id());
     }
 
-    /** POST /sales/previews {url|text|image, name?, customer_email?, note?} → 201 {ok, preview} */
+    private static function body(WP_REST_Request $req) {
+        $p = $req->get_json_params();
+        return is_array($p) ? $p : $req->get_body_params();
+    }
+
+    /** POST /sales/previews {url|text|image, name?, customer_email?, note?, template?} → 201 {ok, preview} */
     public static function rest_create(WP_REST_Request $req) {
+        if (!self::table_ready()) self::install();
         $src = self::read_source($req);
         if (is_wp_error($src)) return $src;
         $email = trim((string) $req->get_param('customer_email'));
         if ($email !== '' && !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse des Kunden angeben.', ['status' => 400, 'field' => 'customer_email']);
+        $tpl = (string) $req->get_param('template');
+        if ($tpl !== '' && !in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival oder klar.', ['status' => 400, 'field' => 'template']);
         if (self::limited('sales_preview', 30, HOUR_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Vorschauen in kurzer Zeit. Bitte warte etwas.', ['status' => 429]);
         $imp = self::import($src, self::MAX_EVENTS);
         if (is_wp_error($imp)) return self::map_error($imp);
@@ -743,65 +1032,55 @@ class TIX_Sales_Previews {
         if ($name === '') $name = sanitize_text_field((string) ($imp['events'][0]['location'] ?? ''));
         if ($name === '' && $imp['source_url'] !== '') $name = preg_replace('/^www\./', '', (string) wp_parse_url($imp['source_url'], PHP_URL_HOST));
         if ($name === '') $name = sanitize_text_field((string) $imp['events'][0]['title']);
-        $token = self::new_token('p');
-        $claim = self::new_token('c');
-        $uid = get_current_user_id();
-        $oid = wp_insert_post([
-            'post_type' => 'tix_organizer', 'post_title' => $name, 'post_status' => 'draft',
-            // Sandbox von Anfang an; Freigabe-Status gesetzt, damit keine Prüfung/Admin-Mail ausgelöst wird
-            'meta_input' => [TIX_Sales::META_PREVIEW => '1', '_tix_org_approval' => 'approved', self::META_TOKEN => $token, self::META_CLAIM => $claim, self::META_OWNER => $uid],
-        ], true);
-        if (is_wp_error($oid) || !$oid) return new WP_Error('tix_preview_failed', 'Die Vorschau konnte nicht angelegt werden.', ['status' => 500]);
-        global $wpdb;
-        $wpdb->update($wpdb->posts, ['post_author' => 0], ['ID' => intval($oid)]);
-        clean_post_cache($oid);
-        TIX_Sales::flush();
-        self::save($oid, [
-            'token' => $token, 'claim' => $claim, 'owner' => $uid, 'created_at' => time(), 'expires_at' => time() + self::DAYS * DAY_IN_SECONDS,
-            'extended' => false, 'opened_at' => 0, 'views' => 0, 'last_view_at' => 0, 'claimed_at' => 0, 'claimed_by' => 0,
+        $d = [
+            'token' => self::new_token('p'), 'claim' => self::new_token('c'), 'owner' => get_current_user_id(), 'status' => 'active', 'name' => $name,
+            'created_at' => time(), 'expires_at' => time() + self::DAYS * DAY_IN_SECONDS, 'opened_at' => 0, 'claimed_at' => 0, 'claimed_org' => 0,
+            'extended' => false, 'views' => 0, 'last_view_at' => 0, 'claimed_by' => 0, 'template' => $tpl ?: 'club',
             'source_url' => $imp['source_url'], 'read_mode' => $imp['read_mode'], 'notice' => $imp['notice'],
             'customer_email' => $email !== '' ? sanitize_email($email) : '', 'note' => mb_substr(sanitize_textarea_field((string) $req->get_param('note')), 0, 1000),
-        ]);
-        if ($imp['brand']['logo'] !== '' && ($lid = self::sideload($imp['brand']['logo'], $oid))) {
-            update_post_meta($oid, self::META_LOGO, $lid);
+            'organizer' => ['name' => $name, 'logo_id' => 0, 'accent' => ''], 'events' => [],
+        ];
+        $d['id'] = self::insert($d);
+        if (!$d['id']) return new WP_Error('tix_preview_failed', 'Die Vorschau konnte nicht angelegt werden.', ['status' => 500]);
+        if ($imp['brand']['logo'] !== '' && ($lid = self::sideload($imp['brand']['logo'], $d['id']))) {
+            $d['organizer']['logo_id'] = $lid;
             if ($imp['brand']['accent'] === '') $imp['brand']['accent'] = self::main_color((string) @file_get_contents(get_attached_file($lid)));
         }
-        if ($imp['brand']['accent'] !== '') update_post_meta($oid, self::META_ACCENT, $imp['brand']['accent']);
-        self::add_events($oid, $imp);
-        return self::respond($oid, 201);
+        $d['organizer']['accent'] = $imp['brand']['accent'];
+        self::add_events($d, $imp);
+        self::save($d);
+        return self::respond($d, 201);
     }
 
     /** GET /sales/previews?status=&page=&owner= → {ok, previews, total} */
     public static function rest_list(WP_REST_Request $req) {
+        global $wpdb;
         $status = sanitize_key((string) $req->get_param('status'));
         if ($status !== '' && !in_array($status, ['active', 'expired', 'claimed'], true)) return new WP_Error('tix_invalid_field', 'status: active, expired oder claimed.', ['status' => 400, 'field' => 'status']);
         $page = max(1, intval($req->get_param('page') ?: 1));
-        $q = ['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'orderby' => 'ID', 'order' => 'DESC'];
         $owner = current_user_can('manage_options') ? intval($req->get_param('owner')) : get_current_user_id();
-        $q['meta_query'] = $owner ? [['key' => self::META_OWNER, 'value' => strval($owner)]] : [['key' => self::META_OWNER, 'compare' => 'EXISTS']];
-        $ids = [];
-        foreach (array_map('intval', get_posts($q)) as $oid) {
-            $d = self::data($oid);
-            if (!$d || ($status !== '' && self::status($d) !== $status)) continue;
-            $ids[] = $oid;
+        $where = $owner ? $wpdb->prepare('WHERE owner = %d', $owner) : '';
+        $rows = self::table_ready() ? (array) $wpdb->get_results('SELECT * FROM ' . self::table() . " $where ORDER BY id DESC") : [];
+        $all = [];
+        foreach ($rows as $row) {
+            $d = self::hydrate($row);
+            if ($status === '' || self::status($d) === $status) $all[] = $d;
         }
-        $list = array_values(array_filter(array_map([__CLASS__, 'payload'], array_slice($ids, ($page - 1) * self::PER_PAGE, self::PER_PAGE))));
-        return rest_ensure_response(['ok' => true, 'previews' => $list, 'total' => count($ids), 'page' => $page, 'per_page' => self::PER_PAGE]);
+        $list = array_values(array_filter(array_map([__CLASS__, 'payload'], array_slice($all, ($page - 1) * self::PER_PAGE, self::PER_PAGE))));
+        return rest_ensure_response(['ok' => true, 'previews' => $list, 'total' => count($all), 'page' => $page, 'per_page' => self::PER_PAGE]);
     }
 
     public static function rest_get(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        return self::respond($l[0]);
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
+        return self::respond($d);
     }
 
-    /** PATCH /sales/previews/{id} {name?, accent?, logo_id?, customer_email?, note?, extend?: true} */
+    /** PATCH /sales/previews/{id} {name?, accent?, logo_id?, template?, customer_email?, note?, extend?: true} */
     public static function rest_patch(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
-        $p = $req->get_json_params();
-        $p = is_array($p) ? $p : $req->get_params();
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
+        $p = self::body($req);
         $extend = !empty($p['extend']) && filter_var($p['extend'], FILTER_VALIDATE_BOOLEAN);
         $st = self::status($d);
         if ($st === 'claimed') return self::err_claimed();
@@ -816,25 +1095,27 @@ class TIX_Sales_Previews {
             $accent = ($p['accent'] === null || $p['accent'] === '') ? '' : self::hex($p['accent']);
             if ($accent === '' && $p['accent'] !== null && $p['accent'] !== '') return new WP_Error('tix_invalid_field', 'Farbe bitte als #RRGGBB.', ['status' => 400, 'field' => 'accent']);
         }
+        $tpl = null;
+        if (array_key_exists('template', $p)) {
+            $tpl = (string) $p['template'];
+            if (!in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival oder klar.', ['status' => 400, 'field' => 'template']);
+        }
         $logo = null;
         if (array_key_exists('logo_id', $p)) {
             $logo = intval($p['logo_id']);
-            if ($logo > 0) {
-                if (get_post_type($logo) !== 'attachment' || strpos((string) get_post_mime_type($logo), 'image/') !== 0) return new WP_Error('tix_invalid_field', 'Bild nicht gefunden.', ['status' => 400, 'field' => 'logo_id']);
-                $mine = intval(get_post_field('post_author', $logo)) === get_current_user_id() || intval(get_post_field('post_parent', $logo)) === $oid;
-                if (!current_user_can('manage_options') && !$mine) return new WP_Error('tix_invalid_field', 'Dieses Bild gehört nicht zu dieser Vorschau.', ['status' => 403, 'field' => 'logo_id']);
-            }
+            if ($logo > 0 && !self::image_allowed($logo, $d)) return new WP_Error('tix_invalid_field', 'Dieses Bild gehört nicht zu dieser Vorschau.', ['status' => 403, 'field' => 'logo_id']);
         }
         $email = null;
         if (array_key_exists('customer_email', $p)) {
             $email = trim((string) $p['customer_email']);
             if ($email !== '' && !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse des Kunden angeben.', ['status' => 400, 'field' => 'customer_email']);
         }
-        if ($name !== null) wp_update_post(['ID' => $oid, 'post_title' => $name]);
-        if ($accent !== null) { if ($accent === '') delete_post_meta($oid, self::META_ACCENT); else update_post_meta($oid, self::META_ACCENT, $accent); }
+        if ($name !== null) { $d['name'] = $name; $d['organizer']['name'] = $name; }
+        if ($accent !== null) $d['organizer']['accent'] = $accent;
+        if ($tpl !== null) $d['template'] = $tpl;
         if ($logo !== null) {
-            if ($logo > 0) { self::own_attachment($logo, $oid); update_post_meta($oid, self::META_LOGO, $logo); }
-            else delete_post_meta($oid, self::META_LOGO);
+            if ($logo > 0) self::own_attachment($logo, $d['id']);
+            $d['organizer']['logo_id'] = max(0, $logo);
         }
         if ($email !== null) $d['customer_email'] = $email !== '' ? sanitize_email($email) : '';
         if (array_key_exists('note', $p)) $d['note'] = mb_substr(sanitize_textarea_field((string) $p['note']), 0, 1000);
@@ -842,83 +1123,143 @@ class TIX_Sales_Previews {
             $d['expires_at'] = max(intval($d['expires_at']), time()) + self::DAYS * DAY_IN_SECONDS;
             $d['extended'] = true;
         }
-        self::save($oid, $d);
-        return self::respond($oid);
+        self::save($d);
+        return self::respond($d);
     }
 
-    /** POST /sales/previews/{id}/logo (Multipart `image` oder Base64) – eigenes Logo hochladen. */
+    /** POST /sales/previews/{id}/logo (Multipart `image` oder Base64) */
     public static function rest_logo(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
         if ($e = self::editable($d)) return $e;
         $img = TIX_AI_REST::read_image($req);
         if (is_wp_error($img)) return $img;
-        $lid = self::store_bytes($img[0], $oid, 'logo');
+        $lid = self::store_bytes($img[0], $d['id'], 'logo');
         if (!$lid) return new WP_Error('tix_invalid_field', 'Das Logo konnte nicht gespeichert werden.', ['status' => 400, 'field' => 'image']);
-        update_post_meta($oid, self::META_LOGO, $lid);
-        if (!self::hex(get_post_meta($oid, self::META_ACCENT, true)) && ($c = self::main_color($img[0])) !== '') update_post_meta($oid, self::META_ACCENT, $c);
-        return self::respond($oid);
+        $d['organizer']['logo_id'] = $lid;
+        if (!self::hex($d['organizer']['accent'] ?? '') && ($c = self::main_color($img[0])) !== '') $d['organizer']['accent'] = $c;
+        self::save($d);
+        return self::respond($d);
     }
 
-    /** POST /sales/previews/{id}/events {url|text|image} → 201 {ok, preview, added} */
+    /** POST /sales/previews/{id}/events {url|text|image} bzw. {title, … Editor-Felder} → 201 {ok, preview, added} */
     public static function rest_add_events(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
         if ($e = self::editable($d)) return $e;
-        $room = self::MAX_EVENTS - count(self::event_ids($oid));
-        if ($room <= 0) return new WP_Error('tix_preview_full', 'Eine Vorschau hat höchstens ' . self::MAX_EVENTS . ' Events.', ['status' => 409]);
+        if (count($d['events']) >= self::MAX_EVENTS) return new WP_Error('tix_preview_full', 'Eine Vorschau hat höchstens ' . self::MAX_EVENTS . ' Events.', ['status' => 409]);
+        $b = self::body($req);
+        $fields = isset($b['fields']) && is_array($b['fields']) ? $b['fields'] : null;
+        $manual = $fields !== null || (trim((string) ($b['title'] ?? '')) !== '' && trim((string) ($b['url'] ?? '')) === '' && trim((string) ($b['text'] ?? '')) === '' && empty($b['image']) && empty($req->get_file_params()['image']));
+        if ($manual) {
+            // Event von Hand ({fields} bzw. Felder direkt): wie im Event-Editor
+            $f = $fields ?? $b;
+            $title = sanitize_text_field((string) ($f['title'] ?? ''));
+            if ($title === '') return new WP_Error('missing_title', 'Bitte einen Titel eingeben.', ['status' => 400, 'field' => 'title']);
+            $ev = self::new_event($d, $title);
+            $r = self::patch_event($d, $ev, $f);
+            if (is_wp_error($r)) return $r;
+            $d['events'][] = $r[0];
+            self::save($d);
+            $edit = self::edit_of($d, $r[0]['key']);
+            return self::respond($d, 201, ['added' => [['key' => $r[0]['key'], 'id' => self::event_vid($d, $r[0]), 'title' => (string) $r[0]['title']]], 'ignored' => $r[1], 'event' => $edit['event'] ?? null, 'edit' => $edit]);
+        }
         $src = self::read_source($req);
         if (is_wp_error($src)) return $src;
         if (self::limited('sales_preview', 30, HOUR_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Importe in kurzer Zeit. Bitte warte etwas.', ['status' => 429]);
-        $imp = self::import($src, $room);
+        $imp = self::import($src, self::MAX_EVENTS - count($d['events']));
         if (is_wp_error($imp)) return self::map_error($imp);
-        $new = self::add_events($oid, $imp);
-        return self::respond($oid, 201, ['added' => $new]);
+        $new = self::add_events($d, $imp);
+        self::save($d);
+        return self::respond($d, 201, ['added' => $new]);
     }
 
-    /** DELETE /sales/previews/{id}/events/{event_id} */
-    public static function rest_delete_event(WP_REST_Request $req) {
-        $l = self::load($req['id']);
+    private static function load_event(WP_REST_Request $req, $write = true) {
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
+        if ($write && ($e = self::editable($d))) return $e;
+        $i = self::find_event($d, (string) $req['event_key']);
+        if ($i < 0) return new WP_Error('tix_event', 'Event nicht in dieser Vorschau.', ['status' => 404]);
+        return [$d, $i];
+    }
+
+    /** GET /sales/previews/{id}/events/{key}/edit → Format von GET /events/{id}/edit */
+    public static function rest_edit_event(WP_REST_Request $req) {
+        $l = self::load_event($req, false);
         if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
-        if ($e = self::editable($d)) return $e;
-        $eid = intval($req['event_id']);
-        if (!in_array($eid, self::event_ids($oid), true)) return new WP_Error('tix_event', 'Event nicht in dieser Vorschau.', ['status' => 404]);
-        self::delete_event($eid);
-        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
-        return self::respond($oid);
+        list($d, $i) = $l;
+        $r = self::edit_of($d, $d['events'][$i]['key']);
+        return $r ? rest_ensure_response($r) : self::err_unknown();
+    }
+
+    /** PATCH /sales/previews/{id}/events/{key} – Felder wie POST /events/{id} → {ok, preview, event (Editor-Format), ignored} */
+    public static function rest_patch_event(WP_REST_Request $req) {
+        $l = self::load_event($req);
+        if (is_wp_error($l)) return $l;
+        list($d, $i) = $l;
+        $r = self::patch_event($d, $d['events'][$i], self::body($req));
+        if (is_wp_error($r)) return $r;
+        $d['events'][$i] = $r[0];
+        self::save($d);
+        $edit = self::edit_of($d, $r[0]['key']);
+        return self::respond($d, 200, ['event' => $edit['event'] ?? null, 'edit' => $edit, 'ignored' => $r[1]]);
+    }
+
+    /** POST /sales/previews/{id}/events/{key}/image (Multipart `image` oder Base64) */
+    public static function rest_event_image(WP_REST_Request $req) {
+        $l = self::load_event($req);
+        if (is_wp_error($l)) return $l;
+        list($d, $i) = $l;
+        $img = TIX_AI_REST::read_image($req);
+        if (is_wp_error($img)) return $img;
+        $id = self::store_bytes($img[0], $d['id'], 'event');
+        if (!$id) return new WP_Error('tix_invalid_field', 'Das Bild konnte nicht gespeichert werden.', ['status' => 400, 'field' => 'image']);
+        $d['events'][$i]['image_id'] = $id;
+        $d['events'][$i]['updated_at'] = time();
+        self::save($d);
+        $edit = self::edit_of($d, $d['events'][$i]['key']);
+        return self::respond($d, 200, ['image' => (string) ($edit['event']['image'] ?? ''), 'image_id' => $id, 'event' => $edit['event'] ?? null, 'edit' => $edit]);
+    }
+
+    /** DELETE /sales/previews/{id}/events/{key} */
+    public static function rest_delete_event(WP_REST_Request $req) {
+        $l = self::load_event($req);
+        if (is_wp_error($l)) return $l;
+        list($d, $i) = $l;
+        $ev = $d['events'][$i];
+        self::delete_tech_events($d['id'], $ev['key']);
+        array_splice($d['events'], $i, 1);
+        $img = intval($ev['image_id'] ?? 0);
+        $used = $img === intval($d['organizer']['logo_id'] ?? 0) || in_array($img, array_map(function ($e) { return intval($e['image_id'] ?? 0); }, $d['events']), true);
+        if ($img && !$used && (string) get_post_meta($img, self::META_ITEM, true) === (string) $d['id']) wp_delete_attachment($img, true);
+        self::save($d);
+        return self::respond($d);
     }
 
     /** DELETE /sales/previews/{id} – sofort löschen (Link danach 404). */
     public static function rest_delete(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
         if (self::status($d) === 'claimed') return self::err_claimed();
-        self::destroy($oid, false);
+        self::destroy($d, false);
         return rest_ensure_response(['ok' => true, 'deleted' => true]);
     }
 
-    /** POST /sales/previews/{id}/claim {email?} – Übernahme-Link per Mail an den Kunden → {ok, claim_url, sent_to} */
+    /** POST /sales/previews/{id}/claim {email?} – Link per Mail an den Kunden → {ok, claim_url, sent_to} */
     public static function rest_claim(WP_REST_Request $req) {
-        $l = self::load($req['id']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::load($req['id']);
+        if (is_wp_error($d)) return $d;
         if ($e = self::editable($d)) return $e;
         $email = trim((string) $req->get_param('email')) ?: (string) ($d['customer_email'] ?? '');
         if ($email === '' || !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte die E-Mail-Adresse des Kunden angeben.', ['status' => 400, 'field' => 'email']);
-        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('sales_claim_mail', 5, HOUR_IN_SECONDS, 'p' . $oid)) return new WP_Error('tix_rate_limit', 'Für diese Vorschau wurden gerade schon mehrere Mails verschickt. Bitte warte etwas.', ['status' => 429]);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('sales_claim_mail', 5, HOUR_IN_SECONDS, 'pk' . $d['id'])) return new WP_Error('tix_rate_limit', 'Für diese Vorschau wurden gerade schon mehrere Mails verschickt. Bitte warte etwas.', ['status' => 429]);
         $email = sanitize_email($email);
-        $url = self::claim_link($d['claim']);
         $owner = get_userdata(intval($d['owner']));
         $brand = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
-        $name = (string) get_the_title($oid);
         $sent = class_exists('TIX_Mail_Layout') && TIX_Mail_Layout::send($email, $brand . ' – Deine Events sind vorbereitet', [
             'title' => 'Deine Events bei ' . $brand,
             'blocks' => [
-                ['type' => 'text', 'html' => 'Hallo,<br>' . ($owner ? esc_html($owner->display_name) . ' hat' : 'wir haben') . ' für <strong>' . esc_html($name) . '</strong> eine Vorschau mit ' . count(self::event_ids($oid)) . ' Events vorbereitet. Schau sie dir an und übernimm sie mit einem Klick in dein eigenes Konto.'],
+                ['type' => 'text', 'html' => 'Hallo,<br>' . ($owner ? esc_html($owner->display_name) . ' hat' : 'wir haben') . ' für <strong>' . esc_html($d['name']) . '</strong> eine Vorschau mit ' . count($d['events']) . ' Events vorbereitet. Schau sie dir an und übernimm sie mit einem Klick in dein eigenes Konto.'],
                 // Ein Link für den Kunden: die Übersichtsseite (hub) mit Website, Homepage, App, Test-Ticket und Übernehmen (1.38.512)
                 ['type' => 'button', 'label' => 'Vorschau ansehen', 'url' => self::link('hub', $d['token'])],
                 ['type' => 'text', 'html' => 'Die Vorschau ist bis ' . esc_html(wp_date('d.m.Y', intval($d['expires_at']))) . ' verfügbar. Nach der Übernahme liegen die Events als Entwürfe in deinem Studio.'],
@@ -928,21 +1269,22 @@ class TIX_Sales_Previews {
         if (!$sent) return new WP_Error('tix_mail_failed', 'Die Mail konnte nicht verschickt werden.', ['status' => 502]);
         $d['customer_email'] = $email;
         $d['claim_sent_at'] = time();
-        self::save($oid, $d);
-        return rest_ensure_response(['ok' => true, 'claim_url' => $url, 'sent_to' => $email]);
+        self::save($d);
+        return rest_ensure_response(['ok' => true, 'claim_url' => self::claim_link($d['claim']), 'sent_to' => $email]);
     }
 
     // ── Auswertung ──
 
-    /** Datensätze (lebend + gelöschte aus dem Archiv) für einen Vertriebler bzw. alle (0). */
+    /** Datensätze (Tabelle + gelöschte aus dem Archiv) für einen Vertriebler bzw. alle (0). */
     private static function records($owner) {
-        $q = ['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
-            'meta_query' => $owner ? [['key' => self::META_OWNER, 'value' => strval(intval($owner))]] : [['key' => self::META_OWNER, 'compare' => 'EXISTS']]];
+        global $wpdb;
         $out = [];
-        foreach (get_posts($q) as $oid) {
-            $d = self::data($oid);
-            if (!$d) continue;
-            $out[] = ['created_at' => intval($d['created_at']), 'opened_at' => intval($d['opened_at'] ?? 0), 'claimed_at' => intval($d['claimed_at'] ?? 0), 'status' => self::status($d)];
+        if (self::table_ready()) {
+            $where = $owner ? $wpdb->prepare('WHERE owner = %d', intval($owner)) : '';
+            foreach ((array) $wpdb->get_results('SELECT id, created_at, opened_at, claimed_at, expires_at FROM ' . self::table() . " $where") as $r) {
+                $st = intval($r->claimed_at) ? 'claimed' : (intval($r->expires_at) <= time() ? 'expired' : 'active');
+                $out[] = ['created_at' => intval($r->created_at), 'opened_at' => intval($r->opened_at), 'claimed_at' => intval($r->claimed_at), 'status' => $st];
+            }
         }
         $users = $owner ? [intval($owner)] : array_map('intval', get_users(['meta_key' => self::META_ARCHIVE, 'fields' => 'ID']));
         foreach ($users as $u) {
@@ -984,34 +1326,28 @@ class TIX_Sales_Previews {
 
     /** Vertriebler entfernt (DELETE /platform/sales/{id}): Vorschauen und Archiv gehen an $to. */
     public static function reassign($from, $to) {
+        global $wpdb;
         $from = intval($from); $to = intval($to);
         if (!$from || !$to || $from === $to) return 0;
-        $ids = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
-            'meta_query' => [['key' => self::META_OWNER, 'value' => strval($from)]]]);
-        foreach ($ids as $oid) {
-            $d = self::data($oid);
-            if ($d) { $d['owner'] = $to; self::save($oid, $d); }
-            update_post_meta($oid, self::META_OWNER, $to);
-        }
+        $n = self::table_ready() ? intval($wpdb->update(self::table(), ['owner' => $to], ['owner' => $from])) : 0;
         $arch = get_user_meta($from, self::META_ARCHIVE, true);
         if (is_array($arch) && $arch) {
             $mine = get_user_meta($to, self::META_ARCHIVE, true);
             update_user_meta($to, self::META_ARCHIVE, array_slice(array_merge(is_array($mine) ? $mine : [], $arch), -1000));
             delete_user_meta($from, self::META_ARCHIVE);
         }
-        return count($ids);
+        return $n;
     }
 
-    private static function notify($oid, $what) {
-        $d = self::data($oid);
-        $owner = $d ? get_userdata(intval($d['owner'])) : null;
+    private static function notify(array $d, $what) {
+        $owner = get_userdata(intval($d['owner']));
         if (!$owner) return;
-        $name = (string) get_the_title($oid);
+        $name = (string) $d['name'];
         $title = $what === 'opened' ? 'Vorschau geöffnet' : 'Vorschau übernommen';
         $body = $what === 'opened'
             ? 'Die Vorschau für „' . $name . '“ wurde zum ersten Mal geöffnet.'
             : '„' . $name . '“ hat die Vorschau übernommen und ein Konto angelegt. Die Freigabe läuft.';
-        if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($owner->ID, $title, $body, ['type' => 'sales', 'action' => 'sales_preview:' . intval($oid)]);
+        if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($owner->ID, $title, $body, ['type' => 'sales', 'action' => 'sales_preview:' . intval($d['id'])]);
         if (class_exists('TIX_Mail_Layout')) {
             TIX_Mail_Layout::send($owner->user_email, TIX_Mail_Layout::brand()['name'] . ' – ' . $title . ': ' . $name, [
                 'title' => $title,
@@ -1034,22 +1370,22 @@ class TIX_Sales_Previews {
         return $r;
     }
 
-    /** Token → [oid, data] | WP_Error (404 unbekannt, 410 abgelaufen bzw. gelöscht innerhalb von 30 Tagen) */
+    /** Token → Datensatz | WP_Error (404 unbekannt, 410 abgelaufen bzw. gelöscht innerhalb von 30 Tagen) */
     private static function public_load($token, $allow_claimed = false) {
-        $oid = self::by_token($token, self::META_TOKEN);
-        $d = $oid ? self::data($oid) : null;
+        $d = self::by_token($token, 'token');
         if (!$d) return self::is_gone($token) ? self::err_expired() : self::err_unknown();
         $st = self::status($d);
         if ($st === 'expired') return self::err_expired();
         if ($st === 'claimed' && !$allow_claimed) return self::err_claimed();
-        return [$oid, $d];
+        return $d;
     }
 
-    /** Events der Vorschau im öffentlichen Format (Liste bzw. Detail), Verkauf aus. */
-    private static function public_event($eid, array $d, $detailed) {
-        $e = TIX_Public_Events::payload($eid, $detailed);
+    /** Event im öffentlichen Format (Liste bzw. Detail), Verkauf aus – nur mit eingehängtem Paket. */
+    private static function public_event($vid, array $d, $detailed) {
+        $e = TIX_Public_Events::payload($vid, $detailed);
         if (!$e) return null;
-        $e['url'] = self::link('public', $d['token']) . rawurlencode((string) get_post_field('post_name', $eid)) . '/';
+        foreach ($d['events'] as $ev) if (self::event_vid($d, $ev) === intval($vid)) { $e['key'] = $ev['key']; $e['slug'] = (string) $ev['slug']; }
+        $e['url'] = self::link('public', $d['token']) . rawurlencode((string) $e['slug']) . '/';
         $e['tickets_enabled'] = false;
         $e['preview'] = true;
         if ($detailed) $e['sale'] = ['enabled' => false, 'reason' => 'preview'];
@@ -1058,68 +1394,56 @@ class TIX_Sales_Previews {
 
     /** GET /public/previews/{token} */
     public static function rest_public(WP_REST_Request $req) {
-        $l = self::public_load((string) $req['token'], true);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::public_load((string) $req['token'], true);
+        if (is_wp_error($d)) return $d;
         if (self::status($d) === 'claimed') {
-            $slug = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($oid) : '';
-            $live = get_post_status($oid) === 'publish' && (!class_exists('TIX_Org_Approval') || TIX_Org_Approval::is_public($oid)) && !TIX_Sales::is_sandbox_organizer($oid);
-            return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'status' => 'taken_over', 'expires_at' => null, 'organizer' => null, 'events' => [],
+            $oid = intval($d['claimed_org']);
+            $slug = $oid && class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($oid) : '';
+            $live = $oid && get_post_status($oid) === 'publish' && (!class_exists('TIX_Org_Approval') || TIX_Org_Approval::is_public($oid)) && !TIX_Sales::is_sandbox_organizer($oid);
+            return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'status' => 'taken_over', 'expires_at' => null, 'template' => self::template_of($d), 'organizer' => null, 'events' => [],
                 'redirect' => ($live && $slug !== '') ? '/veranstalter/' . $slug : null]);
         }
-        self::$render = $oid;
-        try {
+        $out = self::with_mounted($d, function ($ovid, $ids) use ($d) {
             $events = [];
-            foreach (self::event_ids($oid) as $eid) if ($e = self::public_event($eid, $d, false)) $events[] = $e;
-            $org = TIX_Public_Platform::organizer_payload($oid, true, $events);
-        } finally {
-            self::$render = 0;
-        }
+            foreach (self::sorted_events($d) as $ev) if ($e = self::public_event(self::event_vid($d, $ev), $d, false)) $events[] = $e;
+            return [TIX_Public_Platform::organizer_payload($ovid, true, $events), $events];
+        });
+        list($org, $events) = $out;
         if (!$org) return self::err_unknown();
-        $org['logo'] = self::logo_url($oid) ?: ($org['logo'] ?? '');
-        $org['accent'] = self::accent($oid);
+        $org['logo'] = self::logo_of($d) ?: ($org['logo'] ?? '');
+        $org['accent'] = self::accent_of($d);
+        $org['template'] = self::template_of($d);
         $org['preview'] = true;
         $org['events'] = $events;
         $owner = get_userdata(intval($d['owner']));
-        return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'status' => 'active', 'expires_at' => self::iso($d['expires_at']),
+        return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'status' => 'active', 'expires_at' => self::iso($d['expires_at']), 'template' => self::template_of($d),
             'organizer' => $org, 'events' => $events, 'takeover_url' => self::claim_link($d['claim']),
             'contact' => ['name' => $owner ? (string) $owner->display_name : '', 'email' => $owner ? (string) $owner->user_email : '']]);
     }
 
-    /** GET /public/previews/{token}/events/{id|slug} */
+    /** GET /public/previews/{token}/events/{id|slug|key} */
     public static function rest_public_event(WP_REST_Request $req) {
-        $l = self::public_load((string) $req['token']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
-        $key = (string) $req['key'];
-        $hit = 0;
-        foreach (self::event_ids($oid) as $eid) {
-            if ((ctype_digit($key) && intval($key) === $eid) || (string) get_post_field('post_name', $eid) === $key) { $hit = $eid; break; }
-        }
-        if (!$hit) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
-        self::$render = $oid;
-        try {
-            $e = self::public_event($hit, $d, true);
-        } finally {
-            self::$render = 0;
-        }
+        $d = self::public_load((string) $req['token']);
+        if (is_wp_error($d)) return $d;
+        $i = self::find_event($d, (string) $req['key']);
+        if ($i < 0) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $vid = self::event_vid($d, $d['events'][$i]);
+        $e = self::with_mounted($d, function () use ($vid, $d) { return self::public_event($vid, $d, true); });
         if (!$e) return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
         return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'event' => $e]);
     }
 
-    /** POST /public/previews/{token}/seen {visit_id} → {ok, first} (30 min je Besuch, höchstens 60 je Stunde) */
+    /** POST /public/previews/{token}/seen {visit_id} → {ok, first, counted} (30 min je Besuch, höchstens 60 je Stunde) */
     public static function rest_seen(WP_REST_Request $req) {
-        $l = self::public_load((string) $req['token']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
+        $d = self::public_load((string) $req['token']);
+        if (is_wp_error($d)) return $d;
         $visit = substr(preg_replace('/[^A-Za-z0-9_.:-]/', '', (string) $req->get_param('visit_id')), 0, 64);
         if ($visit === '') return new WP_Error('tix_invalid_field', 'visit_id fehlt.', ['status' => 400, 'field' => 'visit_id']);
-        // Vertriebler bzw. Admin selbst zählen nicht
         $uid = get_current_user_id();
         if ($uid && ($uid === intval($d['owner']) || current_user_can('manage_options'))) return self::nostore(['ok' => true, 'first' => false, 'counted' => false]);
-        $vk = 'tix_pv_v_' . md5($oid . '|' . $visit);
+        $vk = 'tix_pv_v_' . md5($d['id'] . '|' . $visit);
         if (get_transient($vk)) return self::nostore(['ok' => true, 'first' => false, 'counted' => false]);
-        $hk = 'tix_pv_h_' . $oid . '_' . gmdate('YmdH');
+        $hk = 'tix_pv_h_' . $d['id'] . '_' . gmdate('YmdH');
         $n = intval(get_transient($hk));
         if ($n >= 60) return self::nostore(['ok' => true, 'first' => false, 'counted' => false]);
         set_transient($hk, $n + 1, HOUR_IN_SECONDS + 300);
@@ -1128,47 +1452,88 @@ class TIX_Sales_Previews {
         $d['views'] = intval($d['views'] ?? 0) + 1;
         $d['last_view_at'] = time();
         if ($first) $d['opened_at'] = time();
-        self::save($oid, $d);
-        if ($first) self::notify($oid, 'opened');
+        self::save($d);
+        if ($first) self::notify($d, 'opened');
         return self::nostore(['ok' => true, 'first' => $first, 'counted' => true]);
     }
 
     /** GET /public/previews/claim/{claim_token} → {ok, organizer{name,logo,accent}, events_count, customer_email|null, expires_at} */
     public static function rest_claim_info(WP_REST_Request $req) {
-        $oid = self::claim_target((string) $req['claim']);
-        if (is_wp_error($oid)) return $oid;
-        $d = self::data($oid);
-        return self::nostore(['ok' => true, 'organizer' => ['name' => (string) get_the_title($oid), 'logo' => self::logo_url($oid) ?: null, 'accent' => self::accent($oid)],
-            'events_count' => count(self::event_ids($oid)), 'customer_email' => (string) ($d['customer_email'] ?? '') ?: null, 'expires_at' => self::iso($d['expires_at'])]);
+        $d = self::claim_target((string) $req['claim'], true);
+        if (is_wp_error($d)) return $d;
+        return self::nostore(['ok' => true, 'organizer' => ['name' => (string) $d['name'], 'logo' => self::logo_of($d) ?: null, 'accent' => self::accent_of($d)],
+            'events_count' => count($d['events']), 'customer_email' => (string) ($d['customer_email'] ?? '') ?: null, 'expires_at' => self::iso($d['expires_at']), 'template' => self::template_of($d)]);
     }
 
-    // ═══════════════ Test-Ticket (1.38.512) ═══════════════
+    // ═══════════════ Test-Ticket (1.38.512, ab 1.38.514 an technischen Events) ═══════════════
+
+    /** Technischer Entwurf-Event für Test-Tickets eines Paket-Events (anlegen bzw. auffrischen) → ID */
+    private static function tech_event(array $d, array $ev) {
+        global $wpdb;
+        $tech = self::tech_org();
+        if (!$tech) return 0;
+        $ids = get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1,
+            'meta_query' => [['key' => self::META_PKG, 'value' => (string) $d['id']], ['key' => self::META_KEY, 'value' => $ev['key']]]]);
+        $meta = [];
+        foreach (['_tix_date_start', '_tix_date_end', '_tix_time_start', '_tix_time_end', '_tix_time_doors', '_tix_location', '_tix_address'] as $k) $meta[$k] = (string) ($ev['meta'][$k] ?? '');
+        if ($ids) {
+            $id = intval($ids[0]);
+            if (get_the_title($id) !== $ev['title']) wp_update_post(['ID' => $id, 'post_title' => $ev['title']]);
+            foreach ($meta as $k => $v) update_post_meta($id, $k, $v);
+            return $id;
+        }
+        $id = wp_insert_post(['post_type' => 'event', 'post_status' => 'draft', 'post_title' => (string) $ev['title'],
+            'meta_input' => $meta + ['_tix_organizer_id' => $tech, self::META_ITEM => '1', self::META_PKG => (string) $d['id'], self::META_KEY => $ev['key']]], true);
+        if (is_wp_error($id) || !$id) return 0;
+        $wpdb->update($wpdb->posts, ['post_author' => 0], ['ID' => intval($id)]);
+        clean_post_cache($id);
+        return intval($id);
+    }
+
+    private static function tech_events($pkg, $key = '') {
+        $mq = [['key' => self::META_PKG, 'value' => (string) intval($pkg)]];
+        if ($key !== '') $mq[] = ['key' => self::META_KEY, 'value' => (string) $key];
+        return array_map('intval', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1, 'meta_query' => $mq]));
+    }
+
+    /** Technische Events samt Test-Tickets und Bestellungen endgültig löschen → Anzahl Tickets */
+    private static function delete_tech_events($pkg, $key = '') {
+        $events = self::tech_events($pkg, $key);
+        if (!$events) return 0;
+        $n = self::delete_test_tickets($events);
+        foreach ($events as $eid) if (get_post_meta($eid, self::META_PKG, true) !== '') wp_delete_post($eid, true);
+        return $n;
+    }
 
     /** POST /public/previews/{token}/test-ticket {name?, event_id?} → 201 wie /public/demo-ticket, für das nächste Event der Vorschau */
     public static function rest_test_ticket(WP_REST_Request $req) {
-        $l = self::public_load((string) $req['token']);
-        if (is_wp_error($l)) return $l;
-        list($oid, $d) = $l;
-        $events = self::event_ids($oid);
-        $eid = absint($req->get_param('event_id'));
-        if ($eid && !in_array($eid, $events, true)) return new WP_Error('tix_preview_event', 'Dieses Event gehört nicht zur Vorschau.', ['status' => 404]);
-        if (!$eid) {
-            // nächstes Event (läuft noch bzw. kommt noch), sonst das erste
+        $d = self::public_load((string) $req['token']);
+        if (is_wp_error($d)) return $d;
+        $events = self::sorted_events($d);
+        $want = (string) ($req->get_param('event_id') ?? '');
+        $ev = null;
+        if ($want !== '' && $want !== '0') {
+            $i = self::find_event($d, $want);
+            if ($i < 0) return new WP_Error('tix_preview_event', 'Dieses Event gehört nicht zur Vorschau.', ['status' => 404]);
+            $ev = $d['events'][$i];
+        } else {
             $today = current_time('Y-m-d');
             foreach ($events as $e) {
-                $end = (string) (get_post_meta($e, '_tix_date_end', true) ?: get_post_meta($e, '_tix_date_start', true));
-                if ($end === '' || $end >= $today) { $eid = $e; break; }
+                $end = (string) (($e['meta']['_tix_date_end'] ?? '') ?: ($e['meta']['_tix_date_start'] ?? ''));
+                if ($end === '' || $end >= $today) { $ev = $e; break; }
             }
-            if (!$eid && $events) $eid = $events[0];
+            if (!$ev && $events) $ev = $events[0];
         }
-        if (!$eid) return new WP_Error('tix_preview_event', 'Die Vorschau hat noch kein Event.', ['status' => 404]);
+        if (!$ev) return new WP_Error('tix_preview_event', 'Die Vorschau hat noch kein Event.', ['status' => 404]);
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 60) ?: 'Test-Gast';
         if ($e = TIX_Demo::ticket_limit_error('preview_ticket')) return $e;
+        $eid = self::tech_event($d, $ev);
+        if (!$eid) return new WP_Error('tix_demo_failed', 'Das Test-Ticket konnte nicht erstellt werden.', ['status' => 500]);
         $parts = preg_split('/\s+/', $name, 2);
-        // Zahlart demo, Adresse *.invalid (keine Mail), kostenlos, ohne Kategorie (Bestand des Events bleibt unberührt)
+        // Zahlart demo, Adresse *.invalid (keine Mail), kostenlos, ohne Kategorie
         $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $parts[0], 'billing_last_name' => $parts[1] ?? '',
             'billing_email' => 'test-' . strtolower(wp_generate_password(8, false, false)) . '@demo.invalid', 'payment_method' => 'demo', 'total' => 0,
-            'items' => [['event_id' => $eid, 'cat_index' => -1, 'name' => 'Test-Ticket', 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => ['preview_test' => 1]]]]);
+            'items' => [['event_id' => $eid, 'cat_index' => -1, 'name' => 'Test-Ticket', 'event_title' => $ev['title'], 'price' => 0, 'qty' => 1, 'meta' => ['preview_test' => 1]]]]);
         if (!$order_id || is_wp_error($order_id)) return new WP_Error('tix_demo_failed', 'Das Test-Ticket konnte nicht erstellt werden.', ['status' => 500]);
         TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
         global $wpdb;
@@ -1180,22 +1545,26 @@ class TIX_Sales_Previews {
         update_post_meta($t[0]['id'], '_tix_ticket_cat_index', -1); // keine Kategorie des Events (Einlass zeigt sonst die erste)
         $p = TIX_Demo::ticket_payload(intval($t[0]['id']), $key);
         $view = $p['_view_url']; unset($p['_view_url']);
+        $p['event']['key'] = $ev['key'];
         return self::nostore(['ok' => true, 'demo' => true, 'preview' => true, 'ticket' => $p, 'view_url' => $view, 'expires_at' => self::iso($d['expires_at'])], 201);
     }
 
-    /** Vorschau-Event (noch nicht übernommen) → Ablauf der Vorschau (ISO) | null; für GET /public/demo-ticket/{code}. */
-    public static function test_ticket_expiry($event_id) {
-        $event_id = intval($event_id);
-        if (!$event_id || !get_post_meta($event_id, self::META_ITEM, true)) return null;
-        $d = self::data(intval(get_post_meta($event_id, '_tix_organizer_id', true)));
-        return $d && empty($d['claimed_at']) ? self::iso($d['expires_at']) : null;
+    /** Paket eines technischen Events (bzw. Altbestand) → Datensatz | null */
+    private static function pkg_of_event($event_id) {
+        $pkg = intval(get_post_meta(intval($event_id), self::META_PKG, true));
+        return $pkg ? self::get($pkg) : null;
     }
 
-    /** Einlass: Inhaber der Vorschau (Vertriebler) bzw. Admin darf Test-Tickets ihrer Events scannen. */
+    /** Test-Ticket-Event → Ablauf der Vorschau (ISO) | null; für GET /public/demo-ticket/{code}. */
+    public static function test_ticket_expiry($event_id) {
+        $d = self::pkg_of_event($event_id);
+        return $d && self::status($d) !== 'claimed' ? self::iso($d['expires_at']) : null;
+    }
+
+    /** Einlass: Inhaber der Vorschau (Vertriebler) bzw. Admin darf Test-Tickets scannen, solange die Vorschau läuft. */
     public static function can_checkin($event_id) {
-        $event_id = intval($event_id);
-        if (!$event_id || !is_user_logged_in() || !get_post_meta($event_id, self::META_ITEM, true)) return false;
-        $d = self::data(intval(get_post_meta($event_id, '_tix_organizer_id', true)));
+        if (!is_user_logged_in()) return false;
+        $d = self::pkg_of_event($event_id);
         if (!$d || self::status($d) !== 'active') return false;
         return current_user_can('manage_options') || intval($d['owner']) === get_current_user_id();
     }
@@ -1215,73 +1584,83 @@ class TIX_Sales_Previews {
 
     // ═══════════════ Übernehmen ═══════════════
 
-    /** Übernahme-Code → Veranstalter-ID | WP_Error (404 unbekannt, 410 abgelaufen, 409 übernommen) */
-    public static function claim_target($claim) {
+    /** Übernahme-Code → Paket | WP_Error (404 unbekannt, 410 abgelaufen, 409 übernommen); $full: Datensatz statt ID */
+    public static function claim_target($claim, $full = false) {
         if (!class_exists('TIX_Sales') || !TIX_Sales::multi()) return self::err_unknown();
-        $oid = self::by_token($claim, self::META_CLAIM);
-        $d = $oid ? self::data($oid) : null;
+        $d = self::by_token($claim, 'claim');
         if (!$d) return self::is_gone($claim) ? self::err_expired() : self::err_unknown();
         $st = self::status($d);
         if ($st === 'claimed') return self::err_claimed();
         if ($st === 'expired') return self::err_expired();
-        return $oid;
+        return $full ? $d : intval($d['id']);
+    }
+
+    /** Name für die Registrierung mit claim_token */
+    public static function claim_name($pkg) {
+        $d = self::get($pkg);
+        return $d ? (string) $d['name'] : '';
+    }
+
+    /** Anhang an den neuen Inhaber geben (kein Paket-Merkmal mehr). */
+    private static function hand_over_attachment($id, $uid, $parent) {
+        global $wpdb;
+        delete_post_meta($id, self::META_ITEM);
+        $wpdb->update($wpdb->posts, ['post_author' => intval($uid), 'post_parent' => intval($parent)], ['ID' => intval($id)]);
+        clean_post_cache($id);
     }
 
     /**
-     * Nach POST /register/organizer mit claim_token: Sandbox aufheben, Events (Entwürfe) und Bilder gehören dem neuen
-     * Inhaber, Vertriebler wird benachrichtigt. → Zahl der übernommenen Events
+     * Nach POST /register/organizer mit claim_token: Veranstalter (neu, pending) bekommt Marke, Vorlage und echte Event-Entwürfe
+     * aus dem Paket (alle Editor-Meta), Test-Tickets weg, Paket schrumpft auf den Auswertungs-Datensatz. → Zahl der Events
      */
-    public static function complete_claim($oid, $uid) {
-        global $wpdb;
-        $oid = intval($oid); $uid = intval($uid);
-        $d = self::data($oid);
-        if (!$d) return 0;
-        // Test-Tickets zuerst löschen (solange noch Sandbox – nichts davon zählt je in Statistik, Abrechnung oder Spiegel)
-        self::delete_test_tickets(self::event_ids($oid));
+    public static function complete_claim($pkg, $uid, $org_id = 0) {
+        $d = self::get($pkg);
+        if (!$d || !$org_id) return 0;
+        $uid = intval($uid); $org_id = intval($org_id);
+        $o = $d['organizer'];
+        $logo = intval($o['logo_id'] ?? 0);
+        if ($logo && get_post_type($logo) === 'attachment') { self::hand_over_attachment($logo, $uid, $org_id); update_post_meta($org_id, self::META_LOGO, $logo); }
+        if (self::hex($o['accent'] ?? '')) update_post_meta($org_id, self::META_ACCENT, self::hex($o['accent']));
+        foreach (['short_desc' => '_tix_org_short_desc', 'city' => '_tix_org_city'] as $k => $mk) if ((string) ($o[$k] ?? '') !== '') update_post_meta($org_id, $mk, (string) $o[$k]);
+        if (!empty($o['social']) && is_array($o['social'])) update_post_meta($org_id, '_tix_org_landing_social', $o['social']);
+        // Website-Vorlage für die spätere Website-Einstellung (Phase 3 des Website-Plans)
+        update_post_meta($org_id, self::META_TEMPLATE, self::template_of($d));
+        $made = 0;
+        foreach (self::sorted_events($d) as $ev) {
+            $eid = wp_insert_post(['post_type' => 'event', 'post_status' => 'draft', 'post_title' => (string) $ev['title'], 'post_excerpt' => (string) ($ev['excerpt'] ?? ''),
+                'post_name' => (string) $ev['slug'], 'post_author' => $uid,
+                'meta_input' => ['_tix_organizer_id' => $org_id, '_tix_organizer' => (string) get_the_title($org_id)]], true);
+            if (is_wp_error($eid) || !$eid) continue;
+            foreach ((array) $ev['meta'] as $k => $v) if (self::capturable($k)) update_post_meta($eid, $k, wp_slash($v));
+            $img = intval($ev['image_id'] ?? 0);
+            if ($img && get_post_type($img) === 'attachment') { self::hand_over_attachment($img, $uid, $eid); set_post_thumbnail($eid, $img); }
+            if (!empty($ev['term_id'])) wp_set_object_terms($eid, [intval($ev['term_id'])], 'event_category');
+            if (class_exists('TIX_App_Events')) TIX_App_Events::resolve_status($eid);
+            if (class_exists('TIX_Sync')) { $c = get_post_meta($eid, '_tix_ticket_categories', true); TIX_Sync::save_breakdance_meta($eid, is_array($c) ? $c : []); }
+            $made++;
+        }
+        self::delete_tech_events($d['id']);
+        foreach (self::pkg_attachments($d['id']) as $aid) wp_delete_attachment($aid, true);
         $d['claimed_at'] = time();
         $d['claimed_by'] = $uid;
-        self::save($oid, $d);
-        delete_post_meta($oid, TIX_Sales::META_PREVIEW);
-        TIX_Sales::flush();
-        $events = self::event_ids($oid);
-        foreach ($events as $eid) {
-            delete_post_meta($eid, self::META_ITEM);
-            $wpdb->update($wpdb->posts, ['post_author' => $uid], ['ID' => $eid]);
-            clean_post_cache($eid);
-        }
-        foreach (self::attachments($oid, $events) as $aid) {
-            delete_post_meta($aid, self::META_ITEM);
-            $wpdb->update($wpdb->posts, ['post_author' => $uid], ['ID' => $aid]);
-            clean_post_cache($aid);
-        }
+        $d['claimed_org'] = $org_id;
+        $d['claimed_events'] = $made;
+        $d['events'] = [];
+        $d['organizer'] = ['name' => $d['name']];
+        self::save($d);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
-        self::notify($oid, 'claimed');
-        return count($events);
+        self::notify($d, 'claimed');
+        return $made;
     }
 
     // ═══════════════ Ablauf ═══════════════
 
-    /** Bilder der Vorschau (Meta _tix_preview, am Veranstalter oder an seinen Events). */
-    private static function attachments($oid, array $events) {
-        $parents = array_merge([intval($oid)], array_map('intval', $events));
-        return array_map('intval', get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
-            'post_parent__in' => $parents, 'meta_query' => [['key' => self::META_ITEM, 'compare' => 'EXISTS']]]));
-    }
-
-    private static function delete_event($eid) {
-        if (!get_post_meta($eid, self::META_ITEM, true)) return; // nie echte Events
-        self::delete_test_tickets([$eid]);
-        foreach (self::attachments(0, [$eid]) as $aid) wp_delete_attachment($aid, true);
-        wp_delete_post($eid, true);
-    }
-
-    /** Vorschau samt Events und Bildern löschen; $expired: Link antwortet noch 30 Tage mit 410. */
-    private static function destroy($oid, $expired) {
-        $d = self::data($oid);
-        if (!$d || !empty($d['claimed_at']) || !get_post_meta($oid, TIX_Sales::META_PREVIEW, true)) return false;
-        $events = self::event_ids($oid);
-        foreach (self::attachments($oid, []) as $aid) wp_delete_attachment($aid, true);
-        foreach ($events as $eid) self::delete_event($eid);
+    /** Paket samt Bildern und technischen Events löschen; $expired: Link antwortet noch 30 Tage mit 410. */
+    private static function destroy(array $d, $expired) {
+        global $wpdb;
+        if (!empty($d['claimed_at'])) return false;
+        self::delete_tech_events($d['id']);
+        foreach (self::pkg_attachments($d['id']) as $aid) wp_delete_attachment($aid, true);
         $owner = intval($d['owner']);
         if ($owner && get_userdata($owner)) {
             $arch = get_user_meta($owner, self::META_ARCHIVE, true);
@@ -1290,26 +1669,105 @@ class TIX_Sales_Previews {
             update_user_meta($owner, self::META_ARCHIVE, array_slice($arch, -1000));
         }
         if ($expired) self::mark_gone([$d['token'], $d['claim']]);
-        wp_delete_post($oid, true);
-        TIX_Sales::flush();
-        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        $wpdb->delete(self::table(), ['id' => intval($d['id'])]);
         return true;
     }
 
-    /** Stündlich: abgelaufene, nicht übernommene Vorschauen löschen. → Anzahl */
+    /** Stündlich: abgelaufene, nicht übernommene Pakete löschen, liegengebliebene Arbeits-Entwürfe entfernen. → Anzahl */
     public static function expire() {
-        if (!class_exists('TIX_Sales') || !TIX_Sales::multi()) return 0;
+        global $wpdb;
+        if (!class_exists('TIX_Sales') || !TIX_Sales::multi() || !self::table_ready()) return 0;
         $n = 0;
-        $ids = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => 200, 'fields' => 'ids', 'suppress_filters' => true,
-            'meta_query' => [['key' => TIX_Sales::META_PREVIEW, 'compare' => 'EXISTS']]]);
-        foreach ($ids as $oid) {
-            $d = self::data($oid);
-            if (!$d || self::status($d) !== 'expired') continue;
-            if (self::destroy($oid, true)) $n++;
+        foreach ((array) $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . self::table() . ' WHERE claimed_at = 0 AND expires_at <= %d LIMIT 200', time())) as $row) {
+            if (self::destroy(self::hydrate($row), true)) $n++;
         }
-        // abgelaufene Token-Hashes (älter als 30 Tage) aufräumen
+        foreach (get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 50, 'fields' => 'ids', 'suppress_filters' => true, 'tix_include_sandbox' => 1,
+            'meta_query' => [['key' => self::META_SCRATCH, 'value' => time() - HOUR_IN_SECONDS, 'compare' => '<', 'type' => 'NUMERIC']]]) as $sid) wp_delete_post($sid, true);
         update_option(self::OPT_GONE, self::gone_list(), false);
         return $n;
+    }
+
+    // ═══════════════ Migration der Vorschau-Posts (1.38.510–513) in Pakete ═══════════════
+
+    /** Einmalig: Vorschau-Veranstalter (Posts) → Pakete; übernommene → Auswertungs-Datensätze. → Bericht */
+    public static function migrate($dry = false) {
+        global $wpdb;
+        if (!self::table_ready()) self::install();
+        $rep = ['at' => current_time('mysql'), 'dry_run' => (bool) $dry, 'converted' => [], 'claimed' => [], 'skipped' => [], 'deleted_posts' => 0, 'deleted_tickets' => 0];
+        $orgs = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+            'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]]);
+        foreach (array_map('intval', $orgs) as $oid) {
+            $old = get_post_meta($oid, '_tix_preview_data', true);
+            if (!is_array($old) || empty($old['token']) || self::by_token($old['token'], 'token')) { $rep['skipped'][] = $oid; continue; }
+            $base = ['token' => (string) $old['token'], 'claim' => (string) $old['claim'], 'owner' => intval($old['owner']), 'name' => (string) get_the_title($oid),
+                'created_at' => intval($old['created_at']), 'expires_at' => intval($old['expires_at']), 'opened_at' => intval($old['opened_at'] ?? 0),
+                'claimed_at' => intval($old['claimed_at'] ?? 0), 'claimed_org' => 0, 'extended' => !empty($old['extended']), 'views' => intval($old['views'] ?? 0),
+                'last_view_at' => intval($old['last_view_at'] ?? 0), 'claimed_by' => intval($old['claimed_by'] ?? 0), 'template' => 'club',
+                'source_url' => (string) ($old['source_url'] ?? ''), 'read_mode' => (string) ($old['read_mode'] ?? 'direct'), 'notice' => $old['notice'] ?? null,
+                'customer_email' => (string) ($old['customer_email'] ?? ''), 'note' => (string) ($old['note'] ?? ''), 'migrated_from' => $oid];
+            $events = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+                'tix_include_sandbox' => 1, 'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid]]]));
+            $claimed = !empty($old['claimed_at']) || !get_post_meta($oid, TIX_Sales::META_PREVIEW, true);
+            if ($claimed) {
+                // übernommen: Veranstalter bleibt, nur der Auswertungs-Datensatz zieht um
+                $rep['claimed'][] = ['org' => $oid, 'token' => substr($base['token'], 0, 8) . '…'];
+                if ($dry) continue;
+                $id = self::insert(array_merge($base, ['status' => 'claimed', 'claimed_org' => $oid, 'claimed_at' => $base['claimed_at'] ?: time(), 'claimed_events' => count($events), 'organizer' => ['name' => $base['name']], 'events' => []]));
+                if ($id) foreach (['_tix_preview_data', '_tix_preview_token', '_tix_preview_claim', '_tix_preview_owner'] as $k) delete_post_meta($oid, $k);
+                continue;
+            }
+            $rep['converted'][] = ['org' => $oid, 'events' => count($events), 'token' => substr($base['token'], 0, 8) . '…'];
+            if ($dry) continue;
+            $d = array_merge($base, ['status' => 'active', 'organizer' => ['name' => $base['name'], 'logo_id' => intval(get_post_meta($oid, self::META_LOGO, true)), 'accent' => (string) get_post_meta($oid, self::META_ACCENT, true)], 'events' => []]);
+            $d['id'] = self::insert($d);
+            if (!$d['id']) { $rep['skipped'][] = $oid; continue; }
+            if ($d['organizer']['logo_id']) self::own_attachment($d['organizer']['logo_id'], $d['id']);
+            foreach ($events as $eid) {
+                $p = get_post($eid);
+                $meta = [];
+                foreach ((array) get_post_meta($eid) as $k => $vals) if (self::capturable($k) && isset($vals[0])) $meta[$k] = maybe_unserialize($vals[0]);
+                $terms = wp_get_object_terms($eid, 'event_category', ['fields' => 'ids']);
+                $ev = self::new_event($d, (string) $p->post_title);
+                $ev['excerpt'] = (string) $p->post_excerpt;
+                $ev['slug'] = (string) $p->post_name !== '' ? self::unique_slug($d, (string) $p->post_name) : $ev['slug'];
+                $ev['meta'] = $meta;
+                $ev['term_id'] = (!is_wp_error($terms) && $terms) ? intval($terms[0]) : 0;
+                $thumb = intval(get_post_thumbnail_id($eid));
+                if ($thumb) { self::own_attachment($thumb, $d['id']); $ev['image_id'] = $thumb; }
+                $d['events'][] = $ev;
+            }
+            self::save($d);
+            // Test-Tickets (es sind Tests) und die alten Posts endgültig löschen; Bilder gehören jetzt dem Paket
+            $rep['deleted_tickets'] += self::delete_test_tickets($events);
+            foreach ($events as $eid) { delete_post_meta($eid, '_thumbnail_id'); wp_delete_post($eid, true); $rep['deleted_posts']++; }
+            wp_delete_post($oid, true);
+            $rep['deleted_posts']++;
+        }
+        if (!$dry) {
+            TIX_Sales::flush();
+            if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+            update_option(self::OPT_MIG, current_time('mysql'), false);
+            update_option(self::OPT_MIG_REPORT, $rep, false);
+        }
+        return $rep;
+    }
+
+    /**
+     * WP-CLI: wp tixomat previews migrate [--dry-run] | report
+     */
+    public static function cli($args, $assoc) {
+        $cmd = $args[0] ?? 'report';
+        if ($cmd === 'migrate') {
+            $dry = !empty($assoc['dry-run']);
+            if (!$dry && get_option(self::OPT_MIG)) { WP_CLI::log('Schon migriert: ' . get_option(self::OPT_MIG)); WP_CLI::log(wp_json_encode(get_option(self::OPT_MIG_REPORT), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); return; }
+            WP_CLI::log(wp_json_encode(self::migrate($dry), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            return;
+        }
+        global $wpdb;
+        $n = self::table_ready() ? intval($wpdb->get_var('SELECT COUNT(*) FROM ' . self::table())) : 0;
+        WP_CLI::log(wp_json_encode(['migrated_at' => get_option(self::OPT_MIG) ?: null, 'report' => get_option(self::OPT_MIG_REPORT) ?: null, 'packages' => $n,
+            'old_preview_posts' => count(get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true,
+                'meta_query' => [['key' => '_tix_preview_data', 'compare' => 'EXISTS']]]))], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 }
 

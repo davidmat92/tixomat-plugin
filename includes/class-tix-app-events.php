@@ -202,6 +202,30 @@ class TIX_App_Events {
         ]);
     }
 
+    /**
+     * Antwort von GET /events/{id}/edit ohne Rechteprüfung – für das Vorschau-Paket des Vertriebs (1.38.514, TIX_Sales_Previews),
+     * damit dort genau dieselben Editor-Felder gelten.
+     */
+    public static function edit_response($id) {
+        $id = intval($id);
+        return [
+            'ok'               => true,
+            'locations'        => self::locations(intval(get_post_meta($id, '_tix_location_id', true))),
+            'event_categories' => self::event_categories(),
+            'info_sections'    => self::info_sections(),
+            'event'            => self::edit_payload($id),
+        ];
+    }
+
+    /**
+     * Felder wie POST /events/{id} auf ein Event anwenden (ohne Rechteprüfung) – für das Vorschau-Paket (1.38.514): neue
+     * Editor-Felder gelten dort automatisch. → true | WP_Error
+     */
+    public static function apply_body($post_id, array $body, $is_new = false) {
+        $r = self::apply(intval($post_id), $body, (bool) $is_new);
+        return is_wp_error($r) ? $r : true;
+    }
+
     /** Editierbare Daten; $id = 0 liefert die Vorlage für ein neues Event. */
     private static function edit_payload($id) {
         $m = fn($key, $default = '') => $id ? (string) (get_post_meta($id, $key, true) ?: $default) : $default;
