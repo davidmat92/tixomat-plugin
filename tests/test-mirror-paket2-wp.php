@@ -546,6 +546,25 @@ t2_eq('Abgleich entfernt bereits gespiegeltes Demo-Event', null, m2_one('events'
 t2_eq('Abgleich zählt Sandbox nicht als fehlend', 0, (int) ($rep['tables']['orders']['missing'] ?? 0) + (int) ($rep['tables']['tickets']['missing'] ?? 0));
 $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
 t2_true('Vergleich: Sandbox ausgenommen und gleich', strpos($vout, 'Sandbox (Demo/Vorschau') !== false && strpos($vout, 'alles gleich und sauber') !== false);
+// Abgelaufene Vorschau: Veranstalter gelöscht, Event im Papierkorb, nur noch Meta _tix_preview am Event (Fund evendis #1406)
+$gone_org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "Vorschau weg $sfx"]);
+$pev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Vorschau-Event $sfx"]);
+$posts[] = $pev;
+update_post_meta($pev, '_tix_organizer_id', $gone_org);
+update_post_meta($pev, '_tix_preview', '1');
+wp_delete_post($gone_org, true);
+wp_trash_post($pev);
+$sb_reset();
+m2_run();
+t2_eq('Vorschau-Event ohne Veranstalter nicht gespiegelt', null, m2_one('events', $pev));
+$rep = m2_reconcile(); m2_run(2);
+t2_eq('Abgleich holt das Vorschau-Event nicht nach', null, m2_one('events', $pev));
+TIX_Mirror_Client::upsert('events', [['site' => $site, 'id' => $pev, 'title' => 'alt', 'status' => 'trash']]);
+$sb_reset(); $rep = m2_reconcile(); m2_run(2);
+t2_eq('Abgleich entfernt ein bereits gespiegeltes Vorschau-Event', null, m2_one('events', $pev));
+$vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+t2_true('Vergleich nimmt das Vorschau-Event aus', strpos($vout, 'alles gleich und sauber') !== false);
+
 // Übernommene Vorschau: keine Sandbox mehr → kommt in den Spiegel
 $sb_on = []; $sb_reset();
 TIX_Mirror::touch('organizer', $demo); TIX_Mirror::touch('event', $dev);

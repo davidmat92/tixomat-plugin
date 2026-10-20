@@ -2608,6 +2608,7 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Übernommene Vorschauen sind keine Sandbox mehr und kommen normal in den Spiegel. Der Sandbox-Stand wird je Cron-Lauf neu bestimmt.
   - `vergleich-wp.php` zählt Sandbox nicht mit. `datenschutz-scan.sql` meldet Sandbox-Spuren.
   - Zweite Sicherung: Bestellungen mit Zahlart `demo` und Gutscheine mit `demo` = 1 gelten immer als Sandbox.
+  - Vorschau-Events erkennt der Spiegel auch an ihrer eigenen Meta `_tix_preview` bzw. `_tix_preview_scratch`, selbst wenn der Vorschau-Veranstalter schon gelöscht ist (abgelaufene Vorschau, Event im Papierkorb). Beim Übernehmen fällt die Meta weg.
   - Getestet mit dem echten `TIX_Sales` (1.38.508, `wp tixomat demo reset`): Vom Demo Club kommt nichts im Spiegel an.
 - **Löschungen gebündelt:** Lösch-Operationen `{site, <spalte>=eq.<wert>}` einer Runde gehen je Tabelle und Spalte als ein Aufruf mit `in.(…)` raus, in Paketen à 100. Ein Demo-Reset mit 20 Bestellungen braucht so 7 statt 124 Aufrufe.
 - **Nicht gespiegelt: Support-Anfragen** (`tix_support_ticket`, Nachrichten, `_tix_sp_*`). Sie können Freitext mit IBAN, Gesundheits- oder Zahlungsdaten enthalten. Die Auszahlungs-Anfrage beim Konto-Löschen (1.38.499, `_tix_sp_retain_until`, `_tix_sp_wallet_payout`) behält ihre Frist nur in WordPress; `mirror_forget` kollidiert damit nicht.

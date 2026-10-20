@@ -82,11 +82,17 @@ class TIX_Mirror_Map {
         return self::$sandbox_orgs[$oid];
     }
 
-    /** Event eines Sandbox-Veranstalters (maßgeblich ist der Haupt-Veranstalter). */
+    /**
+     * Event der Live-Demo: Vorschau-Event (Meta _tix_preview bzw. _tix_preview_scratch, bleibt auch nach dem Löschen des
+     * Vorschau-Veranstalters am Event, fällt beim Übernehmen weg) oder Event eines Sandbox-Veranstalters (Haupt-Veranstalter).
+     */
     public static function is_sandbox_event($eid) {
         $eid = (int) $eid;
         if ($eid <= 0) return false;
-        if (!isset(self::$sandbox_events[$eid])) self::$sandbox_events[$eid] = self::is_sandbox_org((int) get_post_meta($eid, '_tix_organizer_id', true));
+        if (!isset(self::$sandbox_events[$eid])) {
+            self::$sandbox_events[$eid] = (bool) get_post_meta($eid, '_tix_preview', true) || (bool) get_post_meta($eid, '_tix_preview_scratch', true)
+                || self::is_sandbox_org((int) get_post_meta($eid, '_tix_organizer_id', true));
+        }
         return self::$sandbox_events[$eid];
     }
 

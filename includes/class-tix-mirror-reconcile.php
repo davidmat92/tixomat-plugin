@@ -184,7 +184,9 @@ class TIX_Mirror_Reconcile {
         if (self::$any_sandbox === null) {
             global $wpdb;
             self::$any_sandbox = false;
-            foreach ((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft'") as $oid) {
+            // Vorschau-Events tragen die Markierung selbst (auch wenn ihr Veranstalter schon gelöscht ist)
+            if ($wpdb->get_var("SELECT 1 FROM {$wpdb->postmeta} WHERE meta_key IN ('_tix_preview', '_tix_preview_scratch') LIMIT 1")) self::$any_sandbox = true;
+            foreach (self::$any_sandbox ? [] : (array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft'") as $oid) {
                 if (TIX_Mirror_Map::is_sandbox_org((int) $oid)) { self::$any_sandbox = true; break; }
             }
         }

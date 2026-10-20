@@ -42,7 +42,7 @@ if (class_exists('TIX_Mirror_Reconcile') && method_exists('TIX_Mirror_Reconcile'
     foreach ((array) $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft'") as $o) if (TIX_Mirror_Map::is_sandbox_org((int) $o)) $sbo[] = (int) $o;
 }
 $event_ids = array_map('intval', $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'event' AND post_status <> 'auto-draft'"));
-if ($sbo) {
+if ($sbo || (class_exists('TIX_Mirror_Reconcile') && method_exists('TIX_Mirror_Reconcile', 'any_sandbox') && TIX_Mirror_Reconcile::any_sandbox())) {
     $sbe = array_values(array_filter($event_ids, function ($e) { return TIX_Mirror_Map::is_sandbox_event($e); }));
     $event_ids = array_values(array_diff($event_ids, $sbe));
     echo "Sandbox (Demo/Vorschau, nie im Spiegel): " . count($sbo) . " Veranstalter, " . count($sbe) . " Events – nicht mitgezählt\n";
