@@ -15,6 +15,7 @@
  *   suche        → /suche/*             (Suche)
  *   start_p      → / mit ?p=…           (Startseite mit Parameter p)
  *   kasse        → /app/kasse/*         (App-Kasse eines Events, Gutscheine nur in der App, seit 1.38.431)
+ *   kuenstler    → /kuenstler/*         (Künstler-Seiten, seit 1.38.518; im Mehr-Veranstalter-Modus automatisch mit „veranstalter“)
  * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser).
  * Beispiel evendis: wp option update tix_app_link_paths '["events","veranstalter","suche","start_p"]' --format=json
  *          KitchenKlub: wp option update tix_app_link_paths '["events"]' --format=json
@@ -36,6 +37,7 @@ class TIX_App_Links {
         'suche'        => ['/' => '/suche/*',        'comment' => 'Suche'],
         'start_p'      => ['/' => '/', '?' => ['p' => '?*'], 'comment' => 'Startseite mit Parameter p'],
         'kasse'        => ['/' => '/app/kasse/*',    'comment' => 'App-Kasse eines Events (Gutscheine nur in der App, seit 1.38.431)'],
+        'kuenstler'    => ['/' => '/kuenstler/*',    'comment' => 'Künstler-Seiten'],
     ];
 
     /** Eingestellte Pfad-Bausteine (nur bekannte). */
@@ -47,6 +49,8 @@ class TIX_App_Links {
             $k = sanitize_key((string) $k);
             if (isset(self::PATH_PRESETS[$k])) $out[] = $k;
         }
+        // Künstler-Seiten (1.38.518, nur evendis): automatisch mit den Veranstalter-Seiten
+        if (in_array('veranstalter', $out, true) && class_exists('TIX_Artists') && TIX_Artists::multi()) $out[] = 'kuenstler';
         return array_values(array_unique($out));
     }
 

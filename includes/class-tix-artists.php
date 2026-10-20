@@ -339,6 +339,8 @@ class TIX_Artists {
             $mb = intval($d['managed_by']['id'] ?? 0);
             $by = intval($r['by_organizer'] ?? 0) ?: $oid;
             self::log($aid, 'assigned', ['event' => intval($event_id), 'organizer' => $by]);
+            // Follower (Paket 5, TIX_Artist_Follow): neuer Termin / Zusatztermin
+            if (($d['status'] ?? '') === 'public') do_action('tix_artist_event_added', $aid, intval($event_id));
             if (($d['managed_by']['type'] ?? '') === 'organizer' && $mb && $mb !== $by) {
                 self::tell_org($mb, 'Neuer Termin bei ' . get_the_title($aid), get_the_title($by) . ' hat „' . get_the_title($event_id) . '“ (' . get_post_meta($event_id, '_tix_date_start', true) . ') zugeordnet.', 'artist:' . $aid);
             }
@@ -674,6 +676,8 @@ class TIX_Artists {
     /** GET /public/artists/{slug}[/tours/{tour}]?city=&month=&near=&radius=&tour= */
     public static function rest_public_detail(WP_REST_Request $req) {
         $slug = (string) $req['slug'];
+        // auch per ID (App-Mitteilungen, 1.38.518) – Antwort wie per Slug
+        if (ctype_digit($slug) && get_post_type(intval($slug)) === self::CPT) $slug = (string) get_post_field('post_name', intval($slug));
         $p = get_page_by_path($slug, OBJECT, self::CPT);
         if (!$p || $p->post_status !== 'publish') {
             // alter Slug eines zusammengeführten Künstlers
