@@ -195,7 +195,7 @@ class TIX_Mirror_Map {
                     ['delete', 'ticket_categories', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]],
                     ['delete', 'guests', ['site' => 'eq.' . $site, 'event_id' => 'eq.' . $id]]];
         }
-        $m = self::post_meta($id, ['_tix_ticket_categories', '_tix_guests']);
+        $m = self::post_meta($id, ['_tix_ticket_categories', '_tix_guests', '_tix_artist_ref']); // _tix_artist_ref: abgeleiteter Index, vollständig in _tix_artists
         $g = function ($k) use ($id) { return get_post_meta($id, $k, true); };
         $date = (string) $g('_tix_date_start');
         $starts = null;

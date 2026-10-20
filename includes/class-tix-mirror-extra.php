@@ -34,6 +34,7 @@ class TIX_Mirror_Extra {
             case 'invoice':         return self::plan_invoice($site, (int) $id);
             case 'invoice_counters':return self::plan_invoice_counters($site);
             case 'audit':           return self::plan_audit($site, (int) $id);
+            case 'artist':          return self::plan_artist($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -406,6 +407,38 @@ class TIX_Mirror_Extra {
         $wpdb->suppress_errors($prev);
         if (!$rows) return [];
         return [['upsert', 'invoice_counters', array_map(function ($c) use ($site) { return self::counter_row($site, $c); }, $rows)]];
+    }
+
+    // ═══════════════ Künstler (1.38.517, nur evendis) ═══════════════
+
+    private static function plan_artist($site, $id) {
+        $p = get_post($id);
+        if (!$p || $p->post_type !== 'tix_artist' || $p->post_status === 'auto-draft') return [self::del('artists', $site, $id)];
+        $a = get_post_meta($id, '_tix_artist', true);
+        $a = is_array($a) ? $a : [];
+        $mb = is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+        // Künstler eines Sandbox-Veranstalters (Demo Club/Vorschau) nie spiegeln
+        if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) return [self::del('artists', $site, $id)];
+        $ids = is_array($a['ids'] ?? null) ? $a['ids'] : [];
+        $data = array_filter($a, function ($k) { return !TIX_Mirror_Map::is_sensitive($k); }, ARRAY_FILTER_USE_KEY);
+        return [['upsert', 'artists', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => $id,
+            'name'            => html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'),
+            'slug'            => (string) $p->post_name,
+            'post_status'     => (string) $p->post_status,
+            'status'          => (string) ($a['status'] ?? ''),
+            'kind'            => (string) ($a['kind'] ?? ''),
+            'verified'        => !empty($a['verified']),
+            'managed_by_type' => (string) ($mb['type'] ?? ''),
+            'managed_by_id'   => self::idn($mb['id'] ?? 0),
+            'duplicate_of'    => self::idn($a['duplicate_of'] ?? 0),
+            'merged_into'     => self::idn(get_post_meta($id, '_tix_artist_merged_into', true)),
+            'spotify_id'      => (string) ($ids['spotify'] ?? ''),
+            'apple_id'        => (string) ($ids['apple'] ?? ''),
+            'created_at'      => self::local_iso($p->post_date),
+            'modified_at'     => self::local_iso($p->post_modified),
+            'data'            => (object) $data,    // Profil; ohne _tix_artist_log (Nutzer-IDs, Gründe)
+        ])]]];
     }
 
     // ═══════════════ Team-Protokoll (1.38.494) ═══════════════

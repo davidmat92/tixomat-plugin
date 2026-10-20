@@ -20,7 +20,7 @@ class TIX_Mirror_Backfill {
     const CHUNK    = 500;   // IDs je Schritt
     const MAX_OUT  = 3000;  // höchstens so viele offene Einträge, sonst warten
     // Neue Schritte nur hinten anhängen: Seiten mit fertiger Erstbefüllung holen dann nur die neuen nach.
-    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item', 'invoice', 'invoice_counters', 'audit'];
+    const STEPS    = ['site', 'event', 'customer', 'order', 'ticket', 'organizer', 'coupons', 'wallet', 'wallet_tx', 'settlement', 'settlement_item', 'invoice', 'invoice_counters', 'audit', 'artist'];
 
     public static function init() {
         // Nichts zu registrieren: step() läuft in TIX_Mirror::cron_run().
@@ -116,8 +116,10 @@ class TIX_Mirror_Backfill {
             case 'invoice_counters':
                 return $after > 0 ? [] : [1];
             case 'organizer':
+            case 'artist':
                 return array_map('intval', $wpdb->get_col($wpdb->prepare(
-                    "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_organizer' AND post_status <> 'auto-draft' AND ID > %d ORDER BY ID LIMIT %d",
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_status <> 'auto-draft' AND ID > %d ORDER BY ID LIMIT %d",
+                    $entity === 'artist' ? 'tix_artist' : 'tix_organizer',
                     $after, self::CHUNK
                 )));
             case 'wallet':

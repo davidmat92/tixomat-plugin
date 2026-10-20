@@ -22,7 +22,8 @@ if (!defined('ABSPATH')) exit;
 class TIX_Mirror_Hooks {
 
     /** Post-Meta, die keinen Spiegel-Eintrag wert ist (Sperren, Zähler). */
-    const IGNORE_POST_META = ['_edit_lock', '_edit_last', '_wp_old_slug', '_wp_old_date', '_tix_ticket_shared_count', '_tix_last_sync_time', '_tix_last_sync_log'];
+    const IGNORE_POST_META = ['_edit_lock', '_edit_last', '_wp_old_slug', '_wp_old_date', '_tix_ticket_shared_count', '_tix_last_sync_time', '_tix_last_sync_log',
+                              '_tix_artist_log', '_tix_artist_norm', '_tix_artist_spotify', '_tix_artist_apple']; // Künstler: Protokoll/abgeleitete Suchschlüssel
 
     /** Optionen je Bestellung: Präfix vor "_{id}". */
     const ORDER_OPTIONS = '/^_tix_(order_coupon|order_fees|order_campaign|order_group_data|order_newsletter|order_partner|pos_order|refund|refund_total|mollie_payment|paypal_order|paypal_capture|stripe_session|stripe_method|stripe_pi)_(\d+)$/';
@@ -69,6 +70,7 @@ class TIX_Mirror_Hooks {
         if ($type === 'event') return 'event';
         if ($type === 'tix_ticket') return 'ticket';
         if ($type === 'tix_organizer') return 'organizer';
+        if ($type === 'tix_artist') return 'artist'; // Künstler (1.38.517)
         return '';
     }
 

@@ -83,6 +83,10 @@ $wp = [
     'settlement_items'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_settlement_items WHERE organizer_id NOT IN ($in_o)"),
     'invoices'            => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoices WHERE organizer_id NOT IN ($in_o) AND order_id NOT IN ($sb_orders)"),
     'invoice_counters'    => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_invoice_counters"),
+    'artists'             => count(array_filter(array_map('intval', $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'tix_artist' AND post_status <> 'auto-draft'")), function ($id) {
+        $a = get_post_meta($id, '_tix_artist', true); $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+        return !(($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0));
+    })),
     'audit_log'           => $q("SELECT COUNT(*) FROM {$wpdb->prefix}tix_audit_log" . ($sbo ? " WHERE scope NOT REGEXP ':(" . implode('|', array_map('intval', $sbo)) . ")$'" : '')),
     'checkins'            => null, // nur im Spiegel (Verlauf ab Einrichtung)
     'refunds'             => null, // nur im Spiegel (Verlauf ab Einrichtung)
@@ -159,7 +163,7 @@ $key_ok  = ['idempotency_key', 'issuer_key']; // Spalten, keine Geheimnisse
 $hash_re = '/"\$(P|H|wp|2y|2a|2b|argon2id?|scrypt|[156])\$/';
 $iban_re = '/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b/';
 foreach (['customers', 'organizers', 'orders', 'order_items', 'payments', 'tickets', 'events', 'guests', 'loyalty', 'coupons',
-          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'audit_log', 'checkins', 'refunds', 'change_log'] as $table) {
+          'wallets', 'wallet_transactions', 'settlements', 'settlement_items', 'invoices', 'audit_log', 'artists', 'checkins', 'refunds', 'change_log'] as $table) {
     $hits = []; $rows = 0; $err = '';
     for ($offset = 0; ; $offset += 1000) {
         $r = TIX_Mirror_Client::select($table, ['site' => 'eq.' . $site, 'order' => $table === 'change_log' ? 'id.asc' : 'id.asc', 'limit' => '1000', 'offset' => (string) $offset]);

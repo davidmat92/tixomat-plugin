@@ -2590,6 +2590,10 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Kommt ein Gutschein anonymisiert an (`…@removed.invalid`), wird sein älterer Verlauf getilgt.
   - Das Anonymisieren in WordPress selbst (Vorschlag an den Plugin-Chat) gehört in `TIX_Account_Delete`.
   - `vergleich-wp.php` und `datenschutz-scan.sql` melden „Gutscheine mit Empfänger-Adresse trotz gelöschtem Käufer“. Migration `20261017150000_mirror_coupon_privacy.sql`.
+- **Künstler (1.38.517, nur evendis):** Tabelle `artists` aus `tix_artist` (Name, Slug, Post-Status, `status`, `kind`, `verified`, `managed_by`, `duplicate_of`, `merged_into`, Spotify/Apple-ID, Profil in `data`).
+  - Nicht gespiegelt: `_tix_artist_log` (Nutzer-IDs, Gründe), die abgeleiteten Suchschlüssel (`_norm`, `_spotify`, `_apple`) und `_tix_artist_ref`. Die Event-Zuordnung steht vollständig in `events.data._tix_artists`.
+  - Künstler eines Sandbox-Veranstalters (`managed_by`) bleiben draußen.
+  - Erstbefüllung, Abgleich (Post-Status, Name, Status) und Vergleich sind enthalten. Migration `20261020090000_mirror_artists.sql`.
 - **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
   - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
   - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.

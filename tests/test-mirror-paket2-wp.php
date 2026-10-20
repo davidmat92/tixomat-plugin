@@ -561,6 +561,60 @@ foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'number
 $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $doid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $doid]);
 TIX_Mirror::touch('order', $doid);
 
+// ── 14. Künstler (1.38.517, tix_artist) ──
+if (post_type_exists('tix_artist')) {
+    $art = wp_insert_post(['post_type' => 'tix_artist', 'post_status' => 'publish', 'post_title' => "Spiegel-Band $sfx", 'post_name' => "spiegel-band-$sfx"]);
+    $posts[] = $art;
+    update_post_meta($art, '_tix_artist', ['kind' => 'band', 'genres' => ['rock'], 'origin' => 'Köln', 'short_bio' => 'Kurz', 'bio' => '<p>Lang</p>',
+        'links' => ['spotify' => 'https://open.spotify.com/artist/abc'], 'ids' => ['spotify' => 'abc', 'apple' => null], 'tours' => [['slug' => 'tour-26', 'name' => 'Tour 26']],
+        'status' => 'public', 'verified' => true, 'managed_by' => ['type' => 'organizer', 'id' => $org], 'duplicate_of' => null]);
+    update_post_meta($art, '_tix_artist_log', [['at' => time(), 'by' => 1, 'action' => 'create', 'reason' => 'intern']]);
+    update_post_meta($art, '_tix_artist_norm', "spiegelband$sfx");
+    $aev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Konzert $sfx"]);
+    $posts[] = $aev;
+    update_post_meta($aev, '_tix_artists', [['artist_id' => $art, 'role' => 'headliner', 'tour' => 'tour-26', 'by_organizer' => $org, 'at' => time()]]);
+    add_post_meta($aev, '_tix_artist_ref', $art);
+    add_post_meta($aev, '_tix_artist_ref', 999999);
+    m2_run();
+    $ma = m2_one('artists', $art);
+    t2_eq('Künstler gespiegelt', "Spiegel-Band $sfx", $ma['name'] ?? null);
+    t2_eq('Status, Art, Spotify-ID', 'public|band|abc', ($ma['status'] ?? '') . '|' . ($ma['kind'] ?? '') . '|' . ($ma['spotify_id'] ?? ''));
+    t2_eq('Tour im Profil', 'tour-26', $ma['data']['tours'][0]['slug'] ?? null);
+    $aj = wp_json_encode($ma);
+    t2_true('kein Protokoll, kein Suchschlüssel', strpos($aj, 'intern') === false && strpos($aj, '_tix_artist_log') === false && strpos($aj, "spiegelband$sfx") === false);
+    $me = m2_one('events', $aev);
+    t2_eq('Event trägt die Zuordnung', $art, (int) ($me['data']['_tix_artists'][0]['artist_id'] ?? 0));
+    t2_eq('_tix_artist_ref nicht in events.data', false, array_key_exists('_tix_artist_ref', (array) ($me['data'] ?? [])));
+    // Zusammenführen
+    update_post_meta($art, '_tix_artist_merged_into', 4242);
+    $aa = get_post_meta($art, '_tix_artist', true); $aa['status'] = 'blocked'; update_post_meta($art, '_tix_artist', $aa);
+    m2_run();
+    t2_eq('zusammengeführt: Ziel und Status', '4242|blocked', (m2_one('artists', $art)['merged_into'] ?? '') . '|' . (m2_one('artists', $art)['status'] ?? ''));
+    // Künstler eines Sandbox-Veranstalters
+    $sbart = wp_insert_post(['post_type' => 'tix_artist', 'post_status' => 'publish', 'post_title' => "Demo-Act $sfx"]);
+    $posts[] = $sbart;
+    update_post_meta($sbart, '_tix_artist', ['kind' => 'dj', 'status' => 'public', 'managed_by' => ['type' => 'organizer', 'id' => $demo]]);
+    $sb_on = [$demo]; add_filter('tix_sandbox_organizer', $sb_filter, 10, 2); TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+    m2_run();
+    t2_eq('Künstler des Demo-Veranstalters nicht gespiegelt', null, m2_one('artists', $sbart));
+    // Abgleich
+    $row = m2_one('artists', $art); unset($row['synced_at']); $row['status'] = 'public';
+    TIX_Mirror_Client::upsert('artists', [$row]);
+    $rep = m2_reconcile();
+    t2_eq('Abgleich erkennt abweichenden Künstler', 1, (int) ($rep['tables']['artists']['differ'] ?? 0));
+    t2_eq('Abgleich zählt Demo-Künstler nicht als fehlend', 0, (int) ($rep['tables']['artists']['missing'] ?? 0));
+    m2_run();
+    t2_eq('Künstler korrigiert', 'blocked', m2_one('artists', $art)['status'] ?? null);
+    $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+    t2_true('Vergleich: Künstler gleich', (bool) preg_match('/artists\s+(\d+)\s+\1\s+gleich/', $vout));
+    remove_filter('tix_sandbox_organizer', $sb_filter, 10); $sb_on = []; TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+    wp_delete_post($art, true); $posts = array_diff($posts, [$art]);
+    m2_run();
+    t2_eq('gelöschter Künstler entfernt', null, m2_one('artists', $art));
+} else {
+    echo "      (Beitragstyp tix_artist fehlt – übersprungen)\n";
+}
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

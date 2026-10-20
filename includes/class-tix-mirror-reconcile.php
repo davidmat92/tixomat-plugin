@@ -35,6 +35,7 @@ class TIX_Mirror_Reconcile {
             'settlement_items'    => 'settlement_item',
             'invoices'            => 'invoice',
             'audit_log'           => 'audit',
+            'artists'             => 'artist',
         ];
     }
 
@@ -202,6 +203,13 @@ class TIX_Mirror_Reconcile {
             case 'events':     foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event($id)) $drop[] = $id; break;
             case 'tickets':    foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_event((int) get_post_meta($id, '_tix_ticket_event_id', true))) $drop[] = $id; break;
             case 'organizers': foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_org($id)) $drop[] = $id; break;
+            case 'artists':
+                foreach ($ids as $id) {
+                    $a = get_post_meta($id, '_tix_artist', true);
+                    $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+                    if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = $id;
+                }
+                break;
             case 'orders':
                 foreach ((array) $wpdb->get_results("SELECT DISTINCT order_id, event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id IN ($in)", ARRAY_A) as $r) {
                     if (TIX_Mirror_Map::is_sandbox_event((int) $r['event_id'])) $drop[] = (int) $r['order_id'];
@@ -323,6 +331,19 @@ class TIX_Mirror_Reconcile {
                     $masked = $plain !== '' && class_exists('TIX_Payout_Details') ? TIX_Payout_Details::mask_iban($plain) : '';
                     $out[(int) $p->ID] = self::fp([$p->post_status, html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'),
                         (string) (get_post_meta($p->ID, '_tix_org_approval', true) ?: 'approved'), $masked]);
+                }
+                return $out;
+
+            case 'artists':
+                $posts = $wpdb->get_results($wpdb->prepare(
+                    "SELECT ID, post_status, post_title FROM {$wpdb->posts} WHERE post_type = 'tix_artist' AND post_status <> 'auto-draft' AND ID > %d ORDER BY ID LIMIT %d",
+                    $after, $limit
+                ));
+                if (!$posts) return [];
+                update_meta_cache('post', wp_list_pluck($posts, 'ID'));
+                foreach ($posts as $p) {
+                    $a = get_post_meta($p->ID, '_tix_artist', true);
+                    $out[(int) $p->ID] = self::fp([$p->post_status, html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'), (string) (is_array($a) ? ($a['status'] ?? '') : '')]);
                 }
                 return $out;
 
