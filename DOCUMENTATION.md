@@ -2598,6 +2598,9 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - E-Mail-Folgen (`tix_artist_mail_followers`) gehen **pseudonymisiert** in die Tabelle `artist_followers`. Statt der Adresse steht dort `email_hash` (HMAC-SHA256 mit `TIX_MIRROR_ENC_KEY`, auf allen Seiten gleich, nicht umkehrbar). Abmelde-Token und IP-Hash werden nie gespiegelt.
   - Neue Zeilen kommen über den Nachlauf (ID). Bestätigen, Ändern, Abmelden und Löschen (in WordPress immer echtes DELETE) holt der tägliche Abgleich (Künstler, Status, Städte, Bestätigung).
   - Folge: Die Adressen lassen sich nicht aus dem Spiegel wiederherstellen. Migration `20261020120000_mirror_artist_followers.sql`.
+- **E-Mail-Folgen von Veranstaltern** (`tix_mail_followers`, Entscheidung des Users 2026-10-20): genauso pseudonymisiert in `organizer_followers` (`email_hash`, `share_email`, Status, Einwilligung, Bestätigung; nie Adresse, Token oder IP-Hash).
+  - Neue Zeilen kommen über den Nachlauf, Änderungen und Löschungen über den Abgleich.
+  - Folgen von Sandbox-Veranstaltern bleiben draußen. Die Erstbefüllung holt den Bestand nach. Migration `20261020150000_mirror_organizer_followers.sql`.
 - **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
   - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
   - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.

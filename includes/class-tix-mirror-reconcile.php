@@ -37,6 +37,7 @@ class TIX_Mirror_Reconcile {
             'audit_log'           => 'audit',
             'artists'             => 'artist',
             'artist_followers'    => 'artist_follower',
+            'organizer_followers' => 'org_follower',
         ];
     }
 
@@ -227,7 +228,8 @@ class TIX_Mirror_Reconcile {
             case 'settlements':
             case 'settlement_items':
             case 'invoices':
-                $t = ['wallets' => 'tix_wallets', 'settlements' => 'tix_settlements', 'settlement_items' => 'tix_settlement_items', 'invoices' => 'tix_invoices'][$table];
+            case 'organizer_followers':
+                $t = ['wallets' => 'tix_wallets', 'settlements' => 'tix_settlements', 'settlement_items' => 'tix_settlement_items', 'invoices' => 'tix_invoices', 'organizer_followers' => 'tix_mail_followers'][$table];
                 foreach ((array) $wpdb->get_results("SELECT id, organizer_id FROM {$wpdb->prefix}{$t} WHERE id IN ($in)", ARRAY_A) as $r) {
                     if (TIX_Mirror_Map::is_sandbox_org((int) $r['organizer_id'])) $drop[] = (int) $r['id'];
                 }
@@ -368,6 +370,19 @@ class TIX_Mirror_Reconcile {
                     // Format wie jsonb::text in Postgres: ["Köln", "Bonn"]
                     $ctext = is_array($c) ? '[' . implode(', ', array_map(function ($x) { return wp_json_encode((string) $x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }, array_values($c))) . ']' : '';
                     $out[(int) $r['id']] = self::fp([(int) $r['artist_id'], $r['status'], $ctext, $conf]);
+                }
+                return $out;
+
+            case 'organizer_followers':
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, organizer_id, status, share_email, confirmed_at FROM {$wpdb->prefix}tix_mail_followers WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) {
+                    $conf = '';
+                    if (!empty($r['confirmed_at']) && strpos((string) $r['confirmed_at'], '0000') !== 0) {
+                        try { $conf = (new DateTimeImmutable((string) $r['confirmed_at'], wp_timezone()))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s'); } catch (\Throwable $e) {}
+                    }
+                    $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['status'], self::bool(!empty($r['share_email'])), $conf]);
                 }
                 return $out;
 

@@ -654,6 +654,44 @@ if (post_type_exists('tix_artist')) {
     echo "      (Beitragstyp tix_artist fehlt – übersprungen)\n";
 }
 
+// ── 16. E-Mail-Folgen von Veranstaltern (tix_mail_followers) – pseudonymisiert (Entscheid User 2026-10-20) ──
+if (class_exists('TIX_Mail_Follow')) {
+    if (method_exists('TIX_Mail_Follow', 'maybe_install')) TIX_Mail_Follow::maybe_install();
+    $mt = $wpdb->prefix . 'tix_mail_followers';
+    if ($wpdb->get_var("SHOW TABLES LIKE '$mt'") === $mt) {
+        $omail = "Orgfan$sfx@Example.test";
+        $wpdb->insert($mt, ['organizer_id' => $org, 'email' => strtolower($omail), 'status' => 'pending', 'token' => str_repeat('V', 40), 'share_email' => 1, 'user_id' => 0,
+            'consent_text' => 'Ja, ich möchte …', 'consent_at' => current_time('mysql'), 'consent_ip' => hash('sha256', '5.6.7.8'), 'created' => current_time('mysql')]);
+        $of = (int) $wpdb->insert_id;
+        $wpdb->insert($mt, ['organizer_id' => $demo, 'email' => "demofan$sfx@example.test", 'status' => 'active', 'token' => str_repeat('W', 40), 'share_email' => 0, 'user_id' => 0,
+            'consent_text' => 'x', 'consent_at' => current_time('mysql'), 'consent_ip' => '', 'confirmed_at' => current_time('mysql'), 'created' => current_time('mysql')]);
+        $odf = (int) $wpdb->insert_id;
+        $sb_on = [$demo]; add_filter('tix_sandbox_organizer', $sb_filter, 10, 2); TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+        m2_run();
+        $mo = m2_one('organizer_followers', $of);
+        t2_eq('Veranstalter-Folge gespiegelt (Status, Weitergabe)', 'pending|1', ($mo['status'] ?? '') . '|' . (!empty($mo['share_email']) ? '1' : '0'));
+        t2_eq('nur Pseudonym statt Adresse', TIX_Mirror_Extra::email_hash($omail), $mo['email_hash'] ?? null);
+        $oj = wp_json_encode(m2_rows('organizer_followers')) . wp_json_encode(m2_rows('change_log', ['entity' => 'eq.organizer_followers']));
+        t2_true('keine Adresse, kein Token, kein IP-Hash (auch Verlauf)', stripos($oj, "orgfan$sfx@example.test") === false && strpos($oj, str_repeat('V', 40)) === false && strpos($oj, hash('sha256', '5.6.7.8')) === false);
+        t2_eq('Folge des Demo-Veranstalters nicht gespiegelt', null, m2_one('organizer_followers', $odf));
+        $rep = m2_reconcile();
+        t2_eq('Abgleich: Prüfsummen passen, Demo nicht fehlend', 0, (int) ($rep['tables']['organizer_followers']['differ'] ?? -1) + (int) ($rep['tables']['organizer_followers']['missing'] ?? -1));
+        sleep(1);
+        $wpdb->update($mt, ['status' => 'active', 'confirmed_at' => current_time('mysql')], ['id' => $of]);
+        $rep = m2_reconcile(); m2_run(2);
+        t2_eq('Bestätigung über den Abgleich', 'active', m2_one('organizer_followers', $of)['status'] ?? null);
+        $wpdb->delete($mt, ['id' => $of]);
+        $rep = m2_reconcile(); m2_run(2);
+        t2_eq('Abmelden (DELETE) über den Abgleich', null, m2_one('organizer_followers', $of));
+        $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+        t2_true('Vergleich: Veranstalter-Folgen gleich', (bool) preg_match('/organizer_followers\s+(\d+)\s+\1\s+gleich/', $vout));
+        remove_filter('tix_sandbox_organizer', $sb_filter, 10); $sb_on = []; TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+        $wpdb->delete($mt, ['id' => $odf]); TIX_Mirror::touch('org_follower', $odf);
+    } else {
+        echo "      (Tabelle tix_mail_followers fehlt – übersprungen)\n";
+    }
+}
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

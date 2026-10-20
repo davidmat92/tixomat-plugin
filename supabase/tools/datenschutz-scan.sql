@@ -11,7 +11,7 @@ create temporary view t as
   union all select 'wallet_transactions', to_jsonb(x)::text from wallet_transactions x union all select 'settlements', to_jsonb(x)::text from settlements x
   union all select 'settlement_items', to_jsonb(x)::text from settlement_items x union all select 'checkins', to_jsonb(x)::text from checkins x
   union all select 'refunds', to_jsonb(x)::text from refunds x union all select 'invoices', to_jsonb(x)::text from invoices x
-  union all select 'invoice_counters', to_jsonb(x)::text from invoice_counters x union all select 'audit_log', to_jsonb(x)::text from audit_log x union all select 'artists', to_jsonb(x)::text from artists x union all select 'artist_followers', to_jsonb(x)::text from artist_followers x union all select 'change_log', to_jsonb(x)::text from change_log x
+  union all select 'invoice_counters', to_jsonb(x)::text from invoice_counters x union all select 'audit_log', to_jsonb(x)::text from audit_log x union all select 'artists', to_jsonb(x)::text from artists x union all select 'artist_followers', to_jsonb(x)::text from artist_followers x union all select 'organizer_followers', to_jsonb(x)::text from organizer_followers x union all select 'change_log', to_jsonb(x)::text from change_log x
 ; create temporary view k as
   select tb, (regexp_matches(j, '"([^"]*(pass|token|secret|nonce|_pin|pin_|hash|_key|wfls_|2fa|totp|recovery|application_password|credential|session)[^"]*)"\s*:', 'gi'))[1] as key from t;
 select 'Zeilen gesamt: ' || (select count(*) from t);
