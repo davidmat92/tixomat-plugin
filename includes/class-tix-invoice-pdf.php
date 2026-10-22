@@ -82,6 +82,8 @@ class TIX_Invoice_PDF {
         $l2 = [];
         if (!empty($iss['tax_id'])) $l2[] = 'Steuernr. ' . $iss['tax_id'];
         if (!empty($iss['vat_id'])) $l2[] = 'USt-IdNr. ' . $iss['vat_id'];
+        // „Nummer folgt“ (1.38.525): Aussteller hat noch keine Nummer
+        if (empty($iss['tax_id']) && empty($iss['vat_id']) && !empty($iss['tax_id_follows'])) $l2[] = $iss['tax_id_follows'] === 'tax_number' ? 'Steuernummer: folgt' : 'USt-IdNr.: folgt';
         if (!empty($iss['managing_director'])) $l2[] = 'Geschäftsführung: ' . $iss['managing_director'];
         if (!empty($iss['register'])) $l2[] = $iss['register'];
         if (!empty($iss['email'])) $l2[] = $iss['email'];
@@ -171,6 +173,7 @@ class TIX_Invoice_PDF {
         if (!$voucher && $inv->service_date) $meta['Leistungsdatum'] = self::date_de($inv->service_date);
         $meta['Bestellung'] = (string) $inv->order_number;
         if (!empty($d['ref'])) $meta['Bezug'] = (string) $d['ref']['number'];
+        if (!empty($d['replaces'])) $meta['Ersetzt'] = (string) $d['replaces']['number'];
         if (!empty($d['payment_method'])) $meta['Zahlart'] = (string) $d['payment_method'];
         $pdf->set_font('Helvetica', 9);
         $my = self::H - 160;
@@ -191,6 +194,10 @@ class TIX_Invoice_PDF {
         $pdf->set_color(0.3, 0.3, 0.3);
         if (!empty($d['ref'])) {
             $pdf->text($m, $y, 'Korrektur zu ' . ($voucher ? 'Beleg ' : 'Rechnung ') . $d['ref']['number'] . ' vom ' . self::date_de($d['ref']['date']) . '.');
+            $y -= 13;
+        }
+        if (!empty($d['replaces'])) {
+            $pdf->text($m, $y, 'Ersetzt Rechnung ' . $d['replaces']['number'] . ' vom ' . self::date_de($d['replaces']['date']) . ' (Neuausstellung mit vollständigen Angaben).');
             $y -= 13;
         }
         if (!empty($iss['on_behalf']) && !empty($iss['organizer_id'])) {
@@ -262,7 +269,8 @@ class TIX_Invoice_PDF {
         // Hinweise
         $y -= 12;
         $notes = [];
-        if ($inv->kind === 'correction') $notes[] = 'Der Betrag wird auf dem ursprünglichen Zahlungsweg erstattet.';
+        if ($inv->kind === 'correction' && $inv->reason === 'reissue') $notes[] = 'Storno wegen Neuausstellung' . (!empty($d['replaced_by']['number']) ? ' als Rechnung ' . $d['replaced_by']['number'] : '') . '. Es wird nichts erstattet, die Zahlung gilt für die neue Rechnung.';
+        elseif ($inv->kind === 'correction') $notes[] = 'Der Betrag wird auf dem ursprünglichen Zahlungsweg erstattet.';
         elseif (!empty($d['payment_method'])) $notes[] = 'Bereits bezahlt (' . $d['payment_method'] . '). Vielen Dank!';
         if (!empty($inv->small_business)) $notes[] = 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.';
         if ($voucher) $notes[] = 'Mehrzweck-Gutschein bzw. Guthaben: Die Umsatzsteuer entsteht erst bei der Einlösung, dieser Beleg weist daher keine Umsatzsteuer aus.';

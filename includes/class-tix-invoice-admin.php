@@ -13,6 +13,7 @@ class TIX_Invoice_Admin {
         add_action('admin_post_tix_invoices_settings', [__CLASS__, 'handle_settings']);
         add_action('admin_post_tix_invoices_export', [__CLASS__, 'handle_export']);
         add_action('admin_post_tix_invoices_retry', [__CLASS__, 'handle_retry']);
+        add_action('admin_post_tix_invoices_reissue', [__CLASS__, 'handle_reissue']);
     }
 
     public static function menu() {
@@ -46,6 +47,7 @@ class TIX_Invoice_Admin {
         if (isset($_POST['issuer_model'])) $body['issuer_model'] = sanitize_key($_POST['issuer_model']);
         foreach (['code', 'tax_rate'] as $k) if (isset($_POST[$k])) $body[$k] = sanitize_text_field(wp_unslash($_POST[$k]));
         if (isset($_POST['small_business_set'])) $body['small_business'] = !empty($_POST['small_business']);
+        if (isset($_POST['tax_id_follows'])) $body['tax_id_follows'] = sanitize_key($_POST['tax_id_follows']);
         $issuer = sanitize_text_field((string) ($_POST['issuer'] ?? ''));
         $r = new WP_REST_Request('POST', '/tixomat/v1/studio/invoice-config');
         if ($issuer !== '') $r->set_param('issuer', $issuer);
@@ -61,6 +63,15 @@ class TIX_Invoice_Admin {
         if (!current_user_can('manage_options') || !check_admin_referer('tix_invoices_retry')) wp_die('Keine Berechtigung.');
         $n = class_exists('TIX_Invoices') ? TIX_Invoices::retry_pending() : 0;
         self::back(['tix_inv_msg' => 'retried', 'n' => intval($n)]);
+    }
+
+    /** Rechnungen ohne Steuernummer neu ausstellen (1.38.525), je Klick bis zu 100. */
+    public static function handle_reissue() {
+        if (!current_user_can('manage_options') || !check_admin_referer('tix_invoices_reissue')) wp_die('Keine Berechtigung.');
+        $issuer = sanitize_text_field((string) ($_POST['issuer'] ?? ''));
+        list($s, $r) = self::rest('POST', '/studio/invoices/reissue', ['limit' => 100, 'send' => !empty($_POST['send']) ? '1' : ''] + ($issuer !== '' ? ['issuer' => $issuer] : []));
+        if ($s !== 200) self::back(['tix_inv_msg' => 'error', 'tix_inv_err' => rawurlencode((string) ($r['message'] ?? 'Fehler.'))]);
+        self::back(['tix_inv_msg' => 'reissued', 'n' => count((array) ($r['reissued'] ?? [])), 'f' => count((array) ($r['failed'] ?? []))]);
     }
 
     public static function handle_export() {
@@ -95,6 +106,7 @@ class TIX_Invoice_Admin {
             <?php if ($msg === 'error'): ?><div class="notice notice-error"><p><?php echo esc_html(rawurldecode((string) ($_GET['tix_inv_err'] ?? 'Fehler.'))); ?></p></div><?php endif; ?>
             <?php if ($msg === 'sent'): ?><div class="notice notice-success is-dismissible"><p>Beleg gesendet.</p></div><?php endif; ?>
             <?php if ($msg === 'send_failed'): ?><div class="notice notice-error"><p>Senden fehlgeschlagen.</p></div><?php endif; ?>
+            <?php if ($msg === 'reissued'): ?><div class="notice notice-success is-dismissible"><p><?php echo intval($_GET['n'] ?? 0); ?> Rechnung(en) neu ausgestellt<?php echo intval($_GET['f'] ?? 0) ? ', ' . intval($_GET['f']) . ' nicht möglich' : ''; ?>.</p></div><?php endif; ?>
             <?php if ($msg === 'retried'): ?><div class="notice notice-success is-dismissible"><p><?php echo intval($_GET['n'] ?? 0); ?> Beleg(e) nachgeholt.</p></div><?php endif; ?>
 
             <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;max-width:920px;margin:12px 0;">
@@ -137,8 +149,26 @@ class TIX_Invoice_Admin {
                     <label>Kürzel <input name="code" value="<?php echo esc_attr($cfg['code'] ?? ''); ?>" size="6" maxlength="6"></label>
                     <label style="margin-left:12px;">Steuersatz % <input name="tax_rate" type="number" step="0.01" min="0" max="30" value="<?php echo esc_attr((string) ($cfg['tax_rate'] ?? '')); ?>" style="width:80px;"></label>
                     <label style="margin-left:12px;"><input type="checkbox" name="small_business" value="1" <?php checked(!empty($cfg['issuer']['small_business'])); ?>> Kleinunternehmer (§ 19 UStG)</label>
+                    <br><label style="display:inline-block;margin-top:8px;">Ohne Nummer:
+                        <select name="tax_id_follows">
+                            <option value="" <?php selected(empty($cfg['tax_id_follows'])); ?>>keine Rechnungen ohne Steuernummer/USt-IdNr.</option>
+                            <option value="vat_id" <?php selected(($cfg['tax_id_follows'] ?? '') === 'vat_id'); ?>>„USt-IdNr.: folgt“</option>
+                            <option value="tax_number" <?php selected(($cfg['tax_id_follows'] ?? '') === 'tax_number'); ?>>„Steuernummer: folgt“</option>
+                        </select></label>
+                    <span class="dashicons dashicons-info-outline" style="color:#64748b;" title="<?php echo esc_attr($cfg['tax_id_info'] ?? ''); ?>"></span>
                     <?php submit_button('Speichern', 'secondary', 'submit', false); ?>
                 </form>
+                <?php if (!empty($cfg['tax_id_missing']['message'])): ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:8px;">
+                        <input type="hidden" name="action" value="tix_invoices_reissue"><?php wp_nonce_field('tix_invoices_reissue'); ?>
+                        <input type="hidden" name="issuer" value="<?php echo esc_attr($multi ? 'platform' : ''); ?>">
+                        <strong style="color:#b45309;"><?php echo esc_html($cfg['tax_id_missing']['message']); ?></strong>
+                        <?php if (!empty($cfg['tax_id_missing']['can_reissue'])): ?>
+                            <label style="margin-left:8px;"><input type="checkbox" name="send" value="1"> neue Rechnung an die Kunden senden</label>
+                            <?php submit_button('Jetzt neu ausstellen', 'secondary', 'submit', false, ['onclick' => "return confirm('Rechnungen ohne Steuernummer jetzt neu ausstellen? Je Rechnung entstehen eine neue Rechnung und ein Storno der alten.');"]); ?>
+                        <?php endif; ?>
+                    </form>
+                <?php endif; ?>
                 <p style="color:#64748b;">Nächste Nummern: <?php echo esc_html(implode(' · ', (array) ($cfg['next'] ?? []))); ?></p>
             </div>
 

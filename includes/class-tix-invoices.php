@@ -28,13 +28,17 @@ if (!defined('ABSPATH')) exit;
  * Abendkasse (payment_method pos_*) bekommt keine Rechnung, außer mit Schalter `tix_invoice_pos` (Kassenbeleg/TSE: Phase 5).
  * Fehlen Pflichtangaben des Ausstellers, wartet die Bestellung (Option `tix_invoice_pending`) und wird nachgeholt
  * (stündlich und nach dem Speichern von Firmen- bzw. Auszahlungsdaten).
+ * „Nummer folgt“ (1.38.525): `tax_id_follows` (vat_id|tax_number) in der Aussteller-Konfiguration – ohne Steuernummer und
+ * USt-IdNr. gilt der Aussteller trotzdem als vollständig, der Beleg zeigt „USt-IdNr.: folgt“ bzw. „Steuernummer: folgt“ und
+ * trägt `tax_id_missing` = 1 (ohne E-Rechnungs-XML, EN 16931 verlangt die Nummer). Nach dem Nachtrag: reissue() stellt neu
+ * aus (neue Rechnung mit `replaces_id` + Storno der alten, Grund reissue).
  *
  * PDF: TIX_Invoice_PDF, Ablage im geschützten Ordner (TIX_Support::private_base()/invoices/<Jahr>/), SHA-256 in der Zeile.
  */
 class TIX_Invoices {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '2'; // 2 = Übergabe an die Buchhaltung (export_*), 1.38.500
+    const DB_VERSION  = '3'; // 2 = Übergabe an die Buchhaltung (export_*), 1.38.500; 3 = tax_id_missing/replaces_id, 1.38.525
     const OPT_DB      = 'tix_invoices_db';
     const OPT_ENABLED = 'tix_invoices_enabled';
     const OPT_MODEL   = 'tix_invoice_issuer_model';
@@ -105,6 +109,8 @@ class TIX_Invoices {
             export_error VARCHAR(255) NOT NULL DEFAULT '',
             export_tries TINYINT UNSIGNED NOT NULL DEFAULT 0,
             export_at DATETIME NULL,
+            tax_id_missing TINYINT(1) NOT NULL DEFAULT 0,
+            replaces_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             created DATETIME NOT NULL,
             created_gmt DATETIME NOT NULL,
             PRIMARY KEY  (id),
@@ -113,7 +119,9 @@ class TIX_Invoices {
             KEY order_id (order_id),
             KEY issuer_created (issuer_key,created),
             KEY ref_invoice_id (ref_invoice_id),
-            KEY export_status (export_status)
+            KEY export_status (export_status),
+            KEY replaces_id (replaces_id),
+            KEY tax_id_missing (issuer_key,tax_id_missing)
         ) $c;");
         dbDelta("CREATE TABLE $k (
             issuer_key VARCHAR(40) NOT NULL,
@@ -151,7 +159,7 @@ class TIX_Invoices {
         return is_array($s) ? $s : [];
     }
 
-    /** Konfiguration eines Ausstellers: {code, tax_rate, small_business, datev{}}. */
+    /** Konfiguration eines Ausstellers: {code, tax_rate, small_business, tax_id_follows, datev{}}. */
     public static function config($issuer_key) {
         if (strpos($issuer_key, 'org:') === 0) {
             $c = get_post_meta(intval(substr($issuer_key, 4)), self::META_CONFIG, true);
@@ -216,8 +224,9 @@ class TIX_Invoices {
 
     /**
      * Daten des Ausstellers für den Beleg.
-     * → {key, organizer_id, name, address[], street, zip, city, country, tax_id, vat_id, small_business, email, phone,
+     * → {key, organizer_id, name, address[], street, zip, city, country, tax_id, vat_id, tax_id_follows, small_business, email, phone,
      *    managing_director, register, footer, logo, accent, on_behalf, complete, missing[]}
+     * tax_id_follows: 'vat_id' | 'tax_number' nur solange beide Nummern fehlen und „Nummer folgt“ gewählt ist, sonst ''.
      */
     public static function issuer($issuer_key) {
         $cfg = self::config($issuer_key);
@@ -262,15 +271,26 @@ class TIX_Invoices {
         if (!isset($i['address_lines'])) {
             $i['address_lines'] = array_values(array_filter([$i['owner'], $i['street'], trim($i['zip'] . ' ' . $i['city']), $i['country'] !== 'DE' ? $i['country'] : '']));
         }
+        $no_number = $i['tax_id'] === '' && $i['vat_id'] === '';
+        $i['tax_id_follows'] = $no_number ? self::follows_setting($issuer_key) : '';
         $missing = [];
         if ($i['name'] === '') $missing[] = 'name';
         if (count(array_filter($i['address_lines'], function ($l) use ($i) { return $l !== $i['owner']; })) < 2) $missing[] = 'address';
-        if ($i['tax_id'] === '' && $i['vat_id'] === '') $missing[] = 'tax_id';
+        if ($no_number && $i['tax_id_follows'] === '') $missing[] = 'tax_id';
         $i['missing'] = $missing;
         $i['complete'] = !$missing;
         $i['code'] = self::code($issuer_key);
         return $i;
     }
+
+    /** Gewähltes „Nummer folgt“ des Ausstellers: 'vat_id' | 'tax_number' | '' (1.38.525). */
+    public static function follows_setting($issuer_key) {
+        $f = (string) (self::config($issuer_key)['tax_id_follows'] ?? '');
+        return in_array($f, ['vat_id', 'tax_number'], true) ? $f : '';
+    }
+
+    /** Hinweis (i) zu „Nummer folgt“ für Studio und Verwaltung. */
+    const TAX_ID_INFO = 'Nach § 14 UStG gehört deine Steuernummer oder USt-IdNr. auf jede Rechnung. Mit „folgt“ entstehen Rechnungen trotzdem, dort steht dann „USt-IdNr.: folgt“ bzw. „Steuernummer: folgt“. Trag die Nummer nach, sobald du sie hast, und stelle die Rechnungen ohne Nummer dann neu aus.';
 
     // ═══════════════ Bestellung → Positionen ═══════════════
 
@@ -526,6 +546,10 @@ class TIX_Invoices {
             'ref' => $doc['ref'] ? ['id' => intval($doc['ref']->id), 'number' => (string) $doc['ref']->number, 'date' => substr((string) $doc['ref']->created, 0, 10)] : null,
             'diff' => $doc['diff'] ?? null,
         ];
+        // Neuausstellung (1.38.525): neue Rechnung nennt die ersetzte, das Storno die neue
+        if (!empty($doc['replaces'])) $data['replaces'] = ['id' => intval($doc['replaces']->id), 'number' => (string) $doc['replaces']->number, 'date' => substr((string) $doc['replaces']->created, 0, 10)];
+        if (!empty($doc['replaced_by'])) $data['replaced_by'] = $doc['replaced_by'];
+        $no_tax_id = in_array($series, ['R', 'RK'], true) && trim((string) ($issuer['tax_id'] ?? '')) === '' && trim((string) ($issuer['vat_id'] ?? '')) === '';
         $t = self::table(); $c = self::counters_table();
         $wpdb->query('START TRANSACTION');
         $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES (%s, %s, %d, 0)", $key, $series, $year));
@@ -540,6 +564,7 @@ class TIX_Invoices {
             'net' => round($gross - $tax, 2), 'tax' => $tax, 'gross' => $gross, 'small_business' => $sb ? 1 : 0,
             'recipient_name' => mb_substr($rcp['company'] !== '' ? $rcp['company'] : $rcp['name'], 0, 200), 'recipient_email' => mb_substr($rcp['email'], 0, 200),
             'service_date' => $doc['service_date'] ?: null, 'data' => wp_json_encode($data),
+            'tax_id_missing' => $no_tax_id ? 1 : 0, 'replaces_id' => !empty($doc['replaces']) ? intval($doc['replaces']->id) : 0,
             'created' => current_time('mysql'), 'created_gmt' => current_time('mysql', true),
         ]);
         if (!$ok) {
@@ -668,7 +693,7 @@ class TIX_Invoices {
     }
 
     /** Korrektur über $amount (positiv, Geld zurück) zu einem Beleg; $full = Rest komplett. */
-    private static function correct($inv, $amount, $full, $reason) {
+    private static function correct($inv, $amount, $full, $reason, $replaced_by = null) {
         $rem = self::remaining($inv);
         if ($rem['total'] <= self::EPS) return 0;
         $amount = $full ? $rem['total'] : round(min($amount, $rem['total']), 2);
@@ -697,7 +722,7 @@ class TIX_Invoices {
             $issuer = array_merge((array) ($snap['issuer'] ?? []), ['key' => $inv->issuer_key, 'code' => $issuer['code'], 'organizer_id' => intval($inv->organizer_id)]);
         }
         $id = self::create(['kind' => 'correction', 'series' => $series, 'issuer' => $issuer, 'order' => $o, 'lines' => $lines, 'payments' => [],
-            'service_date' => $inv->service_date, 'ref' => $inv, 'reason' => $reason]);
+            'service_date' => $inv->service_date, 'ref' => $inv, 'reason' => $reason, 'replaced_by' => $replaced_by]);
         return is_wp_error($id) ? 0 : $id;
     }
 
@@ -766,6 +791,87 @@ class TIX_Invoices {
             self::distribute(intval($order_id), 0, true, 'chargeback');
         } finally {
             self::unlock($order_id);
+        }
+    }
+
+    // ═══════════════ Neuausstellung ohne Steuernummer (1.38.525) ═══════════════
+
+    /** Neue Rechnung, die diese ersetzt (oder null). */
+    public static function replacement_of($id) {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE replaces_id = %d ORDER BY id ASC LIMIT 1", intval($id)));
+    }
+
+    /**
+     * Rechnungen eines Ausstellers ohne Steuernummer/USt-IdNr., die noch nicht neu ausgestellt sind.
+     * → {open, open_gross, cancelled, ids[]}  (open = noch offener Betrag > 0, cancelled = komplett storniert/erstattet)
+     */
+    public static function tax_id_missing_stats($issuer_key, $limit = 0) {
+        global $wpdb;
+        self::maybe_install();
+        $t = self::table();
+        $where = "i.series = 'R' AND i.tax_id_missing = 1 AND NOT EXISTS (SELECT 1 FROM $t x WHERE x.replaces_id = i.id)";
+        if ($issuer_key !== '') $where .= $wpdb->prepare(' AND i.issuer_key = %s', $issuer_key);
+        $rows = (array) $wpdb->get_results("SELECT i.id, i.gross + COALESCE((SELECT SUM(c.gross) FROM $t c WHERE c.ref_invoice_id = i.id), 0) AS rest FROM $t i WHERE $where ORDER BY i.id ASC");
+        $out = ['open' => 0, 'open_gross' => 0.0, 'cancelled' => 0, 'ids' => []];
+        foreach ($rows as $r) {
+            if (floatval($r->rest) > self::EPS) {
+                $out['open']++;
+                $out['open_gross'] += floatval($r->rest);
+                if (!$limit || count($out['ids']) < $limit) $out['ids'][] = intval($r->id);
+            } else {
+                $out['cancelled']++;
+            }
+        }
+        $out['open_gross'] = round($out['open_gross'], 2);
+        return $out;
+    }
+
+    /**
+     * Rechnung ohne Steuernummer neu ausstellen, sobald der Aussteller sie nachgetragen hat: neue Rechnung mit den aktuellen
+     * Angaben über den noch offenen Betrag (Bezug „ersetzt …“), danach Storno der alten (Grund reissue, nennt die neue).
+     * Eine schon teilweise erstattete Rechnung wird je Steuersatz mit dem Restbetrag neu ausgestellt.
+     * → ['new' => row, 'storno' => row|null] | WP_Error
+     */
+    public static function reissue($inv) {
+        if (!$inv || $inv->series !== 'R') return self::err('tix_invoice_reissue_kind', 'Nur Rechnungen lassen sich neu ausstellen.', 409);
+        if (empty($inv->tax_id_missing)) return self::err('tix_invoice_reissue_not_needed', 'Diese Rechnung trägt schon eine Steuernummer bzw. USt-IdNr.', 409);
+        $issuer = self::issuer($inv->issuer_key);
+        if ($issuer['tax_id'] === '' && $issuer['vat_id'] === '') return self::err('tix_tax_id_missing', 'Bitte zuerst die Steuernummer bzw. USt-IdNr. eintragen.', 409, 'tax_id');
+        if (!$issuer['complete']) return self::err('tix_issuer_incomplete', 'Die Rechnungsdaten sind unvollständig.', 409);
+        $o = self::order_row($inv->order_id);
+        if (!$o) return self::err('tix_order_missing', 'Bestellung nicht gefunden.', 404);
+        if (!self::lock($inv->order_id)) return self::err('tix_busy', 'Die Bestellung wird gerade bearbeitet. Bitte gleich noch einmal versuchen.', 409);
+        try {
+            if (self::replacement_of($inv->id)) return self::err('tix_invoice_reissued', 'Diese Rechnung wurde schon neu ausgestellt.', 409);
+            $rem = self::remaining($inv);
+            if ($rem['total'] <= self::EPS) return self::err('tix_invoice_reissue_cancelled', 'Die Rechnung ist vollständig storniert bzw. erstattet – eine Neuausstellung ist nicht nötig.', 409);
+            $d = json_decode((string) $inv->data, true);
+            if (!$rem['corrected']) {
+                $lines = $rem['lines'];
+                $payments = (array) ($d['payments'] ?? []);
+                $diff = $d['diff'] ?? null;
+            } else {
+                $lines = [];
+                foreach ($rem['by_rate'] as $rk => $part) {
+                    if ($part <= self::EPS) continue;
+                    $rate = $rk === 'x' ? null : floatval($rk);
+                    $lines[] = ['type' => 'ticket', 'text' => 'Leistungen lt. Rechnung ' . $inv->number . ' (nach Erstattung)' . ($rate !== null ? ' · ' . self::fmt_rate($rate) . ' USt' : ''),
+                        'detail' => '', 'qty' => 1, 'unit' => round($part, 2), 'gross' => round($part, 2), 'rate' => $rate, 'event_id' => 0];
+                }
+                $payments = [];
+                $diff = null;
+            }
+            $new_id = self::create(['kind' => 'invoice', 'series' => 'R', 'issuer' => $issuer, 'order' => $o, 'lines' => $lines, 'payments' => $payments,
+                'service_date' => $inv->service_date, 'ref' => null, 'reason' => 'reissue', 'diff' => $diff, 'replaces' => $inv]);
+            if (is_wp_error($new_id)) return $new_id;
+            $new = self::get($new_id);
+            $storno_id = self::correct($inv, 0, true, 'reissue', ['id' => intval($new->id), 'number' => (string) $new->number]);
+            if (!$storno_id) error_log('TIX Invoices: Storno zu ' . $inv->number . ' nach Neuausstellung ' . $new->number . ' fehlgeschlagen.');
+            if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) TIX_Order_Admin::add_note(intval($inv->order_id), '🧾 ' . $inv->number . ' neu ausgestellt als ' . $new->number . ' (Steuernummer nachgetragen)', 'system');
+            return ['new' => $new, 'storno' => $storno_id ? self::get($storno_id) : null];
+        } finally {
+            self::unlock($inv->order_id);
         }
     }
 
@@ -841,7 +947,7 @@ class TIX_Invoices {
             $out[] = ['id' => intval($r->id), 'number' => (string) $r->number, 'kind' => (string) $r->kind, 'series' => (string) $r->series,
                 'gross' => round(floatval($r->gross), 2), 'issued_at' => (string) $r->created, 'ref' => !empty($d['ref']['number']) ? (string) $d['ref']['number'] : null,
                 'pdf' => rest_url(self::NS . '/invoices/' . intval($r->id) . '/pdf'), 'download_url' => self::download_url($r, $order_key),
-                'xml' => in_array($r->series, ['R', 'RK'], true) ? rest_url(self::NS . '/invoices/' . intval($r->id) . '/xml') : null];
+                'xml' => (in_array($r->series, ['R', 'RK'], true) && empty($r->tax_id_missing)) ? rest_url(self::NS . '/invoices/' . intval($r->id) . '/xml') : null];
         }
         return $out;
     }
@@ -952,6 +1058,70 @@ class TIX_Invoices {
         return rest_ensure_response(['ok' => true, 'created' => $nums, 'pending' => array_values(array_unique($r['pending'])), 'invoices' => self::order_summary($o->get_id())]);
     }
 
+    /** Neuausstellung + optional Versand an die Rechnungs-E-Mail der Bestellung. → [result, sent] | WP_Error */
+    private static function reissue_one($inv, $send) {
+        $r = self::reissue($inv);
+        if (is_wp_error($r)) return $r;
+        $sent = false;
+        if ($send && is_email((string) $r['new']->recipient_email)) $sent = self::send($r['new'], (string) $r['new']->recipient_email);
+        return [$r, $sent];
+    }
+
+    /** POST /invoices/{id}/reissue {send?} → {ok, replaced, invoice, storno, sent, tax_id_missing{}} (1.38.525) */
+    public static function rest_reissue(WP_REST_Request $req) {
+        $inv = self::get(intval($req['id']));
+        if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
+        if (!self::manages($inv)) return self::err('rest_forbidden', 'Keine Berechtigung für diesen Beleg.', 403);
+        $x = self::reissue_one($inv, filter_var($req->get_param('send'), FILTER_VALIDATE_BOOLEAN));
+        if (is_wp_error($x)) return $x;
+        list($r, $sent) = $x;
+        return rest_ensure_response(['ok' => true, 'replaced' => (string) $inv->number, 'invoice' => self::row($r['new']), 'storno' => $r['storno'] ? self::row($r['storno']) : null,
+            'sent' => $sent, 'tax_id_missing' => self::tax_id_payload($inv->issuer_key)]);
+    }
+
+    /**
+     * POST /studio/invoices/reissue {send?, limit? (1–100, Vorgabe 50), dry_run?} → {ok, reissued[{replaced, number, storno, sent}], failed[{number, code, message}],
+     * tax_id_missing{}} – alle offenen Rechnungen ohne Steuernummer des eigenen Ausstellers (Admin: ?issuer= bzw. ?organizer=).
+     */
+    public static function rest_reissue_all(WP_REST_Request $req) {
+        $issuer = self::scope_issuer($req);
+        if ($issuer === null) return self::err('rest_forbidden', 'Dieses Konto ist keinem Veranstalter zugeordnet.', 403);
+        $i = self::issuer($issuer);
+        if ($i['tax_id'] === '' && $i['vat_id'] === '') return self::err('tix_tax_id_missing', 'Bitte zuerst die Steuernummer bzw. USt-IdNr. eintragen.', 409, 'tax_id');
+        $limit = max(1, min(100, intval($req->get_param('limit') ?: 50)));
+        $stats = self::tax_id_missing_stats($issuer, $limit);
+        $out = ['ok' => true, 'dry_run' => false, 'reissued' => [], 'failed' => []];
+        if (filter_var($req->get_param('dry_run'), FILTER_VALIDATE_BOOLEAN)) {
+            $out['dry_run'] = true;
+            $out['would_reissue'] = array_values(array_map(function ($id) { return (string) self::get($id)->number; }, $stats['ids']));
+            $out['tax_id_missing'] = self::tax_id_payload($issuer);
+            return rest_ensure_response($out);
+        }
+        $send = filter_var($req->get_param('send'), FILTER_VALIDATE_BOOLEAN);
+        foreach ($stats['ids'] as $id) {
+            $inv = self::get($id);
+            $x = self::reissue_one($inv, $send);
+            if (is_wp_error($x)) { $out['failed'][] = ['number' => (string) $inv->number, 'code' => $x->get_error_code(), 'message' => $x->get_error_message()]; continue; }
+            list($r, $sent) = $x;
+            $out['reissued'][] = ['replaced' => (string) $inv->number, 'number' => (string) $r['new']->number, 'storno' => $r['storno'] ? (string) $r['storno']->number : null, 'sent' => $sent];
+        }
+        $out['tax_id_missing'] = self::tax_id_payload($issuer);
+        return rest_ensure_response($out);
+    }
+
+    /** Studio-Block „Rechnungen ohne Steuernummer“: {open, open_gross, cancelled, can_reissue, message} */
+    public static function tax_id_payload($issuer_key) {
+        $st = self::tax_id_missing_stats($issuer_key);
+        $i = self::issuer($issuer_key);
+        $can = $i['tax_id'] !== '' || $i['vat_id'] !== '';
+        $msg = null;
+        if ($st['open'] > 0) {
+            $msg = $st['open'] === 1 ? '1 Rechnung ohne Steuernummer' : $st['open'] . ' Rechnungen ohne Steuernummer';
+            $msg .= $can ? ' – jetzt korrigieren' : ' – trag die Nummer ein, dann kannst du sie neu ausstellen';
+        }
+        return ['open' => $st['open'], 'open_gross' => $st['open_gross'], 'cancelled' => $st['cancelled'], 'can_reissue' => $can && $st['open'] > 0, 'message' => $msg];
+    }
+
     // ═══════════════ REST ═══════════════
 
     public static function routes() {
@@ -963,6 +1133,8 @@ class TIX_Invoices {
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/send', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_send'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/export', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/orders/(?P<id>\d+)/invoices/issue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_issue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/invoices/(?P<id>\d+)/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/studio/invoices/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue_all'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/studio/invoice-config', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -1033,7 +1205,11 @@ class TIX_Invoices {
             'taxes' => (array) ($d['taxes'] ?? []),
             'payments' => (array) ($d['payments'] ?? []),
             'pdf' => rest_url(self::NS . '/invoices/' . intval($inv->id) . '/pdf'),
-            'xml' => in_array($inv->series, ['R', 'RK'], true) ? rest_url(self::NS . '/invoices/' . intval($inv->id) . '/xml') : null,
+            'xml' => (in_array($inv->series, ['R', 'RK'], true) && empty($inv->tax_id_missing)) ? rest_url(self::NS . '/invoices/' . intval($inv->id) . '/xml') : null,
+            // ohne Steuernummer/USt-IdNr. ausgestellt (1.38.525); replaces = ersetzte Rechnung, replaced_by = neue Rechnung
+            'tax_id_missing' => !empty($inv->tax_id_missing),
+            'replaces' => !empty($d['replaces']) ? ['id' => intval($d['replaces']['id']), 'number' => (string) $d['replaces']['number']] : null,
+            'replaced_by' => (!empty($inv->tax_id_missing) && $inv->series === 'R' && ($rb = self::replacement_of($inv->id))) ? ['id' => intval($rb->id), 'number' => (string) $rb->number] : (!empty($d['replaced_by']) ? ['id' => intval($d['replaced_by']['id']), 'number' => (string) $d['replaced_by']['number']] : null),
             // Übergabe an die Buchhaltung (1.38.500): pending | done | error | skipped
             'export' => !empty($inv->export_provider) ? ['provider' => (string) $inv->export_provider, 'status' => (string) $inv->export_status, 'ref' => (string) $inv->export_ref ?: null,
                 'error' => (string) $inv->export_error ?: null, 'at' => !empty($inv->export_at) ? (string) $inv->export_at : null] : null,
@@ -1068,6 +1244,7 @@ class TIX_Invoices {
         $inv = self::get(intval($req['id']));
         if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
         if (!self::can_view($inv, $req)) return self::err(is_user_logged_in() ? 'rest_forbidden' : 'rest_not_logged_in', is_user_logged_in() ? 'Keine Berechtigung.' : 'Authentifizierung erforderlich.', is_user_logged_in() ? 403 : 401);
+        if (!empty($inv->tax_id_missing)) return self::err('tix_invoice_no_xml_tax_id', 'Ohne Steuernummer bzw. USt-IdNr. gibt es keine E-Rechnung. Nach dem Nachtrag die Rechnung neu ausstellen.', 409);
         if (!class_exists('TIX_EInvoice') || !TIX_EInvoice::supported($inv)) return self::err('tix_invoice_no_xml', 'Für diesen Beleg gibt es keine E-Rechnung (Beleg ohne Umsatzsteuer).', 404);
         $xml = TIX_EInvoice::xml($inv);
         return rest_ensure_response(['ok' => true, 'filename' => TIX_EInvoice::filename($inv), 'mime' => 'application/xml', 'profile' => 'EN 16931 (ZUGFeRD/Factur-X, CII)', 'data' => base64_encode($xml)]);
@@ -1092,6 +1269,7 @@ class TIX_Invoices {
             if (!in_array($kind, ['invoice', 'correction', 'receipt'], true)) return self::err('tix_invalid', 'kind: invoice|correction|receipt', 400, 'kind');
             $where[] = $wpdb->prepare('kind = %s', $kind);
         }
+        if (filter_var($req->get_param('tax_id_missing'), FILTER_VALIDATE_BOOLEAN)) $where[] = 'tax_id_missing = 1';
         $q = trim((string) $req->get_param('q'));
         if ($q !== '') {
             $like = '%' . $wpdb->esc_like($q) . '%';
@@ -1113,6 +1291,7 @@ class TIX_Invoices {
             'ok' => true, 'issuer' => $issuer === '' ? null : $issuer, 'enabled' => self::enabled(),
             'totals' => ['count' => intval($tot->n), 'net' => round(floatval($tot->net), 2), 'tax' => round(floatval($tot->tax), 2), 'gross' => round(floatval($tot->gross), 2)],
             'pending' => count(self::pending_orders($issuer ?: '')),
+            'tax_id_missing_open' => self::tax_id_missing_stats($issuer ?: '')['open'],
             'page' => $page, 'per_page' => $per, 'total' => intval($tot->n), 'has_more' => intval($tot->n) > $page * $per,
             'invoices' => array_map(function ($r) { return self::row($r, false); }, $rows),
         ]);
@@ -1150,11 +1329,17 @@ class TIX_Invoices {
             'issuer_model' => self::multi() ? self::model() : null,
             'issuer' => [
                 'key' => $issuer_key, 'name' => $i['name'], 'address_lines' => $i['address_lines'], 'tax_id' => $i['tax_id'], 'vat_id' => $i['vat_id'],
+                'tax_id_follows' => $i['tax_id_follows'] ?: null,
                 'small_business' => (bool) $i['small_business'], 'complete' => $i['complete'], 'missing' => $i['missing'],
                 'source' => strpos($issuer_key, 'org:') === 0 ? 'payout_details' : 'settings',
             ],
             'code' => $i['code'], 'code_set' => (string) ($cfg['code'] ?? '') !== '',
             'tax_rate' => floatval($i['tax_rate']), 'tax_rate_set' => self::clean_rate($cfg['tax_rate'] ?? null) !== null,
+            // „Nummer folgt“ (1.38.525): gewählt (vat_id|tax_number|null), wirksam solange beide Nummern fehlen, (i)-Text, offene Rechnungen ohne Nummer
+            'tax_id_follows' => self::follows_setting($issuer_key) ?: null,
+            'tax_id_follows_active' => $i['tax_id_follows'] !== '',
+            'tax_id_info' => self::TAX_ID_INFO,
+            'tax_id_missing' => self::tax_id_payload($issuer_key),
             'company' => $company ?: null,
             'datev' => self::datev_config($issuer_key),
             // Übergabe an die Buchhaltung (1.38.500): {provider none|lexoffice, key_set, key_last4, use_site_key, site_key_available, category_id, since}
@@ -1173,7 +1358,7 @@ class TIX_Invoices {
     }
 
     /**
-     * POST /studio/invoice-config {code?, tax_rate?, small_business?, company{}?, datev{}?, enabled?, issuer_model?}
+     * POST /studio/invoice-config {code?, tax_rate?, small_business?, tax_id_follows?, company{}?, datev{}?, enabled?, issuer_model?}
      * company/small_business nur Seite/Plattform (Veranstalter: Auszahlungsdaten); enabled/issuer_model nur Admin.
      */
     public static function rest_save_config(WP_REST_Request $req) {
@@ -1201,6 +1386,18 @@ class TIX_Invoices {
         if (array_key_exists('small_business', $p)) {
             if ($is_org) return self::err('tix_invalid', 'Kleinunternehmer stellst du in den Auszahlungsdaten ein (Steuer-Status).', 400, 'small_business');
             $cfg['small_business'] = filter_var($p['small_business'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        }
+        if (array_key_exists('tax_id_follows', $p)) {
+            $f = $p['tax_id_follows'];
+            if ($f === true || $f === 'true' || $f === '1' || $f === 1) {
+                // ohne Angabe: was der Steuer-Status nahelegt, sonst USt-IdNr.
+                $ts = $is_org && class_exists('TIX_Payout_Details') ? (string) (TIX_Payout_Details::data(intval(substr($issuer, 4)))['tax_status'] ?? '') : '';
+                $f = $ts === 'tax_number' ? 'tax_number' : 'vat_id';
+            }
+            if ($f === null || $f === false || $f === '' || $f === 'false' || $f === '0' || $f === 0) unset($cfg['tax_id_follows']);
+            elseif (in_array($f, ['vat_id', 'tax_number'], true)) $cfg['tax_id_follows'] = $f;
+            else return self::err('tix_invalid', 'tax_id_follows: vat_id, tax_number oder leer.', 400, 'tax_id_follows');
+            if (!$is_org && !$admin && self::multi()) return self::err('rest_forbidden', 'Nur Admins.', 403, 'tax_id_follows');
         }
         if (array_key_exists('datev', $p)) {
             if (!is_array($p['datev'])) return self::err('tix_invalid', 'datev: Objekt erwartet.', 400, 'datev');

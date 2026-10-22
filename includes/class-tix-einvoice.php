@@ -21,7 +21,8 @@ class TIX_EInvoice {
     const GUIDELINE = 'urn:cen.eu:en16931:2017';
 
     public static function supported($inv) {
-        return $inv && in_array($inv->series, ['R', 'RK'], true);
+        // ohne Steuernummer/USt-IdNr. („Nummer folgt“, 1.38.525) kein XML: EN 16931 BR-S-02 verlangt sie
+        return $inv && in_array($inv->series, ['R', 'RK'], true) && empty($inv->tax_id_missing);
     }
 
     public static function filename($inv) {
@@ -106,6 +107,10 @@ class TIX_EInvoice {
         if ($sb) $notes[] = 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.';
         if (!empty($iss['on_behalf']) && !empty($iss['organizer_id'])) $notes[] = 'Rechnung im Namen und für Rechnung von ' . ($iss['name'] ?? '') . ', erstellt von ' . $iss['on_behalf'] . '.';
         $notes[] = 'Bestellung ' . $inv->order_number;
+        // Neuausstellung (1.38.525): neue Rechnung nennt die ersetzte, das Storno die neue
+        $reissue = $credit && $inv->reason === 'reissue';
+        if (!empty($d['replaces']['number'])) $notes[] = 'Ersetzt Rechnung ' . $d['replaces']['number'] . ' (Neuausstellung mit vollständigen Angaben).';
+        if ($reissue) $notes[] = 'Storno wegen Neuausstellung' . (!empty($d['replaced_by']['number']) ? ' als Rechnung ' . $d['replaced_by']['number'] : '') . '.';
         return [
             'number' => (string) $inv->number, 'type' => $credit ? '381' : '380', 'issue_date' => substr((string) $inv->created, 0, 10),
             'service_date' => substr((string) ($inv->service_date ?: $inv->created), 0, 10), 'notes' => $notes, 'small_business' => $sb,
@@ -115,7 +120,7 @@ class TIX_EInvoice {
                 'street' => $b_street, 'zip' => $b_zip, 'city' => $b_city, 'country' => $b_cc, 'email' => (string) ($rcp['email'] ?? ''), 'vat_id' => ''],
             'lines' => $out_lines, 'taxes' => $taxes,
             'prepaid' => !$credit,
-            'terms' => $credit ? 'Erstattung auf dem ursprünglichen Zahlungsweg.' : 'Bereits bezahlt' . (!empty($d['payment_method']) ? ' (' . $d['payment_method'] . ')' : '') . '.',
+            'terms' => $reissue ? 'Keine Erstattung, die Zahlung gilt für die neue Rechnung.' : ($credit ? 'Erstattung auf dem ursprünglichen Zahlungsweg.' : 'Bereits bezahlt' . (!empty($d['payment_method']) ? ' (' . $d['payment_method'] . ')' : '') . '.'),
             'ref' => $credit && !empty($d['ref']['number']) ? ['number' => (string) $d['ref']['number'], 'date' => (string) ($d['ref']['date'] ?? '')] : null,
             'due_date' => null,
         ];
