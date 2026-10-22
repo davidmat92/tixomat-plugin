@@ -52,7 +52,9 @@ jobs:
         id: target
         run: |
           case "${{ matrix.site }}" in
-            kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de ;;
+            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
+            # (gh variable set KITCHENKLUB_HOST -b 178.104.202.230). Ohne Variable bleibt der alte RunCloud-Server.
+            kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de; host="${{ vars.KITCHENKLUB_HOST }}" ;;
             evendis)     app=evendis;               url=https://evendis.de ;;
             test-quelle) app=demo-mdj-events;       url=https://demo.mdj.events ;;
             # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
@@ -60,6 +62,7 @@ jobs:
             mallorca)    app=Mallorca-Festival-XXL-2026; url=https://mallorca-festival-xxl.de ;;
             *) echo "Unbekannte Site ${{ matrix.site }}"; exit 1 ;;
           esac
+          echo "host=${host:-51.195.61.6}" >> "$GITHUB_OUTPUT"
           echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
           echo "mu=/home/runcloud/webapps/$app/wp-content/mu-plugins/" >> "$GITHUB_OUTPUT"
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -76,7 +79,7 @@ jobs:
           switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules'
           path: ./
           remote_path: ${{ steps.target.outputs.path }}
-          remote_host: 51.195.61.6
+          remote_host: ${{ steps.target.outputs.host }}
           remote_port: 22
           remote_user: runcloud
           remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -92,7 +95,7 @@ jobs:
           sleep 70
           KEY=$(openssl rand -hex 12)
           echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
-          ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@51.195.61.6 \
+          ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@${{ steps.target.outputs.host }} \
             "mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' > ${{ steps.target.outputs.mu }}zz-tix-oc.php"
           rm -f deploy_key
           sleep 2
