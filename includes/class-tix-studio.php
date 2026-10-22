@@ -441,6 +441,8 @@ class TIX_Studio {
             'archive' => class_exists('TIX_Archive') && method_exists('TIX_Archive', 'payload') ? TIX_Archive::payload(self::archive_scope_org()) : null,
             // App-Funktionen an/aus (1.38.498): {scope, organizer_id, features {<key>: {key, label, enabled, status, can_edit, scope, available, hint}}, order[]} (awareness zusätzlich report/alarm)
             'app_features' => class_exists('TIX_Features') ? TIX_Features::payload() : null,
+            // Website-Paket (1.38.528): Freischaltung je Seite (Admin-Schalter Tixomat → Marken-Website), evendis immer aus
+            'website' => class_exists('TIX_Website') ? TIX_Website::package_payload() : ['enabled' => false],
             'profile'    => $multi ? 'platform' : 'single',
             // Demo Club (Vertrieb, 1.38.508): Studio des Aufrufers gehört zum Demo-Veranstalter
             'demo'       => $multi && class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(TIX_App_Scope::organizer_id_for_user())),

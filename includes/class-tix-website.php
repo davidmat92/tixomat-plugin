@@ -10,10 +10,17 @@ if (!defined('ABSPATH')) exit;
  *   GET /public/website        veröffentlichter Stand (bzw. ?draft=<Vorschau-Schlüssel> = Entwurf, no-store)
  *   /public/site-config        zusätzlich `website` (veröffentlicht, aufbereitet) und `domain`
  * Abschnitte hinter einem App-Schalter (TIX_Features) kommen mit available:false, wenn er aus ist.
+ *
+ * Website-Paket (1.38.528): Option `tix_website_enabled` je Seite ('1'|'0', Vorgabe aus; Admin-Schalter Tixomat → Marken-Website),
+ * im Studio als `GET /studio/config` → `website {enabled}`. Beim Update einmalig an auf den Seiten mit Homepage (AUTO_HOSTS).
+ * Nur Anzeige-Schalter für das Studio – die Routen oben bleiben unverändert erreichbar.
  */
 class TIX_Website {
 
     const NS = 'tixomat/v1';
+    const OPT_ENABLED = 'tix_website_enabled';
+    // Live-Seiten mit Homepage, auf denen das Paket beim Update automatisch angeht (Auftrag Zentrale 2026-10-23)
+    const AUTO_HOSTS = ['kitchenklub.de', 'mallorca-festival-xxl.de'];
     const OPTION = 'tix_website';
     const OPT_DOMAIN = 'tix_website_domain';
     const TEMPLATES = ['club', 'festival', 'klar'];
@@ -64,6 +71,66 @@ class TIX_Website {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        add_action('init', [__CLASS__, 'maybe_enable']);
+        add_action('admin_menu', [__CLASS__, 'menu'], 34);
+        add_action('admin_post_tix_website_package', [__CLASS__, 'handle_package']);
+    }
+
+    // ═══════════════ Website-Paket (1.38.528) ═══════════════
+
+    /** Ist das Website-Paket auf dieser Seite freigeschaltet? (Mehr-Veranstalter-Modus: nie) */
+    public static function package_enabled() {
+        return !self::multi() && get_option(self::OPT_ENABLED, '0') === '1';
+    }
+
+    /** Für GET /studio/config: {enabled} */
+    public static function package_payload() {
+        return ['enabled' => self::package_enabled()];
+    }
+
+    /** Einmalig: Seiten mit Homepage (AUTO_HOSTS) bekommen das Paket an, sobald /studio/website eine Adresse liefert. */
+    public static function maybe_enable() {
+        if (get_option(self::OPT_ENABLED, null) !== null) return;
+        $on = false;
+        if (!self::multi()) {
+            $host = strtolower(preg_replace('/^www\./', '', (string) self::domain()['live_host']));
+            $on = $host !== '' && in_array($host, self::AUTO_HOSTS, true);
+        }
+        update_option(self::OPT_ENABLED, $on ? '1' : '0', false);
+    }
+
+    public static function menu() {
+        if (self::multi()) return;
+        add_submenu_page('tixomat', 'Marken-Website', 'Marken-Website', 'manage_options', 'tix-website', [__CLASS__, 'render_admin']);
+    }
+
+    public static function handle_package() {
+        if (!current_user_can('manage_options') || !check_admin_referer('tix_website_package')) wp_die('Keine Berechtigung.');
+        update_option(self::OPT_ENABLED, !empty($_POST['enabled']) ? '1' : '0', false);
+        wp_safe_redirect(add_query_arg('tix_web', 'saved', admin_url('admin.php?page=tix-website')));
+        exit;
+    }
+
+    public static function render_admin() {
+        if (!current_user_can('manage_options')) return;
+        $o = self::store();
+        $d = self::domain();
+        ?>
+        <div class="wrap">
+            <h1>Marken-Website</h1>
+            <?php if (($_GET['tix_web'] ?? '') === 'saved'): ?><div class="notice notice-success is-dismissible"><p>Gespeichert.</p></div><?php endif; ?>
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px 20px;max-width:820px;margin:12px 0;">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="tix_website_package"><?php wp_nonce_field('tix_website_package'); ?>
+                    <label><input type="checkbox" name="enabled" value="1" <?php checked(self::package_enabled()); ?>> <strong>Website-Paket freigeschaltet</strong></label>
+                    <p style="color:#64748b;margin:6px 0 10px;">Zeigt im Studio den Bereich „Website“ (Aufbau, Entwurf, Veröffentlichen). Ausschalten blendet ihn aus; gespeicherte Inhalte und die veröffentlichte Website bleiben.</p>
+                    <?php submit_button('Speichern', 'primary', 'submit', false); ?>
+                </form>
+                <p style="margin-top:14px;">Stand: <?php echo $o['published'] ? 'veröffentlicht' . ($o['published_at'] ? ' am ' . esc_html(wp_date('d.m.Y H:i', strtotime($o['published_at']))) : '') : 'noch nicht veröffentlicht'; ?><?php echo $o['draft'] ? ' · Entwurf vorhanden' : ''; ?>
+                    · Adresse <?php echo esc_html($d['live_host']); ?> (Vorschau <?php echo esc_html($d['preview_host']); ?>, <?php echo $d['status'] === 'live' ? 'live' : 'Vorschau'; ?>)</p>
+            </div>
+        </div>
+        <?php
     }
 
     public static function multi() {
@@ -384,7 +451,7 @@ class TIX_Website {
         return ['ok' => true, 'website' => $o['published'], 'draft' => $o['draft'], 'published_at' => $o['published_at'] ?: null, 'updated_at' => (string) $o['updated_at'],
             'updated_by' => $by ? ['id' => intval($by->ID), 'name' => (string) $by->display_name] : null,
             'preview' => ['key' => self::preview_key($exp), 'expires_at' => wp_date('c', $exp)],
-            'catalog' => self::catalog(), 'features' => class_exists('TIX_Features') ? TIX_Features::map() : [], 'domain' => self::domain(),
+            'catalog' => self::catalog(), 'features' => class_exists('TIX_Features') ? TIX_Features::map() : [], 'domain' => self::domain(), 'enabled' => self::package_enabled(),
             'history' => array_map(function ($h) { $u = get_userdata(intval($h['by'] ?? 0)); return ['published_at' => $h['at'] ?? null, 'by' => $u ? ['id' => intval($u->ID), 'name' => (string) $u->display_name] : null]; }, array_slice((array) $o['history'], 0, self::HISTORY))];
     }
 
