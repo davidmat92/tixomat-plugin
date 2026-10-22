@@ -1247,6 +1247,8 @@ class TIX_App_Events {
                 'invoices'         => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary($id) : [],
                 'invoices_enabled' => class_exists('TIX_Invoices') && TIX_Invoices::enabled(),
                 'invoice_pending'  => class_exists('TIX_Invoices') && in_array(intval($id), TIX_Invoices::pending_orders(), true),
+                // Knopf „Rechnung jetzt erstellen“ zeigen (1.38.526): bezahlt, Betrag > 0, noch ohne Rechnung/Beleg, keine Abendkasse/Sandbox
+                'invoice_can_issue' => class_exists('TIX_Invoices') && TIX_Invoices::can_issue($id),
             ],
         ]);
     }

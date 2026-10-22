@@ -14,6 +14,9 @@ if (!defined('ABSPATH')) exit;
  *   BK Belegkorrektur
  * Nummer `<Serie>-<Kürzel>-<Jahr>-<00001>`, lückenlos je Aussteller/Serie/Jahr (Tabelle `tix_invoice_counters`, Vergabe in
  * derselben Transaktion wie der Beleg, Zeile mit SELECT … FOR UPDATE gesperrt).
+ * Seit 1.38.526 je Aussteller und Serie einstellbar (`numbering` in der Konfiguration): Präfix, Jahr ja/nein, Stellen, nächste
+ * Nummer; mit Jahr zählt der Kreis je Kalenderjahr, ohne Jahr durchlaufend (Zähler-Jahr 0). Nächste Nummer nur ≥ der zuletzt
+ * vergebenen, Präfixe dürfen keine Nummern anderer Kreise erzeugen können (Spalte counter_year, DB-Version 4).
  *
  * Aussteller (issuer_key):
  *   site       Einzel-Seite: Firmendaten aus den Einstellungen (invoice_company_* …), Kürzel/Steuersatz/Kleinunternehmer
@@ -26,8 +29,10 @@ if (!defined('ABSPATH')) exit;
  * Steuersatz: Kategorie (`tax_rate` in `_tix_ticket_categories`) → Event (`_tix_tax_rate`) → Aussteller → Seite (tax_rate).
  * Kleinunternehmer: alle Sätze 0, Hinweis § 19 UStG. Geschenkgutschein-Einlösung (Gutschein-Typ giftcard) ist Zahlung, kein Rabatt.
  * Abendkasse (payment_method pos_*) bekommt keine Rechnung, außer mit Schalter `tix_invoice_pos` (Kassenbeleg/TSE: Phase 5).
- * Fehlen Pflichtangaben des Ausstellers, wartet die Bestellung (Option `tix_invoice_pending`) und wird nachgeholt
- * (stündlich und nach dem Speichern von Firmen- bzw. Auszahlungsdaten).
+ * Automatisch entsteht eine Rechnung nur, wenn eine Bestellung bei eingeschaltetem Schalter bezahlt wird (echter Wechsel nach
+ * „completed“) und die Rechnungsdaten vollständig sind (bzw. „Nummer folgt“). Fehlen sie, merkt sich die Bestellung das
+ * (Option `tix_invoice_pending`). Seit 1.38.526 holt nichts automatisch nach: weder diese Warteschlange noch Bestellungen
+ * vor dem Einschalten – nur per Klick („Rechnung jetzt erstellen“, POST /orders/{id}/invoices/issue). Zähler: missing_stats().
  * „Nummer folgt“ (1.38.525): `tax_id_follows` (vat_id|tax_number) in der Aussteller-Konfiguration – ohne Steuernummer und
  * USt-IdNr. gilt der Aussteller trotzdem als vollständig, der Beleg zeigt „USt-IdNr.: folgt“ bzw. „Steuernummer: folgt“ und
  * trägt `tax_id_missing` = 1 (ohne E-Rechnungs-XML, EN 16931 verlangt die Nummer). Nach dem Nachtrag: reissue() stellt neu
@@ -38,12 +43,14 @@ if (!defined('ABSPATH')) exit;
 class TIX_Invoices {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '3'; // 2 = Übergabe an die Buchhaltung (export_*), 1.38.500; 3 = tax_id_missing/replaces_id, 1.38.525
+    const DB_VERSION  = '4'; // 2 = Übergabe an die Buchhaltung (export_*), 1.38.500; 3 = tax_id_missing/replaces_id, 1.38.525; 4 = counter_year (Nummernkreis einstellbar), 1.38.526
+    const SERIES      = ['R', 'RK', 'B', 'BK'];
     const OPT_DB      = 'tix_invoices_db';
     const OPT_ENABLED = 'tix_invoices_enabled';
     const OPT_MODEL   = 'tix_invoice_issuer_model';
     const OPT_CONFIG  = 'tix_invoice_config';
     const OPT_PENDING = 'tix_invoice_pending';
+    const OPT_ENABLED_AT = 'tix_invoices_enabled_at';
     const META_CONFIG = '_tix_invoice_config';
     const CRON        = 'tix_invoices_retry';
     const EPS         = 0.005;
@@ -57,10 +64,10 @@ class TIX_Invoices {
         add_action('tix_order_refund_recorded', [__CLASS__, 'on_refund'], 20, 3);
         add_action('tix_order_status_changed', [__CLASS__, 'on_status'], 5, 3); // vor der Status-Mail: Korrektur hängt an (1.38.487)
         add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 20, 1);
-        add_action(self::CRON, [__CLASS__, 'retry_pending']);
+        add_action('tix_order_status_changed', [__CLASS__, 'track_status'], 1, 3);
         add_action('init', [__CLASS__, 'schedule']);
-        add_action('updated_post_meta', [__CLASS__, 'on_meta'], 10, 3);
-        add_action('added_post_meta', [__CLASS__, 'on_meta'], 10, 3);
+        add_action('add_option_' . self::OPT_ENABLED, [__CLASS__, 'on_enabled_added'], 10, 2);
+        add_action('update_option_' . self::OPT_ENABLED, [__CLASS__, 'on_enabled_changed'], 10, 2);
         add_action('rest_api_init', [__CLASS__, 'routes']);
     }
 
@@ -78,6 +85,12 @@ class TIX_Invoices {
         $t = self::table();
         $k = self::counters_table();
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        // 1.38.526: Zähler-Jahr je Beleg (0 = durchlaufend); Eindeutigkeit der laufenden Nummer je Zähler statt je Kalenderjahr
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) === $t && !$wpdb->get_var("SHOW COLUMNS FROM $t LIKE 'counter_year'")) {
+            $wpdb->query("ALTER TABLE $t ADD COLUMN counter_year SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER year");
+            $wpdb->query("UPDATE $t SET counter_year = year");
+            $wpdb->query("ALTER TABLE $t DROP INDEX issuer_seq, ADD UNIQUE KEY issuer_seq (issuer_key,series,counter_year,seq)");
+        }
         dbDelta("CREATE TABLE $t (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             number VARCHAR(40) NOT NULL,
@@ -87,6 +100,7 @@ class TIX_Invoices {
             organizer_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             code VARCHAR(8) NOT NULL DEFAULT '',
             year SMALLINT UNSIGNED NOT NULL,
+            counter_year SMALLINT UNSIGNED NOT NULL DEFAULT 0,
             seq INT UNSIGNED NOT NULL,
             order_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             order_number VARCHAR(50) NOT NULL DEFAULT '',
@@ -115,7 +129,7 @@ class TIX_Invoices {
             created_gmt DATETIME NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY number (number),
-            UNIQUE KEY issuer_seq (issuer_key,series,year,seq),
+            UNIQUE KEY issuer_seq (issuer_key,series,counter_year,seq),
             KEY order_id (order_id),
             KEY issuer_created (issuer_key,created),
             KEY ref_invoice_id (ref_invoice_id),
@@ -133,8 +147,36 @@ class TIX_Invoices {
         update_option(self::OPT_DB, self::DB_VERSION, false);
     }
 
+    /** Kein stündliches Nachholen mehr (1.38.526): alten Termin entfernen; Einschalt-Zeitpunkt bei Bedarf nachtragen. */
     public static function schedule() {
-        if (self::enabled() && !wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 300, 'hourly', self::CRON);
+        if (get_option('tix_invoices_cron_off') !== '1') {
+            wp_clear_scheduled_hook(self::CRON);
+            wp_unschedule_hook('tix_invoices_retry_one');
+            update_option('tix_invoices_cron_off', '1', false);
+        }
+        if (self::enabled() && get_option(self::OPT_ENABLED_AT, '') === '') self::backfill_enabled_at();
+    }
+
+    /** Zeitpunkt des Einschaltens (Ortszeit) merken – auch beim Setzen per wp option. */
+    public static function on_enabled_added($option, $value) {
+        if ((string) $value === '1') update_option(self::OPT_ENABLED_AT, current_time('mysql'), false);
+    }
+
+    public static function on_enabled_changed($old, $value) {
+        if ((string) $value === '1' && (string) $old !== '1') update_option(self::OPT_ENABLED_AT, current_time('mysql'), false);
+    }
+
+    /** Schon eingeschaltet ohne Zeitpunkt (Seiten vor 1.38.526): früheste wartende Bestellung, sonst jetzt. */
+    private static function backfill_enabled_at() {
+        global $wpdb;
+        $ids = self::pending_orders();
+        $first = $ids ? (string) $wpdb->get_var("SELECT MIN(date_created) FROM {$wpdb->prefix}tix_orders WHERE id IN (" . implode(',', array_map('intval', $ids)) . ")") : '';
+        $now = current_time('mysql');
+        update_option(self::OPT_ENABLED_AT, ($first !== '' && $first < $now) ? $first : $now, false);
+    }
+
+    public static function enabled_at() {
+        return (string) get_option(self::OPT_ENABLED_AT, '');
     }
 
     // ═══════════════ Aussteller ═══════════════
@@ -205,6 +247,103 @@ class TIX_Invoices {
             }
         }
         return false;
+    }
+
+    // ═══════════════ Nummernkreis (1.38.526) ═══════════════
+
+    /** Aufbau eines Kreises: {prefix, year, digits, custom}. Vorgabe = <Serie>-<Kürzel>-<Jahr>-<00001>. */
+    public static function numbering($issuer_key, $series) {
+        $n = (array) ((self::config($issuer_key)['numbering'] ?? [])[$series] ?? []);
+        if (!$n) return ['prefix' => $series . '-' . self::code($issuer_key) . '-', 'year' => true, 'digits' => 5, 'custom' => false];
+        return ['prefix' => (string) ($n['prefix'] ?? ''), 'year' => !empty($n['year']), 'digits' => max(1, min(10, intval($n['digits'] ?? 5))), 'custom' => true];
+    }
+
+    /** Zähler-Jahr eines Aufbaus: Kalenderjahr oder 0 (durchlaufend). */
+    private static function counter_year(array $fmt, $year) {
+        return !empty($fmt['year']) ? intval($year) : 0;
+    }
+
+    public static function format_number(array $fmt, $year, $seq) {
+        return $fmt['prefix'] . (!empty($fmt['year']) ? intval($year) . '-' : '') . str_pad((string) intval($seq), max(1, intval($fmt['digits'])), '0', STR_PAD_LEFT);
+    }
+
+    /** Zuletzt vergebene laufende Nummer eines Zählers. */
+    private static function counter_last($issuer_key, $series, $cy) {
+        global $wpdb;
+        return intval($wpdb->get_var($wpdb->prepare("SELECT last FROM " . self::counters_table() . " WHERE issuer_key = %s AND series = %s AND year = %d", $issuer_key, $series, intval($cy))));
+    }
+
+    /** Können zwei Präfixe dieselbe Nummer erzeugen? (gleich, oder einer verlängert den anderen nur um Ziffern/Bindestriche) */
+    public static function prefixes_clash($a, $b) {
+        $a = strtoupper((string) $a); $b = strtoupper((string) $b);
+        if ($a === $b) return true;
+        if (strlen($a) > strlen($b)) { $x = $a; $a = $b; $b = $x; }
+        return strpos($b, $a) === 0 && preg_match('/^[0-9-]*$/', substr($b, strlen($a)));
+    }
+
+    /** Aussteller, deren Kreise auf dieser Seite vorkommen können (Belege, Konfiguration, Plattform). */
+    private static function known_issuers() {
+        global $wpdb;
+        $keys = array_map('strval', (array) $wpdb->get_col("SELECT DISTINCT issuer_key FROM " . self::table()));
+        $keys[] = self::multi() ? 'platform' : 'site';
+        if (self::multi()) foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s", self::META_CONFIG)) as $pid) $keys[] = 'org:' . intval($pid);
+        else { $all = get_option(self::OPT_CONFIG, []); if (is_array($all)) foreach (array_keys($all) as $k) $keys[] = (string) $k; }
+        return array_values(array_unique($keys));
+    }
+
+    /** Kleinste erlaubte nächste Nummer für einen Aufbau (über Zähler und schon vergebenen Nummern mit diesem Präfix). */
+    private static function min_next($issuer_key, $series, array $fmt) {
+        global $wpdb;
+        $year = intval(wp_date('Y'));
+        $max = self::counter_last($issuer_key, $series, self::counter_year($fmt, $year));
+        $rows = (array) $wpdb->get_col($wpdb->prepare("SELECT number FROM " . self::table() . " WHERE issuer_key = %s AND series = %s AND number LIKE %s",
+            $issuer_key, $series, $wpdb->esc_like($fmt['prefix']) . '%'));
+        foreach ($rows as $num) {
+            $rest = substr((string) $num, strlen($fmt['prefix']));
+            if (!empty($fmt['year'])) { if (preg_match('/^(\d{4})-(\d+)$/', $rest, $m) && intval($m[1]) === $year) $max = max($max, intval($m[2])); }
+            elseif (preg_match('/^\d+$/', $rest)) $max = max($max, intval($rest));
+        }
+        return $max + 1;
+    }
+
+    /**
+     * Neuen Aufbau prüfen: Präfix (Zeichen, Länge; im Mehr-Veranstalter-Modus Pflicht), keine Überschneidung mit anderen Kreisen
+     * (aktuelle Aufbauten aller Aussteller und schon vergebene Nummern). → true | WP_Error
+     */
+    private static function check_numbering($issuer_key, $series, array $fmt, array $own_new) {
+        global $wpdb;
+        $field = 'numbering.' . $series;
+        if (strlen($fmt['prefix']) > 20 || !preg_match('/^[A-Za-z0-9\-_\/.]*$/', $fmt['prefix'])) return self::err('tix_invalid', 'Präfix: bis 20 Zeichen, nur A–Z, 0–9 und - _ / .', 400, $field . '.prefix');
+        if ($fmt['prefix'] === '' && self::multi()) return self::err('tix_invalid', 'Bitte ein Präfix angeben (z. B. RE-).', 400, $field . '.prefix');
+        if (preg_match('/\d$/', $fmt['prefix']) && empty($fmt['year'])) return self::err('tix_invalid', 'Das Präfix muss mit einem Buchstaben oder Zeichen wie - enden, sonst verschmilzt es mit der Nummer.', 400, $field . '.prefix');
+        foreach (self::known_issuers() as $ik) {
+            foreach (self::SERIES as $sr) {
+                if ($ik === $issuer_key && $sr === $series) continue;
+                $other = $ik === $issuer_key && isset($own_new[$sr]) ? $own_new[$sr] : self::numbering($ik, $sr);
+                if (self::prefixes_clash($fmt['prefix'], $other['prefix'])) {
+                    return self::err('tix_number_prefix_taken', $ik === $issuer_key ? 'Dieses Präfix überschneidet sich mit deinem Kreis ' . $sr . ' („' . $other['prefix'] . '“).' : 'Dieses Präfix nutzt schon ein anderer Aussteller.', 409, $field . '.prefix');
+                }
+            }
+        }
+        $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT number FROM " . self::table() . " WHERE NOT (issuer_key = %s AND series = %s) AND number LIKE %s LIMIT 200",
+            $issuer_key, $series, $wpdb->esc_like($fmt['prefix']) . '%'));
+        foreach ($rows as $r) {
+            if (preg_match('/^[0-9-]+$/', substr((string) $r->number, strlen($fmt['prefix'])))) return self::err('tix_number_prefix_taken', 'Mit diesem Präfix gibt es schon Belege eines anderen Kreises (z. B. ' . $r->number . ').', 409, $field . '.prefix');
+        }
+        return true;
+    }
+
+    /** Für Studio/Verwaltung: je Serie {prefix, year, digits, custom, next, min_next, preview}. */
+    public static function numbering_payload($issuer_key) {
+        $year = intval(wp_date('Y'));
+        $out = [];
+        foreach (self::SERIES as $sr) {
+            $f = self::numbering($issuer_key, $sr);
+            $next = self::counter_last($issuer_key, $sr, self::counter_year($f, $year)) + 1;
+            $out[$sr] = ['prefix' => $f['prefix'], 'year' => $f['year'], 'digits' => $f['digits'], 'custom' => $f['custom'],
+                'next' => $next, 'min_next' => max($next, self::min_next($issuer_key, $sr, $f)), 'preview' => self::format_number($f, $year, max($next, self::min_next($issuer_key, $sr, $f)))];
+        }
+        return $out;
     }
 
     /** Kürzel im Nummernkreis (2–6 Zeichen A–Z/0–9). */
@@ -551,15 +690,22 @@ class TIX_Invoices {
         if (!empty($doc['replaced_by'])) $data['replaced_by'] = $doc['replaced_by'];
         $no_tax_id = in_array($series, ['R', 'RK'], true) && trim((string) ($issuer['tax_id'] ?? '')) === '' && trim((string) ($issuer['vat_id'] ?? '')) === '';
         $t = self::table(); $c = self::counters_table();
+        $fmt = self::numbering($key, $series);
+        $cy = self::counter_year($fmt, $year);
         $wpdb->query('START TRANSACTION');
-        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES (%s, %s, %d, 0)", $key, $series, $year));
-        $last = $wpdb->get_var($wpdb->prepare("SELECT last FROM $c WHERE issuer_key = %s AND series = %s AND year = %d FOR UPDATE", $key, $series, $year));
+        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES (%s, %s, %d, 0)", $key, $series, $cy));
+        $last = $wpdb->get_var($wpdb->prepare("SELECT last FROM $c WHERE issuer_key = %s AND series = %s AND year = %d FOR UPDATE", $key, $series, $cy));
         if ($last === null) { $wpdb->query('ROLLBACK'); return new WP_Error('tix_invoice_counter', 'Nummernkreis nicht verfügbar.'); }
         $seq = intval($last) + 1;
-        $number = sprintf('%s-%s-%d-%05d', $series, $code, $year, $seq);
+        $number = self::format_number($fmt, $year, $seq);
+        if ($wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE number = %s", $number))) {
+            $wpdb->query('ROLLBACK');
+            error_log('TIX Invoices: Nummer ' . $number . ' schon vergeben (Kreis ' . $key . '/' . $series . ') – Nummernkreis prüfen.');
+            return new WP_Error('tix_invoice_number_taken', 'Nummer schon vergeben.');
+        }
         $ok = $wpdb->insert($t, [
             'number' => $number, 'kind' => $doc['kind'], 'series' => $series, 'issuer_key' => $key, 'organizer_id' => intval($issuer['organizer_id']),
-            'code' => $code, 'year' => $year, 'seq' => $seq, 'order_id' => intval($o->id), 'order_number' => (string) $o->order_number,
+            'code' => $code, 'year' => $year, 'counter_year' => $cy, 'seq' => $seq, 'order_id' => intval($o->id), 'order_number' => (string) $o->order_number,
             'ref_invoice_id' => $doc['ref'] ? intval($doc['ref']->id) : 0, 'reason' => (string) $doc['reason'], 'currency' => 'EUR',
             'net' => round($gross - $tax, 2), 'tax' => $tax, 'gross' => $gross, 'small_business' => $sb ? 1 : 0,
             'recipient_name' => mb_substr($rcp['company'] !== '' ? $rcp['company'] : $rcp['name'], 0, 200), 'recipient_email' => mb_substr($rcp['email'], 0, 200),
@@ -574,7 +720,7 @@ class TIX_Invoices {
             return new WP_Error('tix_invoice_insert', 'Beleg konnte nicht angelegt werden.');
         }
         $id = intval($wpdb->insert_id);
-        $wpdb->query($wpdb->prepare("UPDATE $c SET last = %d WHERE issuer_key = %s AND series = %s AND year = %d", $seq, $key, $series, $year));
+        $wpdb->query($wpdb->prepare("UPDATE $c SET last = %d WHERE issuer_key = %s AND series = %s AND year = %d", $seq, $key, $series, $cy));
         $wpdb->query('COMMIT');
         // Kürzel festhalten, sobald der Kreis benutzt wird
         $cfg = self::config($key);
@@ -607,8 +753,21 @@ class TIX_Invoices {
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE id = %d", intval($id)));
     }
 
+    /** Statuswechsel dieses Aufrufs (vorher → jetzt), damit on_completed echte Zahlungen erkennt. */
+    private static $transition = [];
+
+    public static function track_status($order_id, $status, $old) {
+        self::$transition[intval($order_id)] = [(string) $old, (string) $status];
+    }
+
+    /**
+     * Bezahlt → Rechnung, aber nur bei einem echten Wechsel nach „completed“ in diesem Aufruf (1.38.526). Ein erneutes
+     * Auslösen an einer schon bezahlten Bestellung (z. B. Status noch einmal gespeichert) legt nichts nach.
+     */
     public static function on_completed($order_id) {
         if (!self::enabled()) return;
+        $t = self::$transition[intval($order_id)] ?? null;
+        if (!$t || $t[1] !== 'completed' || $t[0] === 'completed') return;
         self::issue_for_order(intval($order_id));
     }
 
@@ -660,6 +819,56 @@ class TIX_Invoices {
         return array_map('intval', array_keys(array_filter($p, function ($keys) use ($issuer_key) { return in_array($issuer_key, (array) $keys, true); })));
     }
 
+    /**
+     * Bezahlte Bestellungen ohne Rechnung bzw. Beleg (R/B) eines Ausstellers – nur Zähler, nichts wird angelegt (1.38.526).
+     * Ohne Abendkasse (außer Schalter tix_invoice_pos), ohne 0-€-Bestellungen, ohne Sandbox (Zahlart demo, Demo-/Vorschau-Veranstalter).
+     * → {count, waiting (wartet auf Rechnungsdaten), since_enabled, before_enabled, enabled_at, order_ids[] (neueste, ≤ $limit)}
+     */
+    public static function missing_stats($issuer_key, $limit = 20) {
+        global $wpdb;
+        self::maybe_install();
+        $o = $wpdb->prefix . 'tix_orders';
+        $i = $wpdb->prefix . 'tix_order_items';
+        $t = self::table();
+        $where = ["o.status IN ('completed','processing')", 'o.total > 0', "o.payment_method <> 'demo'",
+            "NOT EXISTS (SELECT 1 FROM $t v WHERE v.order_id = o.id AND v.series IN ('R','B'))"];
+        if (get_option('tix_invoice_pos', '0') !== '1') $where[] = "o.payment_method NOT LIKE 'pos\\_%'";
+        $sandbox = class_exists('TIX_Sales') && method_exists('TIX_Sales', 'sandbox_ids') ? array_map('intval', TIX_Sales::sandbox_ids()) : [];
+        if ($sandbox) $where[] = "NOT EXISTS (SELECT 1 FROM $i x JOIN {$wpdb->postmeta} m ON m.post_id = x.event_id AND m.meta_key = '_tix_organizer_id' WHERE x.order_id = o.id AND m.meta_value IN ('" . implode("','", $sandbox) . "'))";
+        if (self::multi() && strpos($issuer_key, 'org:') === 0) {
+            $where[] = $wpdb->prepare("EXISTS (SELECT 1 FROM $i x JOIN {$wpdb->postmeta} m ON m.post_id = x.event_id AND m.meta_key = '_tix_organizer_id' WHERE x.order_id = o.id AND m.meta_value = %s)", (string) intval(substr($issuer_key, 4)));
+        }
+        $w = implode(' AND ', $where);
+        $at = self::enabled_at();
+        $since = $at !== '' ? intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $o o WHERE $w AND o.date_created >= %s", $at))) : 0;
+        $all = intval($wpdb->get_var("SELECT COUNT(*) FROM $o o WHERE $w"));
+        $ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT o.id FROM $o o WHERE $w ORDER BY o.date_created DESC, o.id DESC LIMIT %d", max(1, intval($limit)))));
+        $waiting = count(array_filter($issuer_key === '' ? self::pending_orders() : self::pending_orders($issuer_key), function ($oid) use ($wpdb, $t) {
+            return !$wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE order_id = %d AND series IN ('R','B') LIMIT 1", $oid));
+        }));
+        return ['count' => $all, 'waiting' => $waiting, 'since_enabled' => $at !== '' ? $since : $all, 'before_enabled' => $at !== '' ? $all - $since : 0,
+            'enabled_at' => $at !== '' ? $at : null, 'order_ids' => $ids];
+    }
+
+    /** Darf für die Bestellung per Klick eine Rechnung erstellt werden (bezahlt, > 0 €, noch ohne R/B, keine Abendkasse/Sandbox)? */
+    public static function can_issue($order_id) {
+        if (!self::enabled()) return false;
+        $o = self::order_row($order_id);
+        if (!$o || !in_array($o->status, ['completed', 'processing'], true) || floatval($o->total) <= 0) return false;
+        if (strpos((string) $o->payment_method, 'pos_') === 0 && get_option('tix_invoice_pos', '0') !== '1') return false;
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_order($order_id)) return false;
+        foreach (self::for_order($order_id) as $r) if (in_array($r->series, ['R', 'B'], true)) return false;
+        return true;
+    }
+
+    /** Studio-Block „Bestellungen ohne Rechnung“ (nur Hinweis, keine Automatik). */
+    public static function missing_payload($issuer_key) {
+        $m = self::missing_stats($issuer_key);
+        $m['message'] = $m['count'] > 0 ? ($m['count'] === 1 ? '1 Bestellung ohne Rechnung' : $m['count'] . ' Bestellungen ohne Rechnung') : null;
+        return $m;
+    }
+
+    /** Nur noch manuell (z. B. WP-CLI); kein Cron, kein Auslöser beim Speichern (1.38.526). */
     public static function retry_pending($issuer_key = '') {
         if (!self::enabled()) return 0;
         $n = 0;
@@ -668,12 +877,6 @@ class TIX_Invoices {
             $n += count($r['created']);
         }
         return $n;
-    }
-
-    /** Auszahlungsdaten eines Veranstalters gespeichert → wartende Bestellungen nachholen. */
-    public static function on_meta($meta_id, $post_id, $key) {
-        if ($key !== '_tix_payout_data' || !self::enabled()) return;
-        if (!wp_next_scheduled('tix_invoices_retry_one', ['org:' . intval($post_id)])) wp_schedule_single_event(time() + 5, 'tix_invoices_retry_one', ['org:' . intval($post_id)]);
     }
 
     // ═══════════════ Korrekturen ═══════════════
@@ -1052,10 +1255,16 @@ class TIX_Invoices {
         if (!$o) return self::err('tix_order_missing', 'Bestellung nicht gefunden.', 404);
         if (self::multi() && !current_user_can('manage_options') && !TIX_App_Scope::order_allowed($o)) return self::err('rest_forbidden', 'Kein Zugriff auf diese Bestellung.', 403);
         if (!in_array($o->get_status(), ['completed', 'processing'], true)) return self::err('tix_order_unpaid', 'Rechnungen gibt es nur für bezahlte Bestellungen.', 409);
+        if (strpos((string) $o->get_payment_method(), 'pos_') === 0 && get_option('tix_invoice_pos', '0') !== '1') return self::err('tix_invoice_pos', 'Verkäufe an der Abendkasse bekommen keine Rechnung.', 409);
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_order($o->get_id())) return self::err('tix_invoice_sandbox', 'Demo- und Vorschau-Bestellungen bekommen keine Rechnung.', 409);
         $r = self::issue_for_order($o->get_id());
         $nums = [];
         foreach ($r['created'] as $id) { $x = self::get($id); if ($x) $nums[] = $x->number; }
-        return rest_ensure_response(['ok' => true, 'created' => $nums, 'pending' => array_values(array_unique($r['pending'])), 'invoices' => self::order_summary($o->get_id())]);
+        $pending = array_values(array_unique($r['pending']));
+        $msg = $nums ? (count($nums) === 1 ? 'Rechnung ' . $nums[0] . ' erstellt.' : count($nums) . ' Belege erstellt.')
+            : ($pending ? 'Die Rechnungsdaten sind unvollständig. Bitte ergänzen (oder „Nummer folgt“ wählen) und dann noch einmal erstellen.'
+            : (self::for_order($o->get_id()) ? 'Die Bestellung hat schon ihre Rechnung.' : 'Für diese Bestellung ist keine Rechnung nötig (Betrag 0 €).'));
+        return rest_ensure_response(['ok' => true, 'created' => $nums, 'pending' => $pending, 'message' => $msg, 'invoices' => self::order_summary($o->get_id())]);
     }
 
     /** Neuausstellung + optional Versand an die Rechnungs-E-Mail der Bestellung. → [result, sent] | WP_Error */
@@ -1292,6 +1501,7 @@ class TIX_Invoices {
             'totals' => ['count' => intval($tot->n), 'net' => round(floatval($tot->net), 2), 'tax' => round(floatval($tot->tax), 2), 'gross' => round(floatval($tot->gross), 2)],
             'pending' => count(self::pending_orders($issuer ?: '')),
             'tax_id_missing_open' => self::tax_id_missing_stats($issuer ?: '')['open'],
+            'without_invoice' => self::missing_payload($issuer ?: ''),
             'page' => $page, 'per_page' => $per, 'total' => intval($tot->n), 'has_more' => intval($tot->n) > $page * $per,
             'invoices' => array_map(function ($r) { return self::row($r, false); }, $rows),
         ]);
@@ -1323,6 +1533,7 @@ class TIX_Invoices {
         foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT series, last FROM " . self::counters_table() . " WHERE issuer_key = %s AND year = %d", $issuer_key, $year)) as $r) $counters[$r->series] = intval($r->last);
         $company = [];
         if (strpos($issuer_key, 'org:') !== 0) foreach (self::COMPANY_KEYS as $k => $sk) $company[$k] = (string) ($s[$sk] ?? '');
+        $num = self::numbering_payload($issuer_key);
         return [
             'ok' => true,
             'enabled' => self::enabled(),
@@ -1340,11 +1551,15 @@ class TIX_Invoices {
             'tax_id_follows_active' => $i['tax_id_follows'] !== '',
             'tax_id_info' => self::TAX_ID_INFO,
             'tax_id_missing' => self::tax_id_payload($issuer_key),
+            // Bestellungen ohne Rechnung (1.38.526): nur Hinweis, Erstellen per Klick über POST /orders/{id}/invoices/issue
+            'without_invoice' => self::missing_payload($issuer_key),
             'company' => $company ?: null,
             'datev' => self::datev_config($issuer_key),
             // Übergabe an die Buchhaltung (1.38.500): {provider none|lexoffice, key_set, key_last4, use_site_key, site_key_available, category_id, since}
             'accounting' => class_exists('TIX_Invoice_Accounting') ? TIX_Invoice_Accounting::payload($issuer_key) : null,
-            'next' => ['R' => sprintf('R-%s-%d-%05d', $i['code'], $year, ($counters['R'] ?? 0) + 1), 'RK' => sprintf('RK-%s-%d-%05d', $i['code'], $year, ($counters['RK'] ?? 0) + 1), 'B' => sprintf('B-%s-%d-%05d', $i['code'], $year, ($counters['B'] ?? 0) + 1)],
+            // Nummernkreis (1.38.526): next = Vorschau der nächsten Nummer je Serie; numbering = Aufbau zum Bearbeiten
+            'next' => ['R' => $num['R']['preview'], 'RK' => $num['RK']['preview'], 'B' => $num['B']['preview']],
+            'numbering' => $num,
             'counters' => (object) $counters,
             'pending' => count(self::pending_orders($issuer_key)),
         ];
@@ -1358,7 +1573,8 @@ class TIX_Invoices {
     }
 
     /**
-     * POST /studio/invoice-config {code?, tax_rate?, small_business?, tax_id_follows?, company{}?, datev{}?, enabled?, issuer_model?}
+     * POST /studio/invoice-config {code?, tax_rate?, small_business?, tax_id_follows?, numbering{R|RK|B|BK: {prefix?, year?, digits?, next?} | null}?,
+     *   company{}?, datev{}?, enabled?, issuer_model?}
      * company/small_business nur Seite/Plattform (Veranstalter: Auszahlungsdaten); enabled/issuer_model nur Admin.
      */
     public static function rest_save_config(WP_REST_Request $req) {
@@ -1386,6 +1602,49 @@ class TIX_Invoices {
         if (array_key_exists('small_business', $p)) {
             if ($is_org) return self::err('tix_invalid', 'Kleinunternehmer stellst du in den Auszahlungsdaten ein (Steuer-Status).', 400, 'small_business');
             $cfg['small_business'] = filter_var($p['small_business'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        }
+        $num_apply = [];
+        if (array_key_exists('numbering', $p)) {
+            if (!is_array($p['numbering'])) return self::err('tix_invalid', 'numbering: Objekt je Serie erwartet (R, RK, B, BK).', 400, 'numbering');
+            $cur = (array) ($cfg['numbering'] ?? []);
+            $code_now = isset($cfg['code']) ? (string) $cfg['code'] : self::code($issuer);
+            $new = []; $nexts = [];
+            foreach ($p['numbering'] as $sr => $in) {
+                $sr = (string) $sr;
+                if (!in_array($sr, self::SERIES, true)) return self::err('tix_invalid', 'numbering: Serie ' . $sr . ' unbekannt (R, RK, B, BK).', 400, 'numbering.' . $sr);
+                if ($in === null || $in === 'default' || (is_array($in) && !empty($in['reset']))) {
+                    unset($cur[$sr]);
+                    $new[$sr] = ['prefix' => $sr . '-' . $code_now . '-', 'year' => true, 'digits' => 5];
+                } elseif (is_array($in)) {
+                    $f = self::numbering($issuer, $sr);
+                    if (array_key_exists('prefix', $in)) $f['prefix'] = trim((string) $in['prefix']);
+                    if (array_key_exists('year', $in)) $f['year'] = filter_var($in['year'], FILTER_VALIDATE_BOOLEAN);
+                    if (array_key_exists('digits', $in)) {
+                        $dg = filter_var($in['digits'], FILTER_VALIDATE_INT);
+                        if ($dg === false || $dg < 3 || $dg > 10) return self::err('tix_invalid', 'Stellen: 3 bis 10.', 400, 'numbering.' . $sr . '.digits');
+                        $f['digits'] = $dg;
+                    }
+                    $cur[$sr] = ['prefix' => $f['prefix'], 'year' => $f['year'] ? 1 : 0, 'digits' => intval($f['digits'])];
+                    $new[$sr] = $f;
+                } else {
+                    return self::err('tix_invalid', 'numbering.' . $sr . ': Objekt oder null erwartet.', 400, 'numbering.' . $sr);
+                }
+                if (is_array($in) && array_key_exists('next', $in) && $in['next'] !== null && $in['next'] !== '') {
+                    $nx = filter_var($in['next'], FILTER_VALIDATE_INT);
+                    if ($nx === false || $nx < 1 || $nx > 999999999) return self::err('tix_invalid', 'Nächste Nummer: ganze Zahl ab 1.', 400, 'numbering.' . $sr . '.next');
+                    $nexts[$sr] = $nx;
+                }
+            }
+            foreach ($new as $sr => $f) {
+                $ok = self::check_numbering($issuer, $sr, $f, $new);
+                if (is_wp_error($ok)) return $ok;
+            }
+            foreach ($nexts as $sr => $nx) {
+                $min = self::min_next($issuer, $sr, $new[$sr]);
+                if ($nx < $min) return new WP_Error('tix_number_too_low', 'Die nächste Nummer muss mindestens ' . $min . ' sein – kleinere Nummern sind schon vergeben (GoBD: lückenlos, keine Wiederholung).', ['status' => 409, 'field' => 'numbering.' . $sr . '.next', 'min_next' => $min]);
+            }
+            foreach ($new as $sr => $f) $num_apply[$sr] = $nexts[$sr] ?? self::min_next($issuer, $sr, $f);
+            if ($cur) $cfg['numbering'] = $cur; else unset($cfg['numbering']);
         }
         if (array_key_exists('tax_id_follows', $p)) {
             $f = $p['tax_id_follows'];
@@ -1431,6 +1690,13 @@ class TIX_Invoices {
         if (array_key_exists('issuer_model', $p) && !in_array((string) $p['issuer_model'], ['organizer', 'platform'], true)) return self::err('tix_invalid', 'issuer_model: organizer|platform', 400, 'issuer_model');
 
         self::save_config($issuer, $cfg);
+        // Nummernkreis: Zähler nur vorwärts stellen (nie unter bereits vergebene Nummern)
+        global $wpdb;
+        foreach ($num_apply as $sr => $nx) {
+            $cy = self::counter_year(self::numbering($issuer, $sr), intval(wp_date('Y')));
+            $wpdb->query($wpdb->prepare("INSERT INTO " . self::counters_table() . " (issuer_key, series, year, last) VALUES (%s, %s, %d, %d) ON DUPLICATE KEY UPDATE last = GREATEST(last, VALUES(last))",
+                $issuer, $sr, $cy, max(0, intval($nx) - 1)));
+        }
         if ($company !== null) {
             $s = self::site_settings();
             foreach (self::COMPANY_KEYS as $k => $sk) {
@@ -1445,9 +1711,7 @@ class TIX_Invoices {
             update_option(self::OPT_ENABLED, filter_var($p['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
             if (self::enabled()) self::maybe_install();
         }
-        if (self::enabled()) self::retry_pending($issuer);
         return rest_ensure_response(self::config_payload($issuer));
     }
 }
 
-add_action('tix_invoices_retry_one', function ($issuer_key) { TIX_Invoices::retry_pending((string) $issuer_key); });

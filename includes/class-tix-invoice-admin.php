@@ -12,7 +12,6 @@ class TIX_Invoice_Admin {
         add_action('admin_post_tix_invoice_send', [__CLASS__, 'handle_send']);
         add_action('admin_post_tix_invoices_settings', [__CLASS__, 'handle_settings']);
         add_action('admin_post_tix_invoices_export', [__CLASS__, 'handle_export']);
-        add_action('admin_post_tix_invoices_retry', [__CLASS__, 'handle_retry']);
         add_action('admin_post_tix_invoices_reissue', [__CLASS__, 'handle_reissue']);
     }
 
@@ -48,6 +47,13 @@ class TIX_Invoice_Admin {
         foreach (['code', 'tax_rate'] as $k) if (isset($_POST[$k])) $body[$k] = sanitize_text_field(wp_unslash($_POST[$k]));
         if (isset($_POST['small_business_set'])) $body['small_business'] = !empty($_POST['small_business']);
         if (isset($_POST['tax_id_follows'])) $body['tax_id_follows'] = sanitize_key($_POST['tax_id_follows']);
+        if (isset($_POST['numbering']) && is_array($_POST['numbering'])) {
+            foreach (wp_unslash($_POST['numbering']) as $sr => $n) {
+                if (!in_array($sr, ['R', 'RK'], true) || !is_array($n)) continue;
+                $body['numbering'][$sr] = ['prefix' => sanitize_text_field((string) ($n['prefix'] ?? '')), 'year' => !empty($n['year']), 'digits' => intval($n['digits'] ?? 5)];
+                if (trim((string) ($n['next'] ?? '')) !== '') $body['numbering'][$sr]['next'] = intval($n['next']);
+            }
+        }
         $issuer = sanitize_text_field((string) ($_POST['issuer'] ?? ''));
         $r = new WP_REST_Request('POST', '/tixomat/v1/studio/invoice-config');
         if ($issuer !== '') $r->set_param('issuer', $issuer);
@@ -57,12 +63,6 @@ class TIX_Invoice_Admin {
         $msg = $res->get_status() === 200 ? 'saved' : 'error';
         $err = $res->get_status() === 200 ? '' : (string) ($res->get_data()['message'] ?? ($res->as_error() ? $res->as_error()->get_error_message() : ''));
         self::back(['tix_inv_msg' => $msg, 'tix_inv_err' => rawurlencode($err)]);
-    }
-
-    public static function handle_retry() {
-        if (!current_user_can('manage_options') || !check_admin_referer('tix_invoices_retry')) wp_die('Keine Berechtigung.');
-        $n = class_exists('TIX_Invoices') ? TIX_Invoices::retry_pending() : 0;
-        self::back(['tix_inv_msg' => 'retried', 'n' => intval($n)]);
     }
 
     /** Rechnungen ohne Steuernummer neu ausstellen (1.38.525), je Klick bis zu 100. */
@@ -129,9 +129,10 @@ class TIX_Invoice_Admin {
                         <?php submit_button('Speichern', 'secondary', 'submit', false); ?>
                     </form>
                 <?php endif; ?>
-                <?php if (!empty($cfg['pending'])): ?>
-                    <p><strong><?php echo intval($cfg['pending']); ?></strong> Bestellung(en) warten auf vollständige Angaben.
-                    <a class="button button-small" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_invoices_retry'), 'tix_invoices_retry')); ?>">Jetzt nachholen</a></p>
+                <?php if (!empty($cfg['without_invoice']['message'])): $wi = $cfg['without_invoice']; ?>
+                    <p><strong><?php echo esc_html($wi['message']); ?></strong>
+                    <?php if (!empty($wi['enabled_at'])): ?>(seit dem Einschalten am <?php echo esc_html(date_i18n('d.m.Y H:i', strtotime($wi['enabled_at']))); ?>: <?php echo intval($wi['since_enabled']); ?>, davor: <?php echo intval($wi['before_enabled']); ?>)<?php endif; ?>.
+                    Rechnungen entstehen im Nachhinein nur per Klick auf „Rechnung jetzt erstellen“ in der jeweiligen Bestellung.</p>
                 <?php endif; ?>
             </div>
 
@@ -170,6 +171,20 @@ class TIX_Invoice_Admin {
                     </form>
                 <?php endif; ?>
                 <p style="color:#64748b;">Nächste Nummern: <?php echo esc_html(implode(' · ', (array) ($cfg['next'] ?? []))); ?></p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="tix_invoices_settings"><?php wp_nonce_field('tix_invoices_settings'); ?>
+                    <input type="hidden" name="issuer" value="<?php echo esc_attr($multi ? 'platform' : ''); ?>">
+                    <strong>Nummernkreis</strong> <span style="color:#64748b;">(lückenlos; die nächste Nummer kann nur höher als die zuletzt vergebene sein, gilt nur für künftige Belege)</span>
+                    <?php foreach (['R' => 'Rechnungen', 'RK' => 'Korrekturen'] as $sr => $lbl): $nb = $cfg['numbering'][$sr] ?? null; if (!$nb) continue; ?>
+                        <div style="margin-top:6px;"><?php echo esc_html($lbl); ?>:
+                            <label>Präfix <input name="numbering[<?php echo esc_attr($sr); ?>][prefix]" value="<?php echo esc_attr($nb['prefix']); ?>" size="12" maxlength="20"></label>
+                            <label><input type="checkbox" name="numbering[<?php echo esc_attr($sr); ?>][year]" value="1" <?php checked(!empty($nb['year'])); ?>> mit Jahr</label>
+                            <label>Stellen <input name="numbering[<?php echo esc_attr($sr); ?>][digits]" type="number" min="3" max="10" value="<?php echo intval($nb['digits']); ?>" style="width:56px;"></label>
+                            <label>nächste Nummer <input name="numbering[<?php echo esc_attr($sr); ?>][next]" type="number" min="<?php echo intval($nb['min_next']); ?>" placeholder="<?php echo intval($nb['min_next']); ?>" style="width:100px;"></label>
+                            <span style="color:#64748b;">→ <?php echo esc_html($nb['preview']); ?></span></div>
+                    <?php endforeach; ?>
+                    <?php submit_button('Nummernkreis speichern', 'secondary', 'submit', false); ?>
+                </form>
             </div>
 
             <h2>Belege</h2>

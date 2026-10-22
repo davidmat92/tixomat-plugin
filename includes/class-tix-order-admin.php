@@ -816,9 +816,9 @@ class TIX_Order_Admin {
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (!$core_inv || $core_pending): ?>
-                                <tr><td colspan="2" style="padding:4px 0;font-size:12px;color:#64748b;"><?php echo $core_pending ? 'Wartet auf Pflichtangaben des Ausstellers (Name, Anschrift, Steuernummer).' : 'Noch keine Rechnung.'; ?></td></tr>
+                                <tr><td colspan="2" style="padding:4px 0;font-size:12px;color:#64748b;"><?php echo $core_pending ? 'Noch keine Rechnung: Die Rechnungsdaten waren beim Bezahlen unvollständig. Nach dem Ergänzen hier erstellen.' : 'Noch keine Rechnung.'; ?></td></tr>
                                 <?php if (TIX_Invoices::enabled() && in_array($order->status, ['completed', 'processing'], true)): ?>
-                                    <tr><td colspan="2" style="padding:6px 0;"><a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . $order_id), 'tix_invoice_retry')); ?>" class="button button-small">+ Jetzt erstellen</a></td></tr>
+                                    <tr><td colspan="2" style="padding:6px 0;"><a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=tix_invoice_retry&order_id=' . $order_id), 'tix_invoice_retry')); ?>" class="button button-small">+ Rechnung jetzt erstellen</a></td></tr>
                                 <?php endif; ?>
                             <?php endif; ?>
                         <?php else:
