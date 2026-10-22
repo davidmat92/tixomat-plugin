@@ -516,7 +516,7 @@ class TIX_Studio {
             $has = !self::multi() && (
                 (class_exists('TIX_App_Links') && TIX_App_Links::ids())
                 || (class_exists('TIX_App_Coupons') && (TIX_App_Coupons::store_url() || TIX_App_Coupons::play_url()))
-                || (class_exists('TIX_Notifications') && TIX_Notifications::apns_configured()));
+                || (class_exists('TIX_Notifications') && TIX_Notifications::push_configured()));
         }
         $icon = (string) get_site_icon_url(512);
         return [

@@ -9,9 +9,10 @@
  * - Automatisch: `tix_order_completed` → Ticket-Hinweis an den Käufer; stündlicher
  *   Cron → Erinnerung am Event-Tag (einmal je Event).
  * - Veranstalter schreiben Nachrichten über `POST /notifications/broadcast`.
- * - Echte Push-Zustellung (APNs) ist optional: nur aktiv, sobald in den Optionen
- *   ein Apple-Push-Schlüssel (.p8) hinterlegt ist – sonst bleibt alles beim
- *   In-App-Feed (kein Fehler, keine Zustellung).
+ * - Echte Push-Zustellung ist optional: iPhone über APNs, sobald ein Apple-Push-Schlüssel
+ *   (.p8) hinterlegt ist; Android über Firebase (FCM HTTP v1, TIX_FCM, 1.38.527), sobald ein
+ *   Dienstkonto hinterlegt ist – sonst bleibt alles beim In-App-Feed (kein Fehler, keine Zustellung).
+ *   Geräte je Plattform in `_tix_push_tokens` (platform ios|android; alte Einträge ohne Angabe = iOS).
  *
  * @package Tixomat
  */
@@ -207,7 +208,9 @@ class TIX_Notifications {
         return new WP_REST_Response([
             'ok'            => true,
             'notifications' => array_values($out),
-            'push_ready'    => self::apns_configured(),
+            'push_ready'    => self::push_configured(),
+            'apns_configured' => self::apns_configured(),
+            'fcm_configured'  => self::fcm_configured(),
             // Schalter „Mitteilungen (Broadcast)“ (TIX_Features, 1.38.498)
             'broadcast_enabled' => !class_exists('TIX_Features') || TIX_Features::on('notifications'),
         ], 200);
@@ -303,7 +306,7 @@ class TIX_Notifications {
             self::log_broadcast($title, $body, 'event', $event_id, count($uids));
             return new WP_REST_Response([
                 'ok'         => true,
-                'pushed'     => self::apns_configured(),
+                'pushed'     => self::push_configured(),
                 'recipients' => count($uids),
                 'target'     => 'event',
             ], 200);
@@ -319,7 +322,7 @@ class TIX_Notifications {
         return new WP_REST_Response([
             'ok'         => true,
             'item'       => $item,
-            'pushed'     => self::apns_configured(),
+            'pushed'     => self::push_configured(),
             'recipients' => count(self::tokens()),
             'target'     => 'all',
         ], 200);
@@ -382,7 +385,7 @@ class TIX_Notifications {
         self::log_broadcast($title, $body, $target, $event_id, count($uids) + $extra, $oid);
         return new WP_REST_Response([
             'ok'         => true,
-            'pushed'     => self::apns_configured(),
+            'pushed'     => self::push_configured(),
             'recipients' => count($uids) + $extra,
             'target'     => $target,
         ], 200);
@@ -425,19 +428,33 @@ class TIX_Notifications {
         return array_keys($uids);
     }
 
-    /** POST /push/register {token, platform} – Geräte-Token merken. */
+    /** Geräte-Token säubern: Android (FCM) A–Z a–z 0–9 : _ -, sonst APNs-Hex. → '' wenn ungültig */
+    private static function clean_token($raw, $platform) {
+        $raw = trim((string) $raw);
+        if ($platform === 'android') return preg_match('/^[A-Za-z0-9:_\-]{32,4096}$/', $raw) ? $raw : '';
+        $t = preg_replace('/[^a-f0-9]/i', '', $raw);
+        return strlen($t) >= 32 ? $t : '';
+    }
+
+    /** Plattform eines gespeicherten Geräts (ohne Angabe bzw. unbekannt = ios). */
+    private static function platform_of($meta) {
+        return (is_array($meta) && ($meta['platform'] ?? '') === 'android') ? 'android' : 'ios';
+    }
+
+    /** POST /push/register {token, platform: ios|android, bundle?} – Geräte-Token merken. */
     public static function rest_register_device(WP_REST_Request $req) {
-        $token    = preg_replace('/[^a-f0-9]/i', '', (string) $req->get_param('token'));
         $platform = sanitize_key($req->get_param('platform') ?: 'ios');
-        if (strlen($token) < 32) {
+        $token    = self::clean_token($req->get_param('token'), $platform);
+        if ($token === '') {
             return new WP_Error('tix_bad_token', 'Ungültiges Token.', ['status' => 400]);
         }
+        $bundle = substr(preg_replace('/[^A-Za-z0-9._-]/', '', (string) $req->get_param('bundle')), 0, 100);
         $tokens = self::tokens();
         $tokens[$token] = [
             'user'     => get_current_user_id(),
             'platform' => $platform,
             'ts'       => time(),
-        ];
+        ] + ($bundle !== '' ? ['bundle' => $bundle] : []);
         // Alte Token (>180 Tage) ausmisten, deckeln.
         $cutoff = time() - 180 * DAY_IN_SECONDS;
         foreach ($tokens as $t => $meta) {
@@ -447,14 +464,17 @@ class TIX_Notifications {
             $tokens = array_slice($tokens, -5000, null, true);
         }
         update_option(self::OPT_TOKENS, $tokens, false);
-        return new WP_REST_Response(['ok' => true, 'push_ready' => self::apns_configured()], 200);
+        return new WP_REST_Response(['ok' => true, 'platform' => $platform,
+            'push_ready' => $platform === 'android' ? self::fcm_configured() : self::apns_configured(),
+            'apns_configured' => self::apns_configured(), 'fcm_configured' => self::fcm_configured()], 200);
     }
 
     /** POST /push/unregister {token} */
     public static function rest_unregister_device(WP_REST_Request $req) {
-        $token  = preg_replace('/[^a-f0-9]/i', '', (string) $req->get_param('token'));
+        $raw    = trim((string) $req->get_param('token'));
         $tokens = self::tokens();
-        if (isset($tokens[$token])) {
+        $token  = isset($tokens[$raw]) ? $raw : preg_replace('/[^a-f0-9]/i', '', $raw);
+        if ($token !== '' && isset($tokens[$token])) {
             unset($tokens[$token]);
             update_option(self::OPT_TOKENS, $tokens, false);
         }
@@ -582,6 +602,27 @@ class TIX_Notifications {
         return is_array($t) ? $t : [];
     }
 
+    /** Ist irgendein Push-Weg eingerichtet (APNs oder FCM)? */
+    public static function push_configured() {
+        return self::apns_configured() || self::fcm_configured();
+    }
+
+    public static function fcm_configured() {
+        return class_exists('TIX_FCM') && TIX_FCM::configured();
+    }
+
+    /** Geräte je Plattform: {ios, android} */
+    public static function device_counts() {
+        $c = ['ios' => 0, 'android' => 0];
+        foreach (self::tokens() as $meta) $c[self::platform_of($meta)]++;
+        return $c;
+    }
+
+    /** Push an alle Geräte eines Nutzers (z. B. Test über WP-CLI). → Zahl zugestellter Nachrichten */
+    public static function push_to_user($user_id, $title, $body, $data = []) {
+        return self::push_user($user_id, $title, $body, $data);
+    }
+
     public static function apns_configured() {
         $c = self::push_config();
         return $c['key'] !== '' && $c['key_id'] !== '' && $c['team_id'] !== '';
@@ -606,15 +647,39 @@ class TIX_Notifications {
         foreach (self::tokens() as $t => $meta) {
             if (intval($meta['user'] ?? 0) === intval($user_id)) $tokens[] = $t;
         }
-        if ($tokens) self::send_push($tokens, $title, $body, $data);
+        return $tokens ? self::send_push($tokens, $title, $body, $data) : 0;
     }
 
     /**
-     * Sendet eine Push-Nachricht an die Geräte-Token. Ohne konfigurierten
-     * Apple-Schlüssel passiert nichts (der In-App-Feed genügt dann).
+     * Sendet eine Push-Nachricht an die Geräte-Token: iPhone über APNs, Android über FCM (1.38.527).
+     * Ohne eingerichteten Weg passiert für diese Geräte nichts (der In-App-Feed genügt dann).
      */
     public static function send_push($tokens, $title, $body, $data = []) {
-        $tokens = array_values(array_unique(array_filter((array) $tokens)));
+        $tokens = array_values(array_unique(array_filter(array_map('strval', (array) $tokens))));
+        if (!$tokens) return 0;
+        $known = self::tokens();
+        $ios = []; $android = [];
+        foreach ($tokens as $t) {
+            // unbekanntes Token: reines Hex = APNs, sonst FCM
+            $p = isset($known[$t]) ? self::platform_of($known[$t]) : (preg_match('/^[a-f0-9]+$/i', $t) ? 'ios' : 'android');
+            if ($p === 'android') $android[] = $t; else $ios[] = $t;
+        }
+        $sent = 0;
+        if ($android && self::fcm_configured()) {
+            $r = TIX_FCM::send($android, $title, $body, (array) $data);
+            $sent += $r['sent'];
+            if ($r['invalid']) {
+                $all = self::tokens();
+                foreach ($r['invalid'] as $t) unset($all[$t]);
+                update_option(self::OPT_TOKENS, $all, false);
+            }
+        }
+        if ($ios) $sent += self::send_apns($ios, $title, $body, $data);
+        return $sent;
+    }
+
+    /** APNs-Versand (bisheriger Weg, unverändert). */
+    private static function send_apns($tokens, $title, $body, $data = []) {
         if (!$tokens || !self::apns_configured()) return 0;
 
         $jwt = self::apns_jwt();
