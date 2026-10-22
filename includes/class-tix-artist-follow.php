@@ -11,12 +11,17 @@ if (!defined('ABSPATH')) exit;
  *  - Auslöser: neuer Termin (Event mit dem Künstler veröffentlicht bzw. zugeordnet; „Zusatztermin“ bei weiterem Termin
  *    derselben Tour) und Vorverkaufsstart. Gesammelt, je Empfänger höchstens eine Mitteilung bzw. Mail am Tag (ab 18:00).
  *    `cities` = nur Termine in diesen Städten (Ticketalarm „nur meine Stadt“).
+ *  - Einwilligungsnachweis nach dem Abmelden (1.38.529, User-Entscheid): Endet eine bestätigte Einwilligung (Abmelde-Link,
+ *    „Mails aus“/Entfolgen im Konto, Kontolöschung), bleibt 3 Jahre ein Minimal-Nachweis in `tix_artist_follow_proofs`
+ *    (E-Mail-Hash, Einwilligungstext, Zeitpunkte, Widerruf; keine E-Mail, keine IP), danach löscht ihn der stündliche Lauf.
+ *    Nachschlagen: `wp tixomat artist-follow proof <email>`.
  */
 class TIX_Artist_Follow {
 
     const NS = 'tixomat/v1';
     const META = '_tix_app_following_artists';
-    const DB_VER = '1';
+    const DB_VER = '2'; // 2 = Nachweis-Tabelle tix_artist_follow_proofs (1.38.529)
+    const PROOF_YEARS = 3;
     const OPT_DB = 'tix_artist_mail_follow_db';
     const OPT_QUEUE = 'tix_artist_follow_queue';
     const OPT_LAST = 'tix_artist_follow_last';
@@ -49,6 +54,72 @@ class TIX_Artist_Follow {
         }, 26);
         add_action('deleted_user', [__CLASS__, 'delete_account_rows']);
         add_filter('tix_email_tracking_enabled', function ($on) { return TIX_Artist_Follow::$sending ? false : $on; });
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artist-follow', [__CLASS__, 'cli']);
+    }
+
+    private static function pt() {
+        global $wpdb;
+        return $wpdb->prefix . 'tix_artist_follow_proofs';
+    }
+
+    // ═══════════════ Einwilligungsnachweis nach dem Widerruf (1.38.529) ═══════════════
+
+    /** E-Mail-Hash für den Nachweis (HMAC-SHA256 mit dem Seitengeheimnis, ohne die Adresse nicht umkehrbar). */
+    public static function proof_hash($email) {
+        $email = strtolower(trim((string) $email));
+        return $email === '' ? '' : hash_hmac('sha256', $email, 'tix-follow-proof|' . wp_salt('auth'));
+    }
+
+    /** Bestätigte Einwilligungen dieser Zeilen als Minimal-Nachweis sichern, dann löschen. $reason: unsubscribe|account_off|unfollow|account_deleted */
+    private static function remove_rows(array $rows, $reason) {
+        global $wpdb;
+        $now = current_time('mysql');
+        $until = gmdate('Y-m-d H:i:s', strtotime('+' . self::PROOF_YEARS . ' years', current_time('timestamp'))); // Kalenderjahre
+        foreach ($rows as $r) {
+            if (!empty($r->confirmed_at) && $r->status === 'active') {
+                $wpdb->insert(self::pt(), ['artist_id' => intval($r->artist_id), 'email_hash' => self::proof_hash($r->email), 'consent_text' => (string) $r->consent_text,
+                    'consent_at' => $r->consent_at, 'confirmed_at' => $r->confirmed_at, 'source' => intval($r->user_id) ? 'account' : 'email',
+                    'revoked_at' => $now, 'revoke_reason' => $reason, 'delete_after' => $until]);
+            }
+            $wpdb->delete(self::t(), ['id' => intval($r->id)]);
+        }
+    }
+
+    /** Nachweise zu einer E-Mail (für Anfragen/Beschwerden): [{artist_id, artist, consent_text, consent_at, confirmed_at, source, revoked_at, revoke_reason, delete_after}] */
+    public static function proofs_for($email) {
+        global $wpdb;
+        if (!self::db_ready()) return [];
+        $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::pt() . " WHERE email_hash = %s ORDER BY revoked_at DESC", self::proof_hash($email)));
+        return array_map(function ($r) {
+            return ['artist_id' => intval($r->artist_id), 'artist' => self::name(intval($r->artist_id)), 'consent_text' => (string) $r->consent_text, 'consent_at' => (string) $r->consent_at,
+                'confirmed_at' => (string) $r->confirmed_at, 'source' => (string) $r->source, 'revoked_at' => (string) $r->revoked_at, 'revoke_reason' => (string) $r->revoke_reason,
+                'delete_after' => (string) $r->delete_after];
+        }, $rows);
+    }
+
+    /** Abgelaufene Nachweise löschen (stündlicher Lauf). → Zahl gelöschter */
+    public static function purge_proofs() {
+        global $wpdb;
+        if (!self::db_ready()) return 0;
+        return intval($wpdb->query($wpdb->prepare("DELETE FROM " . self::pt() . " WHERE delete_after < %s", gmdate('Y-m-d H:i:s', current_time('timestamp')))));
+    }
+
+    /** wp tixomat artist-follow proof <email> | purge */
+    public static function cli($args, $assoc) {
+        $cmd = (string) ($args[0] ?? '');
+        if ($cmd === 'proof' && !empty($args[1])) { WP_CLI::line(wp_json_encode(['active' => self::active_for($args[1]), 'revoked' => self::proofs_for($args[1])], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); return; }
+        if ($cmd === 'purge') { WP_CLI::success(self::purge_proofs() . ' abgelaufene Nachweise gelöscht.'); return; }
+        WP_CLI::error('Aufruf: wp tixomat artist-follow proof <email> | purge');
+    }
+
+    /** Laufende Einwilligungen zu einer E-Mail (Nachweis aus der Folgen-Tabelle). */
+    private static function active_for($email) {
+        global $wpdb;
+        if (!self::db_ready()) return [];
+        return array_map(function ($r) {
+            return ['artist_id' => intval($r->artist_id), 'artist' => self::name(intval($r->artist_id)), 'status' => (string) $r->status, 'consent_text' => (string) $r->consent_text,
+                'consent_at' => (string) $r->consent_at, 'confirmed_at' => (string) $r->confirmed_at];
+        }, (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE email = %s", strtolower(trim((string) $email)))));
     }
 
     private static function t() {
@@ -78,6 +149,21 @@ class TIX_Artist_Follow {
             UNIQUE KEY artist_email (artist_id, email),
             KEY token (token),
             KEY user_id (user_id)
+        ) " . $wpdb->get_charset_collate() . ";");
+        dbDelta("CREATE TABLE " . self::pt() . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            artist_id bigint(20) unsigned NOT NULL,
+            email_hash char(64) NOT NULL,
+            consent_text text NOT NULL,
+            consent_at datetime NOT NULL,
+            confirmed_at datetime NULL,
+            source varchar(12) NOT NULL DEFAULT '',
+            revoked_at datetime NOT NULL,
+            revoke_reason varchar(20) NOT NULL DEFAULT '',
+            delete_after datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY email_hash (email_hash),
+            KEY delete_after (delete_after)
         ) " . $wpdb->get_charset_collate() . ";");
         update_option(self::OPT_DB, self::DB_VER, false);
     }
@@ -198,7 +284,7 @@ class TIX_Artist_Follow {
                     else $wpdb->insert(self::t(), $data + ['artist_id' => $aid, 'email' => $email, 'created' => $now]);
                 }
             } elseif ($u && self::db_ready()) {
-                $wpdb->query($wpdb->prepare("DELETE FROM " . self::t() . " WHERE artist_id = %d AND (user_id = %d OR email = %s)", $aid, $uid, strtolower((string) $u->user_email)));
+                self::remove_rows((array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE artist_id = %d AND (user_id = %d OR email = %s)", $aid, $uid, strtolower((string) $u->user_email))), 'account_off');
             }
         } elseif ($req->has_param('cities') && self::db_ready()) {
             $wpdb->query($wpdb->prepare("UPDATE " . self::t() . " SET cities = %s WHERE artist_id = %d AND user_id = %d", $cities ? wp_json_encode($cities) : null, $aid, $uid));
@@ -215,13 +301,13 @@ class TIX_Artist_Follow {
         unset($f[$aid]);
         update_user_meta($uid, self::META, $f);
         $u = get_userdata($uid);
-        if ($u && self::db_ready()) $wpdb->query($wpdb->prepare("DELETE FROM " . self::t() . " WHERE artist_id = %d AND (user_id = %d OR email = %s)", $aid, $uid, strtolower((string) $u->user_email)));
+        if ($u && self::db_ready()) self::remove_rows((array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE artist_id = %d AND (user_id = %d OR email = %s)", $aid, $uid, strtolower((string) $u->user_email))), 'unfollow');
         return rest_ensure_response(self::list_payload($uid));
     }
 
     public static function delete_account_rows($uid) {
         global $wpdb;
-        if (self::db_ready()) $wpdb->delete(self::t(), ['user_id' => intval($uid)]);
+        if (self::db_ready()) self::remove_rows((array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE user_id = %d", intval($uid))), 'account_deleted');
     }
 
     // ═══════════════ E-Mail ohne Konto (Double-Opt-in) ═══════════════
@@ -291,7 +377,7 @@ class TIX_Artist_Follow {
         if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('artist_mail_unfollow', 30, 600)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte später erneut versuchen.', ['status' => 429]);
         $row = self::by_token($aid, $req->get_param('token'));
         if (!$row) return new WP_Error('tix_token_invalid', 'Der Abmelde-Link ist ungültig oder wurde schon benutzt.', ['status' => 404]);
-        $wpdb->delete(self::t(), ['id' => $row->id]);
+        self::remove_rows([$row], 'unsubscribe');
         $r = new WP_REST_Response(['ok' => true, 'artist_id' => $aid]);
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -357,7 +443,7 @@ class TIX_Artist_Follow {
         update_option(self::OPT_QUEUE, $q, false);
     }
 
-    /** Stündlich: Vorverkaufsstarts einsammeln, ab 18:00 einmal am Tag zustellen, unbestätigte nach 7 Tagen löschen. */
+    /** Stündlich: Vorverkaufsstarts einsammeln, ab 18:00 einmal am Tag zustellen, unbestätigte nach 7 Tagen und Nachweise nach 3 Jahren löschen. */
     public static function cron($force = false) {
         global $wpdb;
         if (!self::multi()) return;
@@ -368,6 +454,7 @@ class TIX_Artist_Follow {
             self::digest();
         }
         if (self::db_ready()) $wpdb->query($wpdb->prepare("DELETE FROM " . self::t() . " WHERE status = 'pending' AND created < %s", gmdate('Y-m-d H:i:s', current_time('timestamp') - 7 * DAY_IN_SECONDS)));
+        self::purge_proofs(); // Nachweise nach 3 Jahren
     }
 
     /** Events mit Künstlern, deren Vorverkauf seit dem letzten Lauf begonnen hat */
