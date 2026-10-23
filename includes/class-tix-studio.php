@@ -532,6 +532,8 @@ class TIX_Studio {
             'icon'        => $icon !== '' ? $icon : (self::logo() ?: null),
             // Android-App öffentlich (Google Play zeigen), 1.38.533 – POST /studio/config {play_public}
             'play_public' => class_exists('TIX_Site_Config') && TIX_Site_Config::play_public(),
+            // App-Leiste oben auf der Homepage, 1.38.534 – POST /studio/config {top_bar}
+            'top_bar'     => !class_exists('TIX_Site_Config') || TIX_Site_Config::top_bar(),
         ];
     }
 
@@ -678,7 +680,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public'], self::MAIL_KEYS, $feature_params));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
@@ -706,6 +708,8 @@ class TIX_Studio {
         }
         // Android-App öffentlich (1.38.533): Rechte wie Akzent/Logo
         if ($has('play_public') && class_exists('TIX_Site_Config')) TIX_Site_Config::set_play_public(filter_var($req->get_param('play_public'), FILTER_VALIDATE_BOOLEAN));
+        // App-Leiste oben (1.38.534): top_bar=1|0
+        if ($has('top_bar') && class_exists('TIX_Site_Config')) TIX_Site_Config::set_top_bar(filter_var($req->get_param('top_bar'), FILTER_VALIDATE_BOOLEAN));
         if ($has('syndicate_default') && class_exists('TIX_Syndication_Push')) {
             $sd = $req->get_param('syndicate_default');
             if ($sd === null || $sd === '') delete_option(TIX_Syndication_Push::DEFAULT_OPT);

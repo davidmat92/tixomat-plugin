@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) exit;
  * App (1.38.533): `app.play_public` = Android-App öffentlich (Google Play zeigen), Option `tix_play_public`, Vorgabe aus; schreibbar über
  * POST /studio/site-config {app: {play_public}} bzw. POST /studio/config {play_public} (Rechte wie Akzent/Logo). Store-Kennungen der
  * Live-Seiten (STORE_DEFAULTS) als Vorgabe, solange keine Store-Links eingetragen sind.
+ * `app.top_bar` (1.38.534) = App-Leiste oben auf der Homepage, Option `tix_app_top_bar`, Vorgabe an; schreibbar wie play_public.
  */
 class TIX_Site_Config {
 
@@ -21,6 +22,7 @@ class TIX_Site_Config {
     const SECTIONS = ['profile', 'nav', 'home', 'seo', 'social', 'contact', 'venue', 'legal'];
     const SOCIAL = ['instagram', 'facebook', 'tiktok', 'youtube', 'spotify', 'soundcloud', 'whatsapp'];
     const OPT_PLAY_PUBLIC = 'tix_play_public';
+    const OPT_TOP_BAR = 'tix_app_top_bar'; // '0' = App-Leiste oben aus (1.38.534), sonst an
     // Vorgaben je Live-Host [App-Store-ID, Play-Paket], wenn tix_app_store_url / tix_play_store_url leer sind (1.38.533)
     const STORE_DEFAULTS = [
         'kitchenklub.de'           => ['6814961638', 'de.kitchenklub.app'],
@@ -34,6 +36,23 @@ class TIX_Site_Config {
 
     public static function set_play_public($on) {
         update_option(self::OPT_PLAY_PUBLIC, $on ? '1' : '0', false);
+    }
+
+    /** App-Leiste oben auf der Homepage zeigen? (Vorgabe an) */
+    public static function top_bar() {
+        return get_option(self::OPT_TOP_BAR, '1') !== '0';
+    }
+
+    public static function set_top_bar($on) {
+        update_option(self::OPT_TOP_BAR, $on ? '1' : '0', false);
+    }
+
+    /** Wahrheitswert aus JSON/Formular (true/false/1/0/"1"/"0"/"true"/"false") oder null bei Ungültigem. */
+    private static function bool_in($v) {
+        if (is_bool($v)) return $v;
+        if (in_array($v, [1, '1', 'true'], true)) return true;
+        if (in_array($v, [0, '0', 'false'], true)) return false;
+        return null;
     }
 
     /** Vorgabe [store_id, play_package] für diese Seite oder [null, null]. */
@@ -139,7 +158,9 @@ class TIX_Site_Config {
             'social' => $social,
             'app' => ['has_app' => (bool) $app['has_app'], 'name' => (string) ($app['name'] ?? ''), 'app_store_id' => $ios_id, 'ios_url' => $ios_url, 'play_package' => $play, 'android_url' => $android_url,
                 // Android-App öffentlich (Google Play zeigen), 1.38.533 – Vorgabe aus
-                'play_public' => $play_public],
+                'play_public' => $play_public,
+                // App-Leiste oben auf der Homepage, 1.38.534 – Vorgabe an
+                'top_bar' => self::top_bar()],
             'features' => [
                 'checkout' => true,
                 'music' => class_exists('TIX_Music') && TIX_Music::enabled(),
@@ -220,18 +241,19 @@ class TIX_Site_Config {
         return esc_url_raw($v);
     }
 
-    /** POST /studio/site-config {profile?, nav?, home?, seo?, social?, contact?, venue?, legal?, app?: {play_public}} – Bereich null = zurück auf berechnet. */
+    /** POST /studio/site-config {profile?, nav?, home?, seo?, social?, contact?, venue?, legal?, app?: {play_public?, top_bar?}} – Bereich null = zurück auf berechnet. */
     public static function rest_save(WP_REST_Request $req) {
         $p = $req->get_json_params();
         if (!is_array($p)) return self::bad('body', 'Bitte JSON senden.');
         // App (1.38.533): nur play_public ist schreibbar, der Rest kommt aus den App-Einstellungen
         if (array_key_exists('app', $p)) {
             $a = $p['app'];
-            if (!is_array($a) || array_diff(array_keys($a), ['play_public'])) return self::bad('app', 'Hier lässt sich nur app.play_public ändern.');
-            if (array_key_exists('play_public', $a)) {
-                if (!is_bool($a['play_public']) && !in_array($a['play_public'], [0, 1, '0', '1', 'true', 'false'], true)) return self::bad('app.play_public', 'play_public: true oder false.');
-                self::set_play_public(filter_var($a['play_public'], FILTER_VALIDATE_BOOLEAN));
+            if (!is_array($a) || array_diff(array_keys($a), ['play_public', 'top_bar'])) return self::bad('app', 'Hier lassen sich nur app.play_public und app.top_bar ändern.');
+            foreach (['play_public', 'top_bar'] as $ak) {
+                if (array_key_exists($ak, $a) && self::bool_in($a[$ak]) === null) return self::bad('app.' . $ak, $ak . ': true oder false.');
             }
+            if (array_key_exists('play_public', $a)) self::set_play_public(self::bool_in($a['play_public']));
+            if (array_key_exists('top_bar', $a)) self::set_top_bar(self::bool_in($a['top_bar']));
             unset($p['app']);
         }
         $unknown = array_diff(array_keys($p), self::SECTIONS);
