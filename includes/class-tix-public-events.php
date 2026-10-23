@@ -236,8 +236,8 @@ class TIX_Public_Events {
             // Demo Club (1.38.508): nur im Detail sichtbar, mit Kennzeichen
             'demo'            => class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true))),
         ];
-        // Künstler (1.38.517, nur evendis): [{id, slug, name, role, tour, image}], nur öffentliche Künstler
-        if (class_exists('TIX_Artists') && TIX_Artists::multi()) $out['artists'] = TIX_Artists::event_public($id);
+        // Künstler (1.38.517; seit 1.38.535 auch Einzel-Seiten): [{id, slug, name, role, tour, image, portrait, cover, credit}], nur öffentliche
+        if (class_exists('TIX_Artists')) $out['artists'] = TIX_Artists::event_public($id);
         // Suchmaschinen/Vorschau (Website): Titel, Kurzbeschreibung ≤ 160 Zeichen, großes Bild
         $out['seo'] = self::seo($post, $out['image']);
         // Wiederkehrende Events (1.38.367): Serie (Master) oder Termin daraus
@@ -259,13 +259,9 @@ class TIX_Public_Events {
             $out['lineup']      = self::html($id, '_tix_info_lineup');
             // „Musik hören“: Künstlerseiten je Line-up-Zeile (URL | "" kein Link | null → Suche wie bisher)
             $out['lineup_links'] = class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id) : [];
-            // Line-up-Zeile → Künstlerseite (1.38.517): gleicher Name wie ein zugeordneter Künstler
-            if (!empty($out['artists'])) {
-                $by = [];
-                foreach ($out['artists'] as $ar) $by[TIX_Artists::norm($ar['name'])] = $ar['slug'];
-                foreach ($out['lineup_links'] as &$ll) { $k = TIX_Artists::norm($ll['artist'] ?? ''); $ll['artist_slug'] = $by[$k] ?? null; }
-                unset($ll);
-            }
+            // Line-up-Zeile → Künstler (1.38.517, Bilder 1.38.535): gleicher Name wie ein zugeordneter Künstler →
+            // artist_id, artist_slug, portrait, cover, credit; fehlendes Act-Foto vom Künstler
+            if (!empty($out['artists']) && $out['lineup_links']) $out['lineup_links'] = TIX_Artists::link_lineup($out['lineup_links'], $id, $out['artists']);
             $out['specials']    = self::html($id, '_tix_info_specials');
             $out['extra_info']  = self::html($id, '_tix_info_extra_info');
             $out['gallery']     = self::gallery($id);

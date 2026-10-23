@@ -2,8 +2,11 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Artists – Künstler- und Tourseiten (Plan-Paket 1, 1.38.517, Vertrag uebergaben/vertrag-kuenstler.md; nur evendis,
- * auf Einzel-Seiten 404 und keine Event-Felder).
+ * TIX_Artists – Künstler- und Tourseiten (Plan-Paket 1, 1.38.517, Vertrag uebergaben/vertrag-kuenstler.md).
+ * Seit 1.38.535 auch auf Einzel-Seiten (kitchenklub.de, mallorca-festival-xxl.de): Künstler gehören dort der Seite
+ * (`managed_by: {type: site}`), pflegen dürfen Admin und Inhaber (TIX_Studio::perm_brand, nie Vertrieb/Einlass/Kasse);
+ * Plattform-Routen (/platform/artists…) und Folgen per E-Mail bleiben evendis. Öffentliche Antworten tragen je Act
+ * portrait/cover {medium, large, credit} und credit.
  *
  *  - Beitragstyp `tix_artist` (nicht öffentlich im WordPress-Sinn), Felder in Meta `_tix_artist`, Suchschlüssel
  *    `_tix_artist_norm`, `_tix_artist_spotify`, `_tix_artist_apple`; Touren als Liste am Künstler.
@@ -45,7 +48,7 @@ class TIX_Artists {
     public static function register_cpt() {
         register_post_type(self::CPT, [
             'labels' => ['name' => 'Künstler', 'singular_name' => 'Künstler'],
-            'public' => false, 'publicly_queryable' => false, 'show_ui' => self::multi(), 'show_in_menu' => false, 'show_in_rest' => false,
+            'public' => false, 'publicly_queryable' => false, 'show_ui' => true, 'show_in_menu' => false, 'show_in_rest' => false,
             'exclude_from_search' => true, 'has_archive' => false, 'rewrite' => false, 'supports' => ['title'], 'capability_type' => 'post', 'map_meta_cap' => true,
         ]);
     }
@@ -86,6 +89,19 @@ class TIX_Artists {
             'medium' => (string) (wp_get_attachment_image_url($id, 'medium') ?: $full), 'credit' => (string) $credit];
     }
 
+    /**
+     * Öffentliche Bildangaben (1.38.535): images {portrait, cover} wie ARTIST §1.1 ({id, large, medium_large, medium, credit}|null)
+     * und flach portrait/cover ({medium, medium_large, large, credit}|null) + credit (Porträt, sonst Titelbild).
+     */
+    public static function images_public($id) {
+        $d = self::raw($id);
+        $img = $d ? (array) ($d['images'] ?? []) : [];
+        $p = self::image($img['portrait']['id'] ?? 0, $img['portrait']['credit'] ?? '');
+        $c = self::image($img['cover']['id'] ?? 0, $img['cover']['credit'] ?? '');
+        $flat = function ($i) { return $i ? ['medium' => $i['medium'], 'medium_large' => $i['medium_large'], 'large' => $i['large'], 'credit' => $i['credit']] : null; };
+        return ['images' => ['cover' => $c, 'portrait' => $p], 'portrait' => $flat($p), 'cover' => $flat($c), 'credit' => (string) (($p['credit'] ?? '') ?: ($c['credit'] ?? ''))];
+    }
+
     private static function raw($id) {
         $id = intval($id);
         if (!$id || get_post_type($id) !== self::CPT) return null;
@@ -118,9 +134,23 @@ class TIX_Artists {
         return current_user_can('manage_options');
     }
 
-    /** Verwalter (eigener Veranstalter verwaltet den Künstler) bzw. Admin? */
+    /** Einzel-Seite: Inhaber (Rolle Veranstalter, auch Team-Admin) – nie Vertrieb, Einlass, Kasse (1.38.535). */
+    private static function site_owner() {
+        if (self::multi() || !is_user_logged_in()) return false;
+        $roles = (array) wp_get_current_user()->roles;
+        if (array_intersect($roles, ['tix_sales', 'tix_entrance', 'tix_cashier'])) return false;
+        return in_array('tix_organizer', $roles, true);
+    }
+
+    /** Name des Verwalters „Seite“ bzw. Plattform */
+    private static function site_name() {
+        return html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+    }
+
+    /** Verwalter (eigener Veranstalter verwaltet den Künstler) bzw. Admin? Einzel-Seite: Admin und Inhaber. */
     private static function can_manage(array $d) {
         if (self::is_admin()) return true;
+        if (!self::multi()) return self::site_owner();
         $mb = (array) ($d['managed_by'] ?? []);
         return ($mb['type'] ?? '') === 'organizer' && intval($mb['id'] ?? 0) && intval($mb['id']) === self::my_org() && class_exists('TIX_App_Scope') && TIX_App_Scope::is_org_manager();
     }
@@ -155,7 +185,7 @@ class TIX_Artists {
         $p = get_post($id);
         $img = (array) ($d['images'] ?? []);
         $mb = (array) ($d['managed_by'] ?? []);
-        $mb_name = ($mb['type'] ?? '') === 'organizer' && intval($mb['id'] ?? 0) ? (string) get_the_title(intval($mb['id'])) : 'evendis';
+        $mb_name = ($mb['type'] ?? '') === 'organizer' && intval($mb['id'] ?? 0) ? (string) get_the_title(intval($mb['id'])) : (self::multi() ? 'evendis' : self::site_name());
         $out = [
             'id' => intval($id), 'slug' => (string) $p->post_name, 'name' => (string) $p->post_title, 'kind' => (string) $d['kind'], 'genres' => array_values((array) $d['genres']),
             'origin' => (string) $d['origin'], 'short_bio' => (string) $d['short_bio'], 'bio' => (string) $d['bio'],
@@ -165,7 +195,10 @@ class TIX_Artists {
             'tours' => array_map(function ($t) { $t['image'] = self::image($t['image'] ?? 0); return $t; }, array_values((array) $d['tours'])),
             'status' => (string) $d['status'], 'verified' => !empty($d['verified']),
             'managed_by' => $full ? ['type' => (string) ($mb['type'] ?? 'evendis'), 'id' => intval($mb['id'] ?? 0), 'name' => $mb_name] : ['name' => $mb_name],
+            // Bilder für Apps/Homepage (1.38.535): portrait/cover {medium, large, credit}, credit
+            'portrait' => null, 'cover' => null, 'credit' => '',
         ];
+        $out = array_merge($out, self::images_public($id));
         if ($full) {
             $out['followers'] = class_exists('TIX_Artist_Follow') ? TIX_Artist_Follow::count($id) : 0;
             $out['duplicate_of'] = intval($d['duplicate_of'] ?? 0) ?: null;
@@ -182,6 +215,7 @@ class TIX_Artists {
         $next = $events ? $events[0] : null;
         return ['id' => $a['id'], 'slug' => $a['slug'], 'name' => $a['name'], 'kind' => $a['kind'], 'genres' => $a['genres'],
             'image' => ($a['images']['portrait']['medium'] ?? null) ?: ($a['images']['cover']['medium'] ?? null), 'verified' => $a['verified'],
+            'images' => $a['images'], 'portrait' => $a['portrait'], 'cover' => $a['cover'], 'credit' => $a['credit'],
             'next' => $next ? ['date' => (string) get_post_meta($next, '_tix_date_start', true), 'city' => self::city($next)] : null, 'upcoming_count' => count($events)];
     }
 
@@ -210,7 +244,6 @@ class TIX_Artists {
 
     /** Öffentlich: [{id, slug, name, role, tour, image}] – nur öffentliche Künstler (in Vorschauen: alle zugeordneten, nicht gesperrten) */
     public static function event_public($event_id) {
-        if (!self::multi()) return [];
         $preview = class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::rendering_event($event_id);
         $out = [];
         foreach (self::event_list($event_id) as $r) {
@@ -222,14 +255,38 @@ class TIX_Artists {
             $img = (array) ($d['images'] ?? []);
             $iid = intval($img['portrait']['id'] ?? 0) ?: intval($img['cover']['id'] ?? 0);
             $out[] = ['id' => $aid, 'slug' => (string) get_post_field('post_name', $aid), 'name' => (string) get_the_title($aid), 'role' => (string) ($r['role'] ?? 'headliner'),
-                'tour' => ($r['tour'] ?? '') ?: null, 'image' => $iid ? (string) (wp_get_attachment_image_url($iid, 'medium') ?: '') : null];
+                'tour' => ($r['tour'] ?? '') ?: null, 'image' => $iid ? (string) (wp_get_attachment_image_url($iid, 'medium') ?: '') : null] + self::images_public($aid);
         }
         return $out;
     }
 
+    /**
+     * Line-up-Zeilen ({name, artist, picture?, picture_thumb?, …}) mit den zugeordneten Künstlern des Events verknüpfen (1.38.535):
+     * gleicher normalisierter Name → artist_id, artist_slug, portrait, cover, credit; ohne Treffer null. Ein fehlendes Act-Foto
+     * (picture) übernimmt das Porträt bzw. Titelbild des Künstlers – gesetzte Act-Fotos bleiben unverändert.
+     */
+    public static function link_lineup(array $rows, $event_id, $artists = null) {
+        $by = [];
+        foreach (($artists === null ? self::event_public($event_id) : $artists) as $ar) $by[self::norm($ar['name'])] = $ar;
+        foreach ($rows as &$row) {
+            $ar = $by[self::norm((string) ($row['artist'] ?? ($row['name'] ?? '')))] ?? null;
+            $row['artist_id'] = $ar ? intval($ar['id']) : null;
+            $row['artist_slug'] = $ar ? (string) $ar['slug'] : null;
+            $row['images'] = $ar['images'] ?? ['cover' => null, 'portrait' => null];
+            $row['portrait'] = $ar['portrait'] ?? null;
+            $row['cover'] = $ar['cover'] ?? null;
+            $row['credit'] = (string) ($ar['credit'] ?? '');
+            if ($ar && array_key_exists('picture', $row) && empty($row['picture'])) {
+                $pic = $ar['portrait'] ?: $ar['cover'];
+                if ($pic) { $row['picture'] = $pic['large']; $row['picture_thumb'] = $pic['medium']; }
+            }
+        }
+        unset($row);
+        return $rows;
+    }
+
     /** Editor: {artists: [{artist_id, name, slug, image, role, tour, tours[], managed}], artist_suggestions: [...]} */
     public static function editor_payload($event_id) {
-        if (!self::multi()) return [];
         $list = [];
         foreach (self::event_list($event_id) as $r) {
             $aid = intval($r['artist_id'] ?? 0);
@@ -264,7 +321,6 @@ class TIX_Artists {
      */
     public static function check(array $body, $event_id = 0) {
         if (!array_key_exists('artists', $body)) return null;
-        if (!self::multi()) return null;
         $in = $body['artists'];
         if ($in === null) $in = [];
         if (!is_array($in) || count($in) > self::MAX_PER_EVENT) return self::bad('artists', 'Höchstens ' . self::MAX_PER_EVENT . ' Künstler je Event.');
@@ -277,7 +333,7 @@ class TIX_Artists {
             $d = self::raw($aid);
             if (!$d || get_post_meta($aid, self::META_REDIRECT, true)) return self::bad('artists.' . $i . '.artist_id', 'Künstler nicht gefunden.');
             if (($d['status'] ?? '') === 'blocked') return self::bad('artists.' . $i . '.artist_id', 'Dieser Künstler ist gesperrt.', 403);
-            $own = ($d['managed_by']['type'] ?? '') === 'organizer' && intval($d['managed_by']['id'] ?? 0) === $org;
+            $own = self::multi() ? (($d['managed_by']['type'] ?? '') === 'organizer' && intval($d['managed_by']['id'] ?? 0) === $org) : true; // Einzel-Seite: alle Künstler gehören der Seite
             if (($d['status'] ?? '') !== 'public' && !$own && !self::is_admin() && !isset($old[$aid])) return self::bad('artists.' . $i . '.artist_id', 'Dieser Künstler ist noch nicht öffentlich.', 403);
             if (isset($out[$aid])) return self::bad('artists.' . $i . '.artist_id', 'Künstler doppelt.');
             $role = (string) (is_array($r) ? ($r['role'] ?? 'headliner') : 'headliner');
@@ -340,7 +396,7 @@ class TIX_Artists {
             $by = intval($r['by_organizer'] ?? 0) ?: $oid;
             self::log($aid, 'assigned', ['event' => intval($event_id), 'organizer' => $by]);
             // Follower (Paket 5, TIX_Artist_Follow): neuer Termin / Zusatztermin
-            if (($d['status'] ?? '') === 'public') do_action('tix_artist_event_added', $aid, intval($event_id));
+            if (($d['status'] ?? '') === 'public' && self::multi()) do_action('tix_artist_event_added', $aid, intval($event_id)); // Folgen nur evendis
             if (($d['managed_by']['type'] ?? '') === 'organizer' && $mb && $mb !== $by) {
                 self::tell_org($mb, 'Neuer Termin bei ' . get_the_title($aid), get_the_title($by) . ' hat „' . get_the_title($event_id) . '“ (' . get_post_meta($event_id, '_tix_date_start', true) . ') zugeordnet.', 'artist:' . $aid);
             }
@@ -516,17 +572,23 @@ class TIX_Artists {
     // ═══════════════ REST ═══════════════
 
     public static function perm_public() {
-        return self::multi() ? true : new WP_Error('rest_no_route', 'Nur auf evendis.', ['status' => 404]);
+        return true; // seit 1.38.535 auch Einzel-Seiten
+    }
+
+    /** Einzel-Seite: Admin und Inhaber (nie Vertrieb, Einlass, Kasse). */
+    private static function perm_single() {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        return (self::is_admin() || self::site_owner()) ? true : new WP_Error('rest_forbidden', 'Künstler pflegen Admin und Inhaber der Seite.', ['status' => 403]);
     }
 
     public static function perm_staff(WP_REST_Request $req) {
-        if (!self::multi()) return new WP_Error('rest_no_route', 'Nur auf evendis.', ['status' => 404]);
+        if (!self::multi()) return self::perm_single();
         if (self::is_admin()) return true;
         return class_exists('TIX_REST_API') ? TIX_REST_API::check_organizer($req) : new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
     }
 
     public static function perm_manager(WP_REST_Request $req) {
-        if (!self::multi()) return new WP_Error('rest_no_route', 'Nur auf evendis.', ['status' => 404]);
+        if (!self::multi()) return self::perm_single();
         if (self::is_admin()) return true;
         return class_exists('TIX_App_Scope') ? TIX_App_Scope::check_manager($req) : new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
     }
@@ -730,8 +792,9 @@ class TIX_Artists {
         $base = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');
         $url = trailingslashit($base) . 'kuenstler/' . $a['slug'] . '/' . ($tour ? $tour['slug'] . '/' : '');
         $years = array_values(array_unique(array_map(function ($e) { return substr($e['date_start'], 0, 4); }, $up)));
-        $title = $a['name'] . ($tour ? ' – ' . $tour['name'] : '') . ' Tickets' . ($years ? ' ' . implode('/', array_slice($years, 0, 2)) : '') . ' – alle Termine | evendis';
-        $desc = $a['short_bio'] ?: (count($up) ? count($up) . ' Termine von ' . $a['name'] . ' – Tickets, Orte und Daten auf evendis.' : 'Alle Termine von ' . $a['name'] . ' auf evendis.');
+        $brand = self::multi() ? 'evendis' : self::site_name();
+        $title = $a['name'] . ($tour ? ' – ' . $tour['name'] : '') . ' Tickets' . ($years ? ' ' . implode('/', array_slice($years, 0, 2)) : '') . ' – alle Termine | ' . $brand;
+        $desc = $a['short_bio'] ?: (count($up) ? count($up) . ' Termine von ' . $a['name'] . ' – Tickets, Orte und Daten auf ' . $brand . '.' : 'Alle Termine von ' . $a['name'] . ' auf ' . $brand . '.');
         $tour_counts = array_map(function ($t) use ($tours) { return ['slug' => $t['slug'], 'name' => $t['name'], 'count' => intval($tours[$t['slug']] ?? 0)]; }, $a['tours']);
         $r = rest_ensure_response(['ok' => true, 'artist' => $a, 'tour' => $tour, 'events' => $events, 'past' => $past,
             'filters' => ['cities' => array_map(function ($c, $n) { return ['city' => $c, 'count' => $n]; }, array_keys($cities), array_values($cities)), 'months' => array_keys($months), 'tours' => $tour_counts],
@@ -750,13 +813,15 @@ class TIX_Artists {
     /** POST /artists {name, kind, …, force?} → 201 {ok, artist, duplicates} | 409 tix_artist_duplicate */
     public static function rest_create(WP_REST_Request $req) {
         $b = self::body($req);
-        $org = self::my_org();
-        if (!self::is_admin() && (!$org || self::sandbox_org($org))) return new WP_Error('rest_forbidden', 'Mit diesem Konto können keine Künstler angelegt werden.', ['status' => 403]);
-        // nur freigegebene Veranstalter (Entscheid F2)
-        if (!self::is_admin() && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($org)) return new WP_Error('organizer_pending', 'Künstler kannst du anlegen, sobald dein Veranstalter-Konto freigegeben ist.', ['status' => 403]);
+        $org = self::multi() ? self::my_org() : 0;
+        if (self::multi()) {
+            if (!self::is_admin() && (!$org || self::sandbox_org($org))) return new WP_Error('rest_forbidden', 'Mit diesem Konto können keine Künstler angelegt werden.', ['status' => 403]);
+            // nur freigegebene Veranstalter (Entscheid F2)
+            if (!self::is_admin() && class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($org)) return new WP_Error('organizer_pending', 'Künstler kannst du anlegen, sobald dein Veranstalter-Konto freigegeben ist.', ['status' => 403]);
+        }
         $base = ['kind' => 'solo', 'genres' => [], 'origin' => '', 'short_bio' => '', 'bio' => '', 'images' => [], 'links' => [], 'ids' => [], 'tours' => [], 'status' => 'public', 'verified' => false,
-            'managed_by' => ['type' => 'organizer', 'id' => $org], 'duplicate_of' => 0];
-        if (self::is_admin() && (($b['managed_by'] ?? '') === 'evendis' || !$org)) $base['managed_by'] = ['type' => 'evendis', 'id' => 0];
+            'managed_by' => self::multi() ? ['type' => 'organizer', 'id' => $org] : ['type' => 'site', 'id' => 0], 'duplicate_of' => 0];
+        if (self::multi() && self::is_admin() && (($b['managed_by'] ?? '') === 'evendis' || !$org)) $base['managed_by'] = ['type' => 'evendis', 'id' => 0];
         $c = self::clean($b, $base, true);
         if (is_wp_error($c)) return $c;
         list($d, $name) = $c;
@@ -768,7 +833,7 @@ class TIX_Artists {
         if (is_wp_error($id) || !$id) return new WP_Error('tix_artist_failed', 'Der Künstler konnte nicht angelegt werden.', ['status' => 500]);
         self::save_raw($id, $d);
         self::log($id, 'created', $dups ? ['duplicate_of' => $dups[0]['id']] : []);
-        if ($dups) self::tell_admin('Mögliche Dublette: ' . $name, 'Neu angelegt trotz Treffer „' . $dups[0]['name'] . '“ (#' . $dups[0]['id'] . ').');
+        if ($dups && self::multi()) self::tell_admin('Mögliche Dublette: ' . $name, 'Neu angelegt trotz Treffer „' . $dups[0]['name'] . '“ (#' . $dups[0]['id'] . ').');
         $r = rest_ensure_response(['ok' => true, 'artist' => self::payload($id, true), 'duplicates' => $dups]);
         $r->set_status(201);
         return $r;
@@ -780,7 +845,9 @@ class TIX_Artists {
         $out = [];
         foreach ($ids as $id) {
             $d = self::raw($id);
-            if (($d['managed_by']['type'] ?? '') !== 'organizer' || intval($d['managed_by']['id'] ?? 0) !== $org || get_post_meta($id, self::META_REDIRECT, true)) continue;
+            if (get_post_meta($id, self::META_REDIRECT, true)) continue;
+            // Einzel-Seite: alle Künstler der Seite
+            if (self::multi() && (($d['managed_by']['type'] ?? '') !== 'organizer' || intval($d['managed_by']['id'] ?? 0) !== $org)) continue;
             $a = self::payload($id, true);
             $a['events_count'] = count(self::event_ids($id));
             $out[] = $a;
