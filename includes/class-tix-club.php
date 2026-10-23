@@ -72,6 +72,11 @@ class TIX_Club {
             $cid = TIX_Locations::canonical_id($lid);
             if (get_post_type($cid) === 'tix_location') $lid = $cid;
         }
+        // Vertrag §2a: null nur ohne Ort – ohne Events (auch der letzten 12 Monate) der erste wählbare Ort
+        if (!$lid) {
+            $first = self::locations()[0] ?? null;
+            $lid = $first ? $first['id'] : 0;
+        }
         return intval($lid);
     }
 
@@ -123,6 +128,8 @@ class TIX_Club {
             $lid = $new;
         }
         if (!$lid) return new WP_Error('tix_venue_not_found', 'Es gibt noch keinen Ort. Bitte zuerst unter „Orte“ anlegen.', ['status' => 404]);
+        // Ersatz-Ort (keine Events) beim ersten Speichern festlegen, damit site-config venue.id ihn zeigt
+        if ($new === null && class_exists('TIX_Site_Config') && !TIX_Site_Config::venue_location_id()) $new = $lid;
         $page = TIX_Venues::clean_page_input($p, 'tix_invalid', 10000);
         if (is_wp_error($page)) return $page;
         if ($new !== null && class_exists('TIX_Site_Config')) TIX_Site_Config::set_venue_id($new);
