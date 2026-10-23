@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.535
+ * Version: 1.38.536
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.535');
+define('TIXOMAT_VERSION', '1.38.536');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -581,6 +581,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-app-tips.php';
 TIX_App_Tips::init(); // App-Tipps („Tipp des Tages“): CPT nur für Admins, GET /public/tips, Verwaltung /app/tips (nur Admins)
 require_once TIXOMAT_PATH . 'includes/class-tix-notifications.php';
 TIX_Notifications::init(); // App-Benachrichtigungen: Glocke/Feed, Veranstalter-Nachrichten, Auto-Hinweise, Push (APNs, optional)
+require_once TIXOMAT_PATH . 'includes/class-tix-retention.php';
+TIX_Retention::init(); // Löschfristen: Warteliste/Vorverkaufs-Alarm 30 Tage, Support 2 Jahre, Musikwünsche 30 Tage nach dem Event (1.38.536)
 require_once TIXOMAT_PATH . 'includes/class-tix-fcm.php';
 TIX_FCM::init(); // Android-Push über Firebase (FCM HTTP v1, Dienstkonto als Option, IPv4), Tixomat → App-Push, wp tixomat push (1.38.527)
 require_once TIXOMAT_PATH . 'includes/class-tix-recurrence.php';

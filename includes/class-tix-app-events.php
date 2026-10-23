@@ -899,6 +899,18 @@ class TIX_App_Events {
         ]);
     }
 
+    /**
+     * Vorschaubild aus dem Link-Import (1.38.536): vorläufig wie bei der Registrierung (_tix_register_tmp), dem Aufrufer
+     * zugeordnet; ohne Verwendung nach 24 h gelöscht (TIX_Register_API::cleanup), als Event-Bild (image_id) entfällt die Markierung.
+     */
+    public static function mark_import_image($sid) {
+        $sid = intval($sid);
+        if (!$sid || get_post_type($sid) !== 'attachment' || get_post_field('post_parent', $sid)) return false;
+        update_post_meta($sid, '_tix_register_tmp', time());
+        if (get_current_user_id()) wp_update_post(['ID' => $sid, 'post_author' => get_current_user_id()]);
+        return true;
+    }
+
     /** POST /events/import-url {url} → {ok, source, fields} */
     public static function import_url(WP_REST_Request $req) {
         $url = esc_url_raw(trim((string) $req->get_param('url')));
@@ -918,6 +930,7 @@ class TIX_App_Events {
             return new WP_Error($code, $f->get_error_message(), ['status' => $map[$code], 'field' => 'url'] + $extra);
         }
         $source = (string) ($f['_source'] ?? 'ai');
+        self::mark_import_image(intval($f['suggested_image_id'] ?? 0));
         // Wie gelesen (1.38.502) als eigene Felder statt in fields (1.38.505)
         $read = ['read_mode' => (string) ($f['_read_mode'] ?? 'direct'), 'notice' => $f['_notice'] ?? null, 'pages_read' => intval($f['_pages_read'] ?? 1)];
         unset($f['_source'], $f['_read_mode'], $f['_notice'], $f['_pages_read']);

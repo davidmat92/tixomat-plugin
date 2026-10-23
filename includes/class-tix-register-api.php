@@ -469,9 +469,15 @@ class TIX_Register_API {
     public static function cleanup() {
         $old = get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => 200, 'fields' => 'ids',
             'meta_query' => [['key' => self::TMP_META, 'value' => time() - DAY_IN_SECONDS, 'compare' => '<', 'type' => 'NUMERIC']]]);
+        global $wpdb;
+        $n = 0;
         foreach ($old as $id) {
-            if (!get_post_field('post_parent', $id)) wp_delete_attachment($id, true);
+            if (get_post_field('post_parent', $id)) { delete_post_meta($id, self::TMP_META); continue; }
+            // inzwischen als Beitragsbild in Verwendung (z. B. ohne image_id gesetzt) → behalten (1.38.536)
+            if ($wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_thumbnail_id' AND meta_value = %s LIMIT 1", (string) intval($id)))) { delete_post_meta($id, self::TMP_META); continue; }
+            wp_delete_attachment($id, true);
+            $n++;
         }
-        return count($old);
+        return $n;
     }
 }
