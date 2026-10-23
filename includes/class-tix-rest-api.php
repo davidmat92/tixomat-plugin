@@ -3122,7 +3122,9 @@ class TIX_REST_API {
                         'event_id'    => $event_id,
                         'event_title' => $event ? $event->post_title : ($row['event_name'] ?? ''),
                         'event_date'  => $event_id ? get_post_meta($event_id, '_tix_date_start', true) : '',
-                        'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
+                        // Flyer groß (1.38.532, vorher medium = 300 px), klein für Listen
+                        'event_image' => $event_id ? get_the_post_thumbnail_url($event_id, 'large') : '',
+                        'event_image_small' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
                         'category'    => $row['category_name'] ?? '',
                         'seat'        => $row['seat_id'] ?? '',
                         'status'      => $row['ticket_status'] ?? 'valid',
@@ -3195,7 +3197,8 @@ class TIX_REST_API {
                 'time_start' => get_post_meta($event_id, '_tix_time_start', true),
                 'time_doors' => get_post_meta($event_id, '_tix_time_doors', true),
                 'location'   => get_post_meta($event_id, '_tix_location', true),
-                'image'      => get_the_post_thumbnail_url($event_id, 'medium'),
+                'image'      => get_the_post_thumbnail_url($event_id, 'large'),
+                'image_small' => get_the_post_thumbnail_url($event_id, 'medium'),
             ];
         }
 
