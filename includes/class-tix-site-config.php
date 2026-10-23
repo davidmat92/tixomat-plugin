@@ -189,27 +189,59 @@ class TIX_Site_Config {
         ];
     }
 
-    /** Hauptort: der Ort mit den meisten kommenden Events (mit Koordinaten), sonst null. */
-    private static function venue() {
+    /** Location-ID des Hauptorts (festgelegt, sonst meiste kommende Events, sonst letzte 12 Monate), 0 = keiner. */
+    public static function venue_location_id() {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare("SELECT l.meta_value lid, COUNT(*) n FROM {$wpdb->postmeta} l
-            INNER JOIN {$wpdb->posts} p ON p.ID = l.post_id AND p.post_type = 'event' AND p.post_status = 'publish'
-            INNER JOIN {$wpdb->postmeta} d ON d.post_id = p.ID AND d.meta_key = '_tix_date_start' AND d.meta_value >= %s
-            WHERE l.meta_key = '_tix_location_id' AND l.meta_value <> '' AND l.meta_value <> '0' GROUP BY l.meta_value ORDER BY n DESC LIMIT 1", current_time('Y-m-d')));
-        $lid = $row ? intval($row->lid) : 0;
-        if (!$lid || get_post_type($lid) !== 'tix_location') return null;
-        $lat = get_post_meta($lid, '_tix_loc_lat', true); $lng = get_post_meta($lid, '_tix_loc_lng', true);
-        return ['name' => html_entity_decode(get_the_title($lid), ENT_QUOTES, 'UTF-8'), 'address' => (string) get_post_meta($lid, '_tix_loc_address', true),
-            'city' => (string) get_post_meta($lid, '_tix_loc_city', true), 'lat' => is_numeric($lat) && floatval($lat) != 0 ? floatval($lat) : null, 'lng' => is_numeric($lng) && floatval($lng) != 0 ? floatval($lng) : null];
+        $o = self::stored();
+        $lid = intval($o['venue']['id'] ?? 0);
+        if ($lid && get_post_type($lid) === 'tix_location' && get_post_status($lid) === 'publish') return $lid;
+        foreach ([current_time('Y-m-d'), gmdate('Y-m-d', strtotime(current_time('Y-m-d') . ' 00:00:00 UTC') - 365 * DAY_IN_SECONDS)] as $from) {
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT l.meta_value lid, COUNT(*) n FROM {$wpdb->postmeta} l
+                INNER JOIN {$wpdb->posts} p ON p.ID = l.post_id AND p.post_type = 'event' AND p.post_status = 'publish'
+                INNER JOIN {$wpdb->postmeta} d ON d.post_id = p.ID AND d.meta_key = '_tix_date_start' AND d.meta_value >= %s
+                WHERE l.meta_key = '_tix_location_id' AND l.meta_value <> '' AND l.meta_value <> '0' GROUP BY l.meta_value ORDER BY n DESC LIMIT 5", $from));
+            foreach ($rows as $row) {
+                $cand = intval($row->lid);
+                if ($cand && get_post_type($cand) === 'tix_location' && get_post_status($cand) === 'publish') return $cand;
+            }
+        }
+        return 0;
+    }
+
+    /** Hauptort festlegen (POST /studio/club location_id); 0 = wieder automatisch. */
+    public static function set_venue_id($lid) {
+        $o = self::stored();
+        $v = is_array($o['venue'] ?? null) ? $o['venue'] : [];
+        if ($lid) $v['id'] = intval($lid); else unset($v['id']);
+        if ($v) $o['venue'] = $v; else unset($o['venue']);
+        update_option(self::OPTION, $o, false);
+    }
+
+    /**
+     * Hauptort: festgelegter Ort (venue.id über POST /studio/site-config), sonst der Ort mit den meisten kommenden Events,
+     * sonst der meisten Events der letzten 12 Monate; null ohne Ort. `id` (1.38.539) = kanonische Location-ID für
+     * GET /public/venues/{id} (Homepage „Der Club“).
+     */
+    private static function venue() {
+        $lid = self::venue_location_id();
+        if (!$lid) return null;
+        $cid = class_exists('TIX_Locations') ? TIX_Locations::canonical_id($lid) : $lid;
+        if (get_post_type($cid) !== 'tix_location') $cid = $lid;
+        $lat = get_post_meta($cid, '_tix_loc_lat', true); $lng = get_post_meta($cid, '_tix_loc_lng', true);
+        $public = class_exists('TIX_Venues') ? (bool) TIX_Venues::public_venue($cid) : true;
+        return ['id' => $public ? intval($cid) : null, 'name' => html_entity_decode(get_the_title($cid), ENT_QUOTES, 'UTF-8'), 'address' => (string) get_post_meta($cid, '_tix_loc_address', true),
+            'city' => (string) get_post_meta($cid, '_tix_loc_city', true), 'lat' => is_numeric($lat) && floatval($lat) != 0 ? floatval($lat) : null, 'lng' => is_numeric($lng) && floatval($lng) != 0 ? floatval($lng) : null];
     }
 
     public static function payload() {
         $c = self::computed();
         $o = self::stored();
+        $venue_id = $c['venue']['id'] ?? null; // kanonisch aus venue(), nicht die gespeicherte Auswahl
         foreach (self::SECTIONS as $k) {
             if (!array_key_exists($k, $o) || $o[$k] === null) continue;
             $c[$k] = is_array($c[$k] ?? null) && is_array($o[$k]) ? array_replace($c[$k], $o[$k]) : $o[$k];
         }
+        if (is_array($c['venue'] ?? null)) $c['venue']['id'] = $venue_id;
         // Marken-Website (1.38.515, TIX_Website): veröffentlichter Aufbau + Domain-Status; Menü der Website ersetzt das berechnete
         if (class_exists('TIX_Website') && !TIX_Website::multi()) {
             $c['website'] = TIX_Website::public_website();
@@ -317,8 +349,16 @@ class TIX_Site_Config {
                     foreach (['lat' => [-90, 90], 'lng' => [-180, 180]] as $vk => $rng) {
                         if (isset($v[$vk]) && $v[$vk] !== null && (!is_numeric($v[$vk]) || floatval($v[$vk]) < $rng[0] || floatval($v[$vk]) > $rng[1])) return self::bad('venue.' . $vk, 'Ungültige Koordinate.');
                     }
-                    $o[$k] = ['name' => sanitize_text_field((string) ($v['name'] ?? '')), 'address' => sanitize_text_field((string) ($v['address'] ?? '')), 'city' => sanitize_text_field((string) ($v['city'] ?? '')),
-                        'lat' => isset($v['lat']) && $v['lat'] !== null ? floatval($v['lat']) : null, 'lng' => isset($v['lng']) && $v['lng'] !== null ? floatval($v['lng']) : null];
+                    // 1.38.539: venue.id legt den Hauptort fest (null = automatisch); nur übergebene Felder überschreiben
+                    $ve = [];
+                    if (array_key_exists('id', $v) && $v['id'] !== null) {
+                        $vid = intval($v['id']);
+                        if (!$vid || get_post_type($vid) !== 'tix_location' || get_post_status($vid) !== 'publish') return self::bad('venue.id', 'Ort nicht gefunden.');
+                        $ve['id'] = $vid;
+                    }
+                    foreach (['name', 'address', 'city'] as $vk) if (array_key_exists($vk, $v)) $ve[$vk] = sanitize_text_field((string) $v[$vk]);
+                    foreach (['lat', 'lng'] as $vk) if (array_key_exists($vk, $v)) $ve[$vk] = $v[$vk] !== null ? floatval($v[$vk]) : null;
+                    $o[$k] = $ve;
                     break;
                 case 'legal':
                     if (!is_array($v)) return self::bad('legal', 'Ungültige Angaben.');

@@ -10,6 +10,10 @@
  * `_tix_loc_tagline` (Kurzzeile, sonst Kurzbeschreibung), `_tix_loc_organizer_id`,
  * `_tix_loc_lat`/`_tix_loc_lng`.
  *
+ * Seite eines Orts (1.38.539, Vertrag club-seite): GET /public/venues/{id} mit Beschreibung, Titelbild,
+ * Öffnungszeiten, `_tix_loc_hours_note` (≤ 140), `_tix_loc_gallery` (JSON [{id, credit}], ≤ 12 Bilder),
+ * `_tix_loc_phone`, `_tix_loc_email`, `_tix_loc_website`. Gepflegt im Studio/App über /studio/club (TIX_Club).
+ *
  * Koordinaten: Beim Speichern einer Location ohne lat/lng, aber mit Adresse fragt
  * das Plugin einmal Nominatim (OpenStreetMap) ab. Nachtragen: `wp tixomat geocode-locations`.
  */
@@ -22,6 +26,7 @@ class TIX_Venues {
     const DAYS = ['mon' => 'Montag', 'tue' => 'Dienstag', 'wed' => 'Mittwoch', 'thu' => 'Donnerstag', 'fri' => 'Freitag', 'sat' => 'Samstag', 'sun' => 'Sonntag'];
     const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
     const EVENT_GEO_HOOK = 'tix_geocode_event';
+    const GALLERY_MAX = 12;
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -41,6 +46,11 @@ class TIX_Venues {
         register_rest_route(self::NS, '/public/venues/open', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'rest_open'],
+            'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/public/venues/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [__CLASS__, 'rest_venue'],
             'permission_callback' => '__return_true',
         ]);
     }
@@ -185,6 +195,150 @@ class TIX_Venues {
             return $d !== 0 ? $d : strcasecmp($a['name'], $b['name']);
         });
         $resp = ['ok' => true, 'date' => $date, 'weekday' => $wd, 'venues' => $list];
+        set_transient($key, $resp, self::TTL);
+        return rest_ensure_response($resp);
+    }
+
+    // ──────────────────────────────────────────
+    //  Seite eines Orts (1.38.539)
+    // ──────────────────────────────────────────
+
+    /** Galerie eines Orts: [{id, credit}] (nur vorhandene Bilder, höchstens 12). */
+    public static function gallery($loc_id) {
+        $raw = get_post_meta($loc_id, '_tix_loc_gallery', true);
+        if (is_string($raw) && $raw !== '') $raw = json_decode($raw, true);
+        $out = [];
+        foreach (is_array($raw) ? $raw : [] as $g) {
+            $aid = intval(is_array($g) ? ($g['id'] ?? 0) : 0);
+            if (!$aid || !wp_attachment_is_image($aid) || isset($out[$aid])) continue;
+            $out[$aid] = ['id' => $aid, 'credit' => mb_substr(trim((string) ($g['credit'] ?? '')), 0, 120)];
+            if (count($out) >= self::GALLERY_MAX) break;
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Eingaben der Orts-Seite prüfen (Studio/App, POST /studio/club). Nur übergebene Schlüssel.
+     * Rückgabe: [meta => wert] zum Speichern oder WP_Error (400 tix_invalid_field mit `field`).
+     */
+    public static function clean_page_input(array $p, $code = 'tix_invalid_field', $desc_max = 10000) {
+        $bad = function ($field, $msg) use ($code) { return new WP_Error($code, $msg, ['status' => 400, 'field' => $field]); };
+        $out = [];
+        if (array_key_exists('description', $p)) {
+            $d = (string) $p['description'];
+            if (mb_strlen($d) > $desc_max) return $bad('description', 'Die Beschreibung ist zu lang (höchstens ' . number_format_i18n($desc_max) . ' Zeichen).');
+            $out['_tix_loc_description'] = wp_kses_post($d);
+        }
+        foreach (['tagline' => ['_tix_loc_tagline', 120], 'short_description' => ['_tix_loc_short_desc', 300], 'hours_note' => ['_tix_loc_hours_note', 140]] as $k => $cfg) {
+            if (!array_key_exists($k, $p)) continue;
+            $v = trim($k === 'short_description' ? sanitize_textarea_field((string) $p[$k]) : sanitize_text_field((string) $p[$k]));
+            if (mb_strlen($v) > $cfg[1]) return $bad($k, 'Höchstens ' . $cfg[1] . ' Zeichen.');
+            $out[$cfg[0]] = $v;
+        }
+        if (array_key_exists('image_id', $p)) {
+            $aid = intval($p['image_id']);
+            if ($aid && !wp_attachment_is_image($aid)) return $bad('image_id', 'Bild nicht gefunden.');
+            $out['_tix_loc_image_id'] = $aid;
+        }
+        if (array_key_exists('hours', $p)) {
+            $h = $p['hours'];
+            if ($h !== null && !is_array($h)) return $bad('hours', 'Öffnungszeiten als Wochentage angeben.');
+            $clean = [];
+            foreach ((array) $h as $d => $slots) {
+                if (!isset(self::DAYS[$d])) return $bad('hours.' . $d, 'Unbekannter Wochentag (mon … sun).');
+                if (!is_array($slots) || count($slots) > 3) return $bad('hours.' . $d, 'Höchstens 3 Zeitfenster je Tag.');
+                foreach (array_values($slots) as $i => $s) {
+                    foreach (['open', 'close'] as $t) {
+                        if (!is_array($s) || !self::valid_time($s[$t] ?? null)) return $bad('hours.' . $d . '.' . $i . '.' . $t, 'Uhrzeit als HH:MM angeben.');
+                    }
+                    $clean[$d][] = ['open' => $s['open'], 'close' => $s['close']];
+                }
+            }
+            $out['_tix_loc_hours'] = wp_slash(wp_json_encode((object) self::clean_hours($clean)));
+        }
+        if (array_key_exists('gallery', $p)) {
+            $g = $p['gallery'];
+            if ($g !== null && !is_array($g)) return $bad('gallery', 'Bitte eine Liste von Bildern.');
+            if (count((array) $g) > self::GALLERY_MAX) return $bad('gallery', 'Höchstens ' . self::GALLERY_MAX . ' Bilder.');
+            $list = [];
+            foreach (array_values((array) $g) as $i => $it) {
+                $aid = intval(is_array($it) ? ($it['image_id'] ?? ($it['id'] ?? 0)) : 0);
+                if (!$aid || !wp_attachment_is_image($aid)) return $bad('gallery.' . $i . '.image_id', 'Bild nicht gefunden.');
+                $credit = trim(sanitize_text_field((string) ($it['credit'] ?? '')));
+                if ($credit === '' && !array_key_exists('credit', (array) $it)) { // beim Hochladen angegeben (TIX_Club)
+                    $r = get_post_meta($aid, '_tix_photo_rights', true);
+                    $credit = is_array($r) ? (string) ($r['credit'] ?? '') : '';
+                }
+                if (mb_strlen($credit) > 120) return $bad('gallery.' . $i . '.credit', 'Höchstens 120 Zeichen.');
+                $list[] = ['id' => $aid, 'credit' => $credit];
+            }
+            $out['_tix_loc_gallery'] = wp_slash(wp_json_encode($list));
+        }
+        if (array_key_exists('phone', $p)) {
+            $v = trim(sanitize_text_field((string) $p['phone']));
+            if ($v !== '' && (mb_strlen($v) > 40 || !preg_match('#^[0-9+()/ .\-]{4,}$#', $v))) return $bad('phone', 'Ungültige Telefonnummer.');
+            $out['_tix_loc_phone'] = $v;
+        }
+        if (array_key_exists('email', $p)) {
+            $v = trim((string) $p['email']);
+            if ($v !== '' && !is_email($v)) return $bad('email', 'Ungültige E-Mail-Adresse.');
+            $out['_tix_loc_email'] = $v === '' ? '' : sanitize_email($v);
+        }
+        if (array_key_exists('website', $p)) {
+            $v = trim((string) $p['website']);
+            if ($v !== '' && !preg_match('#^https?://[^\s/$.?\#].[^\s]*$#i', $v)) return $bad('website', 'Bitte eine Adresse mit https:// angeben.');
+            $out['_tix_loc_website'] = $v === '' ? '' : esc_url_raw($v);
+        }
+        return $out;
+    }
+
+    /** Öffentliche Seite eines Orts oder null (nicht veröffentlicht bzw. Sandbox-Veranstalter). */
+    public static function public_venue($id) {
+        $id = intval($id);
+        if (!$id || get_post_type($id) !== 'tix_location') return null;
+        $cid = class_exists('TIX_Locations') ? TIX_Locations::canonical_id($id) : $id;
+        if (get_post_type($cid) !== 'tix_location' || get_post_status($cid) !== 'publish') return null;
+        $oid = intval(get_post_meta($cid, '_tix_loc_organizer_id', true));
+        if ($oid && class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return null;
+        $m = function ($k) use ($cid) { return trim((string) get_post_meta($cid, $k, true)); };
+        list($lat, $lng) = self::coords($cid);
+        $desc = $m('_tix_loc_description');
+        if ($desc === '') $desc = (string) get_post_field('post_content', $cid);
+        $desc = trim(wp_kses_post(wpautop(strip_shortcodes($desc))));
+        $hours = self::hours($cid);
+        return [
+            'id'                => $cid,
+            'name'              => html_entity_decode(get_the_title($cid), ENT_QUOTES, 'UTF-8'),
+            'address'           => $m('_tix_loc_address'),
+            'zip'               => $m('_tix_loc_zip') ?: $m('_tix_loc_postcode'),
+            'city'              => self::city_of($cid),
+            'lat'               => $lat,
+            'lng'               => $lng,
+            'image'             => self::image($cid),
+            'tagline'           => $m('_tix_loc_tagline'),
+            'short_description' => $m('_tix_loc_short_desc'),
+            'description'       => $desc,
+            'hours'             => $hours ?: null,
+            'hours_note'        => $m('_tix_loc_hours_note'),
+            'gallery'           => array_values(array_filter(array_map(function ($g) {
+                $url = (string) (wp_get_attachment_image_url($g['id'], 'large') ?: '');
+                return $url === '' ? null : ['url' => $url, 'small' => (string) (wp_get_attachment_image_url($g['id'], 'medium') ?: $url), 'credit' => $g['credit']];
+            }, self::gallery($cid)))),
+            'phone'             => $m('_tix_loc_phone'),
+            'email'             => $m('_tix_loc_email'),
+            'website'           => $m('_tix_loc_website'),
+        ];
+    }
+
+    /** GET /public/venues/{id} */
+    public static function rest_venue(WP_REST_Request $req) {
+        $id = intval($req['id']);
+        $key = 'tix_pub_events_venue_' . $id;
+        $cached = get_transient($key);
+        if (is_array($cached)) return rest_ensure_response($cached);
+        $v = self::public_venue($id);
+        if (!$v) return new WP_Error('tix_venue_not_found', 'Ort nicht gefunden.', ['status' => 404]);
+        $resp = ['ok' => true, 'venue' => $v];
         set_transient($key, $resp, self::TTL);
         return rest_ensure_response($resp);
     }
