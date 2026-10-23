@@ -287,6 +287,7 @@ class TIX_FCM {
                     <?php if ($st['configured']): ?> <button class="button" name="remove" value="1" onclick="return confirm('Dienstkonto entfernen? Android-Push stoppt.');">Entfernen</button><?php endif; ?>
                 </form>
             </div>
+            <?php if (class_exists('TIX_App_Links')) TIX_App_Links::render_admin_section(); ?>
         </div>
         <?php
     }
