@@ -530,6 +530,8 @@ class TIX_Studio {
             'ios_url'     => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::store_url() : null,
             'android_url' => class_exists('TIX_App_Coupons') ? TIX_App_Coupons::play_url() : null,
             'icon'        => $icon !== '' ? $icon : (self::logo() ?: null),
+            // Android-App öffentlich (Google Play zeigen), 1.38.533 – POST /studio/config {play_public}
+            'play_public' => class_exists('TIX_Site_Config') && TIX_Site_Config::play_public(),
         ];
     }
 
@@ -676,7 +678,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id'], self::MAIL_KEYS, $feature_params));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public'], self::MAIL_KEYS, $feature_params));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
@@ -702,6 +704,8 @@ class TIX_Studio {
             $lv = $req->get_param('app_layout');
             if ($lv === null || $lv === '') delete_option(self::APP_LAYOUT); else update_option(self::APP_LAYOUT, $lv, false);
         }
+        // Android-App öffentlich (1.38.533): Rechte wie Akzent/Logo
+        if ($has('play_public') && class_exists('TIX_Site_Config')) TIX_Site_Config::set_play_public(filter_var($req->get_param('play_public'), FILTER_VALIDATE_BOOLEAN));
         if ($has('syndicate_default') && class_exists('TIX_Syndication_Push')) {
             $sd = $req->get_param('syndicate_default');
             if ($sd === null || $sd === '') delete_option(TIX_Syndication_Push::DEFAULT_OPT);
