@@ -30,7 +30,8 @@ class TIX_Website {
     /** key => [Bezeichnung, Optionen, App-Schalter (TIX_Features::map bzw. app) | null] */
     const SECTIONS = [
         'stage'      => ['Bühne (nächstes Event)', [], null],
-        'ticker'     => ['Laufband', ['title', 'eyebrow'], null],
+        // Laufband (1.38.537, Vertrag uebergaben/vertrag-laufband.md): Quelle, eigene Einträge, Tempo, Richtung, Farbe, Trenner
+        'ticker'     => ['Laufband', ['auto', 'items', 'speed', 'direction', 'tone', 'separator'], null],
         'tickets'    => ['Tickets (Kategorien)', ['title', 'eyebrow'], 'checkout'],
         'arrival'    => ['Anreise & vor Ort', ['title', 'eyebrow'], null],
         'more_dates' => ['Weitere Termine', ['max', 'title', 'eyebrow'], null],
@@ -65,6 +66,11 @@ class TIX_Website {
         'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'raffles', 'about', 'arrival', 'more_dates', 'tips', 'gallery', 'wallet', 'awareness', 'faq', 'newsletter', 'app_banner'],
         'klar'     => ['stage', 'next', 'tips', 'raffles', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
     ];
+
+    // Laufband: erlaubte Werte je Option (Vorgabe = erster Wert)
+    const TICKER = ['auto' => ['event', 'acts', 'none'], 'speed' => ['normal', 'slow', 'fast'], 'direction' => ['left', 'right'],
+        'tone' => ['accent', 'spotlight', 'dark', 'light'], 'separator' => ['star', 'dot', 'slash', 'diamond', 'none']];
+    const TICKER_ITEMS = 12;
 
     const MAX = ['highlights' => 24, 'next' => 12, 'lineup' => 48, 'faq' => 20, 'raffles' => 12, 'tips' => 12, 'more_dates' => 12];
     const TEXTS = ['claim', 'seo_title', 'seo_description', 'newsletter_title', 'newsletter_text'];
@@ -251,6 +257,39 @@ class TIX_Website {
                         $max = self::MAX[$key] ?? 24;
                         if (!is_numeric($v) || intval($v) < 1 || intval($v) > $max) return self::bad($f . '.max', 'Zahl von 1 bis ' . $max . '.');
                         $c['max'] = intval($v);
+                        break;
+                    case 'auto':
+                    case 'speed':
+                    case 'direction':
+                    case 'tone':
+                    case 'separator':
+                        if (!in_array($v, self::TICKER[$opt], true)) return self::bad($f . '.' . $opt, $opt . ': ' . implode(', ', self::TICKER[$opt]) . '.');
+                        $c[$opt] = $v;
+                        break;
+                    case 'items':
+                        if (!is_array($v) || count($v) > self::TICKER_ITEMS) return self::bad($f . '.items', 'Höchstens ' . self::TICKER_ITEMS . ' eigene Einträge.');
+                        $c['items'] = [];
+                        foreach (array_values($v) as $j => $it) {
+                            $g = $f . '.items.' . $j;
+                            if (!is_array($it)) return self::bad($g, 'Ungültiger Eintrag.');
+                            $tx = trim(wp_strip_all_tags(sanitize_text_field((string) ($it['text'] ?? ''))));
+                            if ($tx === '') continue; // leere Einträge entfallen
+                            if (mb_strlen($tx) > 60) return self::bad($g . '.text', 'Höchstens 60 Zeichen.');
+                            $row = ['text' => $tx];
+                            $em = trim((string) ($it['emoji'] ?? ''));
+                            if ($em !== '') {
+                                if (mb_strlen($em) > 8 || preg_match('/[\p{L}\p{N}<>]/u', $em)) return self::bad($g . '.emoji', 'Ein Emoji (ohne Buchstaben und Ziffern).');
+                                $row['emoji'] = $em;
+                            }
+                            $u = trim((string) ($it['url'] ?? ''));
+                            if ($u !== '') {
+                                if (mb_strlen($u) > 300) return self::bad($g . '.url', 'Höchstens 300 Zeichen.');
+                                $u = self::url($u, $g . '.url');
+                                if (is_wp_error($u)) return $u;
+                                $row['url'] = $u;
+                            }
+                            $c['items'][] = $row;
+                        }
                         break;
                     case 'title':
                     case 'eyebrow':
