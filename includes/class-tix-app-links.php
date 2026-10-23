@@ -17,7 +17,9 @@
  *   kasse        → /app/kasse/*         (App-Kasse eines Events, Gutscheine nur in der App, seit 1.38.431)
  *   kuenstler    → /kuenstler/*         (Künstler-Seiten, seit 1.38.518; im Mehr-Veranstalter-Modus automatisch mit „veranstalter“)
  *   marke        → Marken-Homepage (seit 1.38.530): /, /events/*, /line-up/*, /kuenstler/*, /faq/*, /u16/*, /muttizettel/*,
- *                  /kontakt/*, /support/*; automatisch auf Einzel-Seiten mit freigeschaltetem Website-Paket (TIX_Website)
+ *                  /kontakt/*, /support/*; seit 1.38.531 nur mit dem Schalter `tix_app_links_ios_marke` (Vorgabe aus – die
+ *                  Store-Apps bis KK 1.0.2/Mallorca 1.0.1 werten nur ?tix_sp_ticket aus), Tixomat → App-Push bzw.
+ *                  `wp tixomat app-links ios-marke on|off`
  * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser). Seit 1.38.530 stehen davor feste Ausschlüsse
  * (EXCLUDES: WordPress-Pfade, Kasse/Zahlung, Konto, DJ-/Kassen-/Einlass-Seiten, Abmelden, Downloads/PDFs, QR, Passwort-
  * Reset, Vorschau ?draft=) – sie gelten für alle Freigaben außer dem Support-Link ?tix_sp_ticket (steht davor).
@@ -37,13 +39,14 @@ class TIX_App_Links {
     const OPTION = 'tix_app_link_ids';
     const OPTION_PATHS = 'tix_app_link_paths';
     const OPTION_ANDROID = 'tix_android_app_links';
+    const OPTION_MARKE = 'tix_app_links_ios_marke'; // '1' = Homepage-Pfade in der AASA (1.38.531)
 
     /** Immer zuerst (exclude): bleibt im Browser, auch wenn eine Freigabe passen würde (1.38.530). */
     const EXCLUDES = [
         ['/' => '/wp-admin*'], ['/' => '/wp-login*'], ['/' => '/wp-json*'], ['/' => '/wp-content*'], ['/' => '/wp-includes*'],
         ['/' => '/xmlrpc.php'], ['/' => '/.well-known*'], ['/' => '/index.php*'],
         // Kasse, Zahlungs-Rückwege, Warenkorb
-        ['/' => '/kasse/*'], ['/' => '/checkout*'], ['/' => '/cart*'], ['/' => '/warenkorb*'],
+        ['/' => '/kasse/*'], ['/' => '/checkout*'], ['/' => '/cart*'], ['/' => '/warenkorb*'], ['/' => '/shop*'], ['/' => '/feed*'],
         // Konto, Passwort-Reset
         ['/' => '/mein-konto*'], ['/' => '/passwort*'], ['/' => '/lost-password*'],
         // Sonderseiten im Browser: DJ-Musikwünsche, Einlass, Abendkasse, Promoter, Sponsoren
@@ -56,6 +59,8 @@ class TIX_App_Links {
         ['?' => ['tix_unsub' => '*']], ['?' => ['tix_sp_file' => '*']], ['?' => ['tix_preview' => '*']], ['?' => ['tix_admin_preview' => '*']],
         ['?' => ['tix_rp_login' => '*']], ['?' => ['tix_recover_cart' => '*']], ['?' => ['tix_cart' => '*']], ['?' => ['tix_embed' => '*']],
         ['?' => ['order_key' => '*']], ['?' => ['key' => '*']], ['?' => ['action' => '*']], ['?' => ['token' => '*']],
+        // Zahlungsanbieter-Rückkehr (Mollie/Stripe/PayPal: /?tix_payment_return=1&gateway=…&order_key=…, Abbruch tix_payment_cancel)
+        ['?' => ['tix_payment_cancel' => '*']], ['?' => ['gateway' => '*']], ['?' => ['session_id' => '*']], ['?' => ['tix_order_key' => '*']],
     ];
 
     /** Pfade der Marken-Homepage (apps/marken-web) und der heutigen WordPress-Seiten. */
@@ -94,8 +99,9 @@ class TIX_App_Links {
         }
         // Künstler-Seiten (1.38.518, nur evendis): automatisch mit den Veranstalter-Seiten
         if (in_array('veranstalter', $out, true) && class_exists('TIX_Artists') && TIX_Artists::multi()) $out[] = 'kuenstler';
-        // Marken-Homepage (1.38.530): automatisch, wo das Website-Paket freigeschaltet ist (kitchenklub.de, mallorca-festival-xxl.de)
-        if (class_exists('TIX_Website') && TIX_Website::package_enabled()) $out[] = 'marke';
+        // Marken-Homepage: nur mit eigenem Schalter (1.38.531, Vorgabe aus), nicht mehr über die Pfad-Liste
+        $out = array_values(array_diff($out, ['marke']));
+        if (self::marke_on()) $out[] = 'marke';
         return array_values(array_unique($out));
     }
 
@@ -103,6 +109,15 @@ class TIX_App_Links {
         add_action('init', [__CLASS__, 'maybe_serve'], 0);
         add_action('admin_post_tix_app_links_save', [__CLASS__, 'handle_save']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat app-links', [__CLASS__, 'cli']);
+    }
+
+    /** Homepage-Pfade (Baustein marke) in der AASA freigegeben? Schaltet die Zentrale, sobald die App-Updates im Store sind. */
+    public static function marke_on() {
+        return get_option(self::OPTION_MARKE, '0') === '1';
+    }
+
+    public static function set_marke($on) {
+        update_option(self::OPTION_MARKE, $on ? '1' : '0', false);
     }
 
     /** Gültige App-IDs (Team-ID mit 10 Zeichen + Bundle-ID) */
@@ -191,6 +206,7 @@ class TIX_App_Links {
 
     public static function handle_save() {
         if (!current_user_can('manage_options') || !check_admin_referer('tix_app_links_save')) wp_die('Keine Berechtigung.');
+        if (isset($_POST['ios_marke_set'])) self::set_marke(!empty($_POST['ios_marke']));
         $r = self::save_android(sanitize_text_field(wp_unslash((string) ($_POST['android_package'] ?? ''))), sanitize_textarea_field(wp_unslash((string) ($_POST['android_fingerprints'] ?? ''))));
         $back = admin_url('admin.php?page=tix-app-push');
         wp_safe_redirect(add_query_arg(is_wp_error($r) ? ['tix_links' => 'error', 'msg' => rawurlencode($r->get_error_message())] : ['tix_links' => 'saved'], $back));
@@ -212,6 +228,9 @@ class TIX_App_Links {
                 · <a href="<?php echo esc_url($home . '.well-known/apple-app-site-association'); ?>" target="_blank" rel="noopener">AASA ansehen</a></p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="tix_app_links_save"><?php wp_nonce_field('tix_app_links_save'); ?>
+                <input type="hidden" name="ios_marke_set" value="1">
+                <p><label><input type="checkbox" name="ios_marke" value="1" <?php checked(self::marke_on()); ?>> <strong>iPhone: Homepage-Links öffnen die App</strong> (Start, Events, Line-up, Künstler, FAQ, Ü16, Muttizettel, Kontakt, Support)</label><br>
+                    <span style="color:#64748b;">Erst einschalten, wenn die App-Version im Store diese Links kennt – ältere Apps öffnen sonst ins Leere. Der Support-Link (?tix_sp_ticket) gilt immer.</span></p>
                 <p><label>Android-Paketname<br><input name="android_package" value="<?php echo esc_attr($a['package'] ?? ''); ?>" class="regular-text" placeholder="de.kitchenklub.app"></label></p>
                 <p><label>SHA-256-Fingerabdrücke (Upload-Schlüssel und App-Signaturschlüssel aus der Play Console, einer je Zeile)<br>
                     <textarea name="android_fingerprints" rows="3" style="width:100%;font-family:monospace;" placeholder="58:E0:C9:…"><?php echo esc_textarea(implode("\n", $a['fingerprints'] ?? [])); ?></textarea></label></p>
@@ -223,12 +242,12 @@ class TIX_App_Links {
         <?php
     }
 
-    /** wp tixomat app-links status | android-set <package> <fp>[,<fp>…] | android-clear */
+    /** wp tixomat app-links status | ios-marke on|off | android-set <package> <fp>[,<fp>…] | android-clear */
     public static function cli($args, $assoc) {
         $cmd = (string) ($args[0] ?? 'status');
         if ($cmd === 'status') {
             $ids = self::ids();
-            WP_CLI::line(wp_json_encode(['ios' => $ids ? self::document($ids) : null, 'android' => ($a = self::android()) ? self::assetlinks($a) : null], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            WP_CLI::line(wp_json_encode(['ios_marke' => self::marke_on(), 'ios' => $ids ? self::document($ids) : null, 'android' => ($a = self::android()) ? self::assetlinks($a) : null], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
             return;
         }
         if ($cmd === 'android-set') {
@@ -237,8 +256,15 @@ class TIX_App_Links {
             WP_CLI::success('Android App Links: ' . wp_json_encode(self::android(), JSON_UNESCAPED_SLASHES));
             return;
         }
+        if ($cmd === 'ios-marke') {
+            $v = strtolower((string) ($args[1] ?? ''));
+            if (!in_array($v, ['on', 'off'], true)) WP_CLI::error('Aufruf: wp tixomat app-links ios-marke on|off (jetzt: ' . (self::marke_on() ? 'on' : 'off') . ')');
+            self::set_marke($v === 'on');
+            WP_CLI::success('iPhone-Homepage-Links: ' . $v . ' (Freigaben: ' . (implode(', ', self::paths()) ?: 'nur Support') . ')');
+            return;
+        }
         if ($cmd === 'android-clear') { delete_option(self::OPTION_ANDROID); WP_CLI::success('Android App Links entfernt (assetlinks.json → 404).'); return; }
-        WP_CLI::error('Aufruf: wp tixomat app-links status | android-set <package> <fp>[,<fp>…] | android-clear');
+        WP_CLI::error('Aufruf: wp tixomat app-links status | ios-marke on|off | android-set <package> <fp>[,<fp>…] | android-clear');
     }
 
     /** Antwort ohne Zwischenspeicher, JSON, ohne Weiterleitung. */
