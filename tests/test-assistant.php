@@ -50,7 +50,27 @@ function get_transient($k) { return $GLOBALS['t_trans'][$k] ?? false; }
 function set_transient($k, $v, $t = 0) { $GLOBALS['t_trans'][$k] = $v; return true; }
 function is_user_logged_in() { return $GLOBALS['t_user'] > 0; }
 function current_user_can($c) { return $GLOBALS['t_admin']; }
-function wp_get_current_user() { return (object) ['roles' => $GLOBALS['t_roles']]; }
+function wp_get_current_user() { return (object) ['ID' => $GLOBALS['t_user'], 'roles' => $GLOBALS['t_roles'], 'user_email' => $GLOBALS['t_user_email'] ?? '']; }
+function is_email($e) { return (bool) filter_var($e, FILTER_VALIDATE_EMAIL); }
+function delete_post_meta($id, $k) { unset($GLOBALS['t_meta'][$id][$k]); return true; }
+function get_user_by($f, $v) { return (object) ['ID' => 99, 'user_email' => $v]; }
+// Bestellungen/Tickets für Nachsenden und Code: anna@example.de hat Bestellung 701 (kommend) und 703 (vorbei);
+// Ticket 802 gehört ihr als Inhaberin, die Bestellung 702 lief aber auf eine andere Adresse
+$GLOBALS['t_tickets'] = [
+    ['id' => 801, 'order_id' => 701, 'event_id' => 25, 'event_title' => 'Mallorca Night', 'event_date' => '2099-11-07', 'code' => 'AB12CD', 'status' => 'valid', 'owner' => 'anna@example.de'],
+    ['id' => 802, 'order_id' => 702, 'event_id' => 25, 'event_title' => 'Mallorca Night', 'event_date' => '2099-11-07', 'code' => 'EF34GH', 'status' => 'valid', 'owner' => 'anna@example.de'],
+    ['id' => 803, 'order_id' => 703, 'event_id' => 25, 'event_title' => 'Altes Event', 'event_date' => '2020-01-01', 'code' => 'IJ56KL', 'status' => 'valid', 'owner' => 'anna@example.de'],
+    ['id' => 804, 'order_id' => 704, 'event_id' => 25, 'event_title' => 'Mallorca Night', 'event_date' => '2099-11-07', 'code' => 'MN78OP', 'status' => 'valid', 'owner' => 'ben@example.de'],
+];
+$GLOBALS['t_order_mail'] = [701 => 'Anna@Example.de', 702 => 'freund@example.de', 703 => 'anna@example.de', 704 => 'ben@example.de'];
+$GLOBALS['t_sent'] = [];
+class TIX_App_Checkout {
+    static function tickets_for_email($e) { return array_values(array_filter($GLOBALS['t_tickets'], function ($t) use ($e) { return strcasecmp($t['owner'], $e) === 0; })); }
+    static function tickets_for_user($u) { return self::tickets_for_email($u->user_email); }
+}
+class TIX_Order { public $id; static function get($id) { $o = new self(); $o->id = $id; return isset($GLOBALS['t_order_mail'][$id]) ? $o : null; } function get_billing_email() { return $GLOBALS['t_order_mail'][$this->id]; } }
+class TIX_Emails { static function send_native_completed($oid) { $GLOBALS['t_sent'][] = $oid; } }
+$GLOBALS['t_codes'] = [];
 function get_bloginfo($k) { return 'KitchenKlub'; }
 function home_url($p = '') { return 'https://kitchenklub.de' . $p; }
 function sanitize_text_field($s) { return trim(strip_tags((string) $s)); }
@@ -101,6 +121,15 @@ TIX_Assistant::$rest = function (WP_REST_Request $r) use ($EVENT) {
     $route = preg_replace('#^/tixomat/v1#', '', $r->route);
     if ($route === '/support/config') return new WP_REST_Response(['ok' => true, 'enabled' => true]);
     if ($route === '/public/events') return new WP_REST_Response(['events' => array_merge([$EVENT, array_merge($EVENT, ['id' => 26, 'title' => 'Free Friday', 'free_entry' => true, 'tickets_enabled' => false, 'categories' => []])], $GLOBALS['t_multi_events'] ? [array_merge($EVENT, ['id' => 27, 'title' => 'Zweites Event'])] : [])]);
+    if ($route === '/auth/code' && $r->method === 'POST') {
+        $GLOBALS['t_codes'][] = $r->params['email'];
+        if (!TIX_App_Checkout::tickets_for_email($r->params['email'])) return new WP_Error('not_found', 'Weder Konto noch Bestellung.', ['status' => 404]);
+        return new WP_REST_Response(['ok' => true]);
+    }
+    if ($route === '/auth/code/confirm' && $r->method === 'POST') {
+        if ($r->params['code'] !== '654321') return new WP_Error('code_invalid', 'Der Code ist nicht korrekt.', ['status' => 400]);
+        return new WP_REST_Response(['ok' => true, 'token' => 'tok-1', 'user' => ['email' => $r->params['email']]]);
+    }
     if ($route === '/customer/support' && $r->method === 'POST') {
         if (!is_user_logged_in() && (empty($r->params['email']) || strpos($r->params['email'], '@') === false)) return new WP_Error('invalid_email', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
         if (!is_user_logged_in() && empty($r->params['name'])) return new WP_Error('missing_name', 'Bitte deinen Namen angeben.', ['status' => 400, 'field' => 'name']);
@@ -403,6 +432,99 @@ ok(!is_wp_error($x) && $x->get_data()['reply'] === 'Melde dich bitte an.', 'Werk
 ok($GLOBALS['t_api_strict_fail'] === false && count($GLOBALS['t_api_bodies']) === 3, 'API bekommt input als Objekt');
 $wire = json_encode($GLOBALS['t_api_bodies'][2]['messages']);
 ok(strpos($wire, '"input":{}') !== false && strpos($wire, '"input":[]') === false, 'leere Eingabe als {} gesendet');
+
+// ═══ 16. Tickets nicht bekommen: nachsenden, per Code zeigen, Tippfehler ═══
+TIX_Assistant::reset();
+$GLOBALS['t_trans'] = []; $GLOBALS['t_api_strict_fail'] = false; $GLOBALS['t_user'] = 0; $GLOBALS['t_sent'] = [];
+update_option(TIX_Assistant::OPT, ['enabled' => true]);
+$toolResult = function ($i) { $m = end($GLOBALS['t_api_bodies'][$i]['messages']); return $m['content'][0]['content']; };
+$GLOBALS['t_api_bodies'] = [];
+script_api([tool_answer('resend_tickets', []), text_answer('Wenn es zu dieser Adresse Tickets gibt, sind sie jetzt unterwegs.')]);
+$x = chat(['message' => 'Hab keine Tickets bekommen, meine Mail: Anna@Example.de', 'device_id' => 'device-resend']);
+ok(!is_wp_error($x) && $GLOBALS['t_api_strict_fail'] === false, 'Nachsenden-Gespräch geht durch' . (is_wp_error($x) ? ': ' . $x->message : ''));
+$wire = json_encode($GLOBALS['t_api_bodies']);
+ok(stripos($wire, 'anna@example.de') === false && strpos($wire, '[E-Mail 1]') !== false, 'E-Mail nie an Anthropic, nur Platzhalter');
+ok($GLOBALS['t_sent'] === [701], 'nur kommende Bestellung mit genau dieser Bestell-Adresse nachgeschickt');
+ok(get_transient('_tix_skip_admin_email_701') === 1, 'keine zweite Admin-Mail');
+$known = $toolResult(1);
+$d = $x->get_data();
+ok(strpos($d['reply'], 'Spam') !== false && strpos($d['reply'], 'Absender') !== false && strpos($d['reply'], 'Chat') !== false, 'Spam-Hinweis angehängt');
+$log = get_option('_tix_assistant_log_' . date('Ymd'));
+ok(stripos(json_encode($log), 'anna@example.de') === false, 'E-Mail nicht im Protokoll');
+// unbekannte Adresse: gleiche Antwort, nichts verschickt
+$GLOBALS['t_sent'] = []; $GLOBALS['t_api_bodies'] = [];
+script_api([tool_answer('resend_tickets', []), text_answer('Wenn es Tickets gibt, sind sie unterwegs.')]);
+chat(['message' => 'Meine Mail ist niemand@example.de', 'device_id' => 'device-resend2']);
+ok($GLOBALS['t_sent'] === [] && $toolResult(1) === $known, 'ohne Bestellung: nichts verschickt, identische Auskunft');
+// Limit: 3 je Adresse und Tag
+$cards = []; $acts = [];
+for ($i = 0; $i < 4; $i++) {
+    TIX_Assistant::reset(); $GLOBALS['t_sent'] = [];
+    script_api([tool_answer('resend_tickets', []), text_answer('ok')]);
+    chat(['message' => 'nochmal an anna@example.de', 'device_id' => 'device-lim' . $i]);
+    if ($i === 1) $second = $GLOBALS['t_sent'];
+}
+ok($second === [701] && $GLOBALS['t_sent'] === [], 'nach 3 Nachsendungen je Adresse/Tag gesperrt');
+// Gerät/IP-Limit (andere Adressen, gleiches Gerät)
+$GLOBALS['t_trans'] = []; $sentAll = 0;
+foreach (['a1', 'a2', 'a3', 'a4', 'a5', 'a6'] as $i => $k) {
+    TIX_Assistant::reset(); $GLOBALS['t_sent'] = [];
+    $GLOBALS['t_order_mail'][900 + $i] = "$k@example.de";
+    $GLOBALS['t_tickets'][] = ['id' => 950 + $i, 'order_id' => 900 + $i, 'event_id' => 25, 'event_title' => 'X', 'event_date' => '2099-01-01', 'code' => 'Q' . $i . 'XYZ', 'status' => 'valid', 'owner' => "$k@example.de"];
+    script_api([tool_answer('resend_tickets', []), text_answer('ok')]);
+    chat(['message' => "an $k@example.de bitte", 'device_id' => 'device-geraet']);
+    $sentAll += count($GLOBALS['t_sent']);
+}
+ok($sentAll === 5, 'höchstens 5 Nachsendungen je Gerät und Tag (' . $sentAll . ')');
+
+// Tickets im Chat per Code
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = []; $GLOBALS['t_codes'] = []; $GLOBALS['t_api_bodies'] = [];
+script_api([tool_answer('show_tickets', []), text_answer('Ich habe dir einen Code geschickt.')]);
+$c = chat(['message' => 'Zeig mir meine Tickets hier, anna@example.de', 'device_id' => 'device-code']);
+$cd = $c->get_data();
+ok($GLOBALS['t_codes'] === ['anna@example.de'] && $cd['actions'][0]['action'] === 'code:enter', 'Code an die Bestell-E-Mail, Code-Feld angeboten');
+ok(strpos($cd['reply'], 'Code-Feld') !== false && !isset($cd['tickets']), 'neutraler Hinweis, noch keine Tickets');
+$code = function ($c) use ($cd) { $r = new WP_REST_Request('POST', ''); $r->json = ['conversation_id' => $cd['conversation_id'], 'device_id' => 'device-code', 'code' => $c]; return TIX_Assistant::rest_code($r); };
+ok(is_wp_error($code('12')) && $code('12')->code === 'code_invalid', 'zu kurzer Code abgelehnt');
+$w = $code('111111');
+ok(is_wp_error($w) && $w->code === 'code_invalid', 'falscher Code abgelehnt');
+$n = count($GLOBALS['t_api_bodies']);
+$ok = chat(['message' => ' 654321 ', 'device_id' => 'device-code', 'conversation_id' => $cd['conversation_id']]);
+ok(!is_wp_error($ok) && count($GLOBALS['t_api_bodies']) === $n, 'Code im Chat-Feld: eingelöst, ohne Anthropic');
+$od = $ok->get_data();
+ok(count($od['tickets']) === 2 && $od['tickets'][0]['qr'] === 'GL-25-AB12CD' && $od['session']['token'] === 'tok-1', 'Tickets mit QR + Anmeldung');
+ok(!in_array('IJ56KL', array_column($od['tickets'], 'code'), true), 'vergangene Tickets nicht gezeigt');
+ok(strpos(json_encode(get_option('_tix_assistant_log_' . date('Ymd'))), '654321') === false, 'Code nicht im Protokoll');
+ok(strpos(json_encode($GLOBALS['t_api_bodies']), '654321') === false, 'Code nie an Anthropic');
+$again = $code('654321');
+ok(is_wp_error($again) && $again->code === 'tix_assistant_email', 'Code nur einmal einlösbar');
+// unbekannte Adresse: Code-Hinweis gleich neutral
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = [];
+script_api([tool_answer('show_tickets', []), text_answer('Code unterwegs, falls es Tickets gibt.')]);
+$u = chat(['message' => 'Tickets für niemand@example.de', 'device_id' => 'device-code2'])->get_data();
+ok(strpos($u['reply'], 'Wenn es zu dieser Adresse Tickets gibt') !== false && $u['actions'][0]['action'] === 'code:enter', 'ohne Bestellung: gleiche Antwort');
+
+// Gast mit Konto
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = []; $GLOBALS['t_sent'] = []; $GLOBALS['t_api_bodies'] = [];
+$GLOBALS['t_user'] = 7; $GLOBALS['t_user_email'] = 'ben@example.de';
+script_api([tool_answer('show_tickets', []), tool_answer('resend_tickets', [], 'tu_2'), text_answer('Hier sind sie, und nachgeschickt.')]);
+$k = chat(['message' => 'Meine Tickets bitte', 'device_id' => 'device-konto'])->get_data();
+ok(count($k['tickets']) === 1 && $k['tickets'][0]['code'] === 'MN78OP', 'mit Konto: Tickets sofort im Chat');
+ok(strpos(json_encode($GLOBALS['t_api_bodies']), 'MN78OP') === false, 'Ticket-Codes nicht an Anthropic');
+ok($GLOBALS['t_sent'] === [704], 'mit Konto: Nachsenden an die Konto-E-Mail');
+$GLOBALS['t_user'] = 0; $GLOBALS['t_user_email'] = '';
+
+// Tippfehler → Übergabe mit Angaben (nicht an die KI)
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = []; $GLOBALS['t_api_bodies'] = [];
+script_api([text_answer('Wie heißt du und hast du eine Bestellnummer?'), tool_answer('handoff_support', ['subject' => 'Tickets nicht erhalten', 'summary' => 'Adresse evtl. falsch']), text_answer('Ich gebe an das Team.')]);
+$t1 = chat(['message' => 'Nichts angekommen an anna@exmaple.de', 'device_id' => 'device-typo'])->get_data();
+chat(['message' => 'Ich heiße Anna Muster, Bestellung 4711, PayPal 7XK29384AB', 'device_id' => 'device-typo', 'conversation_id' => $t1['conversation_id']]);
+$wire = json_encode($GLOBALS['t_api_bodies']);
+ok(strpos($wire, 'Anna Muster') === false && strpos($wire, '7XK29384AB') === false && strpos($wire, 'exmaple') === false, 'Name/Beleg/Adresse nicht an Anthropic');
+$h = $ho(['conversation_id' => $t1['conversation_id'], 'device_id' => 'device-typo', 'name' => 'Anna Muster', 'email' => 'anna@example.de']);
+$sp = end($GLOBALS['t_support_posts']);
+ok(!is_wp_error($h) && strpos($sp['message'], 'anna@exmaple.de') !== false && strpos($sp['message'], '7XK29384AB') !== false && strpos($sp['message'], '4711') !== false && strpos($sp['message'], 'Anna Muster') !== false, 'Übergabe enthält Adresse, Name, Bestell- und Belegnummer');
+ok(strpos($sp['message'], 'nicht an die KI') !== false, 'Angaben gekennzeichnet');
 
 echo "$count Prüfungen, $fails Fehler\n";
 exit($fails ? 1 : 0);

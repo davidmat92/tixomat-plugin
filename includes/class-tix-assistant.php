@@ -45,6 +45,11 @@ class TIX_Assistant {
     private static $pending_handoff = null;
     /** Standard-Event (genau ein kommendes Event mit Online-Tickets), je Anfrage einmal ermittelt; false = noch nicht */
     private static $default_event = false;
+    /** Laufendes Gespräch für die Werkzeuge (E-Mails, Code) und Ergebnisse, die nicht über das Modell laufen */
+    private static $conv = [];
+    private static $device_hash = '';
+    private static $resp_tickets = null;
+    private static $notices = [];
 
     /** Veranstalter zu einer aktiven eigenen Domain (Mehr-Veranstalter-Modus), sonst 0 */
     public static function org_for_host($host) {
@@ -120,6 +125,9 @@ class TIX_Assistant {
         ]);
         register_rest_route(self::NS, '/assistant/handoff', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_handoff'], 'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/assistant/code', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_code'], 'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/assistant/settings', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_settings_get'], 'permission_callback' => [__CLASS__, 'perm']],
@@ -403,16 +411,35 @@ class TIX_Assistant {
         $ctx = isset($b['context']['event_id']) ? intval($b['context']['event_id']) : 0;
         if ($ctx && get_post_type($ctx) === 'event' && get_post_status($ctx) === 'publish' && self::in_scope($ctx)) $conv['event_id'] = $ctx;
 
+        self::$device_hash = md5($device);
+        self::$resp_tickets = null;
+        self::$notices = [];
+
+        // Code aus der E-Mail direkt ins Chatfeld getippt: nie ans Modell, gleich einlösen
+        if (!empty($conv['code_email']) && preg_match('/^\s*(\d{6})\s*$/', $message, $cm)) {
+            $res = self::redeem_code($conv, $cm[1]);
+            set_transient('tix_as_c_' . $cid, $conv, self::CONV_TTL);
+            self::log(['conv' => substr(md5($cid), 0, 10), 'channel' => $channel, 'org' => self::$org, 'auth' => is_user_logged_in(), 'q' => '[Code]', 'a' => is_wp_error($res) ? 'code_fail' : 'code_ok', 'tools' => [], 'actions' => [], 'cost' => 0]);
+            if (is_wp_error($res)) return $res;
+            return rest_ensure_response(array_merge(['conversation_id' => $cid, 'reply' => $res['message'], 'cards' => [], 'actions' => [], 'remaining' => max(0, self::MAX_TURNS - $conv['turns']), 'ai' => true], $res));
+        }
+
+        // E-Mails bleiben auf dem Server (Nachsenden, Code); das Modell sieht nur „[E-Mail 1]“
+        $raw = $message;
+        $message = self::capture_facts($conv, $message);
         $clean = self::scrub($message);
         $conv['messages'][] = ['role' => 'user', 'content' => $clean];
         $conv['turns']++;
 
+        self::$conv = $conv;
         $result = self::run($conv);
         if (is_wp_error($result)) {
             array_pop($conv['messages']);
             $conv['turns']--;
             return $result;
         }
+        foreach (['code_email', 'resent'] as $ck) if (array_key_exists($ck, self::$conv)) $conv[$ck] = self::$conv[$ck];
+        if (self::$notices) $result['reply'] = trim($result['reply'] . "\n\n" . implode("\n\n", array_unique(self::$notices)));
 
         if (self::$pending_handoff) $conv['handoff'] = self::$pending_handoff;
         $conv['messages'][] = ['role' => 'assistant', 'content' => $result['reply'] !== '' ? $result['reply'] : '…'];
@@ -428,14 +455,157 @@ class TIX_Assistant {
             'cost' => round(self::cost_eur($result['usage']), 5),
         ]);
 
-        return rest_ensure_response([
+        $out = [
             'conversation_id' => $cid,
             'reply' => $result['reply'],
             'cards' => $result['cards'],
             'actions' => $result['actions'],
             'remaining' => max(0, self::MAX_TURNS - $conv['turns']),
             'ai' => true,
-        ]);
+        ];
+        // Tickets des angemeldeten Gasts: direkt an den Client, nie über das Modell
+        if (self::$resp_tickets !== null) $out['tickets'] = self::$resp_tickets;
+        return rest_ensure_response($out);
+    }
+
+    // ═══════════════ Tickets nachsenden / per Code zeigen ═══════════════
+
+    /** Genannte E-Mails, Namen und Bestell-/Belegnummern merken (nur Server, für Nachsenden und Übergabe); E-Mails → „[E-Mail n]“ */
+    public static function capture_facts(array &$conv, $message) {
+        $conv['emails'] = isset($conv['emails']) && is_array($conv['emails']) ? $conv['emails'] : [];
+        $conv['facts'] = isset($conv['facts']) && is_array($conv['facts']) ? $conv['facts'] : ['names' => [], 'refs' => []];
+        $message = preg_replace_callback('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', function ($m) use (&$conv) {
+            $e = strtolower($m[0]);
+            $i = array_search($e, $conv['emails'], true);
+            if ($i === false) { $conv['emails'][] = $e; $conv['emails'] = array_slice($conv['emails'], -3); $i = array_search($e, $conv['emails'], true); }
+            return '[E-Mail ' . ($i + 1) . ']';
+        }, (string) $message);
+        if (preg_match('/\b(?i:ich hei(?:ß|ss)e|mein name ist|name:)\s+(\p{Lu}[\p{L}-]+(?:\s+\p{Lu}[\p{L}-]+)?)/u', $message, $nm)) $conv['facts']['names'][] = $nm[1];
+        // Bestell-/Belegnummern: Buchstaben + Ziffern (z. B. KK-2610-AB12, PayPal-ID) oder Ziffern direkt nach „Bestellung“, „Nr.“, „#“, „Beleg“
+        if (preg_match_all('/(?<![\w-])(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{4,}(?![\w-])/i', $message, $rm)) {
+            foreach ($rm[0] as $r) $conv['facts']['refs'][] = strtoupper($r);
+        }
+        if (preg_match_all('/(?i:bestell(?:ung|nummer|nr)?|order|nr\.?|#|beleg(?:nummer)?|transaktion(?:snummer)?)\s*[:#]?\s*(\d{3,12})\b/u', $message, $rm)) {
+            foreach ($rm[1] as $r) $conv['facts']['refs'][] = $r;
+        }
+        foreach (['names', 'refs'] as $k) $conv['facts'][$k] = array_slice(array_values(array_unique($conv['facts'][$k])), -5);
+        return $message;
+    }
+
+    /** E-Mail zu „E-Mail n“ bzw. die zuletzt genannte; angemeldet ohne Angabe: Konto-E-Mail */
+    private static function resolve_email($ref) {
+        $list = (array) (self::$conv['emails'] ?? []);
+        if (preg_match('/(\d+)/', (string) $ref, $m) && isset($list[intval($m[1]) - 1])) return $list[intval($m[1]) - 1];
+        if ($list) return end($list);
+        if (is_user_logged_in()) return strtolower((string) wp_get_current_user()->user_email);
+        return '';
+    }
+
+    private static function limit_hit($key, $max, $ttl = 86400) {
+        $k = 'tix_as_rl_' . md5($key);
+        return (int) get_transient($k) >= $max;
+    }
+
+    private static function limit_count($key, $ttl = 86400) {
+        $k = 'tix_as_rl_' . md5($key);
+        set_transient($k, (int) get_transient($k) + 1, $ttl);
+    }
+
+    private static function ticket_valid(array $t) {
+        if (in_array(strtolower((string) ($t['status'] ?? 'valid')), ['cancelled', 'canceled', 'refunded', 'storniert', 'void', 'trash'], true)) return false;
+        $d = (string) ($t['event_date'] ?? '');
+        if ($d !== '' && $d < (function_exists('current_time') ? current_time('Y-m-d') : gmdate('Y-m-d'))) return false;
+        return self::in_scope(intval($t['event_id'] ?? 0));
+    }
+
+    /** Tickets aller Bestellungen mit genau dieser Bestell-E-Mail nachsenden (nur an diese Adresse). → Anzahl Bestellungen */
+    public static function resend_for_email($email) {
+        if (!class_exists('TIX_App_Checkout') || !class_exists('TIX_Emails') || !class_exists('TIX_Order')) return 0;
+        $orders = [];
+        foreach ((array) TIX_App_Checkout::tickets_for_email($email) as $t) {
+            if (!is_array($t) || !self::ticket_valid($t)) continue;
+            $oid = intval($t['order_id'] ?? 0);
+            if ($oid) $orders[$oid] = true;
+        }
+        $n = 0;
+        foreach (array_keys($orders) as $oid) {
+            $order = TIX_Order::get($oid);
+            if (!$order || strcasecmp((string) $order->get_billing_email(), $email) !== 0) continue; // nie an eine andere Adresse
+            set_transient('_tix_skip_admin_email_' . $oid, 1, 300);
+            delete_post_meta($oid, '_tix_completed_email_sent');
+            TIX_Emails::send_native_completed($oid);
+            if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) TIX_Order_Admin::add_note($oid, '🎟️ Tickets erneut gesendet (KI-Assistent) an die Bestell-E-Mail', 'email');
+            $n++;
+            if ($n >= 10) break;
+        }
+        return $n;
+    }
+
+    /** Tickets für die Anzeige im Chat (QR-Inhalt wie das Web-Ticket), ohne vergangene/stornierte */
+    public static function tickets_payload($user) {
+        if (!$user || !class_exists('TIX_App_Checkout')) return [];
+        $out = [];
+        foreach ((array) TIX_App_Checkout::tickets_for_user($user) as $t) {
+            if (!is_array($t) || !self::ticket_valid($t) || (string) ($t['code'] ?? '') === '') continue;
+            $out[] = [
+                'id' => intval($t['id'] ?? 0), 'event_id' => intval($t['event_id'] ?? 0),
+                'event_title' => html_entity_decode((string) ($t['event_title'] ?? ''), ENT_QUOTES, 'UTF-8'),
+                'event_date' => (string) ($t['event_date'] ?? ''), 'event_time' => (string) ($t['event_time'] ?? ''),
+                'event_location' => (string) ($t['event_location'] ?? ''), 'event_image_small' => (string) ($t['event_image_small'] ?? ''),
+                'category' => (string) ($t['category'] ?? 'Ticket'), 'seat' => (string) ($t['seat'] ?? ''),
+                'owner_name' => (string) ($t['owner_name'] ?? ''), 'order_number' => (string) ($t['order_number'] ?? ''),
+                'code' => (string) $t['code'], 'qr' => 'GL-' . intval($t['event_id'] ?? 0) . '-' . (string) $t['code'],
+                'status' => (string) ($t['status'] ?? 'valid'), 'checked_in' => !empty($t['checked_in']),
+                'wallet' => is_array($t['wallet'] ?? null) ? $t['wallet'] : null,
+            ];
+            if (count($out) >= 20) break;
+        }
+        return $out;
+    }
+
+    private static function spam_notice() {
+        return 'Tipp: Schau auch im Spam- bzw. Werbung-Ordner nach und speichere den Absender ' . self::brand_name() . ' in deinen Kontakten. Deine Tickets findest du auch in der App – oder ich zeige sie dir hier im Chat, mit einem Code an deine Bestell-E-Mail.';
+    }
+
+    /** Code für die Bestell-E-Mail des Gesprächs einlösen → ['message','tickets','session'] | WP_Error */
+    public static function redeem_code(array &$conv, $code) {
+        $email = (string) ($conv['code_email'] ?? '');
+        if ($email === '') return new WP_Error('tix_assistant_email', 'Schreib mir zuerst die E-Mail-Adresse deiner Bestellung.', ['status' => 400]);
+        $r = self::internal('POST', '/auth/code/confirm', ['email' => $email, 'code' => preg_replace('/\D/', '', (string) $code), 'purpose' => 'login', 'device' => 'KI-Chat']);
+        if (is_wp_error($r)) {
+            if (in_array($r->get_error_code(), ['code_expired'], true)) unset($conv['code_email']);
+            return $r;
+        }
+        unset($conv['code_email']);
+        $user = get_user_by('email', $email);
+        $tickets = self::tickets_payload($user);
+        return [
+            'message' => $tickets ? 'Hier sind deine Tickets. Zeig den QR-Code am Einlass vor.' : 'Du bist angemeldet. Zu kommenden Events habe ich gerade keine gültigen Tickets gefunden.',
+            'tickets' => $tickets,
+            'session' => ['token' => (string) ($r['token'] ?? ''), 'user' => $r['user'] ?? null],
+        ];
+    }
+
+    /** POST /assistant/code {conversation_id, device_id, code} – Code aus der E-Mail einlösen, Tickets im Chat zeigen */
+    public static function rest_code(WP_REST_Request $req) {
+        $b = $req->get_json_params();
+        if (!is_array($b)) $b = (array) $req->get_params();
+        $channel = ($b['channel'] ?? 'app') === 'web' ? 'web' : 'app';
+        self::set_org($channel === 'web' ? self::org_for_host($b['site_host'] ?? '') : 0);
+        $device = (string) ($b['device_id'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9_-]{8,64}$/', $device)) return new WP_Error('tix_invalid_field', 'device_id fehlt.', ['status' => 400, 'field' => 'device_id']);
+        $code = preg_replace('/\D/', '', (string) ($b['code'] ?? ''));
+        if (strlen($code) !== 6) return new WP_Error('code_invalid', 'Bitte den 6-stelligen Code aus der E-Mail eingeben.', ['status' => 400, 'field' => 'code']);
+        $cid = preg_replace('/[^a-f0-9]/', '', (string) ($b['conversation_id'] ?? ''));
+        $conv = $cid ? get_transient('tix_as_c_' . $cid) : false;
+        if (!is_array($conv) || ($conv['device'] ?? '') !== md5($device)) {
+            return new WP_Error('tix_assistant_conv', 'Das Gespräch ist abgelaufen. Schreib deine Frage bitte noch einmal.', ['status' => 404]);
+        }
+        $res = self::redeem_code($conv, $code);
+        set_transient('tix_as_c_' . $cid, $conv, self::CONV_TTL);
+        self::log(['conv' => substr(md5($cid), 0, 10), 'channel' => $channel, 'org' => self::$org, 'auth' => is_user_logged_in(), 'q' => '[Code]', 'a' => is_wp_error($res) ? 'code_fail' : 'code_ok', 'tools' => [], 'actions' => [], 'cost' => 0]);
+        if (is_wp_error($res)) return $res;
+        return rest_ensure_response(array_merge(['ok' => true], $res));
     }
 
     private static function origin_ok($origin) {
@@ -518,6 +688,13 @@ class TIX_Assistant {
             $lines[] = ($m['role'] === 'user' ? 'Gast: ' : 'Assistent: ') . self::clip(self::scrub($m['content']), 600);
         }
         if ($lines) $out[] = "Verlauf aus dem Chat (anonymisiert):\n" . implode("\n", $lines);
+        // Vom Gast genannte Angaben für die Suche nach der Bestellung (gingen nicht an die KI)
+        $f = [];
+        if (!empty($conv['emails'])) $f[] = 'E-Mail(s): ' . implode(', ', (array) $conv['emails']);
+        if (!empty($conv['facts']['names'])) $f[] = 'Name: ' . implode(', ', (array) $conv['facts']['names']);
+        if (!empty($conv['facts']['refs'])) $f[] = 'Bestell-/Belegnummern: ' . implode(', ', (array) $conv['facts']['refs']);
+        if (!empty($conv['resent'])) $f[] = 'Nachsenden über den Chat versucht: ' . implode(', ', array_keys((array) $conv['resent']));
+        if ($f) $out[] = "Vom Gast im Chat genannt (nicht an die KI übermittelt):\n" . implode("\n", $f);
         $out[] = '(Angelegt über den KI-Assistenten. Antworten erscheinen beim Gast im Chat und per E-Mail.)';
         return self::clip(implode("\n\n", $out), 5000);
     }
@@ -631,6 +808,8 @@ class TIX_Assistant {
 - Nie Zahlungs-, Karten-, Ausweis- oder Passwortdaten annehmen. Bezahlt wird nur auf der Zahlungsseite der Kasse. Schickt jemand solche Daten, bitte ihn, sie nicht im Chat zu teilen.
 - Tickets kaufst du nie selbst: Mit start_checkout öffnest du die Kasse mit Vorauswahl, wenn der Gast kaufen möchte. Den Kauf schließt der Gast in der Kasse ab.
 - Beschwerden, Erstattungen, Probleme mit Bestellungen, Fragen, die du nicht lösen kannst, oder wenn der Gast mit einem Menschen sprechen möchte: handoff_support' . ($s['support_handoff'] ? '' : ' (nur wenn wirklich nötig)') . '. Der Gast sieht dann den Knopf „Mit einem Menschen sprechen“; das Team antwortet im Chat und per E-Mail.
+- Tickets nicht bekommen: Bitte um die E-Mail-Adresse der Bestellung (du siehst sie nur als „[E-Mail 1]“) und nutze resend_tickets. Sag nie, ob es zu einer Adresse Bestellungen gibt. Will der Gast die Tickets hier sehen: show_tickets (Code an die Bestell-E-Mail; den Code tippt der Gast ins Code-Feld, nie an dich).
+- Kommt trotzdem nichts an (z. B. Tippfehler in der Adresse): frage nach Name und Bestellnummer oder Zahlungsbeleg (z. B. PayPal-Transaktionsnummer, Datum, Betrag) und übergib dann mit handoff_support. Schicke nie an eine andere Adresse.
 - Antworten kurz (höchstens 4 Sätze), Klartext ohne Markdown, Datum wie „Fr., 1. Nov.“. Events zeigt die App als Karten, liste sie nicht ausführlich auf.
 - Du bist eine KI. Sag das, wenn jemand fragt.
 - Das Wort „Ballermann“ verwendest du nie.';
@@ -701,6 +880,11 @@ class TIX_Assistant {
             ['name' => 'my_tickets', 'description' => 'Tickets des angemeldeten Gasts (Event, Datum, Anzahl). Ist der Gast nicht angemeldet, bekommt er einen Anmelde-Knopf.',
              'input_schema' => ['type' => 'object', 'properties' => new stdClass()]],
         ];
+        $ref = ['email_ref' => ['type' => 'string', 'description' => 'z. B. „E-Mail 1“; ohne Angabe die zuletzt genannte (angemeldet: Konto-E-Mail)']];
+        $t[] = ['name' => 'resend_tickets', 'description' => 'Schickt die Tickets aller Bestellungen zur genannten Bestell-E-Mail erneut, nur an genau diese Adresse. Antwort verrät nie, ob es Bestellungen gibt.',
+                'input_schema' => ['type' => 'object', 'properties' => $ref]];
+        $t[] = ['name' => 'show_tickets', 'description' => 'Zeigt dem Gast seine Tickets mit QR hier im Chat: angemeldet sofort, sonst nach einem 6-stelligen Code an die Bestell-E-Mail.',
+                'input_schema' => ['type' => 'object', 'properties' => $ref]];
         if (self::support_on()) {
             $t[] = ['name' => 'handoff_support', 'description' => 'Bietet den Knopf „Mit einem Menschen sprechen“ an. Ein Klick legt eine Support-Anfrage mit deiner Zusammenfassung und dem anonymisierten Verlauf an.',
                     'input_schema' => ['type' => 'object', 'properties' => ['subject' => ['type' => 'string'], 'summary' => ['type' => 'string', 'description' => 'Kurze Zusammenfassung des Anliegens, ohne persönliche Daten']], 'required' => ['subject', 'summary']]];
@@ -725,6 +909,10 @@ class TIX_Assistant {
         self::$org = 0;
         self::$pending_handoff = null;
         self::$default_event = false;
+        self::$conv = [];
+        self::$device_hash = '';
+        self::$resp_tickets = null;
+        self::$notices = [];
     }
 
     /** Interner Aufruf einer Plugin-Route → Array | WP_Error */
@@ -884,6 +1072,38 @@ class TIX_Assistant {
                 }
                 $actions[] = ['label' => 'Meine Tickets', 'action' => 'tab:tickets'];
                 return ['angemeldet' => true, 'tickets' => array_values($by)];
+
+            case 'resend_tickets':
+                $email = self::resolve_email($in['email_ref'] ?? '');
+                if ($email === '' || !is_email($email)) return ['fehler' => 'Keine E-Mail bekannt. Frag nach der E-Mail-Adresse der Bestellung.'];
+                $neutral = 'Wenn es zu dieser Adresse Tickets gibt, sind sie jetzt unterwegs (kann ein paar Minuten dauern).';
+                if (self::limit_hit('resend_m_' . $email, 3) || self::limit_hit('resend_d_' . self::$device_hash, 5) || self::limit_hit('resend_i_' . md5(self::ip()), 10)) {
+                    self::$notices[] = self::spam_notice();
+                    return ['ok' => true, 'hinweis' => 'Für heute wurde schon oft nachgeschickt. ' . $neutral . ' Kommt nichts an: nach Name und Bestellnummer/Zahlungsbeleg fragen und an das Team übergeben.'];
+                }
+                self::limit_count('resend_m_' . $email);
+                self::limit_count('resend_d_' . self::$device_hash);
+                self::limit_count('resend_i_' . md5(self::ip()));
+                self::resend_for_email($email);
+                self::$conv['resent'] = array_merge((array) (self::$conv['resent'] ?? []), [$email => 1]);
+                self::$notices[] = self::spam_notice();
+                return ['ok' => true, 'hinweis' => $neutral . ' Sag das genau so (keine Auskunft, ob es Bestellungen gibt). Ein Hinweis zu Spam-Ordner und Absender wird automatisch angehängt.'];
+
+            case 'show_tickets':
+                if (is_user_logged_in()) {
+                    self::$resp_tickets = self::tickets_payload(wp_get_current_user());
+                    return ['ok' => true, 'anzahl' => count(self::$resp_tickets), 'hinweis' => 'Die Tickets erscheinen beim Gast als Karten mit QR. Nenne keine Codes.'];
+                }
+                $email = self::resolve_email($in['email_ref'] ?? '');
+                if ($email === '' || !is_email($email)) return ['fehler' => 'Keine E-Mail bekannt. Frag nach der E-Mail-Adresse der Bestellung.'];
+                if (self::limit_hit('code_d_' . self::$device_hash, 5)) return ['fehler' => 'Heute schon mehrere Codes verschickt. Später erneut oder an das Team übergeben.'];
+                self::limit_count('code_d_' . self::$device_hash);
+                $r = self::internal('POST', '/auth/code', ['email' => $email, 'purpose' => 'login']);
+                if (is_wp_error($r) && $r->get_error_code() === 'tix_rate_limit') return ['fehler' => 'Für diese Adresse wurde gerade schon ein Code verschickt. Bitte kurz warten und den Posteingang prüfen.'];
+                self::$conv['code_email'] = $email;
+                $actions[] = ['label' => 'Code eingeben', 'action' => 'code:enter'];
+                self::$notices[] = 'Wenn es zu dieser Adresse Tickets gibt, ist ein 6-stelliger Code unterwegs. Gib ihn unten im Code-Feld ein. Kein Code da? Schau auch im Spam-Ordner nach.';
+                return ['ok' => true, 'hinweis' => 'Der Gast bekommt (falls es Tickets gibt) einen Code und gibt ihn im Code-Feld ein, nicht an dich. Verrate nicht, ob es Bestellungen gibt.'];
 
             case 'handoff_support':
                 if (!self::support_on()) return ['fehler' => 'Support gerade nicht verfügbar.'];

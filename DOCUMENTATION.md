@@ -3547,4 +3547,10 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - Die Antwort ist `{ticket: {id, key, subject}, message}`. Ein wiederholter Aufruf liefert dieselbe Anfrage, höchstens 3 je Gerät und Stunde.
   - Verlauf und Antworten laufen über die vorhandenen Routen `GET /public/support/{id}?key=` und `POST /public/support/{id}/reply`.
 - **Standard-Event (ab 1.38.548):** Gibt es genau ein kommendes Event mit Online-Tickets (auch je Veranstalter-Domain), steht es im Prompt. `get_event`, `quote_tickets` und `start_checkout` nehmen es dann ohne ID. Der Wert wird 5 min zwischengespeichert (`tix_as_default_<org>`).
-- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (101 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
+- **Tickets nicht bekommen (ab 1.38.553):**
+  - **E-Mails im Chat:** Der Server merkt sie sich im Gespräch (`emails`); das Modell sieht nur „[E-Mail n]“.
+  - **`resend_tickets`:** Nachgesendet werden nur Bestellungen, deren Bestell-E-Mail genau passt, und nur kommende, gültige Tickets. Der Versand läuft über `send_native_completed`, ohne Admin-Mail, mit Notiz an der Bestellung. Erlaubt sind 3 Nachsendungen je Adresse, 5 je Gerät und 10 je IP am Tag. Die Antwort ist immer gleich, ohne Auskunft, ob es Bestellungen gibt, plus Spam-Hinweis.
+  - **`show_tickets`:** Angemeldet stehen die Tickets direkt in der Antwort (`tickets`, nie über das Modell). Ohne Login geht über `/auth/code` (login) ein Code an die Bestell-E-Mail, dazu die Aktion `code:enter`.
+  - **Code einlösen:** über `POST /assistant/code {conversation_id, device_id, code}`, oder der Gast tippt ihn ins Chatfeld; dann fängt der Server ihn ab, ohne Modell. Zurück kommen `{message, tickets [{…, qr: GL-{event}-{code}, wallet}], session {token, user}}`. Der Code steht nie im Protokoll.
+  - **Tippfehler:** Name, Bestell- und Belegnummern merkt sich der Server, ohne sie ans Modell zu geben. Die Übergabe nimmt sie unter „Vom Gast im Chat genannt“ mit.
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (128 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
