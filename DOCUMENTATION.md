@@ -3541,4 +3541,5 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - Der Verlauf liegt 2 h im Transient.
   - Das Protokoll (`_tix_assistant_log_YYYYMMDD`) und die Zähler (`_tix_assistant_usage_YYYYMMDD`) bleiben 14 Tage. Danach löscht sie der tägliche Cron `tix_assistant_cleanup`.
 - **Alter Ticket-Bot** (`tix-bot/v1`, Python-Hub): abgeschaltet. Er lädt nur noch mit dem Filter `tix_legacy_bot_enabled`, die Dateien bleiben.
-- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (66 Prüfungen).
+- **Eigene Domains (evendis, ab 1.38.547):** `site_host` in config und chat → Veranstalter aus `tix_org_domains_active`; Suche, Event, Kasse und Tickets nur für dessen Events (serverseitig), Gespräch an die Domain gebunden.
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (76 Prüfungen).

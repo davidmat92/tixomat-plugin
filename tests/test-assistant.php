@@ -64,9 +64,15 @@ function add_action() {}
 function current_time($f) { return date($f); }
 function wp_date($f) { return date($f); }
 function wp_mail() { $GLOBALS['t_mails']++; return true; }
+function get_post_meta($id, $k, $single = true) { return $GLOBALS['t_meta'][$id][$k] ?? ''; }
+function get_the_title($id) { return $id === 90 ? 'Lachwerk Köln' : ''; }
+class TIX_App_Scope { public static $multi = false; static function multi() { return self::$multi; } }
+class TIX_Customer_URL { const OPTION_DOMAINS = 'tix_org_domains_active'; static function to($u) { return $u; } }
+$GLOBALS['t_meta'] = [];
 function rest_do_request($r) { throw new Exception('rest_do_request darf im Test nicht laufen'); }
 
 require __DIR__ . '/../includes/class-tix-assistant.php';
+$GLOBALS['t_rp'] = [];
 
 $fails = 0; $count = 0;
 function ok($cond, $label) {
@@ -86,6 +92,7 @@ $EVENT = [
 $GLOBALS['t_rest_calls'] = [];
 TIX_Assistant::$rest = function (WP_REST_Request $r) use ($EVENT) {
     $GLOBALS['t_rest_calls'][] = $r->method . ' ' . $r->route;
+    if (preg_match('#/public/events$#', $r->route)) $GLOBALS['t_rp'][] = $r->params;
     $route = preg_replace('#^/tixomat/v1#', '', $r->route);
     if ($route === '/support/config') return new WP_REST_Response(['ok' => true, 'enabled' => true]);
     if ($route === '/public/events') return new WP_REST_Response(['events' => [$EVENT, array_merge($EVENT, ['id' => 26, 'title' => 'Free Friday', 'free_entry' => true, 'tickets_enabled' => false, 'categories' => []])]]);
@@ -271,6 +278,40 @@ update_option('_tix_assistant_log_' . $old, [['q' => 'alt']]);
 $wpdb = new class { public $options = 'wp_options'; function get_col($q) { return array_keys(array_filter($GLOBALS['t_options'], function ($k) { return strpos($k, '_tix_assistant_') === 0; }, ARRAY_FILTER_USE_KEY)); } };
 TIX_Assistant::cleanup();
 ok(get_option('_tix_assistant_log_' . $old, null) === null && get_option('_tix_assistant_log_' . date('Ymd'), null) !== null, 'Protokoll > 14 Tage gelöscht');
+
+// ═══ 12. Eigene Domain eines Veranstalters (evendis) ═══
+TIX_Assistant::reset();
+TIX_App_Scope::$multi = true;
+update_option(TIX_Assistant::OPT, ['enabled' => true]);
+update_option('tix_org_domains_active', ['tickets.lachwerk.de' => 90]);
+$GLOBALS['t_meta'][25] = ['_tix_organizer_id' => 90];
+$GLOBALS['t_meta'][26] = ['_tix_organizer_id' => 91];
+ok(TIX_Assistant::org_for_host('www.tickets.lachwerk.de') === 90 && TIX_Assistant::org_for_host('evendis.de') === 0, 'Domain → Veranstalter');
+$r = new WP_REST_Request('GET', ''); $r->set_param('channel', 'web'); $r->set_param('site_host', 'tickets.lachwerk.de');
+ok(TIX_Assistant::rest_config($r)->get_data()['name'] === 'Lachwerk Köln Assistent', 'Config mit Veranstalter-Name');
+$GLOBALS['t_trans'] = []; $GLOBALS['t_api_bodies'] = []; $GLOBALS['t_rest_calls'] = [];
+$GLOBALS['t_rp'] = [];
+script_api([tool_answer('search_events', ['organizer' => 91]), tool_answer('get_event', ['id' => 26], 'tu_2'), text_answer('Hier die Events.')]);
+$x = chat(['message' => 'Was läuft?', 'device_id' => 'device-domain', 'channel' => 'web', 'site_host' => 'tickets.lachwerk.de'], ['origin' => 'https://tickets.lachwerk.de']);
+ok(!is_wp_error($x), 'Chat auf eigener Domain' . (is_wp_error($x) ? ': ' . $x->message : ''));
+$dd = $x->get_data();
+ok(count($dd['cards']) === 1 && $dd['cards'][0]['id'] === 25, 'nur Events des Veranstalters als Karten');
+ok($GLOBALS['t_rp'][0]['organizer'] === 90, 'Suche mit erzwungenem Veranstalter');
+$tr2 = end($GLOBALS['t_api_bodies'][2]['messages'])['content'][0]['content'];
+ok(strpos($tr2, 'nicht gefunden') !== false, 'fremdes Event gesperrt');
+ok(strpos($GLOBALS['t_api_bodies'][0]['system'][0]['text'], 'nur Events von Lachwerk Köln') !== false, 'Prompt nennt Veranstalter');
+$cards = []; $acts = [];
+TIX_Assistant::set_org(90);
+ok(isset(TIX_Assistant::exec_tool('start_checkout', ['event_id' => 26, 'items' => [['index' => 0, 'qty' => 1]]], $cards, $acts)['fehler']), 'Kasse fremdes Event gesperrt');
+$GLOBALS['t_user'] = 7;
+$o = TIX_Assistant::exec_tool('my_tickets', [], $cards, $acts);
+ok(count($o['tickets']) === 1, 'Tickets nur dieses Veranstalters');
+$GLOBALS['t_user'] = 0;
+// fremde Domain, gleiche Gesprächs-ID → neues Gespräch
+script_api([text_answer('Hallo')]);
+$y = chat(['message' => 'Hi', 'device_id' => 'device-domain', 'channel' => 'web', 'conversation_id' => $dd['conversation_id']], ['origin' => 'https://kitchenklub.de']);
+ok($y->get_data()['conversation_id'] !== $dd['conversation_id'], 'Gespräch an Domain gebunden');
+TIX_App_Scope::$multi = false;
 
 echo "$count Prüfungen, $fails Fehler\n";
 exit($fails ? 1 : 0);
