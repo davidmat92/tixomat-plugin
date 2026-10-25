@@ -347,6 +347,7 @@ ok($sp['subject'] === 'Erstattung' && $sp['name'] === 'Anna' && $sp['email'] ===
 ok(strpos($sp['message'], 'Zusammenfassung') !== false && strpos($sp['message'], 'Gast: Ich will mein Geld zurück') !== false && strpos($sp['message'], 'Assistent: Ich gebe dich') !== false, 'Verlauf im Ticket');
 ok(strpos($sp['message'], 'x@y.de') === false && strpos($sp['message'], '2345678') === false, 'Verlauf anonymisiert');
 ok(($GLOBALS['t_meta'][$tid]['_tix_sp_via'] ?? '') === 'assistant', 'Herkunft markiert');
+ok((int) get_transient('tix_as_rl_' . md5('handoff_device-human')) === 1, 'nur die angelegte Anfrage zählt fürs Limit');
 $n = count($GLOBALS['t_support_posts']);
 $t2 = $ho(['conversation_id' => $hd['conversation_id'], 'device_id' => 'device-human', 'name' => 'Anna', 'email' => 'anna@example.de']);
 ok(count($GLOBALS['t_support_posts']) === $n && $t2->get_data()['ticket']['id'] === $tid, 'zweiter Klick = gleiche Anfrage');

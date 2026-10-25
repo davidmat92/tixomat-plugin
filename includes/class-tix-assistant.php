@@ -472,7 +472,6 @@ class TIX_Assistant {
         if (!empty($conv['ticket']['id'])) return rest_ensure_response(self::handoff_payload($conv['ticket']));
         $k = 'tix_as_rl_' . md5('handoff_' . $device);
         if ((int) get_transient($k) >= 3) return new WP_Error('tix_assistant_rate', 'Du hast schon mehrere Anfragen geschickt. Das Team meldet sich bei dir.', ['status' => 429]);
-        set_transient($k, (int) get_transient($k) + 1, 3600);
 
         $h = is_array($conv['handoff'] ?? null) ? $conv['handoff'] : [];
         $first = '';
@@ -490,6 +489,8 @@ class TIX_Assistant {
         if (is_wp_error($r)) return $r;
         $tid = intval($r['request']['id'] ?? 0);
         if (!$tid) return new WP_Error('tix_assistant_unavailable', 'Die Anfrage konnte nicht angelegt werden.', ['status' => 502]);
+        // nur angelegte Anfragen zählen (Feldfehler wie fehlende E-Mail nicht)
+        set_transient($k, (int) get_transient($k) + 1, 3600);
         update_post_meta($tid, '_tix_sp_via', 'assistant');
         $key = class_exists('TIX_Support') && method_exists('TIX_Support', 'ensure_ticket_access_key') ? (string) TIX_Support::ensure_ticket_access_key($tid) : '';
         $conv['ticket'] = ['id' => $tid, 'key' => $key, 'subject' => $subject];
