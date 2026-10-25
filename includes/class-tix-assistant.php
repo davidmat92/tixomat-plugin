@@ -41,6 +41,10 @@ class TIX_Assistant {
     public static $rest = null;
     /** Eigene Domain eines evendis-Veranstalters (F4, 2026-10-25): nur dessen Events, serverseitig erzwungen. 0 = ganze Seite */
     private static $org = 0;
+    /** Vom Werkzeug handoff_support vorgemerkte Übergabe {subject, summary} der laufenden Anfrage */
+    private static $pending_handoff = null;
+    /** Standard-Event (genau ein kommendes Event mit Online-Tickets), je Anfrage einmal ermittelt; false = noch nicht */
+    private static $default_event = false;
 
     /** Veranstalter zu einer aktiven eigenen Domain (Mehr-Veranstalter-Modus), sonst 0 */
     public static function org_for_host($host) {
@@ -56,7 +60,33 @@ class TIX_Assistant {
     }
 
     public static function set_org($oid) {
+        if (intval($oid) !== self::$org) self::$default_event = false;
         self::$org = intval($oid);
+    }
+
+    /**
+     * Standard-Event: Gibt es genau ein kommendes Event mit Online-Tickets (Festival, Veranstalter-Domain mit einem Event),
+     * nimmt der Assistent es ohne Nachfrage. → ['id','title','date'] | null. 5 min zwischengespeichert.
+     */
+    public static function default_event() {
+        if (self::$default_event !== false) return self::$default_event;
+        $ck = 'tix_as_default_' . self::$org;
+        $c = get_transient($ck);
+        if (is_array($c)) return self::$default_event = ($c['id'] ?? 0) ? $c : null;
+        $p = ['filter' => 'upcoming', 'per_page' => 30];
+        if (self::$org) $p['organizer'] = self::$org;
+        $r = self::internal('GET', '/public/events', $p);
+        $found = [];
+        if (!is_wp_error($r)) {
+            foreach ((isset($r['events']) ? (array) $r['events'] : (array) $r) as $e) {
+                if (!is_array($e) || empty($e['id']) || empty($e['tickets_enabled']) || !empty($e['is_past'])) continue;
+                if (!self::in_scope(intval($e['id']), $e)) continue;
+                $found[] = ['id' => intval($e['id']), 'title' => html_entity_decode((string) ($e['title'] ?? ''), ENT_QUOTES, 'UTF-8'), 'date' => trim(($e['date_start'] ?? '') . ' ' . ($e['time_start'] ?? ''))];
+            }
+        }
+        $d = count($found) === 1 ? $found[0] : null;
+        set_transient($ck, $d ?: ['id' => 0], 300);
+        return self::$default_event = $d;
     }
 
     private static function org_name() {
@@ -87,6 +117,9 @@ class TIX_Assistant {
         ]);
         register_rest_route(self::NS, '/assistant/chat', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_chat'], 'permission_callback' => '__return_true',
+        ]);
+        register_rest_route(self::NS, '/assistant/handoff', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_handoff'], 'permission_callback' => '__return_true',
         ]);
         register_rest_route(self::NS, '/assistant/settings', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_settings_get'], 'permission_callback' => [__CLASS__, 'perm']],
@@ -343,6 +376,7 @@ class TIX_Assistant {
         if (!preg_match('/^[A-Za-z0-9_-]{8,64}$/', $device)) return new WP_Error('tix_invalid_field', 'device_id fehlt.', ['status' => 400, 'field' => 'device_id']);
 
         self::set_org($channel === 'web' ? self::org_for_host($b['site_host'] ?? '') : 0);
+        self::$pending_handoff = null;
         $reason = self::unavailable($channel);
         if ($reason !== '') {
             $msg = $reason === 'budget' ? 'Der Assistent macht gerade Pause. Unser Team hilft dir gern über den Support.' : 'Der Assistent ist gerade nicht verfügbar.';
@@ -380,6 +414,7 @@ class TIX_Assistant {
             return $result;
         }
 
+        if (self::$pending_handoff) $conv['handoff'] = self::$pending_handoff;
         $conv['messages'][] = ['role' => 'assistant', 'content' => $result['reply'] !== '' ? $result['reply'] : '…'];
         $conv['messages'] = array_slice($conv['messages'], -self::HISTORY);
         if (($conv['messages'][0]['role'] ?? '') !== 'user') array_shift($conv['messages']);
@@ -415,9 +450,81 @@ class TIX_Assistant {
         return (bool) apply_filters('tix_assistant_origin_ok', false, $h);
     }
 
+    /**
+     * POST /assistant/handoff {conversation_id, device_id, name?, email?, channel?, site_host?}
+     * „Mit einem Menschen sprechen“: legt im Support-System eine Anfrage an (Zusammenfassung + anonymisierter Verlauf),
+     * ohne Formularwechsel. Mit Konto Name/E-Mail aus dem Konto. Antwort mit Schlüssel je Anfrage (Gäste lesen und
+     * antworten damit über GET /public/support/{id}?key= bzw. POST /public/support/{id}/reply). Wiederholt = gleiche Anfrage.
+     */
+    public static function rest_handoff(WP_REST_Request $req) {
+        $b = $req->get_json_params();
+        if (!is_array($b)) $b = (array) $req->get_params();
+        $channel = ($b['channel'] ?? 'app') === 'web' ? 'web' : 'app';
+        self::set_org($channel === 'web' ? self::org_for_host($b['site_host'] ?? '') : 0);
+        $device = (string) ($b['device_id'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9_-]{8,64}$/', $device)) return new WP_Error('tix_invalid_field', 'device_id fehlt.', ['status' => 400, 'field' => 'device_id']);
+        if (!self::support_on()) return new WP_Error('tix_support_disabled', 'Der Support ist gerade nicht erreichbar.', ['status' => 403]);
+        $cid = preg_replace('/[^a-f0-9]/', '', (string) ($b['conversation_id'] ?? ''));
+        $conv = $cid ? get_transient('tix_as_c_' . $cid) : false;
+        if (!is_array($conv) || ($conv['device'] ?? '') !== md5($device)) {
+            return new WP_Error('tix_assistant_conv', 'Das Gespräch ist abgelaufen. Schreib deine Frage bitte noch einmal.', ['status' => 404]);
+        }
+        if (!empty($conv['ticket']['id'])) return rest_ensure_response(self::handoff_payload($conv['ticket']));
+        $k = 'tix_as_rl_' . md5('handoff_' . $device);
+        if ((int) get_transient($k) >= 3) return new WP_Error('tix_assistant_rate', 'Du hast schon mehrere Anfragen geschickt. Das Team meldet sich bei dir.', ['status' => 429]);
+        set_transient($k, (int) get_transient($k) + 1, 3600);
+
+        $h = is_array($conv['handoff'] ?? null) ? $conv['handoff'] : [];
+        $first = '';
+        foreach ($conv['messages'] as $m) if ($m['role'] === 'user' && is_string($m['content'])) { $first = $m['content']; break; }
+        $subject = (string) ($h['subject'] ?? '') ?: self::clip($first !== '' ? $first : 'Anfrage aus dem Chat', 80);
+        $content = self::transcript($conv, (string) ($h['summary'] ?? ''));
+
+        $params = ['subject' => $subject, 'message' => $content, 'category' => 'other'];
+        if (!is_user_logged_in()) {
+            $params['name'] = self::clip(sanitize_text_field((string) ($b['name'] ?? '')), 80);
+            $params['email'] = sanitize_email((string) ($b['email'] ?? ''));
+        }
+        if (!empty($conv['event_id'])) $params['event_id'] = intval($conv['event_id']);
+        $r = self::internal('POST', '/customer/support', $params);
+        if (is_wp_error($r)) return $r;
+        $tid = intval($r['request']['id'] ?? 0);
+        if (!$tid) return new WP_Error('tix_assistant_unavailable', 'Die Anfrage konnte nicht angelegt werden.', ['status' => 502]);
+        update_post_meta($tid, '_tix_sp_via', 'assistant');
+        $key = class_exists('TIX_Support') && method_exists('TIX_Support', 'ensure_ticket_access_key') ? (string) TIX_Support::ensure_ticket_access_key($tid) : '';
+        $conv['ticket'] = ['id' => $tid, 'key' => $key, 'subject' => $subject];
+        set_transient('tix_as_c_' . $cid, $conv, self::CONV_TTL);
+        self::log(['conv' => substr(md5($cid), 0, 10), 'channel' => $channel, 'org' => self::$org, 'auth' => is_user_logged_in(), 'handoff' => true, 'tools' => [], 'actions' => [], 'cost' => 0]);
+        return rest_ensure_response(self::handoff_payload($conv['ticket']));
+    }
+
+    private static function handoff_payload(array $t) {
+        return [
+            'ok' => true,
+            'ticket' => ['id' => intval($t['id']), 'key' => (string) ($t['key'] ?? ''), 'subject' => (string) ($t['subject'] ?? '')],
+            'message' => 'Dein Anliegen ist beim Team (Anfrage #' . intval($t['id']) . '). Die Antwort kommt hier im Chat und per E-Mail.',
+        ];
+    }
+
+    /** Text der Support-Anfrage: Zusammenfassung + Verlauf, ohne persönliche Daten (noch einmal geschwärzt) */
+    public static function transcript(array $conv, $summary = '') {
+        $out = [];
+        if ($summary !== '') $out[] = "Zusammenfassung (KI-Assistent):\n" . self::scrub($summary);
+        if (!empty($conv['event_id'])) $out[] = 'Event: ' . html_entity_decode((string) get_the_title(intval($conv['event_id'])), ENT_QUOTES, 'UTF-8') . ' (ID ' . intval($conv['event_id']) . ')';
+        $lines = [];
+        foreach ((array) ($conv['messages'] ?? []) as $m) {
+            if (!is_string($m['content'] ?? null)) continue;
+            $lines[] = ($m['role'] === 'user' ? 'Gast: ' : 'Assistent: ') . self::clip(self::scrub($m['content']), 600);
+        }
+        if ($lines) $out[] = "Verlauf aus dem Chat (anonymisiert):\n" . implode("\n", $lines);
+        $out[] = '(Angelegt über den KI-Assistenten. Antworten erscheinen beim Gast im Chat und per E-Mail.)';
+        return self::clip(implode("\n\n", $out), 5000);
+    }
+
     /** Werkzeug-Schleife. → ['reply','cards','actions','tools','usage'] | WP_Error */
     public static function run(array $conv) {
         $system = self::system_prompt($conv['event_id'] ?? 0);
+        self::default_event();
         $tools = self::tools();
         $messages = $conv['messages'];
         $usage = ['input_tokens' => 0, 'output_tokens' => 0, 'cache_creation_input_tokens' => 0, 'cache_read_input_tokens' => 0];
@@ -513,7 +620,7 @@ class TIX_Assistant {
 - Themen nur rund um Events, Tickets und ' . $brand . '. Andere Themen freundlich ablehnen.
 - Nie Zahlungs-, Karten-, Ausweis- oder Passwortdaten annehmen. Bezahlt wird nur auf der Zahlungsseite der Kasse. Schickt jemand solche Daten, bitte ihn, sie nicht im Chat zu teilen.
 - Tickets kaufst du nie selbst: Mit start_checkout öffnest du die Kasse mit Vorauswahl, wenn der Gast kaufen möchte. Den Kauf schließt der Gast in der Kasse ab.
-- Beschwerden, Erstattungen, Probleme mit Bestellungen oder Fragen, die du nicht lösen kannst: handoff_support' . ($s['support_handoff'] ? '' : ' (nur wenn wirklich nötig)') . '.
+- Beschwerden, Erstattungen, Probleme mit Bestellungen, Fragen, die du nicht lösen kannst, oder wenn der Gast mit einem Menschen sprechen möchte: handoff_support' . ($s['support_handoff'] ? '' : ' (nur wenn wirklich nötig)') . '. Der Gast sieht dann den Knopf „Mit einem Menschen sprechen“; das Team antwortet im Chat und per E-Mail.
 - Antworten kurz (höchstens 4 Sätze), Klartext ohne Markdown, Datum wie „Fr., 1. Nov.“. Events zeigt die App als Karten, liste sie nicht ausführlich auf.
 - Du bist eine KI. Sag das, wenn jemand fragt.
 - Das Wort „Ballermann“ verwendest du nie.';
@@ -522,6 +629,10 @@ class TIX_Assistant {
         $know = self::knowledge();
         if ($know !== '') $p[] = "Wissen (App-Inhalte):\n" . $know;
         if ($event_id) $p[] = "Der Gast hat den Chat auf der Seite des Events mit der ID {$event_id} geöffnet. Bezieht sich eine Frage ohne Event darauf, nutze get_event({$event_id}).";
+        $def = self::default_event();
+        if ($def && intval($def['id']) !== intval($event_id)) {
+            $p[] = "Es gibt genau ein kommendes Event mit Online-Tickets: „{$def['title']}“ (ID {$def['id']}, {$def['date']}). Frag nie, welches Event gemeint ist – Fragen zu Infos, Preisen, Kasse oder Tickets beziehen sich auf dieses Event, außer der Gast nennt ausdrücklich ein anderes. Die Werkzeuge nehmen es ohne event_id/id automatisch.";
+        }
         if (is_user_logged_in()) $p[] = 'Der Gast ist angemeldet (my_tickets geht).';
         return implode("\n\n", $p);
     }
@@ -572,16 +683,16 @@ class TIX_Assistant {
                  'limit' => ['type' => 'integer', 'maximum' => 8],
              ]]],
             ['name' => 'get_event', 'description' => 'Alle Angaben zu einem Event: Termin, Einlass, Alter, Ticket-Kategorien mit Index und Preis, Vorverkauf, FAQ, Einlassregeln, Dresscode, Adresse.',
-             'input_schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer']], 'required' => ['id']]],
+             'input_schema' => ['type' => 'object', 'properties' => ['id' => ['type' => 'integer', 'description' => 'ohne Angabe: Standard-Event, falls es eins gibt']]]],
             ['name' => 'quote_tickets', 'description' => 'Gesamtpreis inkl. Gebühren für eine Auswahl berechnen (kauft nichts).',
-             'input_schema' => ['type' => 'object', 'properties' => ['event_id' => ['type' => 'integer'], 'items' => $items], 'required' => ['event_id', 'items']]],
+             'input_schema' => ['type' => 'object', 'properties' => ['event_id' => ['type' => 'integer', 'description' => 'ohne Angabe: Standard-Event'], 'items' => $items], 'required' => ['items']]],
             ['name' => 'start_checkout', 'description' => 'Öffnet für den Gast die Kasse mit dieser Auswahl. Nur wenn der Gast kaufen möchte.',
-             'input_schema' => ['type' => 'object', 'properties' => ['event_id' => ['type' => 'integer'], 'items' => $items], 'required' => ['event_id', 'items']]],
+             'input_schema' => ['type' => 'object', 'properties' => ['event_id' => ['type' => 'integer', 'description' => 'ohne Angabe: Standard-Event'], 'items' => $items], 'required' => ['items']]],
             ['name' => 'my_tickets', 'description' => 'Tickets des angemeldeten Gasts (Event, Datum, Anzahl). Ist der Gast nicht angemeldet, bekommt er einen Anmelde-Knopf.',
              'input_schema' => ['type' => 'object', 'properties' => new stdClass()]],
         ];
         if (self::support_on()) {
-            $t[] = ['name' => 'handoff_support', 'description' => 'Bietet ein vorbelegtes Support-Formular an. Der Gast schickt es selbst ab.',
+            $t[] = ['name' => 'handoff_support', 'description' => 'Bietet den Knopf „Mit einem Menschen sprechen“ an. Ein Klick legt eine Support-Anfrage mit deiner Zusammenfassung und dem anonymisierten Verlauf an.',
                     'input_schema' => ['type' => 'object', 'properties' => ['subject' => ['type' => 'string'], 'summary' => ['type' => 'string', 'description' => 'Kurze Zusammenfassung des Anliegens, ohne persönliche Daten']], 'required' => ['subject', 'summary']]];
         }
         $t[count($t) - 1]['cache_control'] = ['type' => 'ephemeral'];
@@ -602,6 +713,8 @@ class TIX_Assistant {
     public static function reset() {
         self::$support = null;
         self::$org = 0;
+        self::$pending_handoff = null;
+        self::$default_event = false;
     }
 
     /** Interner Aufruf einer Plugin-Route → Array | WP_Error */
@@ -665,6 +778,11 @@ class TIX_Assistant {
     }
 
     public static function exec_tool($name, array $in, array &$cards, array &$actions) {
+        $def = self::default_event();
+        if ($def) {
+            if ($name === 'get_event' && empty($in['id'])) $in['id'] = $def['id'];
+            if (in_array($name, ['quote_tickets', 'start_checkout'], true) && empty($in['event_id'])) $in['event_id'] = $def['id'];
+        }
         switch ($name) {
             case 'search_events':
                 $p = ['filter' => 'upcoming', 'per_page' => max(1, min(8, intval($in['limit'] ?? 6)))];
@@ -761,8 +879,9 @@ class TIX_Assistant {
                 if (!self::support_on()) return ['fehler' => 'Support gerade nicht verfügbar.'];
                 $subject = self::clip(self::scrub(sanitize_text_field((string) ($in['subject'] ?? 'Frage'))), 80);
                 $msg = self::clip(self::scrub(sanitize_textarea_field((string) ($in['summary'] ?? ''))), 600);
-                $actions[] = ['label' => 'Anfrage ans Team', 'action' => 'support:new?subject=' . rawurlencode($subject) . '&message=' . rawurlencode($msg)];
-                return ['ok' => true, 'hinweis' => 'Der Gast sieht einen Knopf zum vorbelegten Support-Formular und schickt es selbst ab. Antwort kommt per E-Mail bzw. in der App.'];
+                self::$pending_handoff = ['subject' => $subject !== '' ? $subject : 'Anfrage aus dem Chat', 'summary' => $msg];
+                $actions[] = ['label' => 'Mit einem Menschen sprechen', 'action' => 'support:human'];
+                return ['ok' => true, 'hinweis' => 'Der Gast sieht den Knopf „Mit einem Menschen sprechen“. Ohne Konto fragt der Chat nur Name und E-Mail ab. Das Team antwortet im Chat und per E-Mail.'];
         }
         return ['fehler' => 'Unbekanntes Werkzeug.'];
     }

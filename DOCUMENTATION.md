@@ -3542,4 +3542,9 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - Das Protokoll (`_tix_assistant_log_YYYYMMDD`) und die Zähler (`_tix_assistant_usage_YYYYMMDD`) bleiben 14 Tage. Danach löscht sie der tägliche Cron `tix_assistant_cleanup`.
 - **Alter Ticket-Bot** (`tix-bot/v1`, Python-Hub): abgeschaltet. Er lädt nur noch mit dem Filter `tix_legacy_bot_enabled`, die Dateien bleiben.
 - **Eigene Domains (evendis, ab 1.38.547):** `site_host` in config und chat → Veranstalter aus `tix_org_domains_active`; Suche, Event, Kasse und Tickets nur für dessen Events (serverseitig), Gespräch an die Domain gebunden.
-- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (76 Prüfungen).
+- **Mit einem Menschen sprechen (ab 1.38.548):** Das Werkzeug `handoff_support` liefert die Aktion `support:human` und merkt Betreff und Zusammenfassung im Gespräch vor.
+  - `POST /assistant/handoff {conversation_id, device_id, name?, email?, channel?, site_host?}` legt über `/customer/support` eine Anfrage an: Zusammenfassung plus anonymisierter Verlauf, Meta `_tix_sp_via=assistant`.
+  - Die Antwort ist `{ticket: {id, key, subject}, message}`. Ein wiederholter Aufruf liefert dieselbe Anfrage, höchstens 3 je Gerät und Stunde.
+  - Verlauf und Antworten laufen über die vorhandenen Routen `GET /public/support/{id}?key=` und `POST /public/support/{id}/reply`.
+- **Standard-Event (ab 1.38.548):** Gibt es genau ein kommendes Event mit Online-Tickets (auch je Veranstalter-Domain), steht es im Prompt. `get_event`, `quote_tickets` und `start_checkout` nehmen es dann ohne ID. Der Wert wird 5 min zwischengespeichert (`tix_as_default_<org>`).
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (97 Prüfungen).

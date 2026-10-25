@@ -54,6 +54,7 @@ function wp_get_current_user() { return (object) ['roles' => $GLOBALS['t_roles']
 function get_bloginfo($k) { return 'KitchenKlub'; }
 function home_url($p = '') { return 'https://kitchenklub.de' . $p; }
 function sanitize_text_field($s) { return trim(strip_tags((string) $s)); }
+function sanitize_email($s) { return trim((string) $s); }
 function sanitize_textarea_field($s) { return trim(strip_tags((string) $s)); }
 function wp_strip_all_tags($s) { return strip_tags((string) $s); }
 function wp_json_encode($d, $f = 0) { return json_encode($d, $f); }
@@ -64,6 +65,10 @@ function add_action() {}
 function current_time($f) { return date($f); }
 function wp_date($f) { return date($f); }
 function wp_mail() { $GLOBALS['t_mails']++; return true; }
+function update_post_meta($id, $k, $v) { $GLOBALS['t_meta'][$id][$k] = $v; return true; }
+class TIX_Support { static function ensure_ticket_access_key($id) { return 'key' . $id; } }
+$GLOBALS['t_support_posts'] = [];
+$GLOBALS['t_multi_events'] = false;
 function get_post_meta($id, $k, $single = true) { return $GLOBALS['t_meta'][$id][$k] ?? ''; }
 function get_the_title($id) { return $id === 90 ? 'Lachwerk Köln' : ''; }
 class TIX_App_Scope { public static $multi = false; static function multi() { return self::$multi; } }
@@ -95,7 +100,13 @@ TIX_Assistant::$rest = function (WP_REST_Request $r) use ($EVENT) {
     if (preg_match('#/public/events$#', $r->route)) $GLOBALS['t_rp'][] = $r->params;
     $route = preg_replace('#^/tixomat/v1#', '', $r->route);
     if ($route === '/support/config') return new WP_REST_Response(['ok' => true, 'enabled' => true]);
-    if ($route === '/public/events') return new WP_REST_Response(['events' => [$EVENT, array_merge($EVENT, ['id' => 26, 'title' => 'Free Friday', 'free_entry' => true, 'tickets_enabled' => false, 'categories' => []])]]);
+    if ($route === '/public/events') return new WP_REST_Response(['events' => array_merge([$EVENT, array_merge($EVENT, ['id' => 26, 'title' => 'Free Friday', 'free_entry' => true, 'tickets_enabled' => false, 'categories' => []])], $GLOBALS['t_multi_events'] ? [array_merge($EVENT, ['id' => 27, 'title' => 'Zweites Event'])] : [])]);
+    if ($route === '/customer/support' && $r->method === 'POST') {
+        if (!is_user_logged_in() && (empty($r->params['email']) || strpos($r->params['email'], '@') === false)) return new WP_Error('invalid_email', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+        if (!is_user_logged_in() && empty($r->params['name'])) return new WP_Error('missing_name', 'Bitte deinen Namen angeben.', ['status' => 400, 'field' => 'name']);
+        $GLOBALS['t_support_posts'][] = $r->params;
+        return new WP_REST_Response(['ok' => true, 'request' => ['id' => 500 + count($GLOBALS['t_support_posts'])]]);
+    }
     if ($route === '/public/events/25') return new WP_REST_Response($EVENT);
     if ($route === '/public/events/26') return new WP_REST_Response(array_merge($EVENT, ['id' => 26, 'tickets_enabled' => false, 'categories' => []]));
     if ($route === '/customer/cart/quote') return new WP_REST_Response(['totals' => ['count' => 2, 'subtotal' => 24.0, 'fee' => 1.5, 'fee_label' => 'Servicegebühr', 'total' => 25.5, 'currency' => 'EUR', 'tax_inclusive' => true]]);
@@ -232,7 +243,7 @@ ok($o['tickets'][0]['anzahl'] === 2 && $o['tickets'][0]['eingecheckt'] === 1 && 
 ok(strpos(json_encode($o), 'ABC123') === false, 'keine Ticket-Codes ans Modell');
 $GLOBALS['t_user'] = 0; $acts = [];
 $o = TIX_Assistant::exec_tool('handoff_support', ['subject' => 'Erstattung', 'summary' => 'Event abgesagt, Mail x@y.de'], $cards, $acts);
-ok(strpos($acts[0]['action'], 'support:new?subject=Erstattung&message=') === 0 && strpos(urldecode($acts[0]['action']), 'x@y.de') === false, 'Support-Übergabe vorbelegt, geschwärzt');
+ok($acts[0]['action'] === 'support:human' && $acts[0]['label'] === 'Mit einem Menschen sprechen', 'Übergabe an einen Menschen als Knopf');
 $e = TIX_Assistant::exec_tool('get_event', ['id' => 25], $cards, $acts);
 ok($e['einlass'] === '22:30' && $e['dresscode'] === 'Weiß' && $e['faq'][0]['f'] === 'Garderobe?' && $e['kategorien'][1]['ausverkauft'] === true, 'Event-Details');
 
@@ -312,6 +323,63 @@ script_api([text_answer('Hallo')]);
 $y = chat(['message' => 'Hi', 'device_id' => 'device-domain', 'channel' => 'web', 'conversation_id' => $dd['conversation_id']], ['origin' => 'https://kitchenklub.de']);
 ok($y->get_data()['conversation_id'] !== $dd['conversation_id'], 'Gespräch an Domain gebunden');
 TIX_App_Scope::$multi = false;
+
+// ═══ 13. Mit einem Menschen sprechen ═══
+TIX_Assistant::reset();
+$GLOBALS['t_trans'] = []; $GLOBALS['t_user'] = 0;
+update_option(TIX_Assistant::OPT, ['enabled' => true]);
+script_api([tool_answer('handoff_support', ['subject' => 'Erstattung', 'summary' => 'Gast möchte Geld zurück, Mail x@y.de']), text_answer('Ich gebe dich an unser Team weiter.')]);
+$h = chat(['message' => 'Ich will mein Geld zurück, meine Nummer 0171 2345678', 'device_id' => 'device-human']);
+$hd = $h->get_data();
+ok($hd['actions'][0]['action'] === 'support:human', 'Chat bietet Mensch-Knopf');
+$ho = function ($b) { $r = new WP_REST_Request('POST', '/tixomat/v1/assistant/handoff'); $r->json = $b; return TIX_Assistant::rest_handoff($r); };
+$e = $ho(['conversation_id' => $hd['conversation_id'], 'device_id' => 'device-human']);
+ok(is_wp_error($e) && $e->code === 'invalid_email', 'ohne Konto: E-Mail nötig');
+$e = $ho(['conversation_id' => $hd['conversation_id'], 'device_id' => 'device-fremd', 'name' => 'Anna', 'email' => 'anna@example.de']);
+ok(is_wp_error($e) && $e->code === 'tix_assistant_conv', 'fremdes Gerät bekommt das Gespräch nicht');
+$t = $ho(['conversation_id' => $hd['conversation_id'], 'device_id' => 'device-human', 'name' => 'Anna', 'email' => 'anna@example.de']);
+ok(!is_wp_error($t), 'Anfrage angelegt' . (is_wp_error($t) ? ': ' . $t->message : ''));
+$td = $t->get_data();
+$tid = $td['ticket']['id'];
+ok($tid > 500 && $td['ticket']['key'] === 'key' . $tid && strpos($td['message'], 'Anfrage #' . $tid) !== false, 'Nummer + Schlüssel + Meldung');
+$sp = end($GLOBALS['t_support_posts']);
+ok($sp['subject'] === 'Erstattung' && $sp['name'] === 'Anna' && $sp['email'] === 'anna@example.de', 'Betreff, Name, E-Mail an den Support');
+ok(strpos($sp['message'], 'Zusammenfassung') !== false && strpos($sp['message'], 'Gast: Ich will mein Geld zurück') !== false && strpos($sp['message'], 'Assistent: Ich gebe dich') !== false, 'Verlauf im Ticket');
+ok(strpos($sp['message'], 'x@y.de') === false && strpos($sp['message'], '2345678') === false, 'Verlauf anonymisiert');
+ok(($GLOBALS['t_meta'][$tid]['_tix_sp_via'] ?? '') === 'assistant', 'Herkunft markiert');
+$n = count($GLOBALS['t_support_posts']);
+$t2 = $ho(['conversation_id' => $hd['conversation_id'], 'device_id' => 'device-human', 'name' => 'Anna', 'email' => 'anna@example.de']);
+ok(count($GLOBALS['t_support_posts']) === $n && $t2->get_data()['ticket']['id'] === $tid, 'zweiter Klick = gleiche Anfrage');
+$GLOBALS['t_user'] = 7;
+script_api([text_answer('Okay.')]);
+$h2 = chat(['message' => 'Bitte Mensch', 'device_id' => 'device-human2'])->get_data();
+$t3 = $ho(['conversation_id' => $h2['conversation_id'], 'device_id' => 'device-human2']);
+ok(!is_wp_error($t3) && !isset(end($GLOBALS['t_support_posts'])['email']), 'mit Konto ohne Name/E-Mail');
+ok(end($GLOBALS['t_support_posts'])['subject'] === 'Bitte Mensch', 'ohne Zusammenfassung: erste Frage als Betreff');
+$GLOBALS['t_user'] = 0;
+
+// ═══ 14. Nur ein Event online ═══
+TIX_Assistant::reset();
+$GLOBALS['t_trans'] = [];
+ok(TIX_Assistant::default_event()['id'] === 25, 'genau ein Event mit Tickets = Standard');
+ok(strpos(TIX_Assistant::system_prompt(), 'Frag nie, welches Event') !== false, 'Standard-Event im Prompt');
+$cards = []; $acts = [];
+ok(TIX_Assistant::exec_tool('get_event', [], $cards, $acts)['title'] === 'Mallorca Night', 'get_event ohne id');
+TIX_Assistant::exec_tool('start_checkout', ['items' => [['index' => 0, 'qty' => 3]]], $cards, $acts);
+ok($acts[0]['action'] === 'checkout:25?items=0x3', 'Kasse ohne event_id');
+$q = TIX_Assistant::exec_tool('quote_tickets', ['items' => [['index' => 0, 'qty' => 1]]], $cards, $acts);
+ok(isset($q['gesamt']), 'Preis ohne event_id');
+ok(strpos(TIX_Assistant::system_prompt(25), 'Frag nie') === false, 'auf der Event-Seite kein doppelter Hinweis');
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = []; $GLOBALS['t_multi_events'] = true;
+ok(TIX_Assistant::default_event() === null && strpos(TIX_Assistant::system_prompt(), 'Frag nie') === false, 'zwei Events: kein Standard');
+$cards = []; $acts = [];
+ok(isset(TIX_Assistant::exec_tool('start_checkout', ['items' => [['index' => 0, 'qty' => 1]]], $cards, $acts)['fehler']), 'ohne Standard: Event nötig');
+// Veranstalter-Domain mit einem Event (27 gehört fremdem Veranstalter)
+TIX_Assistant::reset(); $GLOBALS['t_trans'] = [];
+TIX_App_Scope::$multi = true; $GLOBALS['t_meta'][27] = ['_tix_organizer_id' => 91];
+TIX_Assistant::set_org(90);
+ok(TIX_Assistant::default_event()['id'] === 25, 'Domain mit einem Event = Standard');
+TIX_App_Scope::$multi = false; $GLOBALS['t_multi_events'] = false; TIX_Assistant::reset();
 
 echo "$count Prüfungen, $fails Fehler\n";
 exit($fails ? 1 : 0);
