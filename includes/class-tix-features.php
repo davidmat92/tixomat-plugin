@@ -37,6 +37,8 @@ class TIX_Features {
         'live_now'         => ['Jetzt & gleich (Startseite)', null],
         // Hörproben der Künstler (1.38.524, User-Entscheid): Vorgabe aus; Apps und Marken-Websites lesen features.artist_previews
         'artist_previews'  => ['Hörproben (Künstler)', null],
+        // KI-Assistent (1.38.544): Vorgabe aus; Einstellungen unter /assistant/settings, auf evendis nur Admin
+        'assistant'        => ['KI-Assistent', null],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -109,6 +111,7 @@ class TIX_Features {
                 if (class_exists('TIX_Modules') && !TIX_Modules::allowed('muttizettel')) return false;
                 return self::multi() ? true : self::opt_on(self::OPT_MUTTIZETTEL);
             case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
+            case 'assistant': return class_exists('TIX_Assistant') && TIX_Assistant::enabled();
             case 'live_now':
                 $c = class_exists('TIX_App_Config') ? (array) TIX_App_Config::stored() : [];
                 return !isset($c['home']['now']['show']) || !empty($c['home']['now']['show']);
@@ -211,6 +214,7 @@ class TIX_Features {
                 return;
             case 'sos': TIX_App_Sos::save(array_merge(TIX_App_Sos::settings(), ['enabled' => $on])); return;
             case 'artist_previews': update_option(self::OPT_ARTIST_PREVIEWS, $on ? '1' : '0', false); return;
+            case 'assistant': if (class_exists('TIX_Assistant')) TIX_Assistant::set_enabled($on); return;
             case 'live_now':
                 $c = (array) TIX_App_Config::stored();
                 $now = isset($c['home']['now']) && is_array($c['home']['now']) ? $c['home']['now'] : [];

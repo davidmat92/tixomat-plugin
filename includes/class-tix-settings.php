@@ -8327,7 +8327,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('bot_enabled', 'Bot aktivieren', $s, 'Aktiviert die REST-API-Endpunkte und den Ticket-Bot.'); ?>
+                                                <?php self::checkbox_row('bot_enabled', 'Bot aktivieren', $s, 'Abgeschaltet seit 1.38.544 (ersetzt durch den KI-Assistenten unter /assistant/*, Einstellung im Studio). Der Haken wirkt nicht mehr.'); ?>
                                             </div>
                                             <?php self::text_row('bot_name', 'Bot-Name', $s, 'Ticket-Assistent'); ?>
                                             <div class="tix-field tix-field-full">

@@ -3522,3 +3522,23 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
 - **Visual Consistency**: Alle Tabs im tix-card Design. Presale-Defaults (2h vor Event).
 
 *Tixomat v1.33.95 -- MDJ Veranstaltungs UG (haftungsbeschraenkt)*
+
+## 68. KI-Assistent (ab 1.38.544)
+
+`includes/class-tix-assistant.php` (`TIX_Assistant`). Chat für Apps und Websites, Modell **Claude Haiku 5.5** (`claude-haiku-5-5`), Schlüssel `tix_settings.anthropic_api_key` (alternativ Konstante `TIX_ASSISTANT_KEY`). Vertrag: `uebergaben/vertrag-ki-chat.md` (Repo tixomat-apps).
+
+- `GET /assistant/config?channel=app|web`: öffentlich, liefert `enabled` und `reason` (`off`, `channel`, `budget`, `no_key`).
+- `POST /assistant/chat`: öffentlich. Die Werkzeuge laufen intern: `search_events`, `get_event`, `quote_tickets`, `start_checkout` (nur Aktion `checkout:{id}?items=0x2`, legt nichts an), `my_tickets` (nur mit Token, ohne Codes), `handoff_support` (vorbelegtes Formular). Ergebnisse gibt es höchstens für 4 Werkzeug-Runden, mit `max_tokens` 400 und Prompt-Cache auf System und Werkzeuge.
+- `GET/POST /assistant/settings`: Admin. Auf einer Einzel-Seite auch die Rolle Veranstalter, auf evendis nur Admin. Schalter auch als Funktion `assistant` in `TIX_Features`, Standard aus.
+- `GET /assistant/log?day=`: nur Admin.
+- **Grenzen:**
+  - je Gerät 15 Nachrichten in 10 min und 60 am Tag, je IP 60 in 10 min und 400 am Tag
+  - je Gespräch 20 Nachrichten mit je 500 Zeichen
+  - Tagesbudget je Seite, Standard 5 €. Bei 80 % geht eine Mail an den Admin, bei 100 % meldet die Config `budget`.
+  - Web nur von der eigenen Domain (Origin).
+- **Datenschutz:**
+  - E-Mail, Telefon, IBAN, Kartennummern, Ticket- und Login-Codes und Namen nach „ich heiße …“ werden vor dem API-Aufruf und vor dem Protokoll entfernt.
+  - Der Verlauf liegt 2 h im Transient.
+  - Das Protokoll (`_tix_assistant_log_YYYYMMDD`) und die Zähler (`_tix_assistant_usage_YYYYMMDD`) bleiben 14 Tage. Danach löscht sie der tägliche Cron `tix_assistant_cleanup`.
+- **Alter Ticket-Bot** (`tix-bot/v1`, Python-Hub): abgeschaltet. Er lädt nur noch mit dem Filter `tix_legacy_bot_enabled`, die Dateien bleiben.
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (66 Prüfungen).

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.543
+ * Version: 1.38.545
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.543');
+define('TIXOMAT_VERSION', '1.38.545');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -772,7 +772,9 @@ if ($use_native) {
 require_once TIXOMAT_PATH . 'includes/class-tix-bot-bridge.php';
 TIX_Bot_Bridge::init();
 
-if (!empty(tix_get_settings('bot_enabled'))) {
+// Alter Ticket-Bot (tix-bot/v1 + Python-Hub) seit 1.38.544 abgeschaltet (User-Entscheid 2026-10-25, ersetzt durch
+// TIX_Assistant). Dateien bleiben; nur per Filter wieder einschaltbar.
+if (!empty(tix_get_settings('bot_enabled')) && apply_filters('tix_legacy_bot_enabled', false)) {
     require_once TIXOMAT_PATH . 'includes/class-tix-bot-api.php';
     TIX_Bot_API::init();
 }
@@ -1588,6 +1590,8 @@ TIX_App_Links::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-support-templates.php';
 TIX_Support_Templates::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-support-ai.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-assistant.php';
+TIX_Assistant::init();
 TIX_Support_AI::init();
 // ── Support-Modell: Modus, Zuständigkeit, Studio-Postfach, Rückfragen, Partner-Brücke (1.38.451) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-support-model.php';
