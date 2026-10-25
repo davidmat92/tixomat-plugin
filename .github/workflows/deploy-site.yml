@@ -55,7 +55,10 @@ jobs:
             # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
             # (gh variable set KITCHENKLUB_HOST -b 178.104.202.230). Ohne Variable bleibt der alte RunCloud-Server.
             kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de; host="${{ vars.KITCHENKLUB_HOST }}" ;;
-            evendis)     app=evendis;               url=https://evendis.de ;;
+            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable EVENDIS_HOST beim Umschalten setzen. Dort heißt der
+            # App-Ordner evendis-veranstalter; ohne Variable alter RunCloud-Server mit Ordner evendis.
+            evendis)     url=https://evendis.de; host="${{ vars.EVENDIS_HOST }}"
+                         if [ -n "$host" ]; then app=evendis-veranstalter; else app=evendis; fi ;;
             test-quelle) app=demo-mdj-events;       url=https://demo.mdj.events ;;
             # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
             # alter-shop.mallorca-festival-xxl.de, mallorca-festival-xxl_clone = backup.…) – Stand 2026-10-02.
