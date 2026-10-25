@@ -208,9 +208,15 @@ class TIX_Wallet {
             }
         }
 
+        $code = $code ?: ('TIX-' . $ticket_id);
+        $img_id = $event_id ? get_post_thumbnail_id($event_id) : 0;
         return [
             'id'           => $ticket_id,
-            'code'         => $code ?: ('TIX-' . $ticket_id),
+            'code'         => $code,
+            // QR wie App und Web-Ticket (Scanner-kompatibel), 1.38.541
+            'barcode'      => $event_id ? 'GL-' . $event_id . '-' . $code : $code,
+            'status'       => (string) get_post_meta($ticket_id, '_tix_ticket_status', true),
+            'image'        => $img_id ? (string) (wp_get_attachment_image_url($img_id, 'large') ?: '') : '',
             'event_id'     => $event_id,
             'event_title'  => $event_title,
             'date_start'   => $date_start,
@@ -250,6 +256,8 @@ class TIX_Wallet {
             self::log('PHP OpenSSL Extension fehlt');
             return null;
         }
+
+        if (!function_exists('wp_tempnam')) require_once ABSPATH . 'wp-admin/includes/file.php'; // außerhalb von admin-post (App/REST)
 
         // 1. pass.json zusammenbauen
         $pass_json = self::build_apple_pass_json($ticket, $s);
@@ -331,13 +339,16 @@ class TIX_Wallet {
             ],
             'barcodes' => [
                 [
-                    'message'         => $t['code'],
+                    'message'         => $t['barcode'],
                     'format'          => 'PKBarcodeFormatQR',
                     'messageEncoding' => 'iso-8859-1',
                     'altText'         => $t['code'],
                 ],
             ],
         ];
+
+        // Storniertes Ticket: Pass als ungültig markieren (1.38.541)
+        if ($t['status'] === 'cancelled') $pass['voided'] = true;
 
         // Geo-Push: Push-Notification wenn iPhone in Venue-Nähe
         if ($t['venue_lat'] && $t['venue_lng']) {
@@ -527,16 +538,20 @@ class TIX_Wallet {
         $service_email = $s['wallet_google_service_email'];
         $private_key   = $s['wallet_google_service_key'];
         $class_suffix  = $s['wallet_google_class_suffix'] ?: 'tixomat-event-ticket';
-        $class_id      = $issuer_id . '.' . $class_suffix;
-        $object_id     = $issuer_id . '.tix-' . $ticket['id'];
+        // Klasse je Seite und Event (Eventname/Ort/Datum stehen in der Klasse; eine gemeinsame Klasse zeigte bei
+        // allen Tickets das erste Event), Objekt je Seite und Ticket (1.38.541)
+        $site          = self::site_key();
+        $class_id      = $issuer_id . '.' . $class_suffix . '-' . $site . '-e' . intval($ticket['event_id']);
+        $object_id     = $issuer_id . '.' . $site . '-t' . intval($ticket['id']);
 
         $event_object = [
             'id'        => $object_id,
             'classId'   => $class_id,
-            'state'     => 'ACTIVE',
+            'state'     => $ticket['status'] === 'cancelled' ? 'INACTIVE' : 'ACTIVE',
             'barcode'   => [
-                'type'  => 'QR_CODE',
-                'value' => $ticket['code'],
+                'type'          => 'QR_CODE',
+                'value'         => $ticket['barcode'],
+                'alternateText' => $ticket['code'],
             ],
             'ticketHolderName' => $ticket['owner_name'],
             'ticketNumber'     => $ticket['code'],
@@ -555,15 +570,16 @@ class TIX_Wallet {
                 'address' => ['defaultValue' => ['language' => 'de', 'value' => $ticket['venue_addr'] ?: '']],
             ],
             'dateTime' => [
-                'start' => $ticket['date_start'] ? $ticket['date_start'] . 'T' . ($ticket['time_start'] ?: '19:00') . ':00' : null,
+                'start' => $ticket['date_start'] ? self::iso8601_with_tz($ticket['date_start'] . 'T' . ($ticket['time_start'] ?: '19:00') . ':00') : null,
             ],
             'hexBackgroundColor' => $s['wallet_google_bg_color'] ?? '#0f172a',
         ];
         if (!empty($s['wallet_google_logo_url'])) {
             $event_class['logo'] = ['sourceUri' => ['uri' => $s['wallet_google_logo_url']]];
         }
-        if (!empty($s['wallet_google_hero_url'])) {
-            $event_class['heroImage'] = ['sourceUri' => ['uri' => $s['wallet_google_hero_url']]];
+        $hero = !empty($s['wallet_google_hero_url']) ? $s['wallet_google_hero_url'] : ($ticket['image'] ?? '');
+        if ($hero) {
+            $event_class['heroImage'] = ['sourceUri' => ['uri' => $hero]];
         }
 
         // JWT-Payload
@@ -631,9 +647,18 @@ class TIX_Wallet {
         return $ts ? date_i18n('D, d. M Y', $ts) : $iso;
     }
 
+    /** Ortszeit des Events (Zeitzone der Seite) als ISO 8601 mit Versatz – vorher als UTC gelesen (1–2 h daneben). */
     private static function iso8601_with_tz(string $local_iso): string {
-        $ts = strtotime($local_iso);
-        return $ts ? gmdate('Y-m-d\TH:i:s\Z', $ts) : $local_iso;
+        try {
+            return (new DateTime($local_iso, wp_timezone()))->format('c');
+        } catch (Exception $e) {
+            return $local_iso;
+        }
+    }
+
+    /** Kennung der Seite für Google-IDs (mehrere Seiten können einen Aussteller teilen). */
+    private static function site_key(): string {
+        return preg_replace('/[^a-z0-9]+/', '_', strtolower((string) parse_url(home_url(), PHP_URL_HOST)));
     }
 
     private static function log(string $msg): void {
