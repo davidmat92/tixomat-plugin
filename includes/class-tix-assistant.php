@@ -291,6 +291,8 @@ class TIX_Assistant {
     }
 
     private static function ip() {
+        // Website-Anfragen kommen über den Next-Server: echte Besucher-IP aus X-Real-IP/X-Forwarded-For vertrauter Proxys
+        if (class_exists('TIX_Client_IP')) return (string) TIX_Client_IP::get();
         return (string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ($_SERVER['REMOTE_ADDR'] ?? ''));
     }
 
