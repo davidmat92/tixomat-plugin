@@ -750,7 +750,14 @@ class TIX_Wallet {
 
     /** Kennung der Seite für Google-IDs (mehrere Seiten können einen Aussteller teilen). */
     public static function site_key(): string {
-        return preg_replace('/[^a-z0-9]+/', '_', strtolower((string) parse_url(home_url(), PHP_URL_HOST)));
+        // Beim ersten Gebrauch festgeschrieben (1.38.543): Seriennummern und Google-IDs ausgegebener Pässe hängen daran,
+        // ein späterer Wechsel der WordPress-Adresse (z. B. evendis: veranstalter.evendis.de) darf sie nicht ungültig machen.
+        $k = (string) get_option('tix_wallet_site_key', '');
+        if ($k === '') {
+            $k = preg_replace('/[^a-z0-9]+/', '_', strtolower((string) parse_url(home_url(), PHP_URL_HOST)));
+            if ($k !== '') update_option('tix_wallet_site_key', $k, false);
+        }
+        return $k;
     }
 
     private static function log(string $msg): void {
