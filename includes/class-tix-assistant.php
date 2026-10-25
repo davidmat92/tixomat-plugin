@@ -574,6 +574,15 @@ class TIX_Assistant {
     }
 
     private static function call(array $body) {
+        // tool_use.input muss ein JSON-Objekt sein: leere Eingaben kommen nach json_decode als [] zurück
+        foreach ((array) ($body['messages'] ?? []) as $i => $m) {
+            if (!is_array($m['content'] ?? null)) continue;
+            foreach ($m['content'] as $j => $blk) {
+                if (is_array($blk) && ($blk['type'] ?? '') === 'tool_use' && (empty($blk['input']) || array_is_list((array) $blk['input']))) {
+                    $body['messages'][$i]['content'][$j]['input'] = empty($blk['input']) ? new stdClass() : (object) $blk['input'];
+                }
+            }
+        }
         if (self::$http) {
             $r = call_user_func(self::$http, $body);
         } else {
