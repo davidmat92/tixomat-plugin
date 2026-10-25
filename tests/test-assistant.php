@@ -123,6 +123,17 @@ function script_api(array $answers) {
     $GLOBALS['t_api_queue'] = $answers;
     TIX_Assistant::$http = function ($body) {
         $GLOBALS['t_api_bodies'][] = $body;
+        // wie Anthropic: tool_use.input muss als JSON-Objekt ankommen ({} statt []), sonst 400
+        $wire = json_decode(json_encode($body), false);
+        foreach ((array) ($wire->messages ?? []) as $m) {
+            if (!is_array($m->content ?? null)) continue;
+            foreach ($m->content as $blk) {
+                if (($blk->type ?? '') === 'tool_use' && !is_object($blk->input ?? null)) {
+                    $GLOBALS['t_api_strict_fail'] = true;
+                    return ['code' => 400, 'body' => ['error' => ['type' => 'invalid_request_error', 'message' => 'tool_use.input: Input should be an object']]];
+                }
+            }
+        }
         $a = array_shift($GLOBALS['t_api_queue']);
         return $a ?? ['code' => 500, 'body' => ['error' => 'leer']];
     };
@@ -381,6 +392,17 @@ TIX_App_Scope::$multi = true; $GLOBALS['t_meta'][27] = ['_tix_organizer_id' => 9
 TIX_Assistant::set_org(90);
 ok(TIX_Assistant::default_event()['id'] === 25, 'Domain mit einem Event = Standard');
 TIX_App_Scope::$multi = false; $GLOBALS['t_multi_events'] = false; TIX_Assistant::reset();
+
+// ═══ 15. Werkzeug ohne Parameter (Live-Fehler 1.38.546–549): input [] muss als {} zurück an die API ═══
+TIX_Assistant::reset();
+$GLOBALS['t_trans'] = []; $GLOBALS['t_api_strict_fail'] = false; $GLOBALS['t_api_bodies'] = [];
+update_option(TIX_Assistant::OPT, ['enabled' => true]);
+script_api([tool_answer('my_tickets', []), tool_answer('search_events', [], 'tu_9'), text_answer('Melde dich bitte an.')]);
+$x = chat(['message' => 'Meine Tickets', 'device_id' => 'device-leer']);
+ok(!is_wp_error($x) && $x->get_data()['reply'] === 'Melde dich bitte an.', 'Werkzeug mit leerer Eingabe geht durch' . (is_wp_error($x) ? ': ' . $x->message : ''));
+ok($GLOBALS['t_api_strict_fail'] === false && count($GLOBALS['t_api_bodies']) === 3, 'API bekommt input als Objekt');
+$wire = json_encode($GLOBALS['t_api_bodies'][2]['messages']);
+ok(strpos($wire, '"input":{}') !== false && strpos($wire, '"input":[]') === false, 'leere Eingabe als {} gesendet');
 
 echo "$count Prüfungen, $fails Fehler\n";
 exit($fails ? 1 : 0);

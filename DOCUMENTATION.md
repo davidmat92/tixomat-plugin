@@ -3547,4 +3547,4 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - Die Antwort ist `{ticket: {id, key, subject}, message}`. Ein wiederholter Aufruf liefert dieselbe Anfrage, höchstens 3 je Gerät und Stunde.
   - Verlauf und Antworten laufen über die vorhandenen Routen `GET /public/support/{id}?key=` und `POST /public/support/{id}/reply`.
 - **Standard-Event (ab 1.38.548):** Gibt es genau ein kommendes Event mit Online-Tickets (auch je Veranstalter-Domain), steht es im Prompt. `get_event`, `quote_tickets` und `start_checkout` nehmen es dann ohne ID. Der Wert wird 5 min zwischengespeichert (`tix_as_default_<org>`).
-- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (97 Prüfungen).
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (101 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
