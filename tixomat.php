@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.541
+ * Version: 1.38.542
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.541');
+define('TIXOMAT_VERSION', '1.38.542');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -792,6 +792,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-settings-io.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-user-switch.php';
 // Wallet (Apple/Google) — generiert .pkpass / Google-Save-JWT on-the-fly
 require_once TIXOMAT_PATH . 'includes/class-tix-wallet.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-wallet-updates.php';
+TIX_Wallet_Updates::init(); // Wallet-Pässe aktualisieren sich selbst (Apple Web Service + APNs, Google-Update), 1.38.542
 // Event-Report — Detail-Bericht pro Event mit CSV/XLSX/PDF-Export
 require_once TIXOMAT_PATH . 'includes/class-tix-event-report.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-ticket-category-repair.php';

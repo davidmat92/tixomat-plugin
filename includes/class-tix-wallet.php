@@ -116,6 +116,7 @@ class TIX_Wallet {
 
         $pkpass = self::generate_apple_pass($ticket);
         if (!$pkpass) wp_die('Pass konnte nicht erstellt werden. Prüfe Server-Logs.', 500);
+        if (class_exists('TIX_Wallet_Updates')) TIX_Wallet_Updates::mark_issued($ticket, 'apple');
 
         $filename = 'ticket-' . $ticket['code'] . '.pkpass';
         nocache_headers();
@@ -141,6 +142,7 @@ class TIX_Wallet {
 
         $jwt = self::generate_google_jwt($ticket);
         if (!$jwt) wp_die('JWT konnte nicht generiert werden.', 500);
+        if (class_exists('TIX_Wallet_Updates')) TIX_Wallet_Updates::mark_issued($ticket, 'google');
 
         $save_url = 'https://pay.google.com/gp/v/save/' . $jwt;
         wp_redirect($save_url);
@@ -151,7 +153,7 @@ class TIX_Wallet {
     // Ticket-Daten laden (für Pass-Inhalte)
     // ───────────────────────────────────────────────
 
-    private static function load_ticket($ticket_id): ?array {
+    public static function load_ticket($ticket_id): ?array {
         $post = get_post($ticket_id);
         if (!$post || $post->post_type !== 'tix_ticket') return null;
 
@@ -228,7 +230,50 @@ class TIX_Wallet {
             'venue_lng'    => $venue_lng,
             'owner_name'   => $owner, // leer wenn weder personalisiert noch Käufer-Daten verfügbar
             'category'     => $cat_name,
+            // Update-Dienst (1.38.542): Event-Status (manuell vor berechnet) und Check-in
+            'event_status' => $event_id ? ((string) get_post_meta($event_id, '_tix_event_status', true) ?: (string) get_post_meta($event_id, '_tix_status', true)) : '',
+            'checked_in'   => (bool) get_post_meta($ticket_id, '_tix_ticket_checked_in', true),
         ];
+    }
+
+    /** Status im Pass: Storniert, Abgesagt, Verschoben, Eingelassen oder Gültig. */
+    public static function status_label(array $t): string {
+        if (($t['status'] ?? '') === 'cancelled') return 'Storniert';
+        if (($t['event_status'] ?? '') === 'cancelled') return 'Abgesagt';
+        if (($t['event_status'] ?? '') === 'postponed') return 'Verschoben';
+        if (!empty($t['checked_in']) || ($t['status'] ?? '') === 'used') return 'Eingelassen';
+        return 'Gültig';
+    }
+
+    /** Fingerabdruck der sichtbaren Pass-Inhalte – ändert er sich, wird der Pass aktualisiert. */
+    public static function fingerprint(array $t): string {
+        return md5(wp_json_encode([self::status_label($t), $t['event_title'], $t['date_start'], $t['time_start'], $t['admission'], $t['venue_name'], $t['venue_addr'], $t['category'], $t['owner_name']]));
+    }
+
+    /** Seriennummer des Apple-Passes: je Seite und Ticket (gemeinsame Pass Type ID für alle Seiten). */
+    public static function serial($ticket_id): string {
+        return self::site_key() . '-t' . intval($ticket_id);
+    }
+
+    /** Ticket-ID aus der Seriennummer (nur Seriennummern dieser Seite), sonst 0. */
+    public static function ticket_from_serial($serial): int {
+        $prefix = self::site_key() . '-t';
+        if (strpos((string) $serial, $prefix) !== 0) return 0;
+        $id = substr((string) $serial, strlen($prefix));
+        return ctype_digit($id) && get_post_type(intval($id)) === 'tix_ticket' ? intval($id) : 0;
+    }
+
+    /** authenticationToken des Passes (Apple Web Service). */
+    public static function auth_token($serial): string {
+        return hash_hmac('sha256', 'passkit|' . $serial, wp_salt('auth'));
+    }
+
+    /** Basis-URL des Update-Dienstes (https, Kunden-Adresse); '' = keiner (z. B. lokal ohne https). */
+    public static function web_service_url(): string {
+        $url = rest_url('tixomat/v1/passkit');
+        if (class_exists('TIX_Customer_URL')) $url = TIX_Customer_URL::to($url);
+        $url = (string) apply_filters('tix_wallet_web_service_url', $url);
+        return strpos($url, 'https://') === 0 ? untrailingslashit($url) : '';
     }
 
     // ───────────────────────────────────────────────
@@ -300,7 +345,7 @@ class TIX_Wallet {
         $pass = [
             'formatVersion'      => 1,
             'passTypeIdentifier' => $s['wallet_apple_pass_type_id'],
-            'serialNumber'       => $t['code'],
+            'serialNumber'       => self::serial($t['id']),
             'teamIdentifier'     => $s['wallet_apple_team_id'],
             'organizationName'   => $s['wallet_apple_org_name'] ?: get_bloginfo('name'),
             'description'        => $t['event_title'] . ' — ' . $t['category'],
@@ -322,12 +367,13 @@ class TIX_Wallet {
                 ],
                 // Secondary: 2-spaltig DATUM + EINLASS
                 'secondaryFields' => array_values(array_filter([
-                    ['key' => 'date',  'label' => 'DATUM',   'value' => self::format_date($t['date_start'])],
-                    ($t['admission'] || $t['time_start']) ? ['key' => 'admission', 'label' => 'EINLASS', 'value' => $t['admission'] ?: $t['time_start']] : null,
+                    ['key' => 'date',  'label' => 'DATUM',   'value' => self::format_date($t['date_start']), 'changeMessage' => 'Neuer Termin: %@'],
+                    ($t['admission'] || $t['time_start']) ? ['key' => 'admission', 'label' => 'EINLASS', 'value' => $t['admission'] ?: $t['time_start'], 'changeMessage' => 'Neuer Einlass: %@'] : null,
                 ])),
                 // Auxiliary: VENUE breit + optional NAME wenn personalisiert
                 'auxiliaryFields' => array_values(array_filter([
-                    $t['venue_name']  ? ['key' => 'venue', 'label' => 'VENUE', 'value' => $t['venue_name']] : null,
+                    ['key' => 'status', 'label' => 'STATUS', 'value' => self::status_label($t), 'changeMessage' => 'Ticket: %@'],
+                    $t['venue_name']  ? ['key' => 'venue', 'label' => 'VENUE', 'value' => $t['venue_name'], 'changeMessage' => 'Neuer Ort: %@'] : null,
                     $t['owner_name'] ? ['key' => 'name', 'label' => 'NAME', 'value' => $t['owner_name']] : null,
                 ])),
                 'backFields' => [
@@ -349,6 +395,13 @@ class TIX_Wallet {
 
         // Storniertes Ticket: Pass als ungültig markieren (1.38.541)
         if ($t['status'] === 'cancelled') $pass['voided'] = true;
+
+        // Update-Dienst (1.38.542): Wallet meldet sich an und holt Änderungen nach einem Push
+        $ws = self::web_service_url();
+        if ($ws !== '') {
+            $pass['webServiceURL'] = $ws;
+            $pass['authenticationToken'] = self::auth_token(self::serial($t['id']));
+        }
 
         // Geo-Push: Push-Notification wenn iPhone in Venue-Nähe
         if ($t['venue_lat'] && $t['venue_lng']) {
@@ -381,13 +434,16 @@ class TIX_Wallet {
         $logo  = self::fetch_image_bytes($s['wallet_apple_logo_url'] ?? '');
         $icon  = self::fetch_image_bytes($s['wallet_apple_icon_url'] ?? '');
 
+        // Apple-Größen (1.38.542): Logo höchstens 160×50 bzw. 320×100 (@2x), Icon 29/58/87 – große Vorlagen
+        // (z. B. 920×227) machten den Pass sonst 150+ KB groß. Ohne GD bleibt die Vorlage unverändert.
         if ($logo) {
-            $files['logo.png']    = $logo;
-            $files['logo@2x.png'] = $logo;
+            $files['logo.png']    = self::fit_png($logo, 160, 50);
+            $files['logo@2x.png'] = self::fit_png($logo, 320, 100);
         }
         if ($icon) {
-            $files['icon.png']    = $icon;
-            $files['icon@2x.png'] = $icon;
+            $files['icon.png']    = self::fit_png($icon, 29, 29);
+            $files['icon@2x.png'] = self::fit_png($icon, 58, 58);
+            $files['icon@3x.png'] = self::fit_png($icon, 87, 87);
         }
         // KEIN strip/thumbnail/background — Pass bleibt clean nur mit Logo + Icon + Texten.
         // Apple's Bild-Slots erlauben kein scharfes Vollbild ohne Crop oder Blur, daher weggelassen.
@@ -452,6 +508,27 @@ class TIX_Wallet {
         $out = ob_get_clean();
         imagedestroy($dst);
         return $out ?: null;
+    }
+
+    /** PNG verkleinern, sodass es in W×H passt (Seitenverhältnis bleibt, Transparenz bleibt); nie vergrößern. */
+    private static function fit_png(string $bytes, int $w, int $h): string {
+        if (!function_exists('imagecreatefromstring')) return $bytes;
+        $src = @imagecreatefromstring($bytes);
+        if (!$src) return $bytes;
+        $sw = imagesx($src); $sh = imagesy($src);
+        $scale = min($w / $sw, $h / $sh, 1);
+        $nw = max(1, (int) round($sw * $scale)); $nh = max(1, (int) round($sh * $scale));
+        if ($scale >= 1 && strncmp($bytes, "\x89PNG", 4) === 0) { imagedestroy($src); return $bytes; }
+        $dst = imagecreatetruecolor($nw, $nh);
+        imagealphablending($dst, false);
+        imagesavealpha($dst, true);
+        imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127));
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $sw, $sh);
+        ob_start();
+        imagepng($dst, null, 9);
+        $out = ob_get_clean();
+        imagedestroy($src); imagedestroy($dst);
+        return $out ?: $bytes;
     }
 
     private static function fetch_image_bytes($url): ?string {
@@ -533,20 +610,29 @@ class TIX_Wallet {
      */
     public static function generate_google_jwt(array $ticket): ?string {
         $s = tix_get_settings();
+        // JWT-Payload
+        $payload = [
+            'iss'     => $s['wallet_google_service_email'],
+            'aud'     => 'google',
+            'typ'     => 'savetowallet',
+            'iat'     => time(),
+            // Herkunft der „In Google Wallet speichern“-Knöpfe: WordPress und ggf. Kunden-Adresse
+            'origins' => array_values(array_filter(array_unique([parse_url(home_url(), PHP_URL_HOST), TIX_Customer_URL::host()]))),
+            'payload' => [
+                'eventTicketClasses'  => [self::google_class($ticket)],
+                'eventTicketObjects'  => [self::google_object($ticket)],
+            ],
+        ];
+        return self::jwt_sign($payload, (string) $s['wallet_google_service_key']);
+    }
 
-        $issuer_id    = $s['wallet_google_issuer_id'];
-        $service_email = $s['wallet_google_service_email'];
-        $private_key   = $s['wallet_google_service_key'];
-        $class_suffix  = $s['wallet_google_class_suffix'] ?: 'tixomat-event-ticket';
-        // Klasse je Seite und Event (Eventname/Ort/Datum stehen in der Klasse; eine gemeinsame Klasse zeigte bei
-        // allen Tickets das erste Event), Objekt je Seite und Ticket (1.38.541)
-        $site          = self::site_key();
-        $class_id      = $issuer_id . '.' . $class_suffix . '-' . $site . '-e' . intval($ticket['event_id']);
-        $object_id     = $issuer_id . '.' . $site . '-t' . intval($ticket['id']);
-
-        $event_object = [
-            'id'        => $object_id,
-            'classId'   => $class_id,
+    /**
+     * EventTicketObject je Seite und Ticket (1.38.541). Auch für das Objekt-Update (TIX_Wallet_Updates, 1.38.542).
+     */
+    public static function google_object(array $ticket): array {
+        return [
+            'id'        => self::google_object_id($ticket),
+            'classId'   => self::google_class_id($ticket),
             'state'     => $ticket['status'] === 'cancelled' ? 'INACTIVE' : 'ACTIVE',
             'barcode'   => [
                 'type'          => 'QR_CODE',
@@ -556,13 +642,19 @@ class TIX_Wallet {
             'ticketHolderName' => $ticket['owner_name'],
             'ticketNumber'     => $ticket['code'],
             'ticketType'       => ['defaultValue' => ['language' => 'de', 'value' => $ticket['category']]],
+            'textModulesData'  => [['id' => 'status', 'header' => 'Status', 'body' => self::status_label($ticket)]],
         ];
+    }
 
-        // EventTicketClass — minimale Felder. Class wird in Google's DB gespeichert,
-        // aber wir können sie auch im JWT mitschicken und Google legt sie automatisch an.
+    /**
+     * EventTicketClass je Seite und Event (Eventname/Ort/Datum stehen in der Klasse; eine gemeinsame Klasse zeigte bei
+     * allen Tickets das erste Event). Google legt sie beim ersten Speichern aus dem JWT an, Änderungen per Klassen-Update.
+     */
+    public static function google_class(array $ticket): array {
+        $s = tix_get_settings();
         $event_class = [
-            'id'                  => $class_id,
-            'issuerName'          => $s['wallet_apple_org_name'] ?: get_bloginfo('name'),
+            'id'                  => self::google_class_id($ticket),
+            'issuerName'          => ($s['wallet_apple_org_name'] ?? '') ?: get_bloginfo('name'),
             'reviewStatus'        => 'UNDER_REVIEW',
             'eventName'           => ['defaultValue' => ['language' => 'de', 'value' => $ticket['event_title']]],
             'venue' => [
@@ -581,25 +673,16 @@ class TIX_Wallet {
         if ($hero) {
             $event_class['heroImage'] = ['sourceUri' => ['uri' => $hero]];
         }
-
-        // JWT-Payload
-        $payload = [
-            'iss'     => $service_email,
-            'aud'     => 'google',
-            'typ'     => 'savetowallet',
-            'iat'     => time(),
-            // Herkunft der „In Google Wallet speichern“-Knöpfe: WordPress und ggf. Kunden-Adresse
-            'origins' => array_values(array_filter(array_unique([parse_url(home_url(), PHP_URL_HOST), TIX_Customer_URL::host()]))),
-            'payload' => [
-                'eventTicketClasses'  => [$event_class],
-                'eventTicketObjects'  => [$event_object],
-            ],
-        ];
-
-        return self::jwt_sign($payload, $private_key);
+        // Absage/Verschiebung als Hinweis in der Klasse (alle Tickets des Events)
+        $ev = $ticket['event_status'] ?? '';
+        if (in_array($ev, ['cancelled', 'postponed'], true)) {
+            $event_class['messages'] = [['id' => 'event_status', 'header' => $ev === 'cancelled' ? 'Event abgesagt' : 'Event verschoben',
+                'body' => $ev === 'cancelled' ? 'Dieses Event wurde abgesagt. Infos zur Erstattung bekommst du per E-Mail.' : 'Dieses Event wurde verschoben. Der neue Termin steht im Ticket, sobald er feststeht.']];
+        }
+        return $event_class;
     }
 
-    private static function jwt_sign(array $payload, string $private_key): ?string {
+    public static function jwt_sign(array $payload, string $private_key): ?string {
         $header = ['alg' => 'RS256', 'typ' => 'JWT'];
         $segments = [
             self::base64url(wp_json_encode($header)),
@@ -628,7 +711,7 @@ class TIX_Wallet {
     // Helpers
     // ───────────────────────────────────────────────
 
-    private static function base64url($data): string {
+    public static function base64url($data): string {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
@@ -656,8 +739,17 @@ class TIX_Wallet {
         }
     }
 
+    public static function google_class_id(array $t): string {
+        $s = tix_get_settings();
+        return ($s['wallet_google_issuer_id'] ?? '') . '.' . (($s['wallet_google_class_suffix'] ?? '') ?: 'tixomat-event-ticket') . '-' . self::site_key() . '-e' . intval($t['event_id']);
+    }
+
+    public static function google_object_id(array $t): string {
+        return (tix_get_settings('wallet_google_issuer_id') ?? '') . '.' . self::site_key() . '-t' . intval($t['id']);
+    }
+
     /** Kennung der Seite für Google-IDs (mehrere Seiten können einen Aussteller teilen). */
-    private static function site_key(): string {
+    public static function site_key(): string {
         return preg_replace('/[^a-z0-9]+/', '_', strtolower((string) parse_url(home_url(), PHP_URL_HOST)));
     }
 
