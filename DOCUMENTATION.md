@@ -3571,3 +3571,23 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
 - **Optionen:** `tix_degaso` (Schlüssel AES-256-GCM, nie in Antworten), `tix_degaso_state` (je Code), `tix_degaso_queue`, `tix_degaso_log` (50).
 - **REST** (Einzel-Seite: Inhaber/Team-Admin/Admin; Mehr-Veranstalter-Modus nur Admin): `GET/POST /degaso/admin`, `POST /degaso/admin/check {api_key?, test?}`, `POST /degaso/admin/sync`, `POST /degaso/admin/import {dry_run}`.
 - **Tests:** `tests/test-degaso.php` gegen eine Attrappe der Voucher API (91 Prüfungen).
+
+## 70. Degaso: Getränkekarte und Abendkasse mit TSE (ab 1.38.557)
+
+Beide Bausteine brauchen nur den Degaso-Schlüssel (§69), nicht den Gutschein-Schalter. Standard: aus.
+
+**Getränkekarte** (`class-tix-degaso-menu.php`, nur Anzeige):
+- Quelle Selforder `POST /getMenuByCustomer`; `normalize()` liest Menüs je Kasse (categories, products) tolerant (name/title, price „3.50“/„3,50“, categoryId/category/categoryName, infoText, hidden/active/showOnGimig=false → weg).
+- Zwischenspeicher Option `tix_degaso_menu`, neu höchstens alle 30 min (Cron `tix_degaso_cron`, Abruf), bei Fehler bleibt der letzte Stand.
+- `GET /public/drinks` → `{ok, enabled, title, updated_at, categories [{name, items [{name, price, info}]}], youth_note, note, currency}` (5 min Cache-Header). Jugendschutz-Hinweis immer: `menu_youth` `16_18` (Standard) | `18`.
+- Studio: `GET /degaso/admin/menu?fresh=1` (alle Kategorien mit `hidden`, Kassen). Einstellungen in `POST /degaso/admin`: `menu_enabled`, `menu_cash`, `menu_hidden[]`, `menu_youth`, `menu_note`.
+
+**Abendkasse über Degaso-TSE** (`class-tix-degaso-pos.php`):
+- Filter `tix_pos_sign_sale` in `pos_create_order` VOR dem Anlegen: bar/Karte (> 0 €) → Router `…/route/<apiKey>/<Kasse>/orderArticles` + `/payOrder` (BAR|EC). Fehler → 503 `tix_pos_tse_unavailable`, kein Verkauf.
+- Danach `tix_pos_signed` (Beleg in Option `_tix_pos_receipt_<order>`, Notiz), bei gescheiterter Bestellung `tix_pos_sign_cancel` → Storno-Bon; `pos_void_order` → `tix_pos_voided` → Storno-Bon (`payOrder isStorno`).
+- Antwort `/pos/orders` hat zusätzlich `receipt {provider, cash, order_id}`.
+- Artikel: `tse_map` (Ticketart klein → {id, name}), sonst `tse_default`; Preis aus Tixomat (Rabatt anteilig, Rundung auf der letzten Position), Steuersatz aus dem Degaso-Artikel. `tse_cash`, `tse_employee`.
+- Studio: `GET /degaso/admin/pos[?cash=]` → Kassen (Cloud `/getRegisters`), Artikel live (`/getAllProducts`), Ticketarten der Events ±60 Tage.
+- Antwortformate der Kasse sind bei Degaso nicht beschrieben (Annahmen im Kopf der Klasse) – mit dem Testschlüssel prüfen.
+
+**Tests:** `tests/test-degaso-paket2.php` (51 Prüfungen, Attrappe mit Menü, Kassenliste und Router).

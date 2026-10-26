@@ -2140,6 +2140,11 @@ class TIX_REST_API {
         $name_parts = preg_split('/\s+/', trim($customer_name !== '' ? $customer_name : 'Kasse'), 2);
         $staff      = wp_get_current_user();
 
+        // Kassenbon mit TSE über eine angebundene Kasse (Degaso, 1.38.557): Fehler = kein Verkauf, nie still ohne Bon
+        $receipt = apply_filters('tix_pos_sign_sale', null, ['event_id' => $event_id, 'event_title' => $event_title, 'items' => $cart['items'],
+            'subtotal' => round($subtotal, 2), 'discount' => $discount, 'total' => $total, 'payment' => $payment, 'coupon' => $coupon_info]);
+        if (is_wp_error($receipt)) return $receipt;
+
         // Warenkorb in die Session des Mitarbeiters legen (create_order liest Gutschein/Gebühren daraus)
         $previous_cart = TIX_Native_Checkout::get_cart();
         TIX_Native_Checkout::save_cart($cart);
@@ -2160,9 +2165,11 @@ class TIX_REST_API {
         if (!$order_id) {
             if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);
             else TIX_Native_Checkout::clear_cart();
+            if ($receipt) do_action('tix_pos_sign_cancel', $receipt, 'order_failed'); // Bon zurücknehmen (1.38.557)
             return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);
+        if ($receipt) do_action('tix_pos_signed', $order_id, $receipt);
         self::pos_meta($order_id, array_filter([
             'payment'    => $payment,
             'staff_id'   => intval($staff->ID),
@@ -2210,7 +2217,7 @@ class TIX_REST_API {
             'payment'      => $payment,
             'checked_in'   => (bool) $checkin,
             'tickets'      => $tickets,
-        ]);
+        ] + (is_array($receipt) ? ['receipt' => ['provider' => (string) $receipt['provider'], 'cash' => (string) $receipt['cash'], 'order_id' => (string) $receipt['order_id']]] : []));
     }
 
     /**
@@ -2322,6 +2329,7 @@ class TIX_REST_API {
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, '↩️ Kassen-Storno (App) durch ' . wp_get_current_user()->display_name, 'pos');
         }
+        do_action('tix_pos_voided', $order_id); // Storno-Bon an der angebundenen Kasse (Degaso, 1.38.557)
         return rest_ensure_response(['ok' => true, 'message' => 'Bestellung storniert.', 'coupon_restored' => $restored]);
     }
 

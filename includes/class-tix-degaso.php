@@ -58,7 +58,7 @@ class TIX_Degaso {
         add_action(self::CRON, [__CLASS__, 'cron']);
         add_action(self::CRON_DAY, [__CLASS__, 'daily']);
         add_action('init', function () {
-            if (!self::active()) return;
+            if (!self::connected()) return;
             if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 120, 'tix_10min', self::CRON);
             if (!wp_next_scheduled(self::CRON_DAY)) wp_schedule_event(strtotime('tomorrow 04:30'), 'daily', self::CRON_DAY);
         });
@@ -67,8 +67,9 @@ class TIX_Degaso {
     // ═══════════════ Einstellungen ═══════════════
 
     public static function defaults() {
-        return ['enabled' => false, 'api_key' => '', 'test_mode' => false, 'test_api_key' => '', 'bar_redeem' => false,
-            'expiry_action' => 'none', 'last_pull' => '', 'last_ok' => '', 'connected_at' => ''];
+        // weitere Bausteine (Getränkekarte, Abendkasse) hängen ihre Felder an (1.38.557)
+        return apply_filters('tix_degaso_defaults', ['enabled' => false, 'api_key' => '', 'test_mode' => false, 'test_api_key' => '', 'bar_redeem' => false,
+            'expiry_action' => 'none', 'last_pull' => '', 'last_ok' => '', 'connected_at' => '']);
     }
 
     public static function settings() {
@@ -86,8 +87,14 @@ class TIX_Degaso {
         return self::decrypt($s['test_mode'] ? $s['test_api_key'] : $s['api_key']);
     }
 
+    /** Gutscheine über Degaso (Schalter „enabled“) */
     public static function active() {
         return !empty(self::settings()['enabled']) && self::key() !== '';
+    }
+
+    /** Schlüssel gesetzt – Grundlage für alle Bausteine (Gutscheine, Getränkekarte, Abendkasse) */
+    public static function connected() {
+        return self::key() !== '';
     }
 
     /** Gutschein abbuchen in Tixomat „Kasse & Bar“ erlaubt? (ohne Degaso wie bisher) */
@@ -146,6 +153,46 @@ class TIX_Degaso {
             return ['ok' => $ok, 'status' => $status, 'data' => $json, 'reason' => $ok ? '' : (string) ($json['failureReason'] ?? 'http')];
         }
         return ['ok' => false, 'status' => 0, 'data' => [], 'reason' => 'network'];
+    }
+
+    /**
+     * Aufruf an eine Degaso-Kasse über den Router (https://router.degaso.de:8080/route/<apiKey>/<Kasse>/<Endpunkt>, 1.38.557).
+     * Nur erreichbar, solange die Kasse an und online ist. → wie call(); GET wird bei Netzfehler einmal wiederholt, POST nicht
+     * (Bestellungen anlegen ist nicht wiederholbar). Die Adresse enthält den Schlüssel – sie wird nie protokolliert.
+     */
+    public static function register_call($method, $endpoint, $cash, array $body = []) {
+        $key = self::key();
+        if ($key === '' || $cash === '') return ['ok' => false, 'status' => 0, 'data' => [], 'reason' => 'ERROR_FORBIDDEN'];
+        $tries = $method === 'GET' ? 2 : 1;
+        for ($try = 0; $try < $tries; $try++) {
+            if (self::$transport) {
+                list($status, $json) = call_user_func(self::$transport, '@register' . $endpoint, $body + ['_method' => $method, '_cash' => $cash, '_key' => $key]);
+            } else {
+                $url = (defined('TIX_DEGASO_ROUTER') ? rtrim(TIX_DEGASO_ROUTER, '/') : 'https://router.degaso.de:8080') . '/route/' . rawurlencode($key) . '/' . rawurlencode($cash) . $endpoint;
+                $args = ['method' => $method, 'timeout' => 10, 'headers' => ['Accept' => 'application/json']];
+                if ($method !== 'GET') { $args['headers']['Content-Type'] = 'application/json'; $args['body'] = wp_json_encode($body); }
+                $res = wp_remote_request($url, $args);
+                if (is_wp_error($res)) { $status = 0; $json = null; }
+                else { $status = intval(wp_remote_retrieve_response_code($res)); $json = json_decode((string) wp_remote_retrieve_body($res), true); }
+            }
+            if ($status === 0) continue;
+            $ok = $status >= 200 && $status < 300;
+            return ['ok' => $ok, 'status' => $status, 'data' => is_array($json) ? $json : [], 'reason' => $ok ? '' : ($status >= 500 || $status === 404 ? 'register_offline' : 'http')];
+        }
+        return ['ok' => false, 'status' => 0, 'data' => [], 'reason' => 'network'];
+    }
+
+    /** Kassennamen des Betriebs aus der Cloud (/getRegisters) */
+    public static function register_names() {
+        $r = self::call('/getRegisters', []);
+        if (!$r['ok']) return null;
+        $list = isset($r['data']['registers']) ? $r['data']['registers'] : (isset($r['data']['data']) ? $r['data']['data'] : $r['data']);
+        $out = [];
+        foreach ((array) $list as $x) {
+            $n = is_array($x) ? (string) ($x['name'] ?? $x['cashName'] ?? '') : (is_string($x) ? $x : '');
+            if ($n !== '' && !in_array($n, $out, true)) $out[] = $n;
+        }
+        return $out;
     }
 
     private static function base() {
@@ -410,6 +457,8 @@ class TIX_Degaso {
 
     /** Cron: Warteschlange, ausstehende Gutscheine, Abgleich */
     public static function cron() {
+        if (!self::connected()) return;
+        do_action('tix_degaso_cron'); // Getränkekarte u. a. (1.38.557)
         if (!self::active()) return;
         self::run_queue();
         self::push_pending();
@@ -614,10 +663,11 @@ class TIX_Degaso {
             'settings' => [
                 'enabled' => !empty($s['enabled']), 'test_mode' => !empty($s['test_mode']), 'bar_redeem' => !empty($s['bar_redeem']),
                 'expiry_action' => $s['expiry_action'] === 'clear' ? 'clear' : 'none',
-            ],
+            ] + (array) apply_filters('tix_degaso_settings_out', [], $s),
             'key' => ['set' => self::decrypt($s['api_key']) !== '', 'last4' => self::last4($s['api_key'])],
             'test_key' => ['set' => self::decrypt($s['test_api_key']) !== '', 'last4' => self::last4($s['test_api_key'])],
             'active' => self::active(),
+            'connected' => self::connected(),
             'status' => [
                 'synced' => $count['ok'], 'pending' => $count['pending'], 'conflicts' => $count['conflict'], 'queue' => count($queue),
                 'import_open' => count(self::import_candidates()), 'last_sync' => (string) $s['last_pull'] !== '' ? get_date_from_gmt($s['last_pull']) : '',
@@ -649,10 +699,12 @@ class TIX_Degaso {
         if (!empty($p['clear_test_key'])) $s['test_api_key'] = '';
         foreach (['enabled', 'test_mode', 'bar_redeem'] as $b) if (array_key_exists($b, $p)) $s[$b] = filter_var($p[$b], FILTER_VALIDATE_BOOLEAN);
         if (array_key_exists('expiry_action', $p)) $s['expiry_action'] = $p['expiry_action'] === 'clear' ? 'clear' : 'none';
+        $s = apply_filters('tix_degaso_settings_in', $s, $p); // Getränkekarte, Abendkasse (1.38.557)
+        if (is_wp_error($s)) return $s;
         $was_test = !empty(self::settings()['test_mode']);
         if ($s['test_mode'] !== $was_test) { $s['last_pull'] = ''; delete_option(self::STATE); delete_option(self::QUEUE); } // anderer Betrieb: neu zuordnen
         self::save($s);
-        if (self::active() && !wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 60, 'tix_10min', self::CRON);
+        if (self::connected() && !wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 60, 'tix_10min', self::CRON);
         return self::out(self::payload());
     }
 
