@@ -305,7 +305,8 @@ class TIX_Degaso {
             }
             return ['ok' => false, 'message' => $pushed . ' Bitte gleich nochmal versuchen.', 'balance' => $local];
         }
-        $r = self::call('/vouchers/payment', ['objectIds' => [$code], 'totalRedeemAmount' => $amount, 'paymentId' => $pid, 'orderId' => (string) $ref]);
+        $ref = self::order_ref($ref);
+        $r = self::call('/vouchers/payment', array_filter(['objectIds' => [$code], 'totalRedeemAmount' => $amount, 'paymentId' => $pid, 'orderId' => $ref], function ($x) { return $x !== ''; }));
         if ($r['ok'] || $r['reason'] === 'ERROR_PAYMENT_ID_USED') {
             $v = $r['ok'] ? self::remote_voucher($r, $code) : null;
             $bal = $v ? round(floatval($v['object']['balance'] ?? 0), 2) : self::remote_balance($code, max(0, $local - $amount));
@@ -326,6 +327,11 @@ class TIX_Degaso {
             return ['ok' => true, 'balance' => max(0, round($local - $amount, 2))];
         }
         return ['ok' => false, 'message' => self::fail_msg($r['reason']) . ($r['reason'] === 'network' ? ' Bitte gleich nochmal versuchen.' : ''), 'balance' => $local];
+    }
+
+    /** Nur Bestellnummern gehen als orderId an Degaso, keine Logins oder sonstigen Bezüge (Datenschutz) */
+    private static function order_ref($ref) {
+        return preg_match('/^order#\d+$/', (string) $ref) ? (string) $ref : '';
     }
 
     private static function remote_balance($code, $fallback) {
@@ -367,7 +373,7 @@ class TIX_Degaso {
             $amount = $j['op'] === 'pay' ? floatval($j['amount']) : self::remote_balance($code, -1);
             if ($amount < 0) return false;
             if ($amount <= 0) return true;
-            $r = self::call('/vouchers/payment', ['objectIds' => [$code], 'totalRedeemAmount' => $amount, 'paymentId' => $j['pid'], 'orderId' => (string) ($j['ref'] ?? '')]);
+            $r = self::call('/vouchers/payment', array_filter(['objectIds' => [$code], 'totalRedeemAmount' => $amount, 'paymentId' => $j['pid'], 'orderId' => self::order_ref($j['ref'] ?? '')], function ($x) { return $x !== ''; }));
             if (!$r['ok'] && $r['reason'] === 'ERROR_VALUE_CHANGED' && $j['op'] === 'pay') {
                 $rest = self::remote_balance($code, 0);
                 if ($rest > 0) self::call('/vouchers/payment', ['objectIds' => [$code], 'totalRedeemAmount' => $rest, 'paymentId' => $j['pid'] . '-rest']);

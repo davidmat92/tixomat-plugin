@@ -302,6 +302,7 @@ ok($g['degaso_only'], 'Scan zeigt degaso_only');
 save(['bar_redeem' => true]);
 $res = TIX_Giftcard_Pos::rest_redeem(new WP_REST_Request(['code' => 'GS-CCCC-0003', 'amount' => '5', 'idempotency_key' => 'k1']))->get_data();
 ok($res['ok'], 'mit Schalter: Bar bucht');
+ok(!isset(end($fake->v[$LIVE]['GS-CCCC-0003']['history'])['orderId']), 'kein Login des Personals an Degaso');
 eq('Degaso 5', 5.0, $fake->bal('GS-CCCC-0003'));
 eq('lokal 5', 5.0, card('GS-CCCC-0003')['balance']);
 $rid = $res['redemption_id'];
