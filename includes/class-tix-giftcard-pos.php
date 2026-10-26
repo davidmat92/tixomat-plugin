@@ -75,7 +75,8 @@ class TIX_Giftcard_Pos {
         foreach (array_slice((array) ($card['redemptions'] ?? []), -10) as $r) {
             if (!is_array($r)) continue;
             $red[] = ['id' => isset($r['id']) ? (string) $r['id'] : null, 'at' => (string) ($r['ts'] ?? ''), 'amount' => round(floatval($r['amount'] ?? 0), 2),
-                'channel' => (string) ($r['channel'] ?? ''), 'rest' => round(floatval($r['rest'] ?? 0), 2), 'voided' => !empty($r['voided'])];
+                'channel' => (string) ($r['channel'] ?? ''), 'rest' => round(floatval($r['rest'] ?? 0), 2), 'voided' => !empty($r['voided'])]
+                + (($r['channel'] ?? '') === 'degaso' ? ['place' => substr((string) ($r['ref'] ?? ''), 7)] : []); // Degaso: Kasse und Bon-Nr. (1.38.555)
         }
         $oid = intval($card['organizer_id'] ?? 0);
         $g = is_array($card['gift'] ?? null) ? $card['gift'] : [];
@@ -90,6 +91,7 @@ class TIX_Giftcard_Pos {
             'organizer_name' => self::org_name($oid),
             'recipient_name' => ($g['recipient_name'] ?? '') !== '' ? (string) $g['recipient_name'] : null,
             'redemptions'    => array_reverse($red),
+            'degaso_only'    => class_exists('TIX_Degaso') && !TIX_Degaso::bar_allowed(), // an der Bar nur an der Degaso-Kasse (1.38.555)
         ];
     }
 
@@ -103,6 +105,7 @@ class TIX_Giftcard_Pos {
         $card = self::resolve($req['code']);
         if (!$card) return new WP_Error('tix_giftcard_unknown', 'Diesen Gutschein kennen wir nicht. Bitte den Code prüfen.', ['status' => 404]);
         if ($e = self::scope_error($card)) return $e;
+        if (has_action('tix_giftcard_refresh')) { do_action('tix_giftcard_refresh', (string) $card['code']); $card = self::fresh((string) $card['code']) ?: $card; } // Saldo der Degaso-Kasse (1.38.555)
         return self::out(['ok' => true] + self::payload($card));
     }
 
@@ -123,6 +126,11 @@ class TIX_Giftcard_Pos {
         $idem = substr(sanitize_text_field((string) ($req->get_param('idempotency_key') ?? '')), 0, 64);
         $event_id = intval($req->get_param('event_id') ?? 0);
         $code = (string) $card['code'];
+        // Degaso-Kasse führt die Gutscheine (1.38.555): an der Bar dort einlösen, außer der Schalter erlaubt es hier
+        if (class_exists('TIX_Degaso') && !TIX_Degaso::bar_allowed()) {
+            return new WP_Error('tix_giftcard_degaso_only', 'Gutscheine bitte an der Degaso-Kasse einlösen (Zahlart Gutschein).', ['status' => 409]);
+        }
+        do_action('tix_giftcard_refresh', $code);
         $lock = 'tix_gc_' . md5(strtoupper($code));
         if (!intval($wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock)))) return new WP_Error('tix_busy', 'Gerade viel los – bitte nochmal.', ['status' => 409]);
         try {
@@ -193,6 +201,7 @@ class TIX_Giftcard_Pos {
         } finally {
             $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
         }
+        do_action('tix_giftcard_credited', (string) $key, $a, 'void-' . $rid); // Degaso (1.38.555)
         return self::out(['ok' => true, 'code' => (string) $key, 'amount' => $a, 'balance' => $new, 'balance_after' => $new, 'replay' => false]);
     }
 }

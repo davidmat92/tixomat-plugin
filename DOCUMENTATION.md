@@ -3555,3 +3555,19 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - **Tippfehler:** Name, Bestell- und Belegnummern merkt sich der Server, ohne sie ans Modell zu geben. Die Übergabe nimmt sie unter „Vom Gast im Chat genannt“ mit.
 - **Avatar (ab 1.38.554):** eigenes Assistent-Bild `avatar_id` in `/assistant/settings` (Mediathek-Bild, 0 = keins) → sonst Website-Icon (`get_site_icon_url(192)`) → sonst Marken-Logo. `bot_avatar_id` des alten Bots gilt nicht mehr.
 - **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (133 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
+
+## 69. Degaso-Kasse: Gutscheine (ab 1.38.555)
+
+`includes/class-tix-degaso.php`, Plan `tixomat-apps/docs/plan-degaso.md`. Nur aktiv mit Schalter + Schlüssel (Studio „Einlass & Kasse → Degaso-Kasse“); ohne Schlüssel ändert sich nichts.
+
+- **Degaso führt den Saldo**, Tixomat stellt aus und spiegelt. API `https://api.alleskasse.de` (POST, `apiKey` im Body), Konstante `TIX_DEGASO_BASE` nur für Tests.
+- **Ausstellen:** `tix_order_completed` (Prio 30) → `/vouchers/new {objectId: GS-…}` + `/vouchers/topup`. Gibt es den Code schon: ok, wenn der Verlauf eine unserer paymentIds hat; sonst Zustand `conflict`.
+- **Einlösen:** Filter `tix_giftcard_redeem_remote` in `TIX_Giftcards::redeem()` → `/vouchers/payment`; lokal danach Saldo von Degaso. Kanäle `online`/`pos` (bezahlte Bestellung) werden nie abgelehnt (Ausfall → Warteschlange, Fehlbetrag → Protokoll `conflict`), alle anderen (Bar, Guthaben) werden bei Fehler abgelehnt.
+- **Bar:** `/pos/giftcard/redeem` → 409 `tix_giftcard_degaso_only`, solange `bar_redeem` aus ist (Standard). `GET /pos/giftcard/{code}` liefert `degaso_only` und je Degaso-Buchung `place` (Kasse + Bon-Nr.).
+- **Rückbuchung/Rest weg:** Aktionen `tix_giftcard_credited` (Storno, Bar-Storno → topup) und `tix_giftcard_cleared` (Bestellung storniert → ganzer Degaso-Saldo per payment).
+- **Rückweg:** Cron `tix_degaso_sync` (10 min): Warteschlange, ausstehende Gutscheine, `/vouchers/list {from, includeOrigin}`. Live `tix_giftcard_refresh` (Kasse, Scan, Guthaben-Umbuchung; höchstens alle 20 s je Code). Fremde Buchungen → Kanal `degaso`, Rest per `degaso:abgleich`.
+- **paymentId:** `tix-<host>-<art>-<bezug>`; Art `o` Ausgabe, `i` Import, `r` Einlösung (Einlöse-ID), `v` Rückbuchung, `c` Rest weg, `x` Ablauf.
+- **Ablauf:** `expiry_action` `none` (Standard) | `clear` (Cron `tix_degaso_daily`, Rest bei Degaso abbuchen, lokal Kanal `expired`).
+- **Optionen:** `tix_degaso` (Schlüssel AES-256-GCM, nie in Antworten), `tix_degaso_state` (je Code), `tix_degaso_queue`, `tix_degaso_log` (50).
+- **REST** (Einzel-Seite: Inhaber/Team-Admin/Admin; Mehr-Veranstalter-Modus nur Admin): `GET/POST /degaso/admin`, `POST /degaso/admin/check {api_key?, test?}`, `POST /degaso/admin/sync`, `POST /degaso/admin/import {dry_run}`.
+- **Tests:** `tests/test-degaso.php` gegen eine Attrappe der Voucher API (91 Prüfungen).

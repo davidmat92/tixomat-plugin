@@ -448,16 +448,19 @@ class TIX_Giftcards {
         $order_id = intval($order_id);
         wp_cache_delete('tix_coupons', 'options');
         $coupons = get_option('tix_coupons', []);
-        $changed = false;
+        $changed = [];
         foreach ($coupons as $k => &$c) {
             if (($c['discount_type'] ?? '') === 'giftcard' && intval($c['order_id'] ?? 0) === $order_id && floatval($c['balance'] ?? 0) > 0) {
                 $c['redemptions'][] = ['ts' => current_time('mysql'), 'amount' => floatval($c['balance']), 'channel' => 'storno', 'ref' => 'order-cancelled', 'rest' => 0];
                 $c['balance'] = 0;
-                $changed = true;
+                $changed[$k] = floatval($c['redemptions'][count($c['redemptions']) - 1]['amount']);
             }
         }
         unset($c);
-        if ($changed) update_option('tix_coupons', $coupons);
+        if ($changed) {
+            update_option('tix_coupons', $coupons);
+            foreach ($changed as $k => $a) do_action('tix_giftcard_cleared', (string) $k, $a, 'order' . $order_id . '-' . $k); // Degaso (1.38.555)
+        }
     }
 
     /* ─────────── Einloesen (atomar-ish: frischer Read + Clamp) ─────────── */
@@ -484,17 +487,27 @@ class TIX_Giftcards {
         if (!empty($card['expires']) && strtotime($card['expires'] . ' 23:59:59') < current_time('timestamp')) {
             return ['ok' => false, 'message' => 'Gutschein abgelaufen (' . $card['expires'] . ').', 'balance' => $balance, 'value' => $value];
         }
-        if ($balance <= 0) {
-            return ['ok' => false, 'message' => 'Guthaben aufgebraucht.', 'balance' => 0, 'value' => $value];
-        }
-        if ($amount > $balance + 0.001) {
-            return ['ok' => false, 'message' => 'Betrag uebersteigt Restguthaben (' . number_format($balance, 2, ',', '.') . ' €).', 'balance' => $balance, 'value' => $value];
-        }
-
-        $new_balance = round($balance - $amount, 2);
-        $coupons[$key]['balance'] = $new_balance;
         // id je Buchung (1.38.496, Storno an der Bar), $extra: by, event_id, idem …
         $rid = (string) ($extra['id'] ?? '') !== '' ? (string) $extra['id'] : strtolower(wp_generate_password(12, false));
+
+        // Führt eine Kasse den Saldo (Degaso, 1.38.555), bucht sie zuerst; lokal wird danach ihr Saldo übernommen.
+        $remote = apply_filters('tix_giftcard_redeem_remote', null, (string) $key, $amount, $channel, $ref, $rid);
+        if (is_array($remote)) {
+            if (empty($remote['ok'])) return ['ok' => false, 'message' => (string) ($remote['message'] ?? 'Gutschein konnte nicht abgebucht werden.'), 'balance' => round(floatval($remote['balance'] ?? $balance), 2), 'value' => $value];
+            wp_cache_delete('tix_coupons', 'options'); // die Kasse hat gedauert – frisch lesen
+            $coupons = get_option('tix_coupons', []);
+            $balance = round(floatval($coupons[$key]['balance'] ?? $balance), 2);
+            $new_balance = round(max(0, floatval($remote['balance'] ?? ($balance - $amount))), 2);
+        } else {
+            if ($balance <= 0) {
+                return ['ok' => false, 'message' => 'Guthaben aufgebraucht.', 'balance' => 0, 'value' => $value];
+            }
+            if ($amount > $balance + 0.001) {
+                return ['ok' => false, 'message' => 'Betrag uebersteigt Restguthaben (' . number_format($balance, 2, ',', '.') . ' €).', 'balance' => $balance, 'value' => $value];
+            }
+            $new_balance = round($balance - $amount, 2);
+        }
+        $coupons[$key]['balance'] = $new_balance;
         $coupons[$key]['redemptions'][] = array_merge($extra, [
             'id' => $rid, 'ts' => current_time('mysql'), 'amount' => $amount, 'channel' => $channel, 'ref' => $ref, 'rest' => $new_balance,
         ]);
@@ -539,6 +552,7 @@ class TIX_Giftcards {
         }
         update_option('tix_coupons', $coupons);
         update_option('_tix_coupon_restored_' . $order_id, $out, false);
+        if ($out['type'] === 'giftcard') do_action('tix_giftcard_credited', (string) $key, $amount, 'storno' . $order_id); // Degaso (1.38.555)
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, $out['type'] === 'giftcard'
                 ? sprintf('🎁 Gutschein %s: %s € zurückgebucht (Rest %s €)', $out['code'], number_format($amount, 2, ',', '.'), number_format($out['balance'], 2, ',', '.'))
