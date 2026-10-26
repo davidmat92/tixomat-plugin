@@ -29,6 +29,9 @@ if (!defined('ABSPATH')) exit;
  *   POST /organizer/coupons                                        anlegen
  *   POST /organizer/coupons/{code}                                 ändern (Teil-Update)
  *   DELETE /organizer/coupons/{code}                               löschen
+ * Automatisch einlösen (1.38.560, Vertrag gutschein-auto-einloesen): je Gutschein `app_auto` (App, Alias `auto_apply`)
+ * und `web_auto` (= TIX_Coupons `auto_apply`: Website/Onlineshop zieht ihn ab, exklusiv je Seite; `web_auto: true` nimmt
+ * ihn allen anderen). Liste und Antworten: `can_web_auto` (Mehr-Veranstalter nur Admin), `web_auto_code`.
  */
 class TIX_App_Coupons {
 
@@ -147,11 +150,16 @@ class TIX_App_Coupons {
         return preg_match('#^https://#', $u) ? $u : null;
     }
 
-    /** Freundliche Meldung für eingelöste App-Gutscheine (Quote). */
+    /**
+     * Freundliche Meldung für eingelöste Gutscheine (Quote): App-Gutscheine sowie (außerhalb der App) automatisch eingelöste.
+     * „App-Gutschein“ nur in der App, auf Website/Onlineshop neutral „Gutschein“ (1.38.560).
+     */
     public static function applied_message($coupon) {
-        if (!is_array($coupon) || (empty($coupon['app_only']) && empty($coupon['app_promote']))) return '';
+        if (!is_array($coupon)) return '';
+        $app = self::is_app_request();
+        if (empty($coupon['app_only']) && empty($coupon['app_promote']) && ($app || empty($coupon['auto_apply']))) return '';
         $t = trim((string) ($coupon['app_title'] ?? '')) ?: (string) ($coupon['code'] ?? '');
-        return 'App-Gutschein „' . $t . '“ eingelöst.';
+        return ($app ? 'App-Gutschein' : 'Gutschein') . ' „' . $t . '“ eingelöst.';
     }
 
     // ── Felder ──
@@ -368,7 +376,10 @@ class TIX_App_Coupons {
             'organizer_id'   => intval($c['organizer_id']),
             'app_only'       => !empty($c['app_only']),
             'promote_in_app' => !empty($c['app_promote']),
-            'auto_apply'     => !empty($c['app_auto']),
+            'auto_apply'     => !empty($c['app_auto']), // Alias für app_auto (ältere Apps/Studio)
+            'app_auto'       => !empty($c['app_auto']),
+            // Website/Onlineshop zieht ihn automatisch ab (TIX_Coupons auto_apply, exklusiv je Seite, 1.38.560)
+            'web_auto'       => !empty($c['auto_apply']),
             'title'          => (string) $c['app_title'],
             'text'           => (string) $c['app_text'],
             'promote_from'   => (string) $c['app_from'],
@@ -382,9 +393,42 @@ class TIX_App_Coupons {
         $oid = self::scope_org();
         $out = [];
         foreach (self::all() as $k => $c) if (self::visible($c, $oid)) $out[] = self::staff_item($k, $c);
-        $r = rest_ensure_response(['ok' => true, 'coupons' => $out, 'can_app_fields' => true, 'organizer_id' => $oid, 'text_max' => self::TEXT_MAX]);
+        $r = rest_ensure_response(['ok' => true, 'coupons' => $out, 'can_app_fields' => true, 'organizer_id' => $oid, 'text_max' => self::TEXT_MAX,
+            'can_web_auto' => self::can_web_auto(), 'web_auto_code' => self::web_auto_code()]);
         $r->header('Cache-Control', 'no-store');
         return $r;
+    }
+
+    /** web_auto gilt für die ganze Seite: Einzel-Seite Inhaber/Admin, Mehr-Veranstalter nur Admin. */
+    private static function can_web_auto() {
+        return TIX_App_Scope::is_admin() || !TIX_App_Scope::multi();
+    }
+
+    /** Code des Gutscheins, den die Website automatisch abzieht (null = keiner; nur sichtbar, wer ihn setzen darf). */
+    private static function web_auto_code() {
+        if (!self::can_web_auto()) return null;
+        foreach (self::all() as $k => $c) if (is_array($c) && !empty($c['auto_apply'])) return (string) $k;
+        return null;
+    }
+
+    /** web_auto exklusiv setzen (wie das Admin-Formular): an → bei allen anderen aus. */
+    private static function store_web_auto(array $all, $code, $on) {
+        foreach ($all as $k => &$c) {
+            if (!is_array($c)) continue;
+            if ((string) $k === (string) $code) $c['auto_apply'] = $on ? 1 : 0;
+            elseif ($on && !empty($c['auto_apply'])) $c['auto_apply'] = 0;
+        }
+        unset($c);
+        return $all;
+    }
+
+    /** web_auto aus dem Body: null = nicht übergeben, sonst bool bzw. WP_Error ohne Recht. */
+    private static function web_auto_in(WP_REST_Request $req) {
+        $p = $req->get_json_params();
+        if (!is_array($p)) $p = $req->get_body_params();
+        if (!array_key_exists('web_auto', (array) $p)) return null;
+        if (!self::can_web_auto()) return new WP_Error('rest_forbidden', 'Automatisch im Onlineshop einlösen gilt für die ganze Seite und setzt nur ein Admin.', ['status' => 403, 'field' => 'web_auto']);
+        return filter_var($p['web_auto'], FILTER_VALIDATE_BOOLEAN);
     }
 
     /** REST-Eingaben (Namen wie in staff_item) → Gutschein. */
@@ -393,7 +437,10 @@ class TIX_App_Coupons {
         if (!is_array($p)) $p = $req->get_body_params();
         $map = ['promote_in_app' => 'app_promote', 'auto_apply' => 'app_auto', 'title' => 'app_title', 'text' => 'app_text', 'promote_from' => 'app_from', 'promote_until' => 'app_until'];
         $in = [];
-        foreach ($p as $k => $v) $in[$map[$k] ?? $k] = $v;
+        foreach ($p as $k => $v) {
+            if ($k === 'web_auto') continue; // eigener Weg (store_web_auto)
+            $in[$map[$k] ?? $k] = $v;
+        }
         if ($create || array_key_exists('discount_type', $in)) {
             $t = (string) ($in['discount_type'] ?? 'percent');
             if (!in_array($t, ['percent', 'fixed', 'per_ticket_percent', 'per_ticket_fixed'], true)) return new WP_Error('tix_invalid_field', 'Unbekannte Rabatt-Art.', ['status' => 400, 'field' => 'discount_type']);
@@ -439,9 +486,13 @@ class TIX_App_Coupons {
         if (!preg_match('/^[A-Z0-9_-]{3,40}$/', $code)) return new WP_Error('tix_invalid_field', 'Code: 3–40 Zeichen, A–Z, 0–9, _ und -.', ['status' => 400, 'field' => 'code']);
         $all = self::all();
         foreach (array_keys($all) as $k) if (strcasecmp((string) $k, $code) === 0) return new WP_Error('tix_coupon_exists', 'Diesen Code gibt es schon.', ['status' => 409, 'field' => 'code']);
+        $web = self::web_auto_in($req);
+        if (is_wp_error($web)) return $web;
         $c = self::from_rest(['code' => $code, 'used' => 0, 'max_uses' => 0, 'expires' => '', 'description' => '', 'auto_apply' => 0], $req, $oid, true);
         if (is_wp_error($c)) return $c;
         $all[$code] = $c;
+        if ($web !== null) $all = self::store_web_auto($all, $code, $web);
+        $c = $all[$code];
         update_option('tix_coupons', $all);
         return self::saved($code, $c, 201);
     }
@@ -458,10 +509,14 @@ class TIX_App_Coupons {
         $oid = self::scope_org();
         $f = self::find_own($req['code'], $oid);
         if (!$f) return new WP_Error('tix_coupon_not_found', 'Gutschein nicht gefunden.', ['status' => 404]);
+        $web = self::web_auto_in($req);
+        if (is_wp_error($web)) return $web;
         $c = self::from_rest($f[1], $req, $oid, false);
         if (is_wp_error($c)) return $c;
         $all = self::all();
         $all[$f[0]] = $c;
+        if ($web !== null) $all = self::store_web_auto($all, $f[0], $web);
+        $c = $all[$f[0]];
         update_option('tix_coupons', $all);
         return self::saved($f[0], $c, 200);
     }
@@ -478,7 +533,7 @@ class TIX_App_Coupons {
     }
 
     private static function saved($code, $c, $status) {
-        $r = new WP_REST_Response(['ok' => true, 'coupon' => self::staff_item($code, $c)], $status);
+        $r = new WP_REST_Response(['ok' => true, 'coupon' => self::staff_item($code, $c), 'web_auto_code' => self::web_auto_code()], $status);
         $r->header('Cache-Control', 'no-store');
         return $r;
     }
