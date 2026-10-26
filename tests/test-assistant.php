@@ -94,6 +94,9 @@ function get_the_title($id) { return $id === 90 ? 'Lachwerk Köln' : ''; }
 class TIX_App_Scope { public static $multi = false; static function multi() { return self::$multi; } }
 class TIX_Customer_URL { const OPTION_DOMAINS = 'tix_org_domains_active'; static function to($u) { return $u; } }
 $GLOBALS['t_meta'] = [];
+function get_site_icon_url($size = 512) { return $GLOBALS['t_site_icon'] ?? ''; }
+function wp_attachment_is_image($id) { return $id === 55; }
+function wp_get_attachment_image_url($id, $size = 'thumbnail') { return $id === 55 ? 'https://kitchenklub.de/assistent-55.png' : false; }
 function rest_do_request($r) { throw new Exception('rest_do_request darf im Test nicht laufen'); }
 
 require __DIR__ . '/../includes/class-tix-assistant.php';
@@ -525,6 +528,24 @@ $h = $ho(['conversation_id' => $t1['conversation_id'], 'device_id' => 'device-ty
 $sp = end($GLOBALS['t_support_posts']);
 ok(!is_wp_error($h) && strpos($sp['message'], 'anna@exmaple.de') !== false && strpos($sp['message'], '7XK29384AB') !== false && strpos($sp['message'], '4711') !== false && strpos($sp['message'], 'Anna Muster') !== false, 'Übergabe enthält Adresse, Name, Bestell- und Belegnummer');
 ok(strpos($sp['message'], 'nicht an die KI') !== false, 'Angaben gekennzeichnet');
+
+// ═══ 17. Avatar ═══
+TIX_Assistant::reset();
+update_option(TIX_Assistant::OPT, ['enabled' => true]);
+$GLOBALS['t_settings']['bot_avatar_id'] = 55;
+$GLOBALS['t_site_icon'] = 'https://kitchenklub.de/icon-192.png';
+$cfgA = function () { $r = new WP_REST_Request('GET', ''); return TIX_Assistant::rest_config($r)->get_data(); };
+ok($cfgA()['avatar'] === 'https://kitchenklub.de/icon-192.png', 'Standard: Website-Icon, nicht das Bild des alten Bots');
+$GLOBALS['t_site_icon'] = '';
+ok($cfgA()['avatar'] === '', 'ohne Icon und Studio: leer');
+$sv = function ($b) { $r = new WP_REST_Request('POST', ''); $r->json = $b; return TIX_Assistant::rest_settings_save($r); };
+ok(is_wp_error($sv(['avatar_id' => 12])), 'kein Bild: abgelehnt');
+ok($sv(['avatar_id' => 55])->get_data()['avatar'] === 'https://kitchenklub.de/assistent-55.png', 'eigenes Assistent-Bild gespeichert');
+ok($cfgA()['avatar'] === 'https://kitchenklub.de/assistent-55.png', 'Config zeigt eigenes Bild');
+$GLOBALS['t_site_icon'] = 'https://kitchenklub.de/icon-192.png';
+$sv(['avatar_id' => 0]);
+ok($cfgA()['avatar'] === 'https://kitchenklub.de/icon-192.png', 'zurück auf Website-Icon');
+unset($GLOBALS['t_settings']['bot_avatar_id']);
 
 echo "$count Prüfungen, $fails Fehler\n";
 exit($fails ? 1 : 0);

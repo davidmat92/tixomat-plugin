@@ -164,6 +164,8 @@ class TIX_Assistant {
             'persona_text' => '',
             'support_handoff' => true,
             'daily_budget_eur' => 5.0,
+            // eigenes Assistent-Bild (Studio); 0 = Website-Icon der Seite
+            'avatar_id' => 0,
         ];
     }
 
@@ -176,7 +178,20 @@ class TIX_Assistant {
         $out['enabled'] = !empty($out['enabled']);
         $out['support_handoff'] = !empty($out['support_handoff']);
         $out['daily_budget_eur'] = (float) $out['daily_budget_eur'];
+        $out['avatar_id'] = intval($out['avatar_id']);
         return $out;
+    }
+
+    /**
+     * Avatar im Chat: eigenes Assistent-Bild (Einstellung avatar_id), sonst aktuelles Website-Icon, sonst Marken-Logo.
+     * Das Bild des alten Ticket-Bots (bot_avatar_id) gilt nicht mehr.
+     */
+    public static function avatar_url() {
+        $aid = self::settings()['avatar_id'];
+        if ($aid && function_exists('wp_get_attachment_image_url') && ($u = wp_get_attachment_image_url($aid, 'thumbnail'))) return (string) $u;
+        if (function_exists('get_site_icon_url') && ($u = get_site_icon_url(192))) return (string) $u;
+        if (class_exists('TIX_Studio') && method_exists('TIX_Studio', 'logo')) return (string) TIX_Studio::logo();
+        return '';
     }
 
     public static function enabled() {
@@ -209,6 +224,7 @@ class TIX_Assistant {
         $s['today'] = ['cost_eur' => round($u['cost_eur'], 2), 'messages' => $u['messages'], 'conversations' => $u['conversations']];
         $s['key_set'] = self::api_key() !== '';
         $s['model'] = self::MODEL;
+        $s['avatar'] = self::avatar_url();
         $s['sources'] = ['Events (Termine, Preise, Einlass, Alter, FAQ, Anfahrt)', 'App-Inhalte: FAQ und Seiten'];
         return $s;
     }
@@ -240,6 +256,11 @@ class TIX_Assistant {
         }
         if (isset($b['persona_text'])) $s['persona_text'] = self::clip(sanitize_textarea_field((string) $b['persona_text']), 500);
         if (array_key_exists('support_handoff', $b)) $s['support_handoff'] = !empty($b['support_handoff']);
+        if (array_key_exists('avatar_id', $b)) {
+            $aid = intval($b['avatar_id']);
+            if ($aid && !(function_exists('wp_attachment_is_image') && wp_attachment_is_image($aid))) return new WP_Error('tix_invalid_field', 'Bitte ein Bild aus der Mediathek wählen.', ['status' => 400, 'field' => 'avatar_id']);
+            $s['avatar_id'] = $aid;
+        }
         if (isset($b['daily_budget_eur'])) {
             $v = (float) str_replace(',', '.', (string) $b['daily_budget_eur']);
             if ($v < 0.5 || $v > 50) return new WP_Error('tix_invalid_field', 'Tagesbudget zwischen 0,50 € und 50 €.', ['status' => 400, 'field' => 'daily_budget_eur']);
@@ -266,9 +287,7 @@ class TIX_Assistant {
         self::set_org(self::org_for_host($req->get_param('site_host')));
         $s = self::settings();
         $reason = self::unavailable($channel);
-        $avatar = '';
-        $aid = intval(tix_get_settings('bot_avatar_id') ?? 0);
-        if ($aid && function_exists('wp_get_attachment_image_url')) $avatar = (string) (wp_get_attachment_image_url($aid, 'thumbnail') ?: '');
+        $avatar = self::avatar_url();
         $resp = rest_ensure_response([
             'enabled' => $reason === '',
             'reason' => $reason,

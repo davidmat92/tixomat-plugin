@@ -3553,4 +3553,5 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
   - **`show_tickets`:** Angemeldet stehen die Tickets direkt in der Antwort (`tickets`, nie über das Modell). Ohne Login geht über `/auth/code` (login) ein Code an die Bestell-E-Mail, dazu die Aktion `code:enter`.
   - **Code einlösen:** über `POST /assistant/code {conversation_id, device_id, code}`, oder der Gast tippt ihn ins Chatfeld; dann fängt der Server ihn ab, ohne Modell. Zurück kommen `{message, tickets [{…, qr: GL-{event}-{code}, wallet}], session {token, user}}`. Der Code steht nie im Protokoll.
   - **Tippfehler:** Name, Bestell- und Belegnummern merkt sich der Server, ohne sie ans Modell zu geben. Die Übergabe nimmt sie unter „Vom Gast im Chat genannt“ mit.
-- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (127 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
+- **Avatar (ab 1.38.554):** eigenes Assistent-Bild `avatar_id` in `/assistant/settings` (Mediathek-Bild, 0 = keins) → sonst Website-Icon (`get_site_icon_url(192)`) → sonst Marken-Logo. `bot_avatar_id` des alten Bots gilt nicht mehr.
+- **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (133 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
