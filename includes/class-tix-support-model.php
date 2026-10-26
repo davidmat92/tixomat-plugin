@@ -361,6 +361,11 @@ class TIX_Support_Model {
     /** Postfach: Admins sowie Inhaber und Team-Admins (Rolle Veranstalter); Einlass, DJ, Awareness, Kasse und App-Mitarbeiter 403. */
     public static function perm_staff(WP_REST_Request $req) {
         if (!class_exists('TIX_REST_API')) return false;
+        // Awareness-Meldungen (1.38.559): öffnen, gelesen, antworten, Status auch für Awareness-Rolle und Staff (report_access)
+        $tid = absint($req['id'] ?? 0);
+        if ($tid && self::awareness($tid) && preg_match('#/support/inbox/\d+(/(reply|status|read))?$#', (string) $req->get_route())) {
+            return TIX_Awareness_Live::report_access($tid) ? true : new WP_Error('not_found', 'Anfrage nicht gefunden.', ['status' => 404]);
+        }
         $c = TIX_REST_API::check_organizer($req);
         if ($c !== true) return $c;
         return self::support_user() ? true : new WP_Error('rest_forbidden', 'Den Support bearbeiten nur Inhaber und Team-Admins.', ['status' => 403]);
@@ -374,9 +379,15 @@ class TIX_Support_Model {
         return in_array('tix_organizer', (array) $u->roles, true);
     }
 
+    /** Awareness-Meldung? (eigener Ablauf, TIX_Awareness_Live) */
+    private static function awareness($tid) {
+        return class_exists('TIX_Awareness_Live') && (string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness';
+    }
+
     /** Darf das Konto Anfragen bearbeiten (antworten, Status, Zuweisung)? Plattform: nur Admins (Veranstalter lesen). */
     private static function can_write($tid = 0) {
         if (current_user_can('manage_options')) return true;
+        if ($tid && self::awareness($tid)) return TIX_Awareness_Live::report_access($tid);
         if (self::multi()) return false;
         return self::site_mode() === 'self' || ($tid && self::is_platform_copy($tid));
     }
@@ -385,7 +396,7 @@ class TIX_Support_Model {
     private static function visible($tid) {
         if (get_post_type($tid) !== self::CPT) return false;
         if (current_user_can('manage_options')) return true;
-        if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return false; // Awareness: nur Admin bzw. Awareness-Team
+        if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return self::awareness($tid) && TIX_Awareness_Live::report_access($tid); // Admin, Awareness-Team, Staff (1.38.559)
         if (!self::multi()) return true;
         $oid = TIX_App_Scope::organizer_id_for_user();
         $r = self::responsible($tid);
@@ -430,7 +441,8 @@ class TIX_Support_Model {
             'assignee' => $as ? ['id' => $as, 'name' => (string) get_the_author_meta('display_name', $as)] : null,
             'last_message' => $last ? ['type' => (string) ($last['type'] ?? ''), 'date' => (string) ($last['date'] ?? ''), 'preview' => mb_substr(wp_strip_all_tags((string) ($last['content'] ?? '')), 0, 120)] : null,
             'created' => (string) $p->post_date, 'updated' => (string) get_post_meta($tid, '_tix_sp_last_reply', true),
-            'can_reply' => self::can_write($tid),
+            // Awareness ohne E-Mail (anonym): keine Antwort möglich (1.38.559)
+            'can_reply' => self::can_write($tid) && (!self::awareness($tid) || (string) get_post_meta($tid, '_tix_sp_email', true) !== ''),
             // KI-Zusammenfassung in einem Satz (1.38.505, aus dem Cache der Support-KI; null = noch keine)
             // Awareness-Anfragen nie (1.38.506)
             'ai_summary' => (function () use ($tid) { if (class_exists('TIX_Support_AI') && TIX_Support_AI::excluded($tid)) return null; $c = get_post_meta($tid, '_tix_sp_ai_summary', true); return is_array($c) && trim((string) ($c['text'] ?? '')) !== '' ? (string) $c['text'] : null; })(),
@@ -490,8 +502,9 @@ class TIX_Support_Model {
         $row['messages'] = $msgs;
         $row['ticket_code'] = (string) get_post_meta($tid, '_tix_sp_ticket_code', true);
         $row['inquiries'] = self::inquiries_of($tid);
-        $row['team'] = self::can_write($tid) ? self::team() : [];
-        $row['customer'] = self::customer_info($tid);
+        $row['team'] = self::can_write($tid) && !self::awareness($tid) ? self::team() : [];
+        // Awareness: keine Kundendaten (E-Mail, Bestellungen) – nur Vorname im Verlauf (1.38.559)
+        $row['customer'] = self::awareness($tid) ? null : self::customer_info($tid);
         self::mark_read($tid, true);
         $row['unread'] = false;
         return rest_ensure_response(['ok' => true, 'ticket' => $row]);
@@ -519,6 +532,7 @@ class TIX_Support_Model {
         $tid = self::load($req);
         if (is_wp_error($tid)) return $tid;
         if ($e = self::deny_write($tid)) return $e;
+        if (self::awareness($tid) && (string) get_post_meta($tid, '_tix_sp_email', true) === '') return new WP_Error('tix_no_contact', 'Diese Meldung ist anonym – eine Antwort ist nicht möglich.', ['status' => 400]);
         $content = sanitize_textarea_field((string) $req->get_param('content'));
         if ($content === '' && ($tpl = (string) $req->get_param('template_id')) !== '') $content = (string) (self::render_tpl($tpl, $tid) ?? '');
         if (trim($content) === '') return self::bad('content', 'Bitte eine Antwort eingeben.');

@@ -21,14 +21,17 @@ if (!defined('ABSPATH')) exit;
  *   GET  /awareness/report?event_id=           Inhaber/Admin: Bericht ohne Namen (je Bereich, Median Reaktionszeit, Feedback)
  *   POST /awareness/feedback                   öffentlich {event_id, answer: yes|partly|no, note?, device}
  *   GET  /awareness/feedback?event_id=         Team/Veranstalter: Summe erst ab 5 Antworten
- *   GET  /awareness/reports?event_id=          Inhaber/Admin: Awareness-Meldungen der eigenen Events
+ *   GET  /awareness/reports?event_id=          Inhaber/Admin bzw. Awareness-Team: Awareness-Meldungen der eigenen Events
+ *                                              event_id=0 bzw. ohne (1.38.559): Meldungen ohne Event (Admin, Awareness-Rolle, Staff der
+ *                                              Einzel-Seite; Mehr-Veranstalter nur Admin, sonst leere Liste); je Meldung status, status_label,
+ *                                              editable, event_id. Bearbeiten über /support/inbox/{id} (report_access).
  * Melden (B8): POST /customer/support mit category=awareness (+ event_id), Name/E-Mail optional.
  *
  * Rolle `tix_awareness` („Awareness (App)“, Recht `tix_app_awareness`) – vergeben über `/team` (Schlüssel awareness);
  * im Mehr-Veranstalter-Modus nur Events des eigenen Veranstalters (TIX_App_Scope).
  * Push an alle im Dienst ohne Inhalt („Neuer Hinweis für das Awareness-Team“). Höchstens 3 Hinweise je Gerät und Event.
  * Löschung (Cron täglich): Hinweise und Feedback-Einzelantworten 30 Tage nach dem Event (Feedback-Summe bleibt am Event),
- * Awareness-Meldungen nach 6 Monaten.
+ * Awareness-Meldungen nach 6 Monaten, Meldungen ohne Event 30 Tage nach Eingang (1.38.559).
  * Test-Modus (unsichtbares Test-Event nur für Tester): TIX_Awareness_Test. Admin: Liste der Hinweise + CSV-Export.
  */
 class TIX_Awareness_Live {
@@ -199,6 +202,37 @@ class TIX_Awareness_Live {
         return class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user(wp_get_current_user());
     }
 
+    /** Rollen für Meldungen (1.38.559): Admin, Awareness-Rolle, Staff der Einzel-Seite (wie rest_events). */
+    private static function report_role($u = null) {
+        $u = $u ?: wp_get_current_user();
+        return $u && $u->ID && ($u->has_cap('manage_options') || $u->has_cap('tix_app_awareness') || (class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u)));
+    }
+
+    /** Meldungen ohne Event sehen? Mehr-Veranstalter: nur Admins (kein Veranstalter zuzuordnen). */
+    public static function can_list_no_event() {
+        if (!is_user_logged_in()) return false;
+        if (current_user_can('manage_options')) return true;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return false;
+        return self::report_role();
+    }
+
+    /**
+     * Darf das Konto diese Awareness-Meldung öffnen, beantworten und den Status setzen (Postfach, 1.38.559)?
+     * Admin immer; Einzel-Seite: Awareness-Rolle bzw. Staff; Mehr-Veranstalter: Awareness-Rolle bzw. Inhaber/Team-Admin
+     * des Veranstalters des Events, ohne Event nur Admin.
+     */
+    public static function report_access($tid) {
+        if (!is_user_logged_in() || (string) get_post_meta($tid, '_tix_sp_category', true) !== 'awareness') return false;
+        if (current_user_can('manage_options')) return true;
+        $eid = intval(get_post_meta($tid, '_tix_sp_event_id', true));
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            if (!$eid) return false;
+            $u = wp_get_current_user();
+            return ($u->has_cap('tix_app_awareness') || TIX_App_Scope::is_org_manager()) && TIX_App_Scope::event_allowed($eid);
+        }
+        return self::report_role();
+    }
+
     /** GET /awareness/events – Events, die das Konto betreut (eigener Veranstalter bzw. alle), mit Team. */
     public static function rest_events(WP_REST_Request $req) {
         $u = wp_get_current_user();
@@ -303,7 +337,26 @@ class TIX_Awareness_Live {
                 ];
             }
         }
-        return rest_ensure_response(['ok' => true, 'range' => 'recent', 'events' => $out]);
+        $resp = ['ok' => true, 'range' => 'recent', 'events' => $out];
+        // Meldungen ohne Event (1.38.559): letzte 30 Tage bzw. offene (Studio-Gruppe „Ohne Event“)
+        if (self::can_list_no_event()) $resp['no_event'] = self::no_event_counts();
+        return rest_ensure_response($resp);
+    }
+
+    /** IDs der Awareness-Meldungen ohne Event (event_id fehlt, leer oder 0), neueste zuerst. */
+    private static function no_event_ids($limit = 100, array $statuses = []) {
+        return get_posts(['post_type' => 'tix_support_ticket', 'post_status' => $statuses ?: self::support_statuses(), 'posts_per_page' => $limit, 'fields' => 'ids',
+            'orderby' => 'date', 'order' => 'DESC',
+            'meta_query' => ['relation' => 'AND', ['key' => '_tix_sp_category', 'value' => 'awareness'],
+                ['relation' => 'OR', ['key' => '_tix_sp_event_id', 'compare' => 'NOT EXISTS'], ['key' => '_tix_sp_event_id', 'value' => ['', '0'], 'compare' => 'IN']]]]);
+    }
+
+    public static function no_event_counts() {
+        $recent = 0;
+        $from = strtotime(current_time('mysql')) - 30 * DAY_IN_SECONDS;
+        foreach (self::no_event_ids(500) as $id) if (strtotime((string) get_post_field('post_date', $id)) >= $from) $recent++;
+        $open = count(self::no_event_ids(500, array_values(array_intersect(self::support_statuses(), ['tix_open', 'tix_progress']))));
+        return ['reports' => $recent, 'reports_open' => $open];
     }
 
     public static function rest_duty(WP_REST_Request $req) {
@@ -596,22 +649,38 @@ class TIX_Awareness_Live {
         if ($oid && is_email((string) get_post_meta($oid, '_tix_org_email', true))) $to[] = (string) get_post_meta($oid, '_tix_org_email', true);
         // Je Empfänger eine eigene Mail (Adressen nicht gegenseitig sichtbar), im Mail-Layout, ohne festen Produktnamen (1.38.471)
         $ev_t = $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : '';
+        // Direkt ins Studio der Seite (1.38.559, Option tix_studio_url); weiter ohne Meldungstext
+        $link = class_exists('TIX_Studio') && TIX_Studio::active() ? TIX_Studio::url('/awareness/meldungen/?event=' . $eid . '&meldung=' . intval($post_id)) : '';
         foreach (array_unique($to) as $rcpt) {
-            $m = ['title' => 'Neue Awareness-Meldung', 'subtitle' => $ev_t, 'kind' => 'admin', 'blocks' => [
-                ['type' => 'notice', 'tone' => 'warn', 'html' => 'Es ist eine neue Awareness-Meldung eingegangen' . ($ev_t !== '' ? ' (Event: ' . esc_html($ev_t) . ')' : '') . '.'],
-                ['type' => 'text', 'html' => 'Den Inhalt siehst du angemeldet im Veranstalter-Bereich bzw. in der Verwaltung unter Support.'],
-            ]];
+            $blocks = [
+                ['type' => 'notice', 'tone' => 'warn', 'html' => 'Es ist eine neue Awareness-Meldung eingegangen' . ($ev_t !== '' ? ' (Event: ' . esc_html($ev_t) . ')' : ' (ohne Event)') . '.'],
+                ['type' => 'text', 'html' => $link !== '' ? 'Den Inhalt siehst du angemeldet im Studio unter Awareness → Meldungen.' : 'Den Inhalt siehst du angemeldet im Veranstalter-Bereich bzw. in der Verwaltung unter Support.'],
+            ];
+            if ($link !== '') $blocks[] = ['type' => 'button', 'label' => 'Meldung im Studio öffnen', 'url' => $link];
+            $m = ['title' => 'Neue Awareness-Meldung', 'subtitle' => $ev_t, 'kind' => 'admin', 'blocks' => $blocks];
             if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($rcpt, 'Neue Awareness-Meldung', $m, ['customer' => false]);
-            else wp_mail($rcpt, 'Neue Awareness-Meldung', "Es ist eine neue Awareness-Meldung eingegangen.");
+            else wp_mail($rcpt, 'Neue Awareness-Meldung', "Es ist eine neue Awareness-Meldung eingegangen." . ($link !== '' ? "\n\n" . $link : ''));
         }
         return intval($post_id);
     }
 
     public static function rest_reports(WP_REST_Request $req) {
         $eid = absint($req->get_param('event_id'));
-        if (!self::manager_can_event($eid)) return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
-        $posts = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => self::support_statuses(), 'posts_per_page' => 100,
-            'meta_query' => [['key' => '_tix_sp_category', 'value' => 'awareness'], ['key' => '_tix_sp_event_id', 'value' => (string) $eid]]]);
+        if (!$eid) {
+            // Ohne Event (1.38.559): Mehr-Veranstalter-Modus ohne Admin → leere Liste statt 403
+            if (!self::can_list_no_event()) {
+                if (is_user_logged_in() && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return rest_ensure_response(['ok' => true, 'event_id' => 0, 'reports' => []]);
+                return self::error('rest_forbidden', 'Nur für das Awareness-Team.', 403);
+            }
+            $posts = array_map('get_post', self::no_event_ids(100));
+        } else {
+            $u = wp_get_current_user();
+            if (!self::manager_can_event($eid) && !($u->has_cap('tix_app_awareness') && self::team_can_event($eid))) return self::error('rest_forbidden', 'Kein Zugriff auf dieses Event.', 403);
+            $posts = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => self::support_statuses(), 'posts_per_page' => 100, 'orderby' => 'date', 'order' => 'DESC',
+                'meta_query' => [['key' => '_tix_sp_category', 'value' => 'awareness'], ['key' => '_tix_sp_event_id', 'value' => (string) $eid]]]);
+        }
+        $labels = class_exists('TIX_Support') ? TIX_Support::get_statuses() : [];
+        $keys = class_exists('TIX_Support_Model') ? array_flip(TIX_Support_Model::STATUS_MAP) : [];
         $out = [];
         foreach ($posts as $p) {
             $msgs = get_post_meta($p->ID, '_tix_sp_messages', true);
@@ -622,9 +691,12 @@ class TIX_Awareness_Live {
                 // nur der Vorname, nie die E-Mail (User-Regel, 1.38.524); has_contact = Antwort möglich
                 'first_name' => (($n = (string) get_post_meta($p->ID, '_tix_sp_name', true)) !== 'Anonym') ? self::first_word($n) : '',
                 'has_contact' => (string) get_post_meta($p->ID, '_tix_sp_email', true) !== '',
+                // 1.38.559: Status wie im Postfach, Bearbeiten erlaubt, Event (0 = ohne)
+                'status' => (string) ($keys[$p->post_status] ?? 'open'), 'status_label' => (string) ($labels[$p->post_status]['label'] ?? 'Offen'),
+                'editable' => self::report_access($p->ID), 'event_id' => intval(get_post_meta($p->ID, '_tix_sp_event_id', true)),
             ];
         }
-        return rest_ensure_response(['ok' => true, 'reports' => $out]);
+        return rest_ensure_response(['ok' => true, 'event_id' => $eid, 'reports' => $out]);
     }
 
     /** Alle Status der Support-Anfragen (eigene Status, die post_status 'any' nicht findet). */
@@ -721,6 +793,9 @@ class TIX_Awareness_Live {
             'date_query' => [['before' => gmdate('Y-m-d H:i:s', current_time('timestamp') - 180 * DAY_IN_SECONDS)]],
             'meta_query' => [['key' => '_tix_sp_category', 'value' => 'awareness']]]);
         foreach ($old as $pid) wp_delete_post($pid, true);
+        // Meldungen ohne Event: 30 Tage nach Eingang (1.38.559)
+        $limit = strtotime(current_time('mysql')) - 30 * DAY_IN_SECONDS;
+        foreach (self::no_event_ids(200) as $pid) if (strtotime((string) get_post_field('post_date', $pid)) < $limit) wp_delete_post($pid, true);
         // Abgelaufene Dienste aufräumen
         foreach (get_users(['meta_key' => self::META_DUTY, 'fields' => 'ID', 'number' => 500]) as $uid) {
             $d = get_user_meta($uid, self::META_DUTY, true);
