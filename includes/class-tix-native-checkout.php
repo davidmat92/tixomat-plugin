@@ -742,13 +742,14 @@ class TIX_Native_Checkout {
      * anwenden – manueller Code oder Auto-Apply – mit derselben Prüfung wie im Web.
      * Ungültige Codes werden entfernt; der Grund steht in $cart['coupon_error'].
      */
-    public static function app_prepare_cart(array $cart, string $coupon_code = '', string $email = ''): array {
+    /** $web_auto = false: den seitenweiten Web-Auto-Gutschein (auto_apply) nicht ohne Code abziehen (App-Kasse, 1.38.561). */
+    public static function app_prepare_cart(array $cart, string $coupon_code = '', string $email = '', bool $web_auto = true): array {
         if (class_exists('TIX_Cart_Pricing') && !empty($cart['items'])) {
             $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
         }
         $cart['coupon_error'] = '';
         if ($coupon_code === '') {
-            self::apply_auto_coupon_if_eligible($cart);
+            self::apply_auto_coupon_if_eligible($cart, $web_auto);
             return $cart;
         }
         $coupon = self::resolve_coupon($coupon_code);
@@ -786,7 +787,7 @@ class TIX_Native_Checkout {
      *
      * Mutiert $cart by-reference.
      */
-    private static function apply_auto_coupon_if_eligible(array &$cart) {
+    private static function apply_auto_coupon_if_eligible(array &$cart, bool $web_auto = true) {
         if (!empty($cart['items']) && class_exists('TIX_Cart_Pricing')) {
             $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
         }
@@ -823,8 +824,9 @@ class TIX_Native_Checkout {
             }
         }
 
-        // 2. FALLBACK: globalen Auto-Apply-Coupon aus Settings holen
-        if (!$coupon || empty($coupon['code'])) {
+        // 2. FALLBACK: globalen Auto-Apply-Coupon aus Settings holen – nur Website/Onlineshop, nicht in der App-Kasse
+        //    (dort gilt allein app_auto, User-Entscheid 2026-10-26)
+        if ((!$coupon || empty($coupon['code'])) && $web_auto) {
             $coupon = TIX_Coupons::get_auto_apply_coupon();
         }
         if (!$coupon || empty($coupon['code'])) return;

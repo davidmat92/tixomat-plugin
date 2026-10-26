@@ -631,11 +631,17 @@ class TIX_App_Checkout {
         return $cart;
     }
 
-    /** Gutschein (manuell oder Auto-Apply) anwenden – gleiche Logik wie im Web. */
+    /**
+     * Gutschein (manuell oder Auto-Apply) anwenden – gleiche Logik wie im Web. Der seitenweite Web-Auto-Gutschein
+     * (`web_auto`) gilt nur außerhalb der App (1.38.561): Kanal über TIX_App_Coupons::is_app_request – die Apps schicken
+     * bei quote/orders `X-Tix-Client: app` (Core `ApiConstants.appClientHeaders`), ältere Builds sind am User-Agent `Dart/`
+     * erkennbar; Websites (Next.js-Server, Browser) schicken nichts → Web.
+     */
     private static function apply_coupon(array $cart, $code, $email = '') {
         $code = sanitize_text_field((string) $code);
         if (method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
-            return TIX_Native_Checkout::app_prepare_cart($cart, $code, sanitize_email((string) $email));
+            $web = !(class_exists('TIX_App_Coupons') && TIX_App_Coupons::is_app_request());
+            return TIX_Native_Checkout::app_prepare_cart($cart, $code, sanitize_email((string) $email), $web);
         }
         return $cart;
     }
