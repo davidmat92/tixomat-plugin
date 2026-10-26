@@ -459,7 +459,7 @@ class TIX_Giftcards {
         unset($c);
         if ($changed) {
             update_option('tix_coupons', $coupons);
-            foreach ($changed as $k => $a) do_action('tix_giftcard_cleared', (string) $k, $a, 'order' . $order_id . '-' . $k); // Degaso (1.38.555)
+            foreach ($changed as $k => $a) do_action('tix_giftcard_cleared', (string) $k, $a, 'order' . $order_id . '-' . $k); // Degaso (1.38.556)
         }
     }
 
@@ -490,7 +490,7 @@ class TIX_Giftcards {
         // id je Buchung (1.38.496, Storno an der Bar), $extra: by, event_id, idem …
         $rid = (string) ($extra['id'] ?? '') !== '' ? (string) $extra['id'] : strtolower(wp_generate_password(12, false));
 
-        // Führt eine Kasse den Saldo (Degaso, 1.38.555), bucht sie zuerst; lokal wird danach ihr Saldo übernommen.
+        // Führt eine Kasse den Saldo (Degaso, 1.38.556), bucht sie zuerst; lokal wird danach ihr Saldo übernommen.
         $remote = apply_filters('tix_giftcard_redeem_remote', null, (string) $key, $amount, $channel, $ref, $rid);
         if (is_array($remote)) {
             if (empty($remote['ok'])) return ['ok' => false, 'message' => (string) ($remote['message'] ?? 'Gutschein konnte nicht abgebucht werden.'), 'balance' => round(floatval($remote['balance'] ?? $balance), 2), 'value' => $value];
@@ -552,7 +552,7 @@ class TIX_Giftcards {
         }
         update_option('tix_coupons', $coupons);
         update_option('_tix_coupon_restored_' . $order_id, $out, false);
-        if ($out['type'] === 'giftcard') do_action('tix_giftcard_credited', (string) $key, $amount, 'storno' . $order_id); // Degaso (1.38.555)
+        if ($out['type'] === 'giftcard') do_action('tix_giftcard_credited', (string) $key, $amount, 'storno' . $order_id); // Degaso (1.38.556)
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, $out['type'] === 'giftcard'
                 ? sprintf('🎁 Gutschein %s: %s € zurückgebucht (Rest %s €)', $out['code'], number_format($amount, 2, ',', '.'), number_format($out['balance'], 2, ',', '.'))

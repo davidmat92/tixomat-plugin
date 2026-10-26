@@ -624,7 +624,7 @@ class TIX_Native_Checkout {
         foreach ((array) get_option('tix_coupons', []) as $k => $v) {
             if (strcasecmp((string) $k, $code) === 0 && is_array($v)) {
                 $v['code'] = (string) $k;
-                // Geschenkgutschein: Saldo der Degaso-Kasse holen (1.38.555, höchstens alle 20 s)
+                // Geschenkgutschein: Saldo der Degaso-Kasse holen (1.38.556, höchstens alle 20 s)
                 if (($v['discount_type'] ?? '') === 'giftcard' && has_action('tix_giftcard_refresh') && class_exists('TIX_Giftcards')) {
                     do_action('tix_giftcard_refresh', (string) $k);
                     $v = TIX_Giftcards::get_card((string) $k) ?: $v;

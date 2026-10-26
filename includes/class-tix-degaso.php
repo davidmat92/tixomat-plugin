@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Degaso – Geschenkgutscheine mit der Degaso-Kasse verbinden (1.38.555, Paket 1, Plan tixomat-apps/docs/plan-degaso.md).
+ * TIX_Degaso – Geschenkgutscheine mit der Degaso-Kasse verbinden (1.38.556, Paket 1, Plan tixomat-apps/docs/plan-degaso.md).
  *
  * Degaso führt den Saldo, Tixomat stellt aus und spiegelt (User-Entscheid 2026-10-26).
  *  - Ausstellen: tix_order_completed (nach der Code-Erzeugung) → /vouchers/new {objectId: GS-…} + /vouchers/topup.

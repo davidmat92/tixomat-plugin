@@ -875,7 +875,7 @@ class TIX_Wallet_Balance {
         if (!intval($wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock)))) return new WP_Error('tix_wallet_busy', 'Gerade viel los – bitte nochmal.', ['status' => 409]);
         try {
             // frisch aus der Datenbank lesen (unter Sperre; der Options-Zwischenspeicher dieses Aufrufs kann veraltet sein)
-            do_action('tix_giftcard_refresh', $code); // Saldo der Degaso-Kasse (1.38.555)
+            do_action('tix_giftcard_refresh', $code); // Saldo der Degaso-Kasse (1.38.556)
             wp_cache_delete('alloptions', 'options');
             wp_cache_delete('tix_coupons', 'options');
             $card = TIX_Giftcards::get_card($code);

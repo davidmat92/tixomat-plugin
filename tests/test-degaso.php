@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit-Tests für TIX_Degaso (Degaso-Kasse, Gutscheine, 1.38.555). Ohne WordPress, mit kleinen Stubs.
+ * Unit-Tests für TIX_Degaso (Degaso-Kasse, Gutscheine, 1.38.556). Ohne WordPress, mit kleinen Stubs.
  * Die Degaso Voucher API ist als Attrappe nachgebaut (FakeDegaso, Verhalten laut https://www.degaso.de/apidoc/voucher-openapi.html):
  * Code frei wählbar, ERROR_EXISTS, paymentId je Gutschein nur einmal (ERROR_PAYMENT_ID_USED), Einlösen alles oder nichts
  * (ERROR_VALUE_CHANGED), Verlauf nur 10 Einträge, includeOrigin, Löschen nur bei Saldo 0, unbekannter Schlüssel → 403.

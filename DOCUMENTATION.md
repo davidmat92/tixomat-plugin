@@ -3556,7 +3556,7 @@ Startseite, Event-Seite und Veranstalter-Seite im Design der evendis-App (Stand 
 - **Avatar (ab 1.38.554):** eigenes Assistent-Bild `avatar_id` in `/assistant/settings` (Mediathek-Bild, 0 = keins) → sonst Website-Icon (`get_site_icon_url(192)`) → sonst Marken-Logo. `bot_avatar_id` des alten Bots gilt nicht mehr.
 - **Tests:** `docker run --rm -v "$PWD":/app -w /app php:8.2-cli php tests/test-assistant.php` (133 Prüfungen; die API-Attrappe verlangt wie Anthropic `tool_use.input` als Objekt).
 
-## 69. Degaso-Kasse: Gutscheine (ab 1.38.555)
+## 69. Degaso-Kasse: Gutscheine (ab 1.38.556)
 
 `includes/class-tix-degaso.php`, Plan `tixomat-apps/docs/plan-degaso.md`. Nur aktiv mit Schalter + Schlüssel (Studio „Einlass & Kasse → Degaso-Kasse“); ohne Schlüssel ändert sich nichts.
 

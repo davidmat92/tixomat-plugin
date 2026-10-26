@@ -517,7 +517,7 @@ TIX_QR::init();                                                     // signierte
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-gift.php'; // Gutschein als Geschenk: Angaben, PDF, Mail, Studio-Einstellungen (1.38.463)
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-send.php'; // Gutschein direkt an die beschenkte Person schicken, auch geplant (1.38.496)
 require_once TIXOMAT_PATH . 'includes/class-tix-giftcard-pos.php'; // Gutschein an Bar/Kasse abbuchen ohne Ticketkauf: /pos/giftcard (1.38.496)
-require_once TIXOMAT_PATH . 'includes/class-tix-degaso.php'; // Degaso-Kasse: Gutscheine anlegen, einlösen, abgleichen, /degaso/admin (1.38.555)
+require_once TIXOMAT_PATH . 'includes/class-tix-degaso.php'; // Degaso-Kasse: Gutscheine anlegen, einlösen, abgleichen, /degaso/admin (1.38.556)
 require_once TIXOMAT_PATH . 'includes/class-tix-features.php'; // App-Funktionen an/aus: /studio/features, app_features in /studio/config, features in /app/config (1.38.498)
 require_once TIXOMAT_PATH . 'includes/class-tix-ai-rest.php'; // KI-Funktionen fürs Studio: /ai/text, /ai/extract, /ai/duplicates, /ai/social, /events/{id}/guard, /studio/ai (1.38.505)
 require_once TIXOMAT_PATH . 'includes/class-tix-sales.php'; // Live-Demo Vertrieb: Sandbox (Demo Club/Vorschau), Rolle tix_sales, /platform/sales (1.38.508)
