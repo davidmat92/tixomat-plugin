@@ -161,7 +161,7 @@ class TIX_Degaso_Menu {
 
     /** Studio: frische Vorschau mit allen Kategorien (ausgeblendete markiert) und der Kassenauswahl */
     public static function rest_admin(WP_REST_Request $req) {
-        if (!TIX_Degaso::connected()) return new WP_Error('tix_degaso_nokey', 'Es ist noch kein Degaso-Schlüssel eingetragen.', ['status' => 409]);
+        if (!TIX_Degaso::connected()) return new WP_Error('tix_degaso_nokey', 'Degaso ist ausgeschaltet oder es fehlt der Schlüssel.', ['status' => 409]);
         $err = filter_var($req->get_param('fresh'), FILTER_VALIDATE_BOOLEAN) ? self::refresh() : true;
         $c = self::cached();
         $s = TIX_Degaso::settings();

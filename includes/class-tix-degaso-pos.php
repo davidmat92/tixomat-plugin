@@ -194,7 +194,7 @@ class TIX_Degaso_Pos {
 
     /** Kassen (Cloud), Artikel der gewählten Kasse (live über den Router) und die Ticketarten der Events (±60 Tage) */
     public static function rest_admin(WP_REST_Request $req) {
-        if (!TIX_Degaso::connected()) return new WP_Error('tix_degaso_nokey', 'Es ist noch kein Degaso-Schlüssel eingetragen.', ['status' => 409]);
+        if (!TIX_Degaso::connected()) return new WP_Error('tix_degaso_nokey', 'Degaso ist ausgeschaltet oder es fehlt der Schlüssel.', ['status' => 409]);
         $s = TIX_Degaso::settings();
         $cash = sanitize_text_field((string) ($req->get_param('cash') ?? '')) ?: (string) $s['tse_cash'];
         $products = null; $msg = '';

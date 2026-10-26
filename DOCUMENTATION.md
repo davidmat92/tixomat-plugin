@@ -3591,3 +3591,10 @@ Beide Bausteine brauchen nur den Degaso-Schlüssel (§69), nicht den Gutschein-S
 - Antwortformate der Kasse sind bei Degaso nicht beschrieben (Annahmen im Kopf der Klasse) – mit dem Testschlüssel prüfen.
 
 **Tests:** `tests/test-degaso-paket2.php` (51 Prüfungen, Attrappe mit Menü, Kassenliste und Router).
+
+## 71. Anbindungen: „Degaso verwenden“ (ab 1.38.558)
+
+- Hauptschalter je Seite: Option `tix_integrations` `{degaso: {enabled}}`, Vorgabe **aus**. Lesen/Schreiben über `TIX_Features` als Schlüssel `degaso` (`GET/POST /studio/features`, `/studio/config app_features`, `/app/config features`).
+- Aus = Gutscheine, Getränkekarte und Abendkasse über Degaso ohne Wirkung (`TIX_Degaso::connected()` = Anbindung an + Schlüssel). Schlüssel und Einstellungen bleiben gespeichert.
+- Mehr-Veranstalter-Modus (evendis): nie an, `/degaso/admin*` 403, Hinweis in `/studio/features`.
+- `/degaso/admin` liefert zusätzlich `integration`.

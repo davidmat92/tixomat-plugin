@@ -280,7 +280,11 @@ $fake->menus = [
     ['cashName' => 'Eingang', 'categories' => [], 'products' => [['name' => 'Garderobe', 'price' => '2']]],
 ];
 eq('aus: öffentlich nicht aktiv', false, TIX_Degaso_Menu::public_payload()['enabled']);
-save(['api_key' => $LIVE]);
+save(['api_key' => $LIVE, 'menu_enabled' => true]);
+eq('Anbindung aus: Karte ohne Wirkung', false, TIX_Degaso_Menu::public_payload()['enabled']);
+eq('Anbindung aus: Abendkasse ohne Bon', null, apply_filters('tix_pos_sign_sale', null, $sale()));
+save(['menu_enabled' => false]);
+TIX_Degaso::set_integration(true);
 eq('nur Schlüssel: Karte bleibt aus (Standard aus)', false, TIX_Degaso_Menu::public_payload()['enabled']);
 ok(!TIX_Degaso::active(), 'Gutscheine bleiben aus, wenn nur der Schlüssel gesetzt ist');
 save(['menu_enabled' => true, 'menu_cash' => 'Bar 1', 'menu_hidden' => ['Personal']]);
@@ -389,6 +393,10 @@ ok(true, 'Storno ohne Bon (vor der Anbindung) → nichts');
 
 // Gutscheine unberührt, solange ihr Schalter aus ist
 ok(!TIX_Degaso::active(), 'Gutschein-Abgleich weiter aus');
+TIX_Degaso::set_integration(false);
+eq('Anbindung aus → Abendkasse wieder ohne Bon (Einstellung bleibt)', null, apply_filters('tix_pos_sign_sale', null, $sale()));
+ok(TIX_Degaso::settings()['tse_enabled'] && TIX_Degaso::key() !== '', 'Schlüssel und Einstellungen bleiben gespeichert');
+TIX_Degaso::set_integration(true);
 save(['tse_enabled' => false]);
 eq('aus → wieder ohne Bon', null, apply_filters('tix_pos_sign_sale', null, $sale()));
 

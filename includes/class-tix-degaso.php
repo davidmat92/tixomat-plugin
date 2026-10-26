@@ -89,12 +89,31 @@ class TIX_Degaso {
 
     /** Gutscheine über Degaso (Schalter „enabled“) */
     public static function active() {
-        return !empty(self::settings()['enabled']) && self::key() !== '';
+        return !empty(self::settings()['enabled']) && self::connected();
     }
 
-    /** Schlüssel gesetzt – Grundlage für alle Bausteine (Gutscheine, Getränkekarte, Abendkasse) */
+    /**
+     * Anbindung „Degaso verwenden“ (1.38.558, Option tix_integrations.degaso.enabled, Vorgabe aus; Studio „Anbindungen“,
+     * auch als `degaso` in /studio/features und /app/config). Aus = alle Degaso-Bausteine ohne Wirkung, der Schlüssel bleibt.
+     * Auf evendis (Mehr-Veranstalter-Modus) nie an.
+     */
+    public static function integration_on() {
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return false;
+        $o = get_option('tix_integrations', []);
+        return is_array($o) && !empty($o['degaso']['enabled']);
+    }
+
+    public static function set_integration($on) {
+        $o = get_option('tix_integrations', []);
+        $o = is_array($o) ? $o : [];
+        $o['degaso'] = array_merge(is_array($o['degaso'] ?? null) ? $o['degaso'] : [], ['enabled' => (bool) $on]);
+        update_option('tix_integrations', $o, false);
+        if ($on && self::connected() && !wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 60, 'tix_10min', self::CRON);
+    }
+
+    /** Anbindung an und Schlüssel gesetzt – Grundlage für alle Bausteine (Gutscheine, Getränkekarte, Abendkasse) */
     public static function connected() {
-        return self::key() !== '';
+        return self::integration_on() && self::key() !== '';
     }
 
     /** Gutschein abbuchen in Tixomat „Kasse & Bar“ erlaubt? (ohne Degaso wie bisher) */
@@ -635,7 +654,7 @@ class TIX_Degaso {
     /** Einzel-Seite: wer Gutscheine einstellen darf (Inhaber, Team-Admin, Admin); Mehr-Veranstalter-Modus nur Admins */
     public static function check_admin(WP_REST_Request $req) {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
-            return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Die Kassen-Anbindung richtet nur das Plattform-Team ein.', ['status' => 403]);
+            return new WP_Error('rest_forbidden', 'Kassen-Anbindungen gibt es nur für Einzel-Seiten.', ['status' => 403]); // evendis nutzt Degaso nicht (1.38.558)
         }
         if (current_user_can('manage_options')) return true;
         return class_exists('TIX_Wallet_Balance') ? TIX_Wallet_Balance::check_manager($req) : new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
@@ -666,6 +685,7 @@ class TIX_Degaso {
             ] + (array) apply_filters('tix_degaso_settings_out', [], $s),
             'key' => ['set' => self::decrypt($s['api_key']) !== '', 'last4' => self::last4($s['api_key'])],
             'test_key' => ['set' => self::decrypt($s['test_api_key']) !== '', 'last4' => self::last4($s['test_api_key'])],
+            'integration' => self::integration_on(),
             'active' => self::active(),
             'connected' => self::connected(),
             'status' => [

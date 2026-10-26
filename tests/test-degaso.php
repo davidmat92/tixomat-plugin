@@ -194,6 +194,7 @@ require __DIR__ . '/../includes/class-tix-giftcards.php';
 require __DIR__ . '/../includes/class-tix-giftcard-pos.php';
 require __DIR__ . '/../includes/class-tix-degaso.php';
 
+class TIX_App_Scope { public static $m = false; static function multi() { return self::$m; } }
 $fake = new FakeDegaso();
 TIX_Degaso::$transport = $fake;
 $LIVE = $fake->keys[0];
@@ -230,6 +231,12 @@ $e = save(['api_key' => '99999999-2222-3333-4444-555555555555']);
 ok(is_wp_error($e) && $e->code === 'tix_degaso_check', 'unbekannter Schlüssel (403) → nicht gespeichert');
 eq('kein Schlüssel gespeichert', '', TIX_Degaso::settings()['api_key']);
 $p = save(['api_key' => $LIVE, 'enabled' => true])->get_data();
+ok(!$p['active'] && !$p['integration'], 'Anbindung „Degaso verwenden“ aus (Standard) → ohne Wirkung, Schlüssel bleibt');
+add_card('GS-ZZZZ-0099', 20, 99);
+do_action('tix_order_completed', 99);
+ok(!isset($fake->v[$LIVE]['GS-ZZZZ-0099']), 'Anbindung aus: nichts an Degaso');
+TIX_Degaso::set_integration(true);
+$p = TIX_Degaso::payload();
 ok($p['active'], 'aktiv nach Speichern');
 eq('letzte 4 Zeichen', '5555', $p['key']['last4']);
 ok(strpos(json_encode($p), $LIVE) === false, 'Antwort enthält den Schlüssel nicht');
@@ -418,11 +425,12 @@ save(['test_mode' => false, 'clear_test_key' => true]);
 eq('zurück auf echten Schlüssel', $LIVE, TIX_Degaso::key());
 
 // ── 16. Rechte: Mehr-Veranstalter-Modus nur Admins ──
-class TIX_App_Scope { public static $m = true; static function multi() { return self::$m; } }
+TIX_App_Scope::$m = true; // evendis
 $GLOBALS['t_admin'] = false;
 ok(is_wp_error(TIX_Degaso::check_admin(new WP_REST_Request([]))), 'evendis: Veranstalter dürfen nicht');
 $GLOBALS['t_admin'] = true;
-ok(TIX_Degaso::check_admin(new WP_REST_Request([])) === true, 'evendis: Admin darf');
+ok(is_wp_error(TIX_Degaso::check_admin(new WP_REST_Request([]))), 'evendis: auch Admins nicht (Degaso nur Einzel-Seiten)');
+ok(!TIX_Degaso::integration_on() && !TIX_Degaso::active(), 'evendis: Anbindung nie an');
 
 echo ($fails ? "$fails von $count Prüfungen fehlgeschlagen\n" : "Alle $count Prüfungen grün\n");
 exit($fails ? 1 : 0);

@@ -39,6 +39,9 @@ class TIX_Features {
         'artist_previews'  => ['Hörproben (Künstler)', null],
         // KI-Assistent (1.38.544): Vorgabe aus; Einstellungen unter /assistant/settings, auf evendis nur Admin
         'assistant'        => ['KI-Assistent', null],
+        // Anbindung Degaso-Kasse (1.38.558): Vorgabe aus; erst damit wirken Gutscheine, Getränkekarte und Abendkasse über Degaso.
+        // Nur Einzel-Seiten (evendis nutzt Degaso nicht: dort nur Admin, mit Hinweis)
+        'degaso'           => ['Degaso-Kasse (Anbindung)', null],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -112,6 +115,7 @@ class TIX_Features {
                 return self::multi() ? true : self::opt_on(self::OPT_MUTTIZETTEL);
             case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
             case 'assistant': return class_exists('TIX_Assistant') && TIX_Assistant::enabled();
+            case 'degaso': return class_exists('TIX_Degaso') && TIX_Degaso::integration_on();
             case 'live_now':
                 $c = class_exists('TIX_App_Config') ? (array) TIX_App_Config::stored() : [];
                 return !isset($c['home']['now']['show']) || !empty($c['home']['now']['show']);
@@ -156,7 +160,7 @@ class TIX_Features {
     }
 
     /** Schlüssel für Apps/Studio (Reihenfolge); `awareness` fasst Stufe 2/3 zusammen. */
-    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews'];
+    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews', 'degaso'];
 
     /**
      * Öffentlich für /app/config und /info: {<key>: {enabled, can_edit}}, `awareness` {enabled, report, alarm, can_edit}
@@ -215,6 +219,7 @@ class TIX_Features {
             case 'sos': TIX_App_Sos::save(array_merge(TIX_App_Sos::settings(), ['enabled' => $on])); return;
             case 'artist_previews': update_option(self::OPT_ARTIST_PREVIEWS, $on ? '1' : '0', false); return;
             case 'assistant': if (class_exists('TIX_Assistant')) TIX_Assistant::set_enabled($on); return;
+            case 'degaso': if (class_exists('TIX_Degaso')) TIX_Degaso::set_integration($on); return;
             case 'live_now':
                 $c = (array) TIX_App_Config::stored();
                 $now = isset($c['home']['now']) && is_array($c['home']['now']) ? $c['home']['now'] : [];
@@ -279,6 +284,7 @@ class TIX_Features {
         if ($scope === 'platform' && in_array($key, ['loyalty', 'muttizettel'], true)) return 'Schaltet jeder Veranstalter selbst.';
         if ($scope === 'platform' && in_array($key, ['music', 'giftcards', 'wallet'], true)) return 'Gilt für die Plattform; Veranstalter schalten ihr eigenes Modul.';
         if (in_array($key, ['awareness_report', 'awareness_alarm'], true) && self::multi() && !self::is_admin()) return 'Dem Plattform-Admin vorbehalten.';
+        if ($key === 'degaso' && self::multi()) return 'Kassen-Anbindungen gibt es nur für Einzel-Seiten.';
         if ($key === 'awareness_alarm' && $enabled && !self::site_on('awareness_report')) return 'Live-Alarm ist an, Meldungen (Stufe 2) aber aus.';
         return null;
     }
