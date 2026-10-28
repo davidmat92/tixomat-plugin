@@ -43,6 +43,8 @@ class TIX_Plan {
     ];
 
     const META    = '_tix_org_modules';
+    /** Einzelseite: vom Admin im Studio ausgeschaltete Extras {key: false} (fehlt = an, 1.38.564) */
+    const SITE_OPT = 'tix_plan_site';
     const MIGRATE = 'tix_plan_migrated';
 
     /**
@@ -79,6 +81,65 @@ class TIX_Plan {
     public static function init() {
         add_filter('rest_pre_dispatch', [__CLASS__, 'guard_rest'], 6, 3);
         add_action('init', [__CLASS__, 'maybe_migrate'], 30);
+        add_action('rest_api_init', [__CLASS__, 'routes']);
+    }
+
+    public static function routes() {
+        register_rest_route('tixomat/v1', '/studio/modules', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_site_get'], 'permission_callback' => [__CLASS__, 'perm_site']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_site_save'], 'permission_callback' => [__CLASS__, 'perm_site']],
+        ]);
+    }
+
+    /** Modul-Schalter der Einzelseite: nur Admins (auf der Plattform schaltet das Plattform-Studio je Veranstalter). */
+    public static function perm_site() {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Bitte anmelden.', ['status' => 401]);
+        if (self::multi()) return new WP_Error('tix_not_single', 'Auf der Plattform werden Module je Veranstalter geschaltet.', ['status' => 404]);
+        return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Nur Admins können Module schalten.', ['status' => 403]);
+    }
+
+    /** Durch Lizenz bzw. Freischaltung gesperrt (Admin kann es nicht einschalten). */
+    private static function license_locked($key) {
+        return class_exists('TIX_Modules') && !TIX_Modules::allowed($key);
+    }
+
+    public static function rest_site_get(WP_REST_Request $req) {
+        $locked = [];
+        foreach (self::switchable() as $k) $locked[$k] = self::license_locked($k);
+        return rest_ensure_response(['ok' => true, 'modules' => self::modules(), 'locked' => $locked,
+            'groups' => ['always' => self::ALWAYS, 'packages' => self::PACKAGES, 'extras' => self::EXTRAS]]);
+    }
+
+    public static function rest_site_save(WP_REST_Request $req) {
+        $in = $req->get_param('modules');
+        if (!is_array($in)) return new WP_Error('tix_invalid_field', 'Bitte Module als {key: true|false} senden.', ['status' => 400, 'field' => 'modules']);
+        $unknown = array_diff(array_keys($in), self::all_keys());
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Unbekanntes Modul: ' . reset($unknown) . '.', ['status' => 400, 'field' => 'modules.' . reset($unknown)]);
+        $opt = (array) get_option(self::SITE_OPT, []);
+        foreach ($in as $k => $v) {
+            if (in_array($k, self::ALWAYS, true)) continue; // immer an
+            $on = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+            if ($on && self::license_locked($k)) {
+                return new WP_Error('tix_module_locked', 'Dieses Modul ist für diese Seite nicht freigeschaltet (Lizenz).', ['status' => 409, 'module' => $k]);
+            }
+            if ($k === 'website') {
+                if (class_exists('TIX_Website')) update_option(TIX_Website::OPT_ENABLED, $on ? '1' : '0', false);
+            } elseif ($k === 'app') {
+                if (class_exists('TIX_Studio')) update_option(TIX_Studio::HAS_APP, $on ? '1' : '0', false);
+            } elseif ($on) {
+                unset($opt[$k]);
+            } else {
+                $opt[$k] = false;
+            }
+        }
+        update_option(self::SITE_OPT, $opt, false);
+        return rest_ensure_response(['ok' => true, 'modules' => self::modules()]);
+    }
+
+    /** Einzelseite: vom Admin ausdrücklich ausgeschaltet? */
+    public static function site_switched_off($key) {
+        $opt = (array) get_option(self::SITE_OPT, []);
+        return array_key_exists($key, $opt) && !$opt[$key];
     }
 
     /** Schaltbare Schlüssel (Pakete + Extras). */
@@ -105,7 +166,7 @@ class TIX_Plan {
         if (self::multi()) return true; // Plattform: Schalter je Veranstalter
         if ($key === 'website') return class_exists('TIX_Website') ? TIX_Website::package_enabled() : false;
         if ($key === 'app') return class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? !empty(TIX_Studio::app_info()['has_app']) : false;
-        return true;
+        return !self::site_switched_off($key);
     }
 
     // ═══════════════ Veranstalter ═══════════════
@@ -200,7 +261,7 @@ class TIX_Plan {
      * betroffenen Veranstalter. Einzelseiten bleiben unverändert (dort sperrt TIX_Modules wie bisher).
      */
     public static function guard_rest($result, $server, $request) {
-        if ($result !== null || !($request instanceof WP_REST_Request) || !self::multi()) return $result;
+        if ($result !== null || !($request instanceof WP_REST_Request)) return $result;
         $route = (string) $request->get_route();
         if (strpos($route, '/tixomat/v1/') !== 0) return $result;
         $rel = substr($route, strlen('/tixomat/v1'));
@@ -214,6 +275,11 @@ class TIX_Plan {
             }
         }
         if (!$key) return $result;
+        // Einzelseite: nur sperren, was der Admin im Studio ausdrücklich ausgeschaltet hat (Bestand unverändert)
+        if (!self::multi()) {
+            if ($key === 'website' || $key === 'app' || !self::site_switched_off($key)) return $result;
+            return new WP_Error('tix_module_disabled', 'Diese Funktion ist auf dieser Seite ausgeschaltet.', ['status' => 403, 'module' => $key]);
+        }
         $oid = self::request_org($request, $rel);
         if (!$oid || self::org_on($key, $oid)) return $result;
         return new WP_Error('tix_module_disabled', 'Diese Funktion ist für diesen Veranstalter nicht freigeschaltet.', [

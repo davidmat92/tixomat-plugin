@@ -64,6 +64,38 @@ if (!$multi) {
     tp_eq('Option mit loyalty → loyalty an', true, TIX_Plan::site_on('loyalty'));
     delete_option('tix_modules_entitled');
     tp_eq('Option gelöscht → alles wieder an', true, TIX_Plan::site_on('music'));
+
+    // Modul-Schalter im Studio der Einzelseite (nur Admin, 1.38.564)
+    wp_set_current_user($admin);
+    list($st, $d) = tp_rest('GET', '/studio/modules');
+    tp_eq('Studio-Module: Admin 200', 200, $st);
+    tp_eq('Studio-Module: alles an', true, $d['modules']['music'] ?? null);
+    $staff = wp_insert_user(['user_login' => "tp_staff_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "tp_staff_$sfx@example.test", 'role' => 'tix_organizer']);
+    $created_users[] = $staff;
+    wp_set_current_user($staff);
+    list($st) = tp_rest('GET', '/studio/modules');
+    tp_eq('Studio-Module: Nicht-Admin 403', 403, $st);
+    wp_set_current_user($admin);
+    list($st, $d) = tp_rest('POST', '/studio/modules', ['modules' => ['music' => false, 'pos' => false]]);
+    tp_eq('Musikwunsch aus gespeichert', false, $d['modules']['music'] ?? null);
+    tp_eq('Abendkasse bleibt immer an', true, $d['modules']['pos'] ?? null);
+    list($st, , $code) = tp_rest('GET', '/music/status');
+    tp_eq('ausgeschaltet → Route gesperrt', 'tix_module_disabled', $code);
+    list(, $d) = tp_rest('GET', '/me');
+    tp_eq('/me.modules.music aus', false, $d['modules']['music'] ?? null);
+    list(, , $code) = tp_rest('GET', '/loyalty/config');
+    tp_eq('andere Extras nicht gesperrt', false, $code === 'tix_module_disabled');
+    list($st) = tp_rest('POST', '/studio/modules', ['modules' => ['quatsch' => true]]);
+    tp_eq('unbekanntes Modul 400', 400, $st);
+    update_option('tix_modules_entitled', ['loyalty', 'giftcards', 'muttizettel', 'seating', 'tips']);
+    list($st) = tp_rest('POST', '/studio/modules', ['modules' => ['music' => true]]);
+    tp_eq('Lizenz sperrt Einschalten (409)', 409, $st);
+    delete_option('tix_modules_entitled');
+    list($st, $d) = tp_rest('POST', '/studio/modules', ['modules' => ['music' => true]]);
+    tp_eq('wieder an', true, $d['modules']['music'] ?? null);
+    list(, , $code) = tp_rest('GET', '/music/status');
+    tp_eq('wieder an → Route offen', false, $code === 'tix_module_disabled');
+    tp_eq('Option sauber (nichts aus)', [], (array) get_option(TIX_Plan::SITE_OPT, []));
 } else {
     // ══════════ Plattform ══════════
     echo "── Plattform ──\n";
@@ -162,6 +194,30 @@ if (!$multi) {
     TIX_Plan::save_org($ob, ['loyalty' => false]);
     TIX_Plan::save_org($ob, ['loyalty' => true]);
     tp_eq('Prämien-Einstellungen nach aus → an unverändert', 2, intval((get_post_meta($ob, '_tix_org_loyalty', true))['per_visit'] ?? 0));
+
+    // 6b. Website aus → Domain bleibt, Auflösung liefert Weiterleitung auf die Veranstalterseite (M4 A)
+    if (class_exists('TIX_Customer_URL') && class_exists('TIX_Org_Domains')) {
+        $host = "plan-$sfx.example.test";
+        $map = (array) get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
+        $map_before = $map;
+        $map[$host] = $oa;
+        update_option(TIX_Customer_URL::OPTION_DOMAINS, $map);
+        TIX_Plan::save_org($oa, ['website' => true]);
+        wp_set_current_user(0);
+        list($st, $d) = tp_rest('GET', "/public/domains/$host");
+        tp_eq('Domain mit Website: kein redirect', false, isset($d['domain']['redirect']));
+        TIX_Plan::save_org($oa, ['website' => false]);
+        list($st, $d) = tp_rest('GET', "/public/domains/$host");
+        tp_eq('Domain ohne Website: 200', 200, $st);
+        tp_eq('Domain ohne Website: website false', false, $d['domain']['website'] ?? null);
+        tp_eq('Domain ohne Website: redirect auf /v/<slug>/', true, (bool) preg_match('#/v/[^/]+/$#', (string) ($d['domain']['redirect'] ?? '')));
+        list($st) = tp_rest('GET', '/public/domains/allowed', ['domain' => $host]);
+        tp_eq('Zertifikat bleibt (allowed 200)', 200, $st);
+        TIX_Plan::save_org($oa, ['website' => true]);
+        list($st, $d) = tp_rest('GET', "/public/domains/$host");
+        tp_eq('Website wieder an: kein redirect', false, isset($d['domain']['redirect']));
+        update_option(TIX_Customer_URL::OPTION_DOMAINS, $map_before);
+    }
 
     // 7. Migration: Immer-Module fest an, website aus Domain-Freigabe
     $oc = $mk_org("Plan C $sfx", $ua);

@@ -312,8 +312,28 @@ class TIX_Org_Domains {
     }
 
     private static function public_entry($host, $oid) {
-        return ['host' => $host, 'organizer_id' => intval($oid), 'slug' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($oid) : (string) get_post_field('post_name', $oid),
+        $e = ['host' => $host, 'organizer_id' => intval($oid), 'slug' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($oid) : (string) get_post_field('post_name', $oid),
             'design' => class_exists('TIX_Organizer_Page') ? TIX_Organizer_Page::page_design($oid) : 'galerie', 'active' => true];
+        // Paket „Eigene Website“ aus (TIX_Plan, 1.38.564, Entscheid M4 A): Domain bleibt eingetragen (Zertifikat, Daten),
+        // die Weiche leitet per 302 auf die Veranstalterseite auf evendis.de
+        if (class_exists('TIX_Plan') && !TIX_Plan::org_on('website', intval($oid))) {
+            $e['website'] = false;
+            $e['redirect'] = self::org_page_url(intval($oid));
+        } else {
+            $e['website'] = true;
+        }
+        return $e;
+    }
+
+    /** Veranstalterseite auf evendis.de (Ziel der Weiterleitung, wenn die eigene Website aus ist). */
+    public static function org_page_url($oid) {
+        if (class_exists('TIX_Organizer_Link') && method_exists('TIX_Organizer_Link', 'link')) {
+            $l = (string) TIX_Organizer_Link::link($oid);
+            if ($l !== '') return $l;
+        }
+        $base = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');
+        $slug = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::slug($oid) : (string) get_post_field('post_name', $oid);
+        return rtrim($base, '/') . '/v/' . rawurlencode($slug) . '/';
     }
 
     /** Aktive Domain zu einem Host – auch mit bzw. ohne „www.“ (liefert die eingetragene Hauptadresse) oder ''. */
