@@ -183,11 +183,74 @@ class TIX_Plan {
         return $out;
     }
 
+    // ═══════════════ Partner mit eigener Seite ═══════════════
+
+    /**
+     * Partner mit eigener Tixomat-Seite (Partner-Verzeichnis `tix_partners`, z. B. KitchenKlub, Mallorca,
+     * Lizenzkunden): Die Pakete „Eigene Website“/„Eigene App“ bestehen dort auf der eigenen Seite und sind
+     * auf der Plattform schreibgeschützt (1.38.565). Liefert {host, api_base} oder null.
+     */
+    public static function partner_for_org($oid) {
+        $oid = intval($oid);
+        if (!$oid || !class_exists('TIX_Partners')) return null;
+        foreach (TIX_Partners::all() as $p) {
+            if (intval($p['organizer_id'] ?? 0) !== $oid) continue;
+            $base = (string) ($p['api_base'] ?? '');
+            $host = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url($base, PHP_URL_HOST)));
+            if ($host === '') continue;
+            return ['host' => $host, 'api_base' => rtrim($base, '/')];
+        }
+        return null;
+    }
+
+    /**
+     * Pakete der Partnerseite aus deren `/info.plan` (12 h zwischengespeichert). Ältere Partnerseiten ohne
+     * `plan` bzw. nicht erreichbar: letzter bekannter Stand, sonst beide an (eigene Seite heißt eigene Website,
+     * die App meldet die Seite selbst über `site.has_app`).
+     */
+    public static function partner_packages($oid) {
+        $p = self::partner_for_org($oid);
+        if (!$p) return null;
+        $tk = 'tix_plan_partner_' . md5($p['api_base']);
+        $cached = get_transient($tk);
+        if (is_array($cached)) return $cached;
+        $out = null;
+        $res = wp_remote_get($p['api_base'] . '/info', ['timeout' => 6, 'headers' => ['Accept' => 'application/json']]);
+        if (!is_wp_error($res) && wp_remote_retrieve_response_code($res) === 200) {
+            $j = json_decode((string) wp_remote_retrieve_body($res), true);
+            if (is_array($j)) {
+                $pk = (array) ($j['plan']['packages'] ?? []);
+                $out = [
+                    'website' => array_key_exists('website', $pk) ? (bool) $pk['website'] : true,
+                    'app'     => array_key_exists('app', $pk) ? (bool) $pk['app'] : (array_key_exists('has_app', (array) ($j['site'] ?? [])) ? (bool) $j['site']['has_app'] : true),
+                ];
+            }
+        }
+        if ($out === null) {
+            $last = get_option($tk . '_last');
+            $out = is_array($last) ? $last : ['website' => true, 'app' => true];
+            set_transient($tk, $out, HOUR_IN_SECONDS); // Störung: in einer Stunde neu fragen
+            return $out;
+        }
+        update_option($tk . '_last', $out, false);
+        set_transient($tk, $out, 12 * HOUR_IN_SECONDS);
+        return $out;
+    }
+
+    /** Schreibgeschützte Pakete {key: host} für die Anzeige im Plattform-Studio („über eigene Seite …“). */
+    public static function org_locked($oid) {
+        $p = self::partner_for_org($oid);
+        if (!$p) return (object) [];
+        return ['website' => $p['host'], 'app' => $p['host']];
+    }
+
     /** Modul für Veranstalter `$oid` an? Immer-Module an; sonst Seite UND Veranstalter. */
     public static function org_on($key, $oid) {
         if (in_array($key, self::ALWAYS, true)) return true;
         if (!self::site_on($key)) return false;
         if (!$oid || !self::multi()) return true;
+        // Partner mit eigener Seite: Pakete kommen von dort (nie Weiterleitung, nie Sperre über die Plattform)
+        if (in_array($key, self::PACKAGES, true) && ($pp = self::partner_packages($oid)) !== null) return !empty($pp[$key]);
         $m = self::org_raw($oid);
         return !empty($m[$key]);
     }
@@ -204,11 +267,14 @@ class TIX_Plan {
         $raw = get_post_meta(intval($oid), self::META, true);
         if (is_string($raw) && $raw !== '') $raw = json_decode($raw, true);
         $raw = is_array($raw) ? $raw : [];
+        $partner = self::partner_for_org($oid) !== null;
         foreach ($in as $k => $v) {
+            if ($partner && in_array($k, self::PACKAGES, true)) continue; // schreibgeschützt (eigene Seite)
             if (in_array($k, self::switchable(), true)) $raw[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
         }
         foreach (self::ALWAYS as $k) $raw[$k] = true;
         update_post_meta(intval($oid), self::META, wp_json_encode($raw));
+        if ($partner) unset($in['website']); // Domain-Freigabe eines Partners nie über das Paket ändern
         // Eigene Domain gehört zum Paket „Eigene Website“ (Freigabe der Domain synchron halten; die Domain selbst bleibt gespeichert)
         if (array_key_exists('website', $in) && class_exists('TIX_Org_Domains')) {
             update_post_meta(intval($oid), TIX_Org_Domains::META_ALLOW, !empty($raw['website']) ? '1' : '0');

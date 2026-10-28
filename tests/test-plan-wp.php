@@ -219,6 +219,42 @@ if (!$multi) {
         update_option(TIX_Customer_URL::OPTION_DOMAINS, $map_before);
     }
 
+    // 6c. Partner mit eigener Seite (KitchenKlub, Mallorca): Pakete schreibgeschützt an, Stand von der Partnerseite
+    $partners_before = get_option('tix_partners', []);
+    $up = $mk_user('p'); $op = $mk_org("Partner $sfx", $up);
+    $kk_api = getenv('TP_PARTNER_API') ?: 'http://va-kk/wp-json/tixomat/v1';
+    update_option('tix_partners', ['tp' . $sfx => ['id' => 'tp' . $sfx, 'name' => 'Partner', 'api_base' => $kk_api, 'organizer_id' => $op, 'key_in' => 'x', 'key_out' => 'y']]);
+    delete_transient('tix_plan_partner_' . md5(rtrim($kk_api, '/')));
+    $pp = TIX_Plan::partner_packages($op);
+    tp_eq('Partner erkannt', true, TIX_Plan::partner_for_org($op) !== null);
+    tp_eq('Partner: Website-Stand von der Partnerseite', getenv('TP_PARTNER_WEBSITE') !== '0', $pp['website'] ?? null);
+    tp_eq('Partner: org_on(website) folgt der Partnerseite', $pp['website'], TIX_Plan::org_on('website', $op));
+    tp_eq('Partner: Sperre im Studio (host)', true, is_array(TIX_Plan::org_locked($op)) && !empty(TIX_Plan::org_locked($op)['website']));
+    wp_set_current_user($admin);
+    list($st, , $code) = tp_rest('POST', "/platform/organizers/$op/modules", ['modules' => ['website' => false]]);
+    tp_eq('Partner: Paket schalten abgelehnt (409)', 'tix_module_partner', $code);
+    list($st, $d) = tp_rest('POST', "/platform/organizers/$op/modules", ['modules' => ['music' => true]]);
+    tp_eq('Partner: Extras weiter schaltbar', true, $d['modules']['music'] ?? null);
+    tp_eq('Partner: Antwort nennt die Sperre', true, !empty($d['modules_locked']['website']));
+    // Domain eines Partners auf der Plattform: nie Weiterleitung
+    if (class_exists('TIX_Customer_URL') && $pp['website']) {
+        $host = "partner-$sfx.example.test";
+        $map = (array) get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
+        $map_before = $map; $map[$host] = $op;
+        update_option(TIX_Customer_URL::OPTION_DOMAINS, $map);
+        wp_set_current_user(0);
+        list($st, $d) = tp_rest('GET', "/public/domains/$host");
+        tp_eq('Partner-Domain: keine Weiterleitung', false, isset($d['domain']['redirect']));
+        update_option(TIX_Customer_URL::OPTION_DOMAINS, $map_before);
+    }
+    // Partnerseite nicht erreichbar: beide an (bzw. letzter Stand)
+    update_option('tix_partners', ['tq' . $sfx => ['id' => 'tq' . $sfx, 'name' => 'Weg', 'api_base' => 'http://nicht-da.invalid/wp-json/tixomat/v1', 'organizer_id' => $op]]);
+    delete_transient('tix_plan_partner_' . md5('http://nicht-da.invalid/wp-json/tixomat/v1'));
+    delete_option('tix_plan_partner_' . md5('http://nicht-da.invalid/wp-json/tixomat/v1') . '_last');
+    tp_eq('Partner nicht erreichbar: Website an', true, TIX_Plan::org_on('website', $op));
+    tp_eq('Partner nicht erreichbar: App an', true, TIX_Plan::org_on('app', $op));
+    update_option('tix_partners', $partners_before);
+
     // 7. Migration: Immer-Module fest an, website aus Domain-Freigabe
     $oc = $mk_org("Plan C $sfx", $ua);
     update_post_meta($oc, '_tix_org_modules', wp_json_encode(['guestlist' => false, 'support' => false, 'music' => true]));

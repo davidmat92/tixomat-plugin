@@ -124,7 +124,10 @@ class TIX_Platform_Admin {
             'city' => self::city($oid), 'logo' => self::logo($oid),
             'status' => class_exists('TIX_Org_Approval') ? TIX_Org_Approval::status($oid) : 'approved',
             'created' => self::dt($p->post_date), 'owner' => self::owner($oid), 'events' => $all, 'upcoming' => $up,
-            'modules' => self::modules($oid), 'requirements' => $req,
+            'modules' => self::modules($oid),
+            // Pakete von Partnern mit eigener Seite: schreibgeschützt an {website: host, app: host} (1.38.565)
+            'modules_locked' => class_exists('TIX_Plan') ? TIX_Plan::org_locked($oid) : (object) [],
+            'requirements' => $req,
         ];
     }
 
@@ -209,6 +212,10 @@ class TIX_Platform_Admin {
         $known = class_exists('TIX_Plan') ? TIX_Plan::all_keys() : self::MODULE_KEYS;
         $unknown = array_diff(array_keys($in), $known);
         if ($unknown) return self::bad('modules.' . reset($unknown), 'Unbekanntes Modul: ' . reset($unknown) . '.');
+        if (class_exists('TIX_Plan') && TIX_Plan::partner_for_org($oid) && array_intersect(array_keys($in), TIX_Plan::PACKAGES)) {
+            $p = TIX_Plan::partner_for_org($oid);
+            return new WP_Error('tix_module_partner', 'Website und App laufen über die eigene Seite ' . $p['host'] . ' und lassen sich hier nicht schalten.', ['status' => 409, 'host' => $p['host']]);
+        }
         if (class_exists('TIX_Plan')) {
             TIX_Plan::save_org($oid, $in);
         } else {
@@ -221,7 +228,7 @@ class TIX_Platform_Admin {
         }
         if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
-        return rest_ensure_response(['ok' => true, 'modules' => self::modules($oid)]);
+        return rest_ensure_response(['ok' => true, 'modules' => self::modules($oid), 'modules_locked' => class_exists('TIX_Plan') ? TIX_Plan::org_locked($oid) : (object) []]);
     }
 
     // ═══════════════ Abrechnungen ═══════════════
