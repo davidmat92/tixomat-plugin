@@ -114,6 +114,8 @@ class TIX_Public_Platform {
                 if (array_key_exists($k, $raw)) $out[$k] = (bool) $raw[$k];
             }
         }
+        // Ein Schlüsselsatz (TIX_Plan, 1.38.563): Pakete, Extras und Immer-Module dazu
+        if (class_exists('TIX_Plan')) $out = array_merge($out, TIX_Plan::modules(intval($oid)));
         return class_exists('TIX_Modules') ? TIX_Modules::mask($out) : $out;
     }
 

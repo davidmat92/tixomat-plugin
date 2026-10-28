@@ -135,8 +135,23 @@ class TIX_Features {
     }
 
     /** Wirksamer Zustand: Seite; evendis mit Veranstalter = Modul (Musikwunsch zusätzlich der Plattform-Schalter). */
+    /** Funktion → Modul (TIX_Plan). Reine App-Schalter hängen an „Eigene App“ (M3 A). */
+    const PLAN_MODULE = [
+        'awareness_report' => 'awareness', 'awareness_alarm' => 'awareness', 'sos' => 'awareness',
+        'music' => 'music', 'loyalty' => 'loyalty', 'wallet' => 'wallet', 'giftcards' => 'giftcards',
+        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso',
+        'party_game' => 'app', 'live_now' => 'app', 'tips' => 'app',
+    ];
+
     public static function on($key, $oid = 0) {
         if (!isset(self::FEATURES[$key])) return false;
+        // Modul aus (Plattform-Studio bzw. Lizenz) → Funktion aus; Einzelseiten: reine App-Schalter nicht über
+        // „Eigene App“ (ihr Verhalten bleibt wie bisher), nur auf der Plattform je Veranstalter
+        $mod = self::PLAN_MODULE[$key] ?? null;
+        if ($mod && class_exists('TIX_Plan')) {
+            $plan_on = $oid && self::multi() ? TIX_Plan::org_on($mod, $oid) : ($mod === 'app' || TIX_Plan::site_on($mod));
+            if (!$plan_on) return false;
+        }
         if ($oid && self::multi() && self::FEATURES[$key][1]) {
             if ($key === 'wallet') return class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::scope_enabled($oid);
             if ($key === 'giftcards') return class_exists('TIX_Giftcards') && TIX_Giftcards::organizer_enabled($oid);

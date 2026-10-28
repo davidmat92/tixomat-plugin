@@ -75,17 +75,14 @@ class TIX_Platform_Admin {
 
     // ═══════════════ Veranstalter ═══════════════
 
+    /** Module des Veranstalters (TIX_Plan: immer dabei, Pakete, Extras). */
     public static function modules($oid) {
+        if (class_exists('TIX_Plan')) return TIX_Plan::modules($oid);
         $raw = get_post_meta($oid, '_tix_org_modules', true);
         $raw = is_string($raw) ? json_decode($raw, true) : $raw;
         $raw = is_array($raw) ? $raw : [];
-        $base = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::modules($oid) : [];
         $out = [];
-        foreach (self::MODULE_KEYS as $k) {
-            if (array_key_exists($k, $raw)) $out[$k] = (bool) $raw[$k];
-            elseif (array_key_exists($k, $base)) $out[$k] = (bool) $base[$k];
-            else $out[$k] = true; // Gästeliste, Abendkasse, Rabatt-Codes, Awareness: bisher immer verfügbar
-        }
+        foreach (self::MODULE_KEYS as $k) $out[$k] = array_key_exists($k, $raw) ? (bool) $raw[$k] : true;
         $out['tickets'] = true;
         return $out;
     }
@@ -209,14 +206,19 @@ class TIX_Platform_Admin {
         if (is_wp_error($oid)) return $oid;
         $in = $req->get_param('modules');
         if (!is_array($in)) return self::bad('modules', 'Bitte Module als {key: true|false} senden.');
-        $unknown = array_diff(array_keys($in), self::MODULE_KEYS);
+        $known = class_exists('TIX_Plan') ? TIX_Plan::all_keys() : self::MODULE_KEYS;
+        $unknown = array_diff(array_keys($in), $known);
         if ($unknown) return self::bad('modules.' . reset($unknown), 'Unbekanntes Modul: ' . reset($unknown) . '.');
-        $raw = get_post_meta($oid, '_tix_org_modules', true);
-        $raw = is_string($raw) ? json_decode($raw, true) : $raw;
-        $raw = is_array($raw) ? $raw : [];
-        foreach ($in as $k => $v) $raw[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
-        $raw['tickets'] = true;
-        update_post_meta($oid, '_tix_org_modules', wp_json_encode($raw));
+        if (class_exists('TIX_Plan')) {
+            TIX_Plan::save_org($oid, $in);
+        } else {
+            $raw = get_post_meta($oid, '_tix_org_modules', true);
+            $raw = is_string($raw) ? json_decode($raw, true) : $raw;
+            $raw = is_array($raw) ? $raw : [];
+            foreach ($in as $k => $v) $raw[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+            $raw['tickets'] = true;
+            update_post_meta($oid, '_tix_org_modules', wp_json_encode($raw));
+        }
         if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return rest_ensure_response(['ok' => true, 'modules' => self::modules($oid)]);

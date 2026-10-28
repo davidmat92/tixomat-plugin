@@ -780,6 +780,8 @@ class TIX_REST_API {
         ] : []) + [
             // App „evendis für Veranstalter“ (1.38.562): Shop erkennen, Marke je Shop, Mindestversion
             'site'           => self::staff_site_info(),
+            // Module der Seite (TIX_Plan): immer dabei · Pakete · Extras
+            'plan'           => class_exists('TIX_Plan') ? TIX_Plan::info_payload() : null,
             'staff_app'      => [
                 'min_version' => (string) get_option('tix_staff_app_min_version', ''),
                 'push_ready'  => class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'push_configured') && TIX_Notifications::push_configured(),
@@ -827,6 +829,8 @@ class TIX_REST_API {
                 'app_role'     => self::app_role_key($user),
             ],
         ];
+        // Module dieses Kontos (TIX_Plan, 1.38.563): {key: bool} – Apps blenden danach aus
+        if (class_exists('TIX_Plan')) $out['modules'] = TIX_Plan::me_payload();
         // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
         if ($multi) {
             $out['multi_organizer'] = true;
