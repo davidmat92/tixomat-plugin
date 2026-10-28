@@ -11,13 +11,20 @@ if (!defined('ABSPATH')) exit;
  *   GET  /license/package ?l&h&v&e&sig                → ZIP der hier laufenden Plugin-Version
  *   GET  /license/releases                            → [{version, released_at}] (für die Mindest-Version der Apps)
  * Module je Lizenz (`modules`, JSON-Liste; NULL = alle) → Antwort `modules`, beim Kunden TIX_Modules.
+ * Stufen (1.38.566, Lizenz-Fernschalter): active · notice (14 Tage vor Ablauf) · locked (kein Verkauf, keine
+ * Änderungen; Einlass + Tickets bis zum letzten Event mit verkauften Tickets) · basis (Basis-Modus). Durchgesetzt
+ * wird nur bei `enforce` = 1 (betriebene Seiten bzw. Lizenzen mit Vertrag); ältere Selbstbetriebs-Lizenzen
+ * behalten „ohne Lizenz nur keine Updates“. Antwort signiert (HMAC mit dem Lizenzschlüssel).
+ * Admin-REST für das Plattform-Studio: /license/admin/licenses[/{id}[/log|/ping]] (manage_options).
  * Das Update-Paket ist die hier installierte Version (Whitelist: tixomat.php, includes/, assets/, templates/)
  * plus `self-hosted.flag` – daran erkennt das Plugin den Selbstbetrieb (TIX_License).
  */
 class TIX_License_Server {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '2';
+    const DB_VERSION  = '3';
+    const NOTICE_DAYS = 14;  // Hinweis-Stufe vor Ablauf
+    const STAGES      = ['active', 'notice', 'locked', 'basis'];
     const LINK_TTL    = 43200; // Download-Link 12 h gültig
     const REQUIRES_PHP = '8.1';
     const REQUIRES_WP  = '6.4';
@@ -61,6 +68,10 @@ class TIX_License_Server {
             valid_until date NULL,
             note text NULL,
             modules text NULL,
+            enforce tinyint(1) NOT NULL DEFAULT 0,
+            stage_override varchar(20) NOT NULL DEFAULT '',
+            basis_url varchar(255) NOT NULL DEFAULT '',
+            last_event_date date NULL,
             created_at datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY license_key (license_key)
@@ -78,6 +89,16 @@ class TIX_License_Server {
             last_download datetime NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY license_host (license_id, host)
+        ) $c;");
+        dbDelta("CREATE TABLE " . self::t('tix_license_log') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            license_id bigint(20) unsigned NOT NULL,
+            user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            action varchar(40) NOT NULL,
+            data text NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY license_id (license_id)
         ) $c;");
         update_option('tix_license_db', self::DB_VERSION, false);
     }
@@ -127,9 +148,13 @@ class TIX_License_Server {
             'status'      => 'active',
             'valid_until' => self::date_or_null($args['valid_until'] ?? gmdate('Y-m-d', strtotime('+1 year'))),
             'note'        => sanitize_textarea_field($args['note'] ?? ''),
+            'enforce'     => !empty($args['enforce']) ? 1 : 0,
             'created_at'  => current_time('mysql'),
         ]);
-        return $wpdb->insert_id ? self::get(intval($wpdb->insert_id)) : null;
+        $id = intval($wpdb->insert_id);
+        if (!$id) return null;
+        self::log($id, 'create', ['enforce' => !empty($args['enforce'])]);
+        return self::get($id);
     }
 
     private static function date_or_null($d) {
@@ -174,6 +199,49 @@ class TIX_License_Server {
         return 'active';
     }
 
+    // ── Stufen (Fernschalter) ──
+
+    /**
+     * Stufe einer Lizenz. $reported = letztes Event mit verkauften Tickets laut Website (Y-m-d|null).
+     * Gesperrt wird durch Ablauf, Pause/Ende oder Fernschalter „sperren“; die Sperre endet mit dem letzten
+     * Event, danach Basis. Fernschalter „aktiv“ hebt einen Ablauf auf (Kulanz), „basis“ springt direkt.
+     */
+    public static function stage_for($lic, $reported = null, $today = null) {
+        if (!$lic) return null;
+        $today = $today ?: current_time('Y-m-d');
+        $ov = (string) ($lic->stage_override ?? '');
+        if ($ov === 'basis') return 'basis';
+        $expired = $lic->valid_until && $lic->valid_until < $today;
+        $lock = $ov === 'locked' || in_array($lic->status, ['suspended', 'revoked'], true) || ($expired && $ov !== 'active');
+        if ($lock) {
+            $led = max((string) ($lic->last_event_date ?? ''), (string) ($reported ?? ''));
+            return ($led !== '' && $led >= $today) ? 'locked' : 'basis';
+        }
+        if ($ov !== 'active' && $lic->valid_until && (strtotime($lic->valid_until) - strtotime($today)) <= self::NOTICE_DAYS * DAY_IN_SECONDS) {
+            return 'notice';
+        }
+        return 'active';
+    }
+
+    /** Signatur der Stufen-Antwort (prüft TIX_License::verify mit demselben Schlüssel). */
+    public static function signature($key, array $p) {
+        return hash_hmac('sha256', self::sign_base($p), self::normalize_key($key));
+    }
+
+    public static function sign_base(array $p) {
+        $mods = array_key_exists('modules', $p) && is_array($p['modules']) ? implode(',', $p['modules']) : '*';
+        return implode('|', ['tix-lic-v1', (string) ($p['host'] ?? ''), (string) ($p['stage'] ?? ''), !empty($p['enforce']) ? '1' : '0',
+            (string) ($p['expires_at'] ?? ''), (string) ($p['last_event_date'] ?? ''), (string) ($p['basis_url'] ?? ''), $mods, intval($p['issued_at'] ?? 0)]);
+    }
+
+    public static function log($license_id, $action, array $data = []) {
+        global $wpdb;
+        $wpdb->insert(self::t('tix_license_log'), [
+            'license_id' => intval($license_id), 'user_id' => get_current_user_id(), 'action' => mb_substr(sanitize_key($action), 0, 40),
+            'data' => $data ? wp_json_encode($data) : null, 'created_at' => current_time('mysql'),
+        ]);
+    }
+
     // ── Versionen ──
 
     /** Erscheinungsdatum jeder hier laufenden Version merken. */
@@ -203,6 +271,22 @@ class TIX_License_Server {
         ]);
         register_rest_route(self::NS, '/license/releases', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_releases'], 'permission_callback' => '__return_true',
+        ]);
+        // Plattform-Studio (nur Admins dieser Seite)
+        $admin = [__CLASS__, 'perm_admin'];
+        register_rest_route(self::NS, '/license/admin/licenses', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_list'], 'permission_callback' => $admin],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_create'], 'permission_callback' => $admin],
+        ]);
+        register_rest_route(self::NS, '/license/admin/licenses/(?P<id>\d+)', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_get'], 'permission_callback' => $admin],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_save'], 'permission_callback' => $admin],
+        ]);
+        register_rest_route(self::NS, '/license/admin/licenses/(?P<id>\d+)/log', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_log'], 'permission_callback' => $admin,
+        ]);
+        register_rest_route(self::NS, '/license/admin/licenses/(?P<id>\d+)/ping', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_ping'], 'permission_callback' => $admin,
         ]);
     }
 
@@ -246,6 +330,28 @@ class TIX_License_Server {
             'modules'     => $lic ? self::license_modules($lic) : null,
             'message'     => $msgs[$state] ?? '',
         ];
+        if ($lic) {
+            $reported = self::date_or_null((string) $req->get_param('last_event_date'));
+            if ($reported && $reported !== (string) $lic->last_event_date) {
+                global $wpdb;
+                $wpdb->update(self::t('tix_licenses'), ['last_event_date' => $reported], ['id' => $lic->id]);
+                $lic->last_event_date = $reported;
+            }
+            $stage = self::stage_for($lic, $reported);
+            $out += [
+                'stage'           => $stage,
+                'enforce'         => !empty($lic->enforce),
+                'notice_from'     => $lic->valid_until ? gmdate('Y-m-d', strtotime($lic->valid_until) - self::NOTICE_DAYS * DAY_IN_SECONDS) : null,
+                'last_event_date' => $lic->last_event_date ? (string) $lic->last_event_date : null,
+                'basis_url'       => (string) $lic->basis_url,
+                'issued_at'       => time(),
+            ];
+            if ($host !== '') {
+                $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
+                // Betriebene Seiten (enforce) binden auch in Sperre/Basis, damit der Heartbeat sichtbar bleibt
+                if ($state !== 'active' && !empty($lic->enforce)) self::bind_site($lic, $host, $req);
+            }
+        }
         if ($state !== 'active') return rest_ensure_response($out);
         if ($host === '') {
             $out['status'] = 'bad_site'; $out['message'] = $msgs['bad_site'];
@@ -396,6 +502,134 @@ class TIX_License_Server {
             if (count($out) >= 100) break;
         }
         return rest_ensure_response(['ok' => true, 'latest' => TIXOMAT_VERSION, 'releases' => $out]);
+    }
+
+    // ── Admin-REST (Plattform-Studio) ──
+
+    public static function perm_admin() {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Bitte anmelden.', ['status' => 401]);
+        return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Nur Admins verwalten Lizenzen.', ['status' => 403]);
+    }
+
+    /** Lizenz für das Studio – ohne vollen Schlüssel (nur die letzten 4 Zeichen). */
+    public static function admin_payload($lic) {
+        $sites = [];
+        $last = null;
+        foreach (self::sites($lic->id) as $s) {
+            $sites[] = ['id' => intval($s->id), 'host' => (string) $s->host, 'dev' => (bool) $s->dev, 'version' => (string) $s->version,
+                'first_seen' => (string) $s->first_seen, 'last_seen' => (string) $s->last_seen];
+            if (!$s->dev && (!$last || $s->last_seen > $last)) $last = (string) $s->last_seen;
+        }
+        $hb_age = $last ? (current_time('timestamp') - strtotime($last)) : null;
+        return [
+            'id' => intval($lic->id), 'key_hint' => substr((string) $lic->license_key, -4), 'customer' => (string) $lic->customer, 'email' => (string) $lic->email,
+            'status' => (string) $lic->status, 'state' => self::license_state($lic), 'stage' => self::stage_for($lic),
+            'stage_override' => (string) $lic->stage_override, 'enforce' => !empty($lic->enforce),
+            'valid_until' => $lic->valid_until ? (string) $lic->valid_until : null, 'last_event_date' => $lic->last_event_date ? (string) $lic->last_event_date : null,
+            'basis_url' => (string) $lic->basis_url, 'max_sites' => intval($lic->max_sites), 'note' => (string) $lic->note,
+            'modules' => self::license_modules($lic), 'sites' => $sites,
+            'heartbeat' => ['last' => $last, 'overdue' => $hb_age === null || $hb_age > 2 * DAY_IN_SECONDS],
+            'created_at' => (string) $lic->created_at,
+        ];
+    }
+
+    public static function rest_admin_list(WP_REST_Request $req) {
+        global $wpdb;
+        self::maybe_install();
+        $rows = $wpdb->get_results("SELECT * FROM " . self::t('tix_licenses') . " ORDER BY created_at DESC LIMIT 500");
+        return rest_ensure_response(['ok' => true, 'licenses' => array_map([__CLASS__, 'admin_payload'], $rows ?: []),
+            'notice_days' => self::NOTICE_DAYS, 'modules' => class_exists('TIX_Modules') ? TIX_Modules::keys() : []]);
+    }
+
+    public static function rest_admin_create(WP_REST_Request $req) {
+        self::maybe_install();
+        $lic = self::create([
+            'customer' => (string) $req->get_param('customer'), 'email' => (string) $req->get_param('email'),
+            'max_sites' => $req->get_param('max_sites') ?? 1, 'valid_until' => (string) ($req->get_param('valid_until') ?? gmdate('Y-m-d', strtotime('+1 year'))),
+            'note' => (string) $req->get_param('note'), 'enforce' => filter_var($req->get_param('enforce'), FILTER_VALIDATE_BOOLEAN),
+        ]);
+        if (!$lic) return new WP_Error('tix_license_create', 'Lizenz konnte nicht angelegt werden.', ['status' => 500]);
+        // Schlüssel nur bei der Anlage vollständig (für den Deploy der Seite)
+        return rest_ensure_response(['ok' => true, 'license' => self::admin_payload($lic), 'key' => (string) $lic->license_key]);
+    }
+
+    public static function rest_admin_get(WP_REST_Request $req) {
+        $lic = self::get(intval($req['id']));
+        if (!$lic) return new WP_Error('tix_not_found', 'Lizenz nicht gefunden.', ['status' => 404]);
+        return rest_ensure_response(['ok' => true, 'license' => self::admin_payload($lic)]);
+    }
+
+    /** Ändern: Fernschalter (stage_override), Laufzeit, Status, Durchsetzung, Module, Basis-Adresse. */
+    public static function rest_admin_save(WP_REST_Request $req) {
+        global $wpdb;
+        $lic = self::get(intval($req['id']));
+        if (!$lic) return new WP_Error('tix_not_found', 'Lizenz nicht gefunden.', ['status' => 404]);
+        $p = $req->get_json_params() ?: $req->get_params();
+        $up = [];
+        if (array_key_exists('stage_override', $p)) {
+            $ov = sanitize_key((string) $p['stage_override']);
+            if (!in_array($ov, ['', 'active', 'locked', 'basis'], true)) return new WP_Error('tix_invalid_field', 'Unbekannter Schalter.', ['status' => 400, 'field' => 'stage_override']);
+            $up['stage_override'] = $ov;
+        }
+        if (array_key_exists('valid_until', $p)) {
+            $d = self::date_or_null((string) $p['valid_until']);
+            if ((string) $p['valid_until'] !== '' && !$d) return new WP_Error('tix_invalid_field', 'Datum bitte als JJJJ-MM-TT.', ['status' => 400, 'field' => 'valid_until']);
+            $up['valid_until'] = $d;
+        }
+        if (array_key_exists('status', $p)) {
+            $st = sanitize_key((string) $p['status']);
+            if (!in_array($st, ['active', 'suspended', 'revoked'], true)) return new WP_Error('tix_invalid_field', 'Unbekannter Status.', ['status' => 400, 'field' => 'status']);
+            $up['status'] = $st;
+        }
+        if (array_key_exists('enforce', $p)) $up['enforce'] = filter_var($p['enforce'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        if (array_key_exists('basis_url', $p)) {
+            $u = trim((string) $p['basis_url']);
+            if ($u !== '' && !preg_match('#^https://#i', $u)) return new WP_Error('tix_invalid_field', 'Die Basis-Adresse muss mit https:// beginnen.', ['status' => 400, 'field' => 'basis_url']);
+            $up['basis_url'] = $u === '' ? '' : esc_url_raw($u);
+        }
+        if (array_key_exists('modules', $p)) {
+            $up['modules'] = is_array($p['modules']) && class_exists('TIX_Modules')
+                ? wp_json_encode(array_values(array_intersect(TIX_Modules::keys(), array_map('sanitize_key', $p['modules'])))) : null;
+        }
+        foreach (['customer' => 190, 'note' => 2000] as $f => $len) {
+            if (array_key_exists($f, $p)) $up[$f] = mb_substr($f === 'note' ? sanitize_textarea_field((string) $p[$f]) : sanitize_text_field((string) $p[$f]), 0, $len);
+        }
+        if (array_key_exists('email', $p)) $up['email'] = sanitize_email((string) $p['email']);
+        if (array_key_exists('max_sites', $p)) $up['max_sites'] = max(1, intval($p['max_sites']));
+        if (!$up) return new WP_Error('tix_invalid_field', 'Nichts zu ändern.', ['status' => 400]);
+        $before = self::stage_for($lic);
+        $wpdb->update(self::t('tix_licenses'), $up, ['id' => $lic->id]);
+        $lic = self::get($lic->id);
+        self::log($lic->id, 'save', $up + ['stage_before' => $before, 'stage_after' => self::stage_for($lic)]);
+        return rest_ensure_response(['ok' => true, 'license' => self::admin_payload($lic)]);
+    }
+
+    public static function rest_admin_log(WP_REST_Request $req) {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t('tix_license_log') . " WHERE license_id = %d ORDER BY id DESC LIMIT 200", intval($req['id'])));
+        $out = [];
+        foreach ($rows ?: [] as $r) {
+            $u = $r->user_id ? get_userdata($r->user_id) : null;
+            $out[] = ['action' => (string) $r->action, 'user' => $u ? $u->display_name : '', 'data' => $r->data ? json_decode($r->data, true) : null, 'created_at' => (string) $r->created_at];
+        }
+        return rest_ensure_response(['ok' => true, 'log' => $out]);
+    }
+
+    /** „Jetzt prüfen“: bittet jede gebundene Website, sofort den Heartbeat zu schicken. */
+    public static function rest_admin_ping(WP_REST_Request $req) {
+        $lic = self::get(intval($req['id']));
+        if (!$lic) return new WP_Error('tix_not_found', 'Lizenz nicht gefunden.', ['status' => 404]);
+        $res = [];
+        foreach (self::sites($lic->id) as $s) {
+            if ($s->dev) continue;
+            $r = wp_remote_post('https://' . $s->host . '/wp-json/tixomat/v1/license/ping', ['timeout' => 20, 'headers' => ['Accept' => 'application/json']]);
+            $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
+            $d = $code === 200 ? json_decode((string) wp_remote_retrieve_body($r), true) : null;
+            $res[] = ['host' => (string) $s->host, 'ok' => $code === 200, 'stage' => is_array($d) ? ($d['stage'] ?? null) : null,
+                'error' => $code === 200 ? null : (is_wp_error($r) ? $r->get_error_message() : 'HTTP ' . $code)];
+        }
+        self::log($lic->id, 'ping', ['sites' => count($res)]);
+        return rest_ensure_response(['ok' => true, 'sites' => $res]);
     }
 
     // ── Admin ──

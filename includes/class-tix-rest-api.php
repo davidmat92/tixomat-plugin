@@ -782,6 +782,8 @@ class TIX_REST_API {
             'site'           => self::staff_site_info(),
             // Module der Seite (TIX_Plan): immer dabei · Pakete · Extras
             'plan'           => class_exists('TIX_Plan') ? TIX_Plan::info_payload() : null,
+            // Lizenz-Stufe (1.38.566): active | notice | locked | basis – Apps schalten Kauf/Basis danach
+            'license'        => class_exists('TIX_License_Stage') ? TIX_License_Stage::payload() : null,
             'staff_app'      => [
                 'min_version' => (string) get_option('tix_staff_app_min_version', ''),
                 'push_ready'  => class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'push_configured') && TIX_Notifications::push_configured(),
@@ -831,6 +833,7 @@ class TIX_REST_API {
         ];
         // Module dieses Kontos (TIX_Plan, 1.38.563): {key: bool} – Apps blenden danach aus
         if (class_exists('TIX_Plan')) $out['modules'] = TIX_Plan::me_payload();
+        if (class_exists('TIX_License_Stage')) $out['license'] = TIX_License_Stage::payload();
         // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
         if ($multi) {
             $out['multi_organizer'] = true;

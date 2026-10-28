@@ -11,6 +11,10 @@ if (!defined('ABSPATH')) exit;
  * Ohne gültige Lizenz bricht nichts ab: nur ein Hinweis im Admin, keine Updates.
  * Update-Weg: Plugin-Header „Update URI“ → Filter `update_plugins_{host}`; Prüfung täglich (Cron)
  * und beim Speichern, Ergebnis in Option `tix_license_status`.
+ *
+ * Betriebsart (1.38.566, Option `tix_license_mode`): `selfhosted` (wie bisher), `managed` (von uns betriebene
+ * Kundenseite, Schlüssel per Deploy) oder `none` (eigene Seiten wie evendis.de, KitchenKlub, Mallorca – keine
+ * Prüfung). Ohne Option gilt: Flag/Schlüssel → selfhosted, sonst none. Stufen und Sperren: TIX_License_Stage.
  */
 class TIX_License {
 
@@ -19,14 +23,23 @@ class TIX_License {
     const OPT_KEY        = 'tix_license_key';
     const OPT_STATUS     = 'tix_license_status';
     const CRON           = 'tix_license_check';
-    const GRACE_DAYS     = 14; // Server nicht erreichbar: letzte gültige Prüfung zählt so lange weiter
+    const GRACE_DAYS     = 7;  // Server nicht erreichbar: letzte gültige Prüfung zählt so lange weiter (User 2026-10-29, L6)
+    const OPT_MODE       = 'tix_license_mode';
+    const MODES          = ['selfhosted', 'managed', 'none'];
 
     public static function self_hosted() {
         return file_exists(TIXOMAT_PATH . 'self-hosted.flag') || (string) get_option(self::OPT_KEY, '') !== '';
     }
 
+    /** selfhosted | managed | none */
+    public static function mode() {
+        $m = (string) get_option(self::OPT_MODE, '');
+        if (in_array($m, self::MODES, true)) return $m;
+        return self::self_hosted() ? 'selfhosted' : 'none';
+    }
+
     public static function active() {
-        return self::self_hosted() && !(class_exists('TIX_License_Server') && TIX_License_Server::enabled());
+        return self::mode() !== 'none' && !(class_exists('TIX_License_Server') && TIX_License_Server::enabled());
     }
 
     public static function server() {
@@ -80,7 +93,8 @@ class TIX_License {
         $res = wp_remote_post(self::server() . '/wp-json/tixomat/v1/license/check', [
             'timeout' => 15,
             'headers' => ['Accept' => 'application/json'],
-            'body'    => ['key' => $key, 'site' => home_url(), 'version' => TIXOMAT_VERSION, 'wp' => (string) $wp_version, 'php' => PHP_VERSION],
+            'body'    => ['key' => $key, 'site' => home_url(), 'version' => TIXOMAT_VERSION, 'wp' => (string) $wp_version, 'php' => PHP_VERSION,
+                          'mode' => self::mode(), 'last_event_date' => class_exists('TIX_License_Stage') ? (string) TIX_License_Stage::last_event_date() : ''],
         ]);
         $code = is_wp_error($res) ? 0 : intval(wp_remote_retrieve_response_code($res));
         $data = $code === 200 ? json_decode((string) wp_remote_retrieve_body($res), true) : null;
@@ -102,6 +116,21 @@ class TIX_License {
             'last_ok'     => !empty($data['valid']) ? time() : intval($prev['last_ok'] ?? 0),
             'unreachable' => false,
         ];
+        // Stufe (Fernschalter) nur mit gültiger Signatur übernehmen; sonst bleibt der letzte signierte Stand
+        if (isset($data['stage']) && self::verify($key, $data)) {
+            $status += [
+                'stage'           => sanitize_key((string) $data['stage']),
+                'enforce'         => !empty($data['enforce']),
+                'notice_from'     => isset($data['notice_from']) ? sanitize_text_field((string) $data['notice_from']) : null,
+                'last_event_date' => isset($data['last_event_date']) ? sanitize_text_field((string) $data['last_event_date']) : null,
+                'basis_url'       => !empty($data['basis_url']) ? esc_url_raw((string) $data['basis_url']) : '',
+                'signed_at'       => time(),
+            ];
+        } else {
+            foreach (['stage', 'enforce', 'notice_from', 'last_event_date', 'basis_url', 'signed_at'] as $k) {
+                if (array_key_exists($k, $prev)) $status[$k] = $prev[$k];
+            }
+        }
         // Module der Lizenz (null = alle); unbekannter Schlüssel ändert die zuletzt bekannte Freischaltung nicht
         if (array_key_exists('modules', $data) && ($data['status'] ?? '') !== 'invalid') {
             $status['modules'] = is_array($data['modules']) ? array_values(array_map('sanitize_key', $data['modules'])) : null;
@@ -110,6 +139,18 @@ class TIX_License {
         }
         update_option(self::OPT_STATUS, $status, false);
         return $status;
+    }
+
+    /** Signatur der Stufen-Antwort prüfen (gleiche Grundlage wie TIX_License_Server::sign_base, Host = diese Seite). */
+    public static function verify($key, array $data) {
+        if (empty($data['signature']) || empty($data['issued_at'])) return false;
+        if (abs(time() - intval($data['issued_at'])) > 2 * DAY_IN_SECONDS) return false; // alte Antwort nicht wiederverwenden
+        $host = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url(home_url(), PHP_URL_HOST)));
+        $mods = array_key_exists('modules', $data) && is_array($data['modules']) ? implode(',', $data['modules']) : '*';
+        $base = implode('|', ['tix-lic-v1', $host, (string) $data['stage'], !empty($data['enforce']) ? '1' : '0',
+            (string) ($data['expires_at'] ?? ''), (string) ($data['last_event_date'] ?? ''), (string) ($data['basis_url'] ?? ''), $mods, intval($data['issued_at'])]);
+        $norm = strtoupper(preg_replace('/[^A-Za-z0-9-]/', '', trim((string) $key)));
+        return hash_equals(hash_hmac('sha256', $base, $norm), (string) $data['signature']);
     }
 
     /** Update-Angebot für WordPress (Filter `update_plugins_{host}`). */
