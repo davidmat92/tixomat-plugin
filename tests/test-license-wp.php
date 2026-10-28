@@ -178,3 +178,31 @@ tl_eq('aufgeräumt: Betriebsart wieder wie vorher', $keep['tix_license_mode'] ==
 tl_eq('aufgeräumt: Stufe active', 'active', TIX_License_Stage::stage());
 
 echo "\n" . ($GLOBALS['t_fails'] ? $GLOBALS['t_fails'] . ' FEHLER' : 'ALLES GRÜN') . " ({$GLOBALS['t_count']} Prüfungen)\n";
+
+// ══════════ L3: Basis-Inhalt app.json ══════════
+echo "── app.json ──\n";
+$GLOBALS['t_fails2'] = 0;
+$eid = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Basis-Testevent']);
+update_post_meta($eid, '_tix_date_start', wp_date('Y-m-d', time() + 5 * DAY_IN_SECONDS));
+update_post_meta($eid, '_tix_time_start', '22:00');
+update_post_meta($eid, '_tix_location', 'Testhalle');
+update_post_meta($eid, '_tix_basis_ticket_url', 'https://tickets.example.test/1');
+$past = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Basis-Altes-Event']);
+update_post_meta($past, '_tix_date_start', '2020-01-01');
+tl_eq('app.json geschrieben', true, TIX_Basis_Content::write());
+$j = json_decode((string) file_get_contents(TIX_Basis_Content::file()), true);
+tl_eq('Format-Version 1', 1, $j['version'] ?? null);
+tl_eq('Marke hat Namen', true, ($j['brand']['name'] ?? '') !== '');
+$ev = null; foreach (($j['events'] ?? []) as $e) if ($e['id'] === $eid) $ev = $e;
+tl_eq('kommendes Event drin', 'Basis-Testevent', $ev['title'] ?? null);
+tl_eq('Ticket-Link übernommen', 'https://tickets.example.test/1', $ev['ticket_url'] ?? null);
+tl_eq('vergangenes Event fehlt', false, in_array($past, array_column($j['events'] ?? [], 'id'), true));
+$flat = wp_json_encode($j);
+tl_eq('keine Kunden-E-Mails (kein @example.test-Kunde)', false, strpos($flat, 'test@example.test') !== false);
+tl_eq('Schlüssel vollständig', ['version', 'updated_at', 'source', 'brand', 'home', 'pages', 'contact', 'social', 'legal', 'events'], array_keys($j));
+[$st, $d] = tl_rest('GET', '/basis/content');
+tl_eq('REST /basis/content 200', 200, $st);
+tl_eq('REST liefert dieselben Events', count($j['events']), count($d['events'] ?? []));
+wp_delete_post($eid, true); wp_delete_post($past, true);
+TIX_Basis_Content::write();
+echo "\n" . ($GLOBALS['t_fails'] ? $GLOBALS['t_fails'] . ' FEHLER' : 'ALLES GRÜN') . " ({$GLOBALS['t_count']} Prüfungen gesamt)\n";
