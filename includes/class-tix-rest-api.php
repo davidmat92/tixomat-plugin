@@ -714,6 +714,27 @@ class TIX_REST_API {
     //  DISCOVERY
     // ═══════════════════════════════════════════
 
+    /**
+     * Shop-Steckbrief für die App „evendis für Veranstalter“ (1.38.562):
+     * Name, Logo, Akzent, Art (platform = Mehr-Veranstalter-Modus, shop = eigener Shop)
+     * und ob die Seite eine eigene App hat. Öffentlich, ohne personenbezogene Daten.
+     */
+    public static function staff_site_info() {
+        $b = class_exists('TIX_Mail_Layout') && method_exists('TIX_Mail_Layout', 'brand') ? (array) TIX_Mail_Layout::brand() : [];
+        $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (array) TIX_Studio::app_info() : [];
+        $multi = class_exists('TIX_App_Scope') ? TIX_App_Scope::multi() : (get_option('tix_multi_organizer') === '1');
+        $accent = (string) ($b['accent'] ?? '');
+        return [
+            'name'           => (string) ($b['name'] ?? html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8')),
+            'logo'           => (string) ($b['logo'] ?? ''),
+            'logo_on_accent' => (string) ($b['logo_on_accent'] ?? ''),
+            'icon'           => (string) get_site_icon_url(256),
+            'accent'         => preg_match('/^#[0-9a-f]{6}$/i', $accent) ? strtoupper($accent) : '#FC2F55',
+            'kind'           => $multi ? 'platform' : 'shop',
+            'has_app'        => !empty($app['has_app']),
+        ];
+    }
+
     public static function get_info(WP_REST_Request $req) {
         $features = [];
         // Platzhalterbild für Events ohne Bild (1.38.458, Studio → Marke): {url, url_small} | null
@@ -757,6 +778,12 @@ class TIX_REST_API {
             // Aktive Zahlarten (Vertrauens-Leiste im Web) – nur Anzeige, maßgeblich bleibt das Angebot der Kasse
             'payment_methods' => class_exists('TIX_App_Checkout') ? TIX_App_Checkout::info_methods() : [],
         ] : []) + [
+            // App „evendis für Veranstalter“ (1.38.562): Shop erkennen, Marke je Shop, Mindestversion
+            'site'           => self::staff_site_info(),
+            'staff_app'      => [
+                'min_version' => (string) get_option('tix_staff_app_min_version', ''),
+                'push_ready'  => class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'push_configured') && TIX_Notifications::push_configured(),
+            ],
         ]);
     }
 
