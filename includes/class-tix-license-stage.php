@@ -35,6 +35,30 @@ class TIX_License_Stage {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('admin_init', [__CLASS__, 'guard_ajax'], 1);
         add_action('admin_notices', [__CLASS__, 'notice']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat license', [__CLASS__, 'cli']);
+    }
+
+    /**
+     * Notfall auf der Kundenseite (Paket L10):
+     *   wp tixomat license status   – Betriebsart, Stufe, letzter Heartbeat
+     *   wp tixomat license check    – sofort beim Lizenzserver prüfen
+     *   wp tixomat license unlock   – Sperre hier aufheben, bis der nächste signierte Heartbeat kommt
+     *                                 (enforce aus; z. B. wenn der Lizenzserver fehlerhaft sperrt)
+     */
+    public static function cli($args) {
+        $do = $args[0] ?? 'status';
+        if ($do === 'check' && class_exists('TIX_License')) TIX_License::check();
+        if ($do === 'unlock' && class_exists('TIX_License')) {
+            $s = TIX_License::status();
+            $s['enforce'] = false;
+            $s['stage'] = 'active';
+            update_option(TIX_License::OPT_STATUS, $s, false);
+            WP_CLI::success('Sperre aufgehoben. Der nächste signierte Heartbeat setzt den Stand vom Lizenzserver.');
+        }
+        $p = self::payload();
+        $s = class_exists('TIX_License') ? TIX_License::status() : [];
+        WP_CLI::line(sprintf('Betriebsart %s · Stufe %s · durchgesetzt %s · signiert %s · Ablauf %s', $p['mode'], $p['stage'], $p['enforced'] ? 'ja' : 'nein',
+            !empty($s['signed_at']) ? wp_date('d.m.Y H:i', intval($s['signed_at'])) : '–', (string) ($s['expires_at'] ?? '–')));
     }
 
     // ═══════════════ Stufe ═══════════════

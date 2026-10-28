@@ -98,6 +98,16 @@ tl_eq('wieder active', 'active', $d['license']['stage'] ?? null);
 tl_eq('Verlauf hat Einträge (Anlage + 2 Änderungen)', 3, count($d['log'] ?? []));
 tl_eq('Verlauf nennt Stufe davor/danach', 'locked', $d['log'][1]['data']['stage_after'] ?? null);
 
+// Notfall: alle Sperren aufheben (L10)
+$lock = TIX_License_Server::create(['customer' => 'Notfall-Test', 'valid_until' => '2020-01-01', 'enforce' => true]);
+$wpdb_ = $GLOBALS['wpdb'];
+$wpdb_->update($wpdb_->prefix . 'tix_licenses', ['last_event_date' => '2099-01-01'], ['id' => $lock->id]);
+tl_eq('Notfall: vorher gesperrt', 'locked', TIX_License_Server::stage_for(TIX_License_Server::get($lock->id)));
+ob_start(); TIX_License_Server::cli(['unlock-all']); ob_end_clean();
+tl_eq('Notfall: danach aktiv', 'active', TIX_License_Server::stage_for(TIX_License_Server::get($lock->id)));
+tl_eq('Notfall: Verlauf „emergency“', 1, intval($wpdb_->get_var($wpdb_->prepare("SELECT COUNT(*) FROM {$wpdb_->prefix}tix_license_log WHERE license_id = %d AND action = 'emergency'", $lock->id))));
+foreach (['tix_licenses' => 'id', 'tix_license_log' => 'license_id'] as $tb => $col) $wpdb_->delete($wpdb_->prefix . $tb, [$col => $lock->id]);
+
 // ══════════ Kundenseite ══════════
 echo "── Kundenseite ──\n";
 update_option('tix_license_server', '0', false);

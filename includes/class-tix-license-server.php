@@ -40,6 +40,33 @@ class TIX_License_Server {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action('admin_menu', [__CLASS__, 'menu'], 40);
         add_action('admin_post_tix_license_admin', [__CLASS__, 'handle_admin']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat licenses', [__CLASS__, 'cli']);
+    }
+
+    /**
+     * Notfall auf dem Lizenzserver (Paket L10):
+     *   wp tixomat licenses list         – alle Lizenzen mit Stufe
+     *   wp tixomat licenses unlock-all   – alle durchgesetzten Lizenzen auf „Aktiv halten“ (Verlauf: emergency)
+     */
+    public static function cli($args) {
+        global $wpdb;
+        self::maybe_install();
+        $do = $args[0] ?? 'list';
+        $rows = $wpdb->get_results("SELECT * FROM " . self::t('tix_licenses') . " ORDER BY id");
+        if ($do === 'unlock-all') {
+            $n = 0;
+            foreach ($rows as $lic) {
+                if (empty($lic->enforce) || in_array(self::stage_for($lic), ['active', 'notice'], true)) continue;
+                $wpdb->update(self::t('tix_licenses'), ['stage_override' => 'active'], ['id' => $lic->id]);
+                self::log($lic->id, 'emergency', ['stage_override' => 'active']);
+                $n++;
+            }
+            WP_CLI::success("$n Lizenz(en) auf „Aktiv halten“ gesetzt. Die Seiten übernehmen es beim nächsten Heartbeat (oder: Jetzt prüfen).");
+            $rows = $wpdb->get_results("SELECT * FROM " . self::t('tix_licenses') . " ORDER BY id");
+        }
+        foreach ($rows as $lic) {
+            WP_CLI::line(sprintf('#%d %s · %s · bis %s · Stufe %s%s', $lic->id, $lic->customer ?: '–', $lic->status, $lic->valid_until ?: '–', self::stage_for($lic), empty($lic->enforce) ? ' (nur Updates)' : ''));
+        }
     }
 
     // ── Datenbank ──
