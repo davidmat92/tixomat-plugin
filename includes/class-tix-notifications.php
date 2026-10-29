@@ -449,6 +449,10 @@ class TIX_Notifications {
             return new WP_Error('tix_bad_token', 'Ungültiges Token.', ['status' => 400]);
         }
         $bundle = substr(preg_replace('/[^A-Za-z0-9._-]/', '', (string) $req->get_param('bundle')), 0, 100);
+        // Veranstalter-Mitteilungen (1.38.574): eigene Liste, nie in die Gast-Pushes
+        if ($req->get_param('app') === 'staff' && class_exists('TIX_Staff_Push')) {
+            return TIX_Staff_Push::register($req, $token, $platform, $bundle);
+        }
         $tokens = self::tokens();
         $tokens[$token] = [
             'user'     => get_current_user_id(),
@@ -472,6 +476,7 @@ class TIX_Notifications {
     /** POST /push/unregister {token} */
     public static function rest_unregister_device(WP_REST_Request $req) {
         $raw    = trim((string) $req->get_param('token'));
+        if (class_exists('TIX_Staff_Push')) TIX_Staff_Push::unregister($raw);
         $tokens = self::tokens();
         $token  = isset($tokens[$raw]) ? $raw : preg_replace('/[^a-f0-9]/i', '', $raw);
         if ($token !== '' && isset($tokens[$token])) {
@@ -680,10 +685,25 @@ class TIX_Notifications {
 
     /** APNs-Versand (bisheriger Weg, unverändert). */
     private static function send_apns($tokens, $title, $body, $data = []) {
-        if (!$tokens || !self::apns_configured()) return 0;
+        $r = self::apns_send($tokens, $title, $body, $data);
+        if ($r['invalid']) {
+            $all = self::tokens();
+            foreach ($r['invalid'] as $t) unset($all[$t]);
+            update_option(self::OPT_TOKENS, $all, false);
+        }
+        return $r['sent'];
+    }
+
+    /**
+     * APNs mit wählbarem Bundle (`apns-topic`; Veranstalter-App, 1.38.574). Derselbe .p8-Schlüssel gilt für alle
+     * Apps des Teams. → ['sent' => n, 'invalid' => [token]] (Aufrufer räumt seine Liste selbst auf)
+     */
+    public static function apns_send($tokens, $title, $body, $data = [], $topic = null) {
+        $out = ['sent' => 0, 'invalid' => []];
+        if (!$tokens || !self::apns_configured()) return $out;
 
         $jwt = self::apns_jwt();
-        if (!$jwt) return 0;
+        if (!$jwt) return $out;
 
         $c    = self::push_config();
         $host = $c['env'] === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
@@ -708,7 +728,7 @@ class TIX_Notifications {
                 CURLOPT_TIMEOUT        => 8,
                 CURLOPT_HTTPHEADER     => [
                     'authorization: bearer ' . $jwt,
-                    'apns-topic: ' . $c['bundle'],
+                    'apns-topic: ' . ($topic ?: $c['bundle']),
                     'apns-push-type: alert',
                     'apns-priority: 10',
                     'content-type: application/json',
@@ -723,12 +743,7 @@ class TIX_Notifications {
                 $invalid[] = $token; // Token abgelaufen/ungültig → entfernen
             }
         }
-        if ($invalid) {
-            $all = self::tokens();
-            foreach ($invalid as $t) unset($all[$t]);
-            update_option(self::OPT_TOKENS, $all, false);
-        }
-        return $sent;
+        return ['sent' => $sent, 'invalid' => $invalid];
     }
 
     /** ES256-JWT für die APNs-Authentifizierung (10 min gecacht). */

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.573
+ * Version: 1.38.574
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.573');
+define('TIXOMAT_VERSION', '1.38.574');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -682,6 +682,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-license-server.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-license.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-license-stage.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-basis-content.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-staff-push.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-app-compat.php';
 TIX_Modules::init();
 // Ein Schlüsselsatz für alle Module (immer dabei · Pakete Website/App · Extras), Seite + Veranstalter (1.38.563)
@@ -729,6 +730,7 @@ TIX_License_Server::init();
 TIX_License::init();
 TIX_License_Stage::init();
 TIX_Basis_Content::init();
+TIX_Staff_Push::init();
 TIX_App_Compat::init();
 // Preis-Wächter (Mehr-Veranstalter-Modus): GET /organizer/price-watch
 require_once TIXOMAT_PATH . 'includes/class-tix-price-watch.php';

@@ -57,9 +57,22 @@ class TIX_FCM {
     }
 
     /** Gespeichertes Dienstkonto oder null. */
+    /** Anderes Dienstkonto für die Dauer von $fn (Weiterleitung der Veranstalter-App, 1.38.574). */
+    private static $sa_option = null;
+
+    public static function using($option, callable $fn) {
+        $prev = self::$sa_option;
+        self::$sa_option = (string) $option;
+        try {
+            return $fn();
+        } finally {
+            self::$sa_option = $prev;
+        }
+    }
+
     public static function account() {
         static $memo = [];
-        $raw = get_option(self::OPT_SA, '');
+        $raw = get_option(self::$sa_option ?: self::OPT_SA, '');
         if ($raw === '' || $raw === []) return null;
         $k = md5(is_array($raw) ? wp_json_encode($raw) : (string) $raw);
         if (!array_key_exists($k, $memo)) {
