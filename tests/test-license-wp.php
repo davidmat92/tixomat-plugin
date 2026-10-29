@@ -178,6 +178,12 @@ tl_eq('allowed(): Anmeldung', true, TIX_License_Stage::allowed('basis', 'POST', 
 tl_eq('allowed(): locked Support', true, TIX_License_Stage::allowed('locked', 'POST', '/customer/support'));
 tl_eq('allowed(): locked Event ändern', false, TIX_License_Stage::allowed('locked', 'POST', '/events/5'));
 
+// Stufenwechsel ohne Browser-Antwort (WP-CLI): Seiten-Cache wird vorgemerkt und beim nächsten Aufruf geleert
+delete_option(TIX_License_Stage::PURGE_FLAG);
+TIX_License_Stage::changed('active');
+tl_eq('Stufenwechsel (CLI): Leeren vorgemerkt', '1', get_option(TIX_License_Stage::PURGE_FLAG));
+// (Nachholen per X-LiteSpeed-Purge beim nächsten HTTP-Aufruf prüft tool/license_e2e.py bzw. ein curl auf die Seite)
+delete_option(TIX_License_Stage::PURGE_FLAG);
 $set('notice');
 tl_eq('notice: Online-Verkauf wieder an', '1', get_post_meta($tev, '_tix_tickets_enabled', true));
 wp_delete_post($tev, true);

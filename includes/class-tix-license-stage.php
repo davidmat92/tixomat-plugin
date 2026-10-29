@@ -38,6 +38,8 @@ class TIX_License_Stage {
         // Sperre/Basis: Online-Verkauf gilt überall als aus (Website-Knöpfe, /public/events, Apps) – außer im WP-Admin,
         // damit beim Speichern eines Events der echte Wert erhalten bleibt (1.38.570)
         add_filter('get_post_metadata', [__CLASS__, 'tickets_meta'], 10, 4);
+        add_action('send_headers', [__CLASS__, 'purge_pending']);
+        add_action('rest_api_init', [__CLASS__, 'purge_pending']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat license', [__CLASS__, 'cli']);
     }
 
@@ -95,8 +97,34 @@ class TIX_License_Stage {
         $after = self::stage();
         if ($before === null || $before === $after) return;
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
-        do_action('litespeed_purge_all');
+        self::purge_pages();
         do_action('tix_license_stage_changed', $after, $before);
+    }
+
+    const PURGE_FLAG = 'tix_license_purge_pending';
+
+    /**
+     * Seiten-Cache leeren, damit Kauf-Knöpfe sofort stimmen (LiteSpeed cacht Event-Seiten bis zu 7 Tage und
+     * ignoriert unbekannte Query-Parameter). Über das Cache-Plugin und direkt per Kopfzeile; ohne Antwort an einen
+     * Browser (WP-CLI, Cron ohne Ausgabe) wird es vorgemerkt und beim nächsten Seitenaufruf nachgeholt.
+     */
+    public static function purge_pages() {
+        do_action('litespeed_purge_all');
+        if (function_exists('wp_cache_flush')) wp_cache_flush();
+        if (!headers_sent() && !(defined('WP_CLI') && WP_CLI)) {
+            header('X-LiteSpeed-Purge: *', false);
+            delete_option(self::PURGE_FLAG);
+        } else {
+            update_option(self::PURGE_FLAG, '1', false);
+        }
+    }
+
+    /** Vorgemerktes Leeren beim nächsten Aufruf (send_headers). */
+    public static function purge_pending() {
+        if (get_option(self::PURGE_FLAG) !== '1' || headers_sent()) return;
+        header('X-LiteSpeed-Purge: *', false);
+        do_action('litespeed_purge_all');
+        delete_option(self::PURGE_FLAG);
     }
 
     public static function tickets_meta($value, $object_id, $meta_key, $single) {
