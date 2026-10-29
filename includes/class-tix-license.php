@@ -143,8 +143,11 @@ class TIX_License {
         // Module der Lizenz (null = alle); unbekannter Schlüssel ändert die zuletzt bekannte Freischaltung nicht
         if (array_key_exists('modules', $data) && ($data['status'] ?? '') !== 'invalid') {
             $status['modules'] = is_array($data['modules']) ? array_values(array_map('sanitize_key', $data['modules'])) : null;
+            // Schlüsselsatz der Liste (1 = vor dem Modul-Verkauf, neue Schlüssel dort frei)
+            $status['modules_v'] = intval($data['modules_v'] ?? 1);
         } elseif (array_key_exists('modules', $prev)) {
             $status['modules'] = $prev['modules'];
+            $status['modules_v'] = intval($prev['modules_v'] ?? 1);
         }
         update_option(self::OPT_STATUS, $status, false);
         return $status;

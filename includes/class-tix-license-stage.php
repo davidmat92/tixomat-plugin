@@ -188,6 +188,9 @@ class TIX_License_Stage {
             'last_event_date' => self::enforced() ? self::last_event_date() : null,
             'basis_url'       => $basis !== '' ? $basis : (self::enforced() ? home_url('/app.json') : null),
             'message'         => self::message($stage),
+            // Modul-Verkauf (1.38.587): lizenzierte Module (null = alle) und gesperrte Schlüssel
+            'modules'         => class_exists('TIX_Modules') ? TIX_Modules::entitled() : null,
+            'locked'          => class_exists('TIX_Modules') ? TIX_Modules::locked() : [],
         ];
     }
 

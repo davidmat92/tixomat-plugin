@@ -301,6 +301,9 @@ class TIX_License_Server {
         ]);
         // Plattform-Studio (nur Admins dieser Seite)
         $admin = [__CLASS__, 'perm_admin'];
+        register_rest_route(self::NS, '/license/module-request', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_module_request'], 'permission_callback' => '__return_true',
+        ]);
         register_rest_route(self::NS, '/license/admin/licenses', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_list'], 'permission_callback' => $admin],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_admin_create'], 'permission_callback' => $admin],
@@ -333,7 +336,49 @@ class TIX_License_Server {
         ];
     }
 
+    /**
+     * „Jetzt anfragen“ einer Kundenseite (Modul-Verkauf, 1.38.587): Schlüssel + Seite der Lizenz →
+     * Anfrage im Betreiber-Support und Eintrag im Verlauf der Lizenz.
+     */
+    public static function rest_module_request(WP_REST_Request $req) {
+        if (self::limited('modreq', 20, 3600)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen.', ['status' => 429]);
+        self::maybe_install();
+        $lic = self::get_by_key((string) $req->get_param('key'));
+        if (!$lic) return new WP_Error('tix_license_invalid', 'Lizenz unbekannt.', ['status' => 403]);
+        $host = self::normalize_host((string) $req->get_param('site'));
+        $known = array_map(function ($s) { return (string) $s->host; }, self::sites($lic->id));
+        if (!$host || ($known && !in_array($host, $known, true))) return new WP_Error('tix_license_site', 'Diese Seite gehört nicht zur Lizenz.', ['status' => 403]);
+        $key = sanitize_key((string) $req->get_param('module'));
+        if (!class_exists('TIX_Modules') || !in_array($key, TIX_Modules::keys(), true)) return new WP_Error('tix_invalid_field', 'Unbekanntes Modul.', ['status' => 400]);
+        $tid = TIX_Modules::create_request_ticket($key, (string) $lic->customer, $host, (string) $req->get_param('name'), (string) $req->get_param('email'),
+            mb_substr(sanitize_textarea_field((string) $req->get_param('message')), 0, 1000), ['_tix_sp_license' => intval($lic->id)]);
+        if (is_wp_error($tid)) return $tid;
+        self::log($lic->id, 'module_request', ['module' => $key, 'site' => $host, 'ticket' => $tid]);
+        return rest_ensure_response(['ok' => true, 'ticket' => $tid]);
+    }
+
+    /**
+     * Einmalig: Lizenzen mit eigener Modul-Liste (alter Schlüsselsatz) um die neuen Schlüssel ergänzen –
+     * was bisher nicht einschränkbar war, bleibt frei (Modul-Verkauf, 1.38.587).
+     */
+    public static function maybe_migrate_modules() {
+        if (!class_exists('TIX_Modules') || intval(get_option('tix_license_modules_v', 1)) >= TIX_Modules::VERSION) return;
+        global $wpdb;
+        self::maybe_install();
+        $rows = $wpdb->get_results("SELECT id, modules FROM " . self::t('tix_licenses') . " WHERE modules IS NOT NULL AND modules <> ''");
+        foreach ($rows ?: [] as $r) {
+            $m = json_decode((string) $r->modules, true);
+            if (!is_array($m)) continue;
+            $new = TIX_Modules::normalize($m, 1);
+            if ($new === array_values(array_intersect(TIX_Modules::keys(), $m))) continue;
+            $wpdb->update(self::t('tix_licenses'), ['modules' => wp_json_encode($new)], ['id' => $r->id]);
+            self::log($r->id, 'migrate', ['modules' => $new]);
+        }
+        update_option('tix_license_modules_v', TIX_Modules::VERSION, false);
+    }
+
     public static function rest_check(WP_REST_Request $req) {
+        self::maybe_migrate_modules();
         if (self::limited('check', 30, 600)) {
             return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte später erneut versuchen.', ['status' => 429]);
         }
@@ -355,6 +400,7 @@ class TIX_License_Server {
             ],
             'package_url' => null,
             'modules'     => $lic ? self::license_modules($lic) : null,
+            'modules_v'   => class_exists('TIX_Modules') ? TIX_Modules::VERSION : 1,
             'message'     => $msgs[$state] ?? '',
         ];
         if ($lic) {
@@ -563,9 +609,11 @@ class TIX_License_Server {
     public static function rest_admin_list(WP_REST_Request $req) {
         global $wpdb;
         self::maybe_install();
+        self::maybe_migrate_modules();
         $rows = $wpdb->get_results("SELECT * FROM " . self::t('tix_licenses') . " ORDER BY created_at DESC LIMIT 500");
         return rest_ensure_response(['ok' => true, 'licenses' => array_map([__CLASS__, 'admin_payload'], $rows ?: []),
-            'notice_days' => self::NOTICE_DAYS, 'modules' => class_exists('TIX_Modules') ? TIX_Modules::keys() : []]);
+            'notice_days' => self::NOTICE_DAYS, 'modules' => class_exists('TIX_Modules') ? TIX_Modules::keys() : [],
+            'module_info' => class_exists('TIX_Modules') ? array_map(function ($m) { return ['label' => $m[0], 'group' => $m[2]]; }, TIX_Modules::MODULES) : (object) []]);
     }
 
     public static function rest_admin_create(WP_REST_Request $req) {
@@ -581,6 +629,7 @@ class TIX_License_Server {
     }
 
     public static function rest_admin_get(WP_REST_Request $req) {
+        self::maybe_migrate_modules();
         $lic = self::get(intval($req['id']));
         if (!$lic) return new WP_Error('tix_not_found', 'Lizenz nicht gefunden.', ['status' => 404]);
         return rest_ensure_response(['ok' => true, 'license' => self::admin_payload($lic)]);
@@ -614,9 +663,15 @@ class TIX_License_Server {
             if ($u !== '' && !preg_match('#^https://#i', $u)) return new WP_Error('tix_invalid_field', 'Die Basis-Adresse muss mit https:// beginnen.', ['status' => 400, 'field' => 'basis_url']);
             $up['basis_url'] = $u === '' ? '' : esc_url_raw($u);
         }
+        $mod_diff = null;
         if (array_key_exists('modules', $p)) {
             $up['modules'] = is_array($p['modules']) && class_exists('TIX_Modules')
                 ? wp_json_encode(array_values(array_intersect(TIX_Modules::keys(), array_map('sanitize_key', $p['modules'])))) : null;
+            // Verlauf: welche Module dazu bzw. weg (null = alle)
+            $all = class_exists('TIX_Modules') ? TIX_Modules::keys() : [];
+            $old = self::license_modules($lic) ?? $all;
+            $new = $up['modules'] === null ? $all : json_decode($up['modules'], true);
+            $mod_diff = ['added' => array_values(array_diff($new, $old)), 'removed' => array_values(array_diff($old, $new))];
         }
         foreach (['customer' => 190, 'note' => 2000] as $f => $len) {
             if (array_key_exists($f, $p)) $up[$f] = mb_substr($f === 'note' ? sanitize_textarea_field((string) $p[$f]) : sanitize_text_field((string) $p[$f]), 0, $len);
@@ -627,7 +682,7 @@ class TIX_License_Server {
         $before = self::stage_for($lic);
         $wpdb->update(self::t('tix_licenses'), $up, ['id' => $lic->id]);
         $lic = self::get($lic->id);
-        self::log($lic->id, 'save', $up + ['stage_before' => $before, 'stage_after' => self::stage_for($lic)]);
+        self::log($lic->id, 'save', $up + ['stage_before' => $before, 'stage_after' => self::stage_for($lic)] + ($mod_diff ? ['modules_added' => $mod_diff['added'], 'modules_removed' => $mod_diff['removed']] : []));
         return rest_ensure_response(['ok' => true, 'license' => self::admin_payload($lic)]);
     }
 

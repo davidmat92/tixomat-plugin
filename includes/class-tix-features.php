@@ -90,6 +90,8 @@ class TIX_Features {
 
     /** Ist die Funktion auf Seiten- bzw. Plattform-Ebene an? */
     public static function site_on($key) {
+        // nicht lizenziert = aus (Lizenziert heißt „darf“, der Schalter darunter „nutzt“)
+        if (!self::entitled($key)) return false;
         switch ($key) {
             case 'awareness_report':
             case 'awareness_alarm':
@@ -287,13 +289,20 @@ class TIX_Features {
         return self::is_admin() || in_array('tix_organizer', (array) wp_get_current_user()->roles, true);
     }
 
+    /** Funktion → Lizenz-Schlüssel (TIX_Modules, Modul-Verkauf 1.38.587) */
+    const LICENSE_MODULE = [
+        'awareness_report' => 'awareness', 'awareness_alarm' => 'awareness', 'music' => 'music', 'loyalty' => 'loyalty',
+        'wallet' => 'wallet', 'giftcards' => 'giftcards', 'muttizettel' => 'muttizettel', 'raffles' => 'raffles',
+        'assistant' => 'assistant', 'degaso' => 'degaso', 'tips' => 'tips', 'party_game' => 'party_game', 'sos' => 'sos',
+    ];
+
     private static function entitled($key) {
-        $mod = ['music' => 'music', 'loyalty' => 'loyalty', 'giftcards' => 'giftcards', 'muttizettel' => 'muttizettel', 'tips' => 'tips'][$key] ?? null;
+        $mod = self::LICENSE_MODULE[$key] ?? null;
         return !$mod || !class_exists('TIX_Modules') || TIX_Modules::allowed($mod);
     }
 
     private static function hint($key, $scope, $enabled, $site_on) {
-        if (!self::entitled($key)) return 'Für diese Plattform nicht freigeschaltet.';
+        if (!self::entitled($key)) return 'Nicht im Paket – im Studio unter Module anfragen.';
         if ($scope === 'organizer' && !self::FEATURES[$key][1]) return 'Schaltet die Plattform für alle Veranstalter.';
         if ($scope === 'organizer' && $key === 'music' && !$site_on) return 'Auf der Plattform gerade aus.';
         if ($scope === 'platform' && in_array($key, ['loyalty', 'muttizettel'], true)) return 'Schaltet jeder Veranstalter selbst.';

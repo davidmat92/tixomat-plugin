@@ -42,6 +42,24 @@ class TIX_Plan {
         'degaso'      => false, // evendis nutzt Degaso nicht
     ];
 
+    /** App-Extras: nur über die Lizenz verkauft, Betrieb über die App-Funktionen (TIX_Features) */
+    const APP_EXTRAS = ['tips', 'party_game', 'sos'];
+
+    /** Modul → Betriebsschalter in „Deine App“ (TIX_Features) für „derzeit an/aus“ */
+    const USAGE_FEATURE = [
+        'wallet' => 'wallet', 'giftcards' => 'giftcards', 'loyalty' => 'loyalty', 'music' => 'music', 'awareness' => 'awareness_report',
+        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso',
+        'tips' => 'tips', 'party_game' => 'party_game', 'sos' => 'sos',
+    ];
+
+    /** Betriebsstand je Modul {key: bool} (Einzelseite; ohne Schalter fehlt der Schlüssel) */
+    public static function usage() {
+        $out = [];
+        if (!class_exists('TIX_Features')) return (object) [];
+        foreach (self::USAGE_FEATURE as $k => $f) $out[$k] = (bool) TIX_Features::site_on($f);
+        return $out;
+    }
+
     const META    = '_tix_org_modules';
     /** Einzelseite: vom Admin im Studio ausgeschaltete Extras {key: false} (fehlt = an, 1.38.564) */
     const SITE_OPT = 'tix_plan_site';
@@ -106,8 +124,12 @@ class TIX_Plan {
     public static function rest_site_get(WP_REST_Request $req) {
         $locked = [];
         foreach (self::switchable() as $k) $locked[$k] = self::license_locked($k);
+        // App-Extras (Lizenz-Schlüssel ohne eigenen Modul-Schalter; geschaltet in „Deine App“)
+        foreach (self::APP_EXTRAS as $k) $locked[$k] = self::license_locked($k);
         return rest_ensure_response(['ok' => true, 'modules' => self::modules(), 'locked' => $locked,
-            'groups' => ['always' => self::ALWAYS, 'packages' => self::PACKAGES, 'extras' => self::EXTRAS]]);
+            'usage' => self::usage(),
+            'licensed_by' => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
+            'groups' => ['always' => self::ALWAYS, 'packages' => self::PACKAGES, 'extras' => self::EXTRAS, 'app_extras' => self::APP_EXTRAS]]);
     }
 
     public static function rest_site_save(WP_REST_Request $req) {
@@ -289,6 +311,19 @@ class TIX_Plan {
         if (!self::multi() || !is_user_logged_in()) return 0;
         if (TIX_App_Scope::is_admin()) return 0;
         return intval(TIX_App_Scope::organizer_id_for_user());
+    }
+
+    /**
+     * Nicht im Paket für das angemeldete Konto: Schlüssel, die die Lizenz sperrt; auf der Plattform zusätzlich
+     * die Pakete/Extras, die der Veranstalter nicht gebucht hat. Eigene Betriebsschalter zählen nicht.
+     */
+    public static function locked_for_me() {
+        $out = class_exists('TIX_Modules') ? TIX_Modules::locked() : [];
+        $oid = self::current_org();
+        if ($oid) {
+            foreach (self::switchable() as $k) if (!self::org_on($k, $oid)) $out[] = $k;
+        }
+        return array_values(array_unique($out));
     }
 
     /** `/me.modules`: Module des angemeldeten Kontos. */

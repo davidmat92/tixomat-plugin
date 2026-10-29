@@ -832,7 +832,11 @@ class TIX_REST_API {
             ],
         ];
         // Module dieses Kontos (TIX_Plan, 1.38.563): {key: bool} – Apps blenden danach aus
-        if (class_exists('TIX_Plan')) $out['modules'] = TIX_Plan::me_payload();
+        if (class_exists('TIX_Plan')) {
+            $out['modules'] = TIX_Plan::me_payload();
+            // „Nicht im Paket“ (Modul-Verkauf): Lizenz bzw. Paket des Veranstalters, nicht eigene Betriebsschalter
+            $out['modules_locked'] = TIX_Plan::locked_for_me();
+        }
         if (class_exists('TIX_License_Stage')) $out['license'] = TIX_License_Stage::payload();
         // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
         if ($multi) {
