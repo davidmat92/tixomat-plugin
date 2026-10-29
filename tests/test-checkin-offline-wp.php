@@ -14,7 +14,7 @@ $org = 0;
 if ($multi) { $org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'CO Veranstalter', 'meta_input' => ['_tix_org_user_id' => $door]]); $posts[] = $org; }
 $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CO Party', 'meta_input' => ['_tix_syndicate' => '0', '_tix_organizer_id' => $org, '_tix_date_start' => wp_date('Y-m-d'),
   '_tix_ticket_categories' => [['name' => 'Normal', 'price' => 10, 'qty' => 10, 'stock' => 7]],
-  '_tix_guest_list' => [['id' => 'gabc12', 'name' => 'Gast Plus', 'plus' => 1]]]]); $posts[] = $ev;
+  '_tix_guest_list' => [['id' => 'Ab12CD34-ef56-7890-aaaa-bbbbccccdddd', 'name' => 'Gast Plus', 'plus' => 1]]]]); $posts[] = $ev;
 $mk = function ($code, $st = 'valid') use ($ev, &$posts) { $id = wp_insert_post(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'post_title' => $code, 'meta_input' => ['_tix_ticket_event_id' => $ev, '_tix_ticket_code' => $code, '_tix_ticket_status' => $st, '_tix_ticket_owner_name' => 'Gast ' . substr($code, 0, 1), '_tix_ticket_cat_index' => 0]]); $posts[] = $id; return $id; };
 $t1 = $mk('AAAA11112222'); $t2 = $mk('BBBB11112222'); $t3 = $mk('CCCC11112222', 'cancelled');
 
@@ -38,16 +38,16 @@ co_eq('mit Passwort 200', 200, $st);
 $pw = ['X-Checkin-Password' => 'geheim'];
 $base = ['event_id' => $ev, 'list_id' => $L['list_id'], 'generated_at' => $L['generated_at'], 'sig' => $L['sig']];
 
-[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'A', 'items' => [['type' => 'ticket', 'id' => $t1, 'at' => '2026-10-30T22:00:00'], ['type' => 'ticket', 'id' => $t3], ['type' => 'guest', 'id' => 'gabc12', 'at' => 'x1']]], $pw);
+[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'A', 'items' => [['type' => 'ticket', 'id' => $t1, 'at' => '2026-10-30T22:00:00'], ['type' => 'ticket', 'id' => $t3], ['type' => 'guest', 'id' => 'Ab12CD34-ef56-7890-aaaa-bbbbccccdddd', 'at' => 'x1']]], $pw);
 co_eq('Abgleich 200', 200, $st);
 co_eq('Ticket eingelassen', 'ok', $d['results'][0]['status'] ?? null);
 co_eq('storniertes Ticket', 'cancelled', $d['results'][1]['status'] ?? null);
 co_eq('Gast 1 von 2', 1, $d['results'][2]['count'] ?? null);
 co_eq('Server: eingecheckt', true, (bool) get_post_meta($t1, '_tix_ticket_checked_in', true));
-[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'A', 'items' => [['type' => 'ticket', 'id' => $t1], ['type' => 'guest', 'id' => 'gabc12', 'at' => 'x1']]], $pw);
+[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'A', 'items' => [['type' => 'ticket', 'id' => $t1], ['type' => 'guest', 'id' => 'Ab12CD34-ef56-7890-aaaa-bbbbccccdddd', 'at' => 'x1']]], $pw);
 co_eq('gleiches Gerät erneut: ok', 'ok', $d['results'][0]['status'] ?? null);
 co_eq('Gast-Wiederholung zählt nicht doppelt', 1, $d['results'][1]['count'] ?? null);
-[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'B', 'items' => [['type' => 'ticket', 'id' => $t1], ['type' => 'ticket', 'id' => $t2], ['type' => 'guest', 'id' => 'gabc12', 'at' => 'y1', 'n' => 2]]], $pw);
+[$st, $d] = co_rest('POST', '/checkin/batch', $base + ['device' => 'B', 'items' => [['type' => 'ticket', 'id' => $t1], ['type' => 'ticket', 'id' => $t2], ['type' => 'guest', 'id' => 'Ab12CD34-ef56-7890-aaaa-bbbbccccdddd', 'at' => 'y1', 'n' => 2]]], $pw);
 co_eq('anderes Gerät: Konflikt', 'conflict', $d['results'][0]['status'] ?? null);
 co_eq('Konflikt nennt Gerät A', 'offline:A', $d['results'][0]['by'] ?? null);
 co_eq('zweites Ticket ok', 'ok', $d['results'][1]['status'] ?? null);

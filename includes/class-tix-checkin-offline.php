@@ -124,7 +124,7 @@ class TIX_Checkin_Offline {
         foreach ($items as $it) {
             if (!is_array($it)) continue;
             $type = ($it['type'] ?? 'ticket') === 'guest' ? 'guest' : 'ticket';
-            $id = $type === 'guest' ? sanitize_key((string) ($it['id'] ?? '')) : intval($it['id'] ?? 0);
+            $id = $type === 'guest' ? sanitize_text_field((string) ($it['id'] ?? '')) : intval($it['id'] ?? 0);
             $at = sanitize_text_field((string) ($it['at'] ?? ''));
             if ($type === 'ticket') {
                 $results[] = ['type' => 'ticket', 'id' => $id] + self::batch_ticket($eid, $id, $by, $at);
