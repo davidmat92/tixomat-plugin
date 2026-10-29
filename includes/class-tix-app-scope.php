@@ -314,9 +314,8 @@ class TIX_App_Scope {
             'hero'        => $img('_tix_org_landing_hero_id', 'large'),
             // Platzhalter für Events ohne Bild (1.38.465): {url, url_small} | null (dann der Platzhalter der Seite)
             'placeholder' => ($pu = $img('_tix_org_placeholder_id', 'large')) ? ['url' => $pu, 'url_small' => $img('_tix_org_placeholder_id', 'medium') ?: $pu] : null,
-            // Impressum des Veranstalters (1.38.580, nur Plattform): HTML + Prüfung wie Studio → Rechtstexte
-            'imprint'        => (string) get_post_meta($oid, self::META_IMPRINT, true),
-            'imprint_checks' => class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checks('impressum', (string) get_post_meta($oid, self::META_IMPRINT, true), true) : [],
+            // Prüfung des Impressums der Veranstalterseite (1.38.580; Feld imprint/imprint_url kommt aus TIX_Organizer_Page)
+            'imprint_checks' => class_exists('TIX_Studio_Legal') && trim((string) get_post_meta($oid, self::META_IMPRINT, true)) !== '' ? TIX_Studio_Legal::checks('impressum', wpautop((string) get_post_meta($oid, self::META_IMPRINT, true)), true) : [],
         ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : [])
           + ((class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) ? TIX_Organizer_Page::profile_extra(intval($oid)) : []);
     }
@@ -365,11 +364,6 @@ class TIX_App_Scope {
         }
         if (array_key_exists('description', $b)) {
             update_post_meta($oid, '_tix_org_landing_description', wp_kses_post(wpautop((string) $b['description'])));
-        }
-        if (array_key_exists('imprint', $b)) {
-            $imp = (string) $b['imprint'];
-            if (strlen($imp) > 30000) return new WP_Error('tix_invalid_field', 'Das Impressum ist zu lang.', ['status' => 400, 'field' => 'imprint']);
-            update_post_meta($oid, self::META_IMPRINT, wp_kses_post($imp));
         }
         if (array_key_exists('social', $b) && is_array($b['social'])) {
             $social = get_post_meta($oid, '_tix_org_landing_social', true);

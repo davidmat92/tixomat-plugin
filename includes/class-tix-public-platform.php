@@ -278,8 +278,6 @@ class TIX_Public_Platform {
             $out['email']       = (string) get_post_meta($oid, '_tix_org_email', true);
             $out['phone']       = (string) get_post_meta($oid, '_tix_org_phone', true);
             $out['address']     = (string) get_post_meta($oid, '_tix_org_address', true);
-            // Impressum des Veranstalters (1.38.580): HTML, leer = keins hinterlegt
-            $out['imprint']     = wp_kses_post((string) get_post_meta($oid, '_tix_org_imprint', true));
             $out['events']      = array_slice($mine, 0, 50);
             // Veranstalter-Seite (evendis): Steckbrief, FAQ, Vertrauen, Galerie, Anfahrt, schema_type
             if (class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) $out += TIX_Organizer_Page::public_extra($oid);
