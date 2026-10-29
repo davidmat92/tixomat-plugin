@@ -289,7 +289,7 @@ class TIX_Staff_Push {
         return self::send_to_users($users,
             self::site_name() . ' · ' . ($aw ? 'Awareness-Meldung' : 'Neue Kundenanfrage'),
             html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'),
-            ['action' => ($aw ? 'staff:awareness:' : 'staff:support:') . $id, 'type' => $aw ? 'awareness' : 'support']);
+            ['action' => ($aw ? 'staff:awareness:' : 'staff:support:') . $id, 'type' => $aw ? 'awareness' : 'support', '_skip_guest' => !$aw]);
     }
 
     // ═══════════════ Versand ═══════════════
@@ -306,9 +306,14 @@ class TIX_Staff_Push {
         // Tests/Protokoll: Versand abfangen (null = normal senden)
         $pre = apply_filters('tix_staff_push_pre_send', null, $uids, $title, $body, $data);
         if ($pre !== null) return intval($pre);
+        // Neue Kundenanfrage bekommt das Team schon als Eintrag + Push in der Gast-App (TIX_Support_Model):
+        // dasselbe Gerät nicht doppelt benachrichtigen
+        $guest = !empty($data['_skip_guest']) ? (array) get_option('_tix_push_tokens', []) : [];
+        unset($data['_skip_guest']);
         $groups = ['local_ios' => [], 'local_android' => [], 'relay' => []];
         foreach (self::tokens() as $tok => $m) {
             if (!in_array(intval($m['user'] ?? 0), $uids, true)) continue;
+            if (isset($guest[$tok]) && intval($guest[$tok]['user'] ?? 0) === intval($m['user'] ?? 0)) continue;
             $p = ($m['platform'] ?? 'ios') === 'android' ? 'android' : 'ios';
             $b = (string) ($m['bundle'] ?? '');
             if ($b === self::APP_BUNDLE && !self::is_relay_host() && !($p === 'ios' && TIX_Notifications::apns_configured())) {

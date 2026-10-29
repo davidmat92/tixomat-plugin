@@ -786,6 +786,8 @@ class TIX_Raffle {
             if (self::send_winner_email($event_id, $w)) {
                 $winners[$i]['notified_at'] = current_time('mysql');
                 $sent++;
+                // Mitteilung in der App (TIX_Customer_Notify, 1.38.582)
+                do_action('tix_raffle_won', intval($event_id), $w);
             }
         }
         update_post_meta($event_id, '_tix_raffle_winners', $winners);

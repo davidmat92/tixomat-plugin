@@ -166,7 +166,7 @@ class TIX_Support_Model {
         $admin_mail = strtolower((string) get_option('admin_email'));
         foreach (self::notify_ids(0) as $uid) {
             if (class_exists('TIX_Notifications')) {
-                try { TIX_Notifications::add_user_item($uid, 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject, ['type' => 'support_team', 'action' => 'support:inbox:' . $tid]); } catch (\Throwable $e) {}
+                try { TIX_Notifications::add_user_item($uid, 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject, ['type' => 'support_team', 'action' => 'staff:support:' . $tid]); } catch (\Throwable $e) {}
             }
             $u = get_userdata($uid);
             // admin_email bekommt die Hinweis-Mail schon von TIX_Support
@@ -576,7 +576,7 @@ class TIX_Support_Model {
             if (!in_array($uid, array_column(self::team(), 'id'), true)) return self::bad('user_id', 'Diese Person gehört nicht zum Team.');
             update_post_meta($tid, '_tix_sp_assignee', $uid);
             if ($uid !== get_current_user_id() && class_exists('TIX_Notifications')) {
-                try { TIX_Notifications::add_user_item($uid, 'Support-Anfrage zugewiesen', '#' . $tid . ' · ' . get_the_title($tid), ['type' => 'support_team', 'action' => 'support:inbox:' . $tid]); } catch (\Throwable $e) {}
+                try { TIX_Notifications::add_user_item($uid, 'Support-Anfrage zugewiesen', '#' . $tid . ' · ' . get_the_title($tid), ['type' => 'support_team', 'action' => 'staff:support:' . $tid]); } catch (\Throwable $e) {}
             }
         }
         return rest_ensure_response(['ok' => true, 'ticket' => self::list_row(get_post($tid))]);
@@ -1039,7 +1039,7 @@ class TIX_Support_Model {
 
     private static function notify_assignee($tid, $title) {
         $uid = intval(get_post_meta($tid, '_tix_sp_assignee', true));
-        if ($uid && class_exists('TIX_Notifications')) { try { TIX_Notifications::add_user_item($uid, $title, '#' . $tid . ' · ' . get_the_title($tid), ['type' => 'support_team', 'action' => 'support:inbox:' . $tid]); } catch (\Throwable $e) {} }
+        if ($uid && class_exists('TIX_Notifications')) { try { TIX_Notifications::add_user_item($uid, $title, '#' . $tid . ' · ' . get_the_title($tid), ['type' => 'support_team', 'action' => 'staff:support:' . $tid]); } catch (\Throwable $e) {} }
     }
 
     /** Plattform: Antwort des Partner-Teams → an den Kunden (Mail + App) im Namen des Veranstalters. */
