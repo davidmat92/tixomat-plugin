@@ -3644,3 +3644,8 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 - `POST /team/{id}/invite` (neuer Code, max. 5/h), `POST /team/{id}/password {password}` (meldet die Person überall ab).
 - Mitglied: `invite_pending`, `invite_sent_at`, `can_set_password`. „Einladung offen“ bis das Passwort gesetzt ist (Code-Reset, `wp_set_password`, `password_reset`).
 - Rechte wie bisher (`check_admin`), Mehr-Veranstalter-Modus nur eigenes Team. Passwörter werden nie geloggt oder zurückgegeben, der Code steht nur in der Mail.
+- **Ab 1.38.590 für jedes bestehende Mitglied** (Eingang, Kasse & Bar, Awareness, DJ):
+  - `POST /team/{id}/invite` ohne offene Einladung = **Link zum Passwort-Setzen** (Mail „Neues Passwort festlegen – <Team>“, Code 60 min, Studio-Knopf). Das alte Passwort gilt bis zum Einlösen; das Einlösen (`/auth/code/confirm` reset) beendet App-Tokens **und** WordPress-Sitzungen. Antwort `reset_sent: true` (bei offener Einladung weiter `invited: true`).
+  - `POST /team/{id}/password` für jedes Mitglied außer Admins: beendet Sitzungen und Tokens, Info-Mail „Dein Passwort wurde vom Team geändert“ (ohne Passwort; nicht bei offener Einladung), Antwort `notified`. Im Mehr-Veranstalter-Modus nur bei Konten, die das Team angelegt hat (sonst 409 `tix_has_password` → Link), damit kein fremdes Kundenkonto übernommen wird. `can_set_password` folgt dieser Regel.
+  - Nie das eigene Konto (409 `tix_self`), nie WP-Admins (409 `tix_is_admin`), Admin-Rolle nur Link (400 `tix_admin_invite_only`).
+  - Änderungsprotokoll `tix_audit_log`: `team_password_set` (`role`, `first`), `team_reset_sent`, `team_invite_sent` – ohne Passwort oder Code.

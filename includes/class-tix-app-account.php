@@ -503,6 +503,7 @@ class TIX_App_Account {
             // Andere Geräte abmelden – das Konto wurde gerade neu gesichert
             delete_user_meta($user->ID, '_tix_app_tokens');
             delete_user_meta($user->ID, '_tix_app_token');
+            if (class_exists('WP_Session_Tokens')) WP_Session_Tokens::get_instance($user->ID)->destroy_all(); // auch Studio-/Backend-Sitzungen
         } elseif (!$user) {
             $user = self::create_passwordless_user($email);
             if (is_wp_error($user)) return self::error('registration_failed', $user->get_error_message(), 500);

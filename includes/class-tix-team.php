@@ -144,7 +144,8 @@ class TIX_Team {
             // 1.38.587: Einladung offen (Passwort noch nicht gesetzt) und ob der Admin ein Passwort setzen darf
             'invite_pending'   => $inv > 0,
             'invite_sent_at'   => $inv ? wp_date('c', $inv) : null,
-            'can_set_password' => $key !== 'admin_wp' && $key !== 'admin' && self::may_set_password($u),
+            // 1.38.590: Admin setzt das Passwort für jede Rolle außer Admin – nie fürs eigene Konto
+            'can_set_password' => $key !== 'admin_wp' && $key !== 'admin' && $u->ID !== get_current_user_id() && self::admin_may_set($u),
         ];
     }
 
@@ -152,6 +153,16 @@ class TIX_Team {
     private static function may_set_password(WP_User $u) {
         if (in_array('administrator', (array) $u->roles, true)) return false;
         return (bool) get_user_meta($u->ID, self::META_CREATED, true) || (bool) get_user_meta($u->ID, '_tix_app_passwordless', true);
+    }
+
+    /**
+     * 1.38.590: Direkt setzen darf der Site-Admin für jedes Mitglied (außer Admins). Ein Veranstalter im
+     * Mehr-Veranstalter-Modus nur bei Konten, die sein Team angelegt hat – sonst könnte er ein fremdes Kundenkonto
+     * ins Team holen und übernehmen. Dort bleibt der Link per Mail.
+     */
+    private static function admin_may_set(WP_User $u) {
+        if (in_array('administrator', (array) $u->roles, true)) return false;
+        return current_user_can('manage_options') || self::may_set_password($u);
     }
 
     /** Passwort-Regeln (gleich in Studio und App): mind. 10 Zeichen, nicht die E-Mail, nicht nur eine Zeichenart. */
@@ -286,12 +297,15 @@ class TIX_Team {
         $user = get_user_by('id', $user->ID);
         $out = ['ok' => true, 'created' => $created];
         if ($mode === 'set') {
+            // Beim Hinzufügen nie ein fremdes Konto überschreiben – für bestehende Mitglieder gibt es POST /team/{id}/password
             if (!self::may_set_password($user)) {
                 return new WP_Error('tix_has_password', 'Diese Person hat schon ein eigenes Konto mit Passwort. Schick ihr stattdessen die Einladung.', ['status' => 409, 'field' => 'password_mode', 'member' => self::member($user)]);
             }
             if ($e = self::password_error($pw, $user)) return $e;
             wp_set_password($pw, $user->ID);
+            self::end_sessions($user->ID);
             delete_user_meta($user->ID, '_tix_app_passwordless');
+            self::log('team_password_set', $user, ['role' => $role, 'first' => true]);
             $out['password_set'] = true;
         } elseif ($mode === 'invite' || $role === 'admin' || filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN)) {
             $out['invited'] = (bool) self::send_invite($user, $role, $org, $created);
@@ -307,9 +321,12 @@ class TIX_Team {
         $n = intval(get_transient('tix_team_inv_n_' . $user->ID));
         if ($n >= 5) return new WP_Error('tix_rate_limit', 'Zu viele Einladungen. Bitte versuche es in einer Stunde noch einmal.', ['status' => 429]);
         set_transient('tix_team_inv_n_' . $user->ID, $n + 1, HOUR_IN_SECONDS);
-        $sent = (bool) self::send_invite($user, self::role_key($user) ?: 'admin', self::scope_org(), false);
-        if (!$sent) return new WP_Error('tix_mail_failed', 'Die Einladung konnte nicht gesendet werden.', ['status' => 502]);
-        return new WP_REST_Response(['ok' => true, 'invited' => true, 'member' => self::member(get_user_by('id', $user->ID))], 200);
+        // Einladung offen → Einladung erneut; sonst Link zum Passwort-Setzen (das alte gilt nach dem Setzen nicht mehr)
+        $kind = get_user_meta($user->ID, self::META_INVITE, true) ? 'invite' : 'reset';
+        $sent = (bool) self::send_invite($user, self::role_key($user) ?: 'admin', self::scope_org(), false, $kind);
+        if (!$sent) return new WP_Error('tix_mail_failed', 'Die E-Mail konnte nicht gesendet werden.', ['status' => 502]);
+        self::log($kind === 'invite' ? 'team_invite_sent' : 'team_reset_sent', $user, ['role' => self::role_key($user)]);
+        return new WP_REST_Response(['ok' => true, 'invited' => $kind === 'invite', 'reset_sent' => $kind === 'reset', 'member' => self::member(get_user_by('id', $user->ID))], 200);
     }
 
     /** POST /team/{id}/password {password} – Admin legt das Passwort fest (nicht für Admins, nur ohne eigenes Passwort). */
@@ -317,14 +334,17 @@ class TIX_Team {
         $user = self::editable_user($req);
         if (is_wp_error($user)) return $user;
         if (self::role_key($user) === 'admin') return new WP_Error('tix_admin_invite_only', 'Admins legen ihr Passwort selbst fest – schick ihnen die Einladung.', ['status' => 400]);
-        if (!self::may_set_password($user)) return new WP_Error('tix_has_password', 'Diese Person hat schon ein eigenes Passwort. Schick ihr die Einladung, dann legt sie ein neues fest.', ['status' => 409]);
+        if (!self::admin_may_set($user)) return new WP_Error('tix_has_password', 'Diese Person hat ein eigenes Konto. Schick ihr den Link zum Passwort-Setzen.', ['status' => 409]);
         $pw = (string) $req->get_param('password');
         if ($e = self::password_error($pw, $user)) return $e;
-        wp_set_password($pw, $user->ID); // meldet die Person überall ab
+        // 1.38.590: für jedes Mitglied (außer Admins); hatte die Person schon ein Passwort, bekommt sie eine Info-Mail
+        $first = (bool) get_user_meta($user->ID, self::META_INVITE, true);
+        wp_set_password($pw, $user->ID);
+        self::end_sessions($user->ID);
         delete_user_meta($user->ID, '_tix_app_passwordless');
-        delete_user_meta($user->ID, '_tix_app_tokens');
-        delete_user_meta($user->ID, '_tix_app_token');
-        return new WP_REST_Response(['ok' => true, 'password_set' => true, 'member' => self::member(get_user_by('id', $user->ID))], 200);
+        self::log('team_password_set', $user, ['role' => self::role_key($user), 'first' => $first]);
+        $notified = $first ? false : self::send_changed_notice($user);
+        return new WP_REST_Response(['ok' => true, 'password_set' => true, 'notified' => $notified, 'member' => self::member(get_user_by('id', $user->ID))], 200);
     }
 
     /** Mitglied aus {id}: vorhanden, kein WP-Admin, im Mehr-Veranstalter-Modus im eigenen Team. */
@@ -332,6 +352,7 @@ class TIX_Team {
         $user = get_user_by('id', absint($req['id']));
         if (!$user || !self::role_key($user)) return new WP_Error('tix_no_user', 'Nutzer nicht gefunden.', ['status' => 404]);
         if (in_array('administrator', (array) $user->roles, true)) return new WP_Error('tix_is_admin', 'Administratoren werden im WordPress-Backend verwaltet.', ['status' => 409]);
+        if ($user->ID === get_current_user_id()) return new WP_Error('tix_self', 'Dein eigenes Passwort änderst du unter Konto.', ['status' => 409]);
         if ($org = self::scope_org()) { $own = self::own_member_error($user, $org); if ($own) return $own; }
         return $user;
     }
@@ -341,7 +362,8 @@ class TIX_Team {
      * Passwort-Festlegen im Studio (bzw. in der App „Passwort vergessen“ → Code). Konten ohne eigenes Passwort bekommen den
      * Status „Einladung offen“, bis es gesetzt ist. Der Code steht nur in der Mail, nie im Link oder Log.
      */
-    private static function send_invite(WP_User $user, $role, $org, $created) {
+    private static function send_invite(WP_User $user, $role, $org, $created, $kind = 'invite') {
+        if ($kind === 'reset') return self::send_reset_link($user, $role, $org);
         $site  = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
         $team  = $org ? html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8') : $site;
         $by    = wp_get_current_user()->display_name;
@@ -372,7 +394,69 @@ class TIX_Team {
         return $ok;
     }
 
+    /** Team-Name für Mails: Veranstalter im Mehr-Veranstalter-Modus, sonst die Site. */
+    private static function team_name($org) {
+        return html_entity_decode($org ? get_the_title($org) : get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+    }
+
+    private static function team_mail(WP_User $user, $subject, $title, $body, $team) {
+        $html = class_exists('TIX_Emails') ? TIX_Emails::build_generic_email_html($title, $body, $team) : '<html><body>' . $body . '</body></html>';
+        return class_exists('TIX_Customer_URL')
+            ? TIX_Customer_URL::mail($user->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8'])
+            : wp_mail($user->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+    }
+
+    /**
+     * 1.38.590: „Link zum Passwort-Setzen“ für bestehende Mitglieder – 6-stelliger Code (60 min) und Knopf ins Studio.
+     * Mit dem Code legt die Person ein neues Passwort fest; das alte gilt dann nicht mehr, alle Sitzungen enden
+     * (TIX_App_Account::confirm_code, purpose reset). Bis dahin bleibt das alte Passwort gültig.
+     */
+    private static function send_reset_link(WP_User $user, $role, $org) {
+        $team = self::team_name($org);
+        $code = class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'issue_invite_code') ? TIX_App_Account::issue_invite_code($user->user_email, HOUR_IN_SECONDS) : '';
+        if ($code === '') return false;
+        $studio = class_exists('TIX_Studio') && TIX_Studio::active() && !in_array($role, ['dj', 'awareness'], true);
+        $url = $studio ? add_query_arg(['email' => $user->user_email], TIX_Studio::url('/passwort/')) : '';
+        $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (string) (TIX_Studio::app_info()['name'] ?? '') : '';
+        $by  = wp_get_current_user()->display_name;
+        $body  = '<p style="font-size:17px;font-weight:700;margin:0 0 12px;">Neues Passwort festlegen</p>';
+        $body .= '<p>Hallo ' . esc_html($user->display_name ?: '') . ',</p>';
+        $body .= '<p>' . esc_html($by ?: $team) . ' aus dem Team von ' . esc_html($team) . ' hat dir einen Link zum Passwort-Setzen geschickt. Mit diesem Code legst du ein neues Passwort fest:</p>';
+        $body .= '<p style="text-align:center;margin:20px 0;"><span style="display:inline-block;padding:14px 22px;border-radius:12px;background:#F2F3F7;font:700 28px/1 ui-monospace,Menlo,monospace;letter-spacing:6px;">' . esc_html($code) . '</span></p>';
+        if ($url) $body .= '<p style="text-align:center;margin:20px 0;"><a href="' . esc_url($url) . '" style="display:inline-block;padding:12px 22px;background:#2C2F3F;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Passwort festlegen</a></p>';
+        $body .= '<p>' . ($url ? 'Oder in der App' : 'In der App') . ($app ? ' ' . esc_html($app) : '') . ': Veranstalter-Anmeldung → „Passwort vergessen“ → diese E-Mail-Adresse (' . esc_html($user->user_email) . ') und den Code eingeben.</p>';
+        $body .= '<p style="color:#64748b;font-size:13px;">Der Code gilt 60 Minuten. Danach gilt nur noch das neue Passwort, und du wirst auf allen Geräten abgemeldet. Gib den Code nie weiter.</p>';
+        $body .= '<p style="color:#94a3b8;font-size:12px;margin-top:24px;">Du hast das nicht erwartet? Dann ignoriere diese E-Mail – ohne Code bleibt dein Passwort, wie es ist.</p>';
+        return self::team_mail($user, 'Neues Passwort festlegen – ' . $team, 'Neues Passwort', $body, $team);
+    }
+
+    /** Kurze Info an die Person, wenn der Admin ihr Passwort geändert hat (ohne das Passwort). */
+    private static function send_changed_notice(WP_User $user) {
+        $team = self::team_name(self::scope_org());
+        $by   = wp_get_current_user()->display_name;
+        $body  = '<p style="font-size:17px;font-weight:700;margin:0 0 12px;">Dein Passwort wurde vom Team geändert</p>';
+        $body .= '<p>Hallo ' . esc_html($user->display_name ?: '') . ',</p>';
+        $body .= '<p>' . esc_html($by ?: $team) . ' hat dein Passwort für ' . esc_html($team) . ' am ' . esc_html(wp_date('d.m.Y, H:i')) . ' Uhr neu festgelegt. Du wurdest auf allen Geräten abgemeldet. Das neue Passwort bekommst du persönlich.</p>';
+        $body .= '<p style="color:#64748b;font-size:13px;">Du weißt nichts davon? Dann melde dich bitte direkt beim Team.</p>';
+        return (bool) self::team_mail($user, 'Dein Passwort wurde vom Team geändert', 'Passwort geändert', $body, $team);
+    }
+
+    /** Alle Sitzungen beenden: WordPress-Cookies (Studio/Backend) und App-Tokens. */
+    private static function end_sessions($uid) {
+        if (class_exists('WP_Session_Tokens')) WP_Session_Tokens::get_instance($uid)->destroy_all();
+        delete_user_meta($uid, '_tix_app_tokens');
+        delete_user_meta($uid, '_tix_app_token');
+    }
+
+    /** Ereignis ins Änderungsprotokoll (tix_audit_log) – nie mit Passwort oder Code. */
+    private static function log($action, WP_User $user, array $summary) {
+        if (!class_exists('TIX_Customers') || !method_exists('TIX_Customers', 'audit')) return;
+        $org = intval(self::scope_org());
+        TIX_Customers::audit($action, (string) $user->ID, ['oid' => $org, 'scope' => $org ? 'organizer' : 'site'], $summary);
+    }
+
     /** POST /team/{id} {role} - Rolle aendern (admin|dj|entrance|none). */
+
     public static function rest_set_role(WP_REST_Request $req) {
         $id   = absint($req['id']);
         $role = sanitize_key((string) $req->get_param('role'));
