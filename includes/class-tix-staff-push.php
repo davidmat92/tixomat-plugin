@@ -11,7 +11,10 @@ if (!defined('ABSPATH')) exit;
  *   - Versand: iOS per APNs mit dem Bundle des Geräts (gleicher .p8-Schlüssel des Teams); Android der eigenen App
  *     über das Firebase-Projekt der Seite (TIX_FCM). Geräte der neuen App gehen über die zentrale Weiterleitung
  *     auf evendis.de (`POST /push/relay`, HMAC je Seite) – nur dort liegt das Firebase-Dienstkonto der neuen App.
- *   - Ereignisse: stündliche Sammelmeldung zu Verkäufen; „ausverkauft“ und „Kontingent knapp“ sofort; neue
+ *   - Verkäufe je Konto (1.38.592, `sales` in /staff/notify-prefs): sofort (Warteschlange, Verkäufe innerhalb von
+ *     2 Min. zusammen), gesammelt alle X Stunden (1/2/3/4/6/12/24) oder zu festen Uhrzeiten (Europe/Berlin), aus.
+ *     Vorgabe für Bestand: stündlich. Merker „zuletzt gemeldet“ je Konto; Cron alle 5 Minuten prüft, wer fällig ist.
+ *   - Ereignisse: Verkäufe (s. o.); „ausverkauft“ und „Kontingent knapp“ sofort; neue
  *     Kundenanfrage; Awareness-Meldung. Je Konto einstellbar (`GET/POST /staff/notify-prefs`, auch im Studio).
  *   - Abschottung: auf der Plattform nur Konten des Veranstalters des Events (TIX_App_Scope).
  * Aktionen in `data.action`: staff:start · staff:event:<id> · staff:support:<id> · staff:awareness:<id>, jeweils mit
@@ -24,6 +27,13 @@ class TIX_Staff_Push {
     const META_PREFS     = '_tix_staff_notify';
     const OPT_DIGEST_AT  = 'tix_staff_push_digest_at';
     const CRON           = 'tix_staff_push_digest';
+    const CRON_INSTANT   = 'tix_staff_push_instant';
+    const META_SALES     = '_tix_staff_sales';                   // {mode, hours, times[], last}
+    const OPT_INSTANT_Q  = 'tix_staff_push_instant_q';           // Bestellungen für „sofort“ (Warteschlange)
+    const SALES_MODES    = ['instant', 'interval', 'times', 'off'];
+    const SALES_HOURS    = [1, 2, 3, 4, 6, 12, 24];
+    const INSTANT_DELAY  = 120;                                  // Verkäufe innerhalb von 2 Min. zusammen
+    const TZ             = 'Europe/Berlin';
     const APP_BUNDLE     = 'de.evendis.veranstalter';           // „evendis für Veranstalter“ (iOS-Bundle = Android-Paket)
     const RELAY_DEFAULT  = 'https://veranstalter.evendis.de';    // zentrale Weiterleitung (evendis.de-WordPress)
     const OPT_RELAY_URL  = 'tix_staff_push_relay_url';
@@ -33,7 +43,7 @@ class TIX_Staff_Push {
     const LOW_MIN        = 5;                                    // „knapp“: höchstens 5 bzw. 10 % übrig
 
     const PREFS = [
-        'sales_digest' => 'Verkäufe (stündliche Zusammenfassung)',
+        'sales_digest' => 'Verkäufe',
         'sold_out'     => 'Ausverkauft',
         'low_stock'    => 'Kontingent knapp',
         'support'      => 'Neue Kundenanfrage',
@@ -47,10 +57,20 @@ class TIX_Staff_Push {
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action(self::CRON, [__CLASS__, 'cron_digest']);
+        add_action(self::CRON_INSTANT, [__CLASS__, 'flush_instant']);
+        add_filter('cron_schedules', function ($s) {
+            $s['tix_5min'] = ['interval' => 5 * MINUTE_IN_SECONDS, 'display' => 'Alle 5 Minuten (Tixomat)'];
+            return $s;
+        });
         add_action('init', function () {
-            if (!wp_next_scheduled(TIX_Staff_Push::CRON)) wp_schedule_event(time() + 600, 'hourly', TIX_Staff_Push::CRON);
+            // alle 5 Minuten prüfen, wer fällig ist (vorher stündlich)
+            if (wp_get_schedule(TIX_Staff_Push::CRON) !== 'tix_5min') {
+                wp_clear_scheduled_hook(TIX_Staff_Push::CRON);
+                wp_schedule_event(time() + 120, 'tix_5min', TIX_Staff_Push::CRON);
+            }
         });
         add_action('tix_order_completed', [__CLASS__, 'on_order_completed'], 30);
+        add_action('tix_order_completed', [__CLASS__, 'queue_instant'], 40);
         add_action('transition_post_status', [__CLASS__, 'on_support_status'], 10, 3);
         add_action('shutdown', [__CLASS__, 'flush_support_queue']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat staff-push', [__CLASS__, 'cli']);
@@ -106,7 +126,47 @@ class TIX_Staff_Push {
         $p = is_array($p) ? $p : [];
         $out = [];
         foreach (array_keys(self::PREFS) as $k) $out[$k] = array_key_exists($k, $p) ? (bool) $p[$k] : true;
+        $out['sales_digest'] = self::sales($uid)['mode'] !== 'off';
         return $out;
+    }
+
+    /** Verkaufs-Mitteilungen des Kontos: {mode, hours, times[], last}. Bestand: stündlich bzw. aus, wenn abgeschaltet. */
+    public static function sales($uid) {
+        $s = get_user_meta($uid, self::META_SALES, true);
+        if (!is_array($s) || !in_array($s['mode'] ?? '', self::SALES_MODES, true)) {
+            $old = get_user_meta($uid, self::META_PREFS, true);
+            $off = is_array($old) && array_key_exists('sales_digest', $old) && !$old['sales_digest'];
+            $s = ['mode' => $off ? 'off' : 'interval', 'hours' => 1, 'times' => [], 'last' => 0];
+        }
+        $h = intval($s['hours'] ?? 1);
+        return [
+            'mode'  => $s['mode'],
+            'hours' => in_array($h, self::SALES_HOURS, true) ? $h : 1,
+            'times' => self::clean_times((array) ($s['times'] ?? [])),
+            'last'  => intval($s['last'] ?? 0),
+        ];
+    }
+
+    /** „HH:MM“, sortiert, ohne Doppelte, höchstens 6 */
+    public static function clean_times(array $in) {
+        $out = [];
+        foreach ($in as $t) {
+            if (preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', trim((string) $t), $m)) $out[] = sprintf('%02d:%02d', $m[1], $m[2]);
+        }
+        $out = array_values(array_unique($out));
+        sort($out);
+        return array_slice($out, 0, 6);
+    }
+
+    private static function save_sales($uid, array $s) {
+        update_user_meta($uid, self::META_SALES, ['mode' => $s['mode'], 'hours' => $s['hours'], 'times' => $s['times'], 'last' => intval($s['last'])]);
+    }
+
+    /** Öffentliche Form für App und Studio */
+    private static function sales_payload($uid) {
+        $s = self::sales($uid);
+        return ['mode' => $s['mode'], 'hours' => $s['hours'], 'times' => $s['times'], 'hours_options' => self::SALES_HOURS,
+            'last' => $s['last'] ? wp_date('c', $s['last']) : null, 'timezone' => self::TZ];
     }
 
     public static function routes() {
@@ -133,17 +193,37 @@ class TIX_Staff_Push {
         foreach (self::tokens() as $m) if (intval($m['user'] ?? 0) === $uid) $devices++;
         $labels = [];
         foreach (self::PREFS as $k => $l) $labels[] = ['key' => $k, 'label' => $l];
-        return rest_ensure_response(['ok' => true, 'prefs' => self::prefs($uid), 'labels' => $labels, 'devices' => $devices]);
+        return rest_ensure_response(['ok' => true, 'prefs' => self::prefs($uid), 'labels' => $labels, 'devices' => $devices, 'sales' => self::sales_payload($uid)]);
     }
 
     public static function rest_save_prefs(WP_REST_Request $req) {
         $uid = get_current_user_id();
         $in = $req->get_param('prefs');
-        if (!is_array($in)) return new WP_Error('tix_invalid_field', 'Bitte prefs als {key: true|false} senden.', ['status' => 400, 'field' => 'prefs']);
+        $sales_in = $req->get_param('sales');
+        if (!is_array($in) && !is_array($sales_in)) return new WP_Error('tix_invalid_field', 'Bitte prefs als {key: true|false} bzw. sales senden.', ['status' => 400, 'field' => 'prefs']);
+        $sales = self::sales($uid);
+        if (is_array($sales_in)) {
+            $mode = (string) ($sales_in['mode'] ?? $sales['mode']);
+            if (!in_array($mode, self::SALES_MODES, true)) return new WP_Error('tix_invalid_field', 'Unbekannter Modus.', ['status' => 400, 'field' => 'sales.mode']);
+            $hours = array_key_exists('hours', $sales_in) ? intval($sales_in['hours']) : $sales['hours'];
+            if (!in_array($hours, self::SALES_HOURS, true)) return new WP_Error('tix_invalid_field', 'Bitte 1, 2, 3, 4, 6, 12 oder 24 Stunden.', ['status' => 400, 'field' => 'sales.hours']);
+            $times = array_key_exists('times', $sales_in) ? self::clean_times((array) $sales_in['times']) : $sales['times'];
+            if ($mode === 'times' && !$times) return new WP_Error('tix_invalid_field', 'Bitte mindestens eine Uhrzeit wählen.', ['status' => 400, 'field' => 'sales.times']);
+            // Wechsel: ab jetzt zählen (nichts doppelt melden)
+            if ($mode !== $sales['mode'] && !$sales['last']) $sales['last'] = time();
+            $sales = ['mode' => $mode, 'hours' => $hours, 'times' => $times, 'last' => $sales['last'] ?: time()];
+        }
         $p = self::prefs($uid);
-        foreach ($in as $k => $v) if (array_key_exists($k, self::PREFS)) $p[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+        foreach ((array) $in as $k => $v) if (array_key_exists($k, self::PREFS)) $p[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+        // der alte Schalter „Verkäufe“ schaltet den Modus (an = bisheriger bzw. stündlich, aus = aus)
+        if (is_array($in) && array_key_exists('sales_digest', $in) && !is_array($sales_in)) {
+            if (!$p['sales_digest']) $sales['mode'] = 'off';
+            elseif ($sales['mode'] === 'off') { $sales['mode'] = 'interval'; $sales['last'] = time(); }
+        }
+        $p['sales_digest'] = $sales['mode'] !== 'off';
         update_user_meta($uid, self::META_PREFS, $p);
-        return rest_ensure_response(['ok' => true, 'prefs' => $p]);
+        self::save_sales($uid, $sales);
+        return rest_ensure_response(['ok' => true, 'prefs' => $p, 'sales' => self::sales_payload($uid)]);
     }
 
     /** Test-Mitteilung an die eigenen Geräte */
@@ -189,33 +269,148 @@ class TIX_Staff_Push {
 
     // ═══════════════ Ereignisse ═══════════════
 
-    /** Stündlich: neue Tickets seit der letzten Meldung, je Konto nur seine Events. */
+    /** Verkäufe (Tickets, Umsatz) je Event aus abgeschlossenen Bestellungen im Zeitraum ]$since, $until] (UTC-Sekunden) */
+    public static function sales_between($since, $until, array $only_orders = null) {
+        $out = [];
+        if (!class_exists('TIX_Order')) return $out;
+        $tz = wp_timezone();
+        $orders = $only_orders !== null
+            ? array_filter(array_map(['TIX_Order', 'get'], $only_orders))
+            : (array) TIX_Order::query(['status' => ['completed', 'processing'], 'date_from' => wp_date('Y-m-d', $since), 'limit' => 20000]);
+        foreach ($orders as $o) {
+            if ($only_orders === null) {
+                $c = $o->get_date_created();
+                if (!$c) continue;
+                $ts = (new DateTime($c->format('Y-m-d H:i:s'), $tz))->getTimestamp();
+                if ($ts <= $since || $ts > $until) continue;
+            }
+            foreach ($o->get_items() as $it) {
+                $eid = intval($it->get_event_id());
+                if (!$eid || get_post_type($eid) !== 'event') continue;
+                $out[$eid]['tickets'] = ($out[$eid]['tickets'] ?? 0) + intval($it->get_quantity());
+                $out[$eid]['revenue'] = ($out[$eid]['revenue'] ?? 0) + (float) $it->get_total();
+            }
+        }
+        return $out;
+    }
+
+    /** Nur die Events, die das Konto sehen darf (Plattform: eigener Veranstalter) */
+    private static function sales_for_user($uid, array $per_event) {
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        if (!$multi) return $per_event;
+        $oid = intval(TIX_App_Scope::organizer_id_for_user($uid));
+        return array_filter($per_event, function ($v, $eid) use ($oid) {
+            return $oid && in_array($oid, array_map('intval', (array) TIX_App_Scope::event_org_ids($eid)), true);
+        }, ARRAY_FILTER_USE_BOTH);
+    }
+
+    /** Meldung bauen und senden: Anzahl, Umsatz, Top-3-Events; Antippen → Event bzw. Start */
+    public static function send_sales($uid, array $events) {
+        $tickets = array_sum(array_column($events, 'tickets'));
+        if ($tickets <= 0) return 0;
+        $revenue = array_sum(array_column($events, 'revenue'));
+        uasort($events, function ($a, $b) { return $b['tickets'] <=> $a['tickets']; });
+        $money = function ($v) { return number_format((float) $v, (floor($v) == $v) ? 0 : 2, ',', '.') . ' €'; };
+        $name = function ($eid) { return html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'); };
+        $one = count($events) === 1 ? (int) array_key_first($events) : 0;
+        $head = sprintf('%d %s', $tickets, $tickets === 1 ? 'Ticket' : 'Tickets');
+        if ($one) {
+            $title = self::site_name() . ' · Verkauf';
+            $body = $head . ' · ' . $name($one) . ($revenue > 0 ? ' · ' . $money($revenue) : '');
+        } else {
+            $title = self::site_name() . ' · ' . $head . ($revenue > 0 ? ' · ' . $money($revenue) : '');
+            $lines = [];
+            foreach (array_slice($events, 0, 3, true) as $eid => $v) $lines[] = $name($eid) . ': ' . $v['tickets'];
+            if (count($events) > 3) $lines[] = '+ ' . (count($events) - 3) . ' weitere';
+            $body = implode(' · ', $lines);
+        }
+        return self::send_to_users([$uid], $title, $body, ['action' => $one ? 'staff:event:' . $one : 'staff:start', 'type' => 'sales']);
+    }
+
+    /** Konten mit Geräten, die Verkaufs-Mitteilungen bekommen können */
+    private static function sales_users() {
+        $users = [];
+        foreach (self::tokens() as $m) $users[intval($m['user'] ?? 0)] = true;
+        unset($users[0]);
+        $out = [];
+        foreach (array_keys($users) as $uid) {
+            $u = get_user_by('id', $uid);
+            if ($u && array_intersect(self::MANAGER_ROLES, (array) $u->roles)) $out[] = $uid;
+        }
+        return $out;
+    }
+
+    /** Ist eine gesammelte Meldung fällig? (interval: Stunden seit last; times: feste Uhrzeit seit last erreicht) */
+    public static function sales_due(array $s, $now) {
+        $last = intval($s['last']);
+        if ($s['mode'] === 'interval') return $now - $last >= $s['hours'] * HOUR_IN_SECONDS - 60;
+        if ($s['mode'] === 'times') {
+            $tz = new DateTimeZone(self::TZ);
+            foreach ([0, -1] as $day) {
+                $d = (new DateTime('@' . $now))->setTimezone($tz)->modify("$day day");
+                foreach (array_reverse($s['times']) as $t) {
+                    [$h, $m] = array_map('intval', explode(':', $t));
+                    $at = (clone $d)->setTime($h, $m)->getTimestamp();
+                    if ($at <= $now) return $at > $last;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Alle 5 Minuten: je Konto prüfen, ob eine gesammelte Meldung fällig ist; liegengebliebene Sofort-Meldungen senden */
     public static function cron_digest($now = null) {
         $now = $now ?: time();
-        $since = intval(get_option(self::OPT_DIGEST_AT, 0)) ?: ($now - HOUR_IN_SECONDS);
-        update_option(self::OPT_DIGEST_AT, $now, false);
-        $ids = get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'numberposts' => 2000, 'fields' => 'ids',
-            'date_query' => [['column' => 'post_date_gmt', 'after' => gmdate('Y-m-d H:i:s', $since), 'before' => gmdate('Y-m-d H:i:s', $now), 'inclusive' => false]]]);
-        $per_event = [];
-        foreach ($ids as $tid) {
-            $eid = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
-            if ($eid && get_post_type($eid) === 'event') $per_event[$eid] = ($per_event[$eid] ?? 0) + 1;
-        }
-        if (!$per_event) return 0;
-        $by_user = [];
-        foreach ($per_event as $eid => $n) {
-            foreach (self::recipients(self::event_orgs($eid), 'sales_digest') as $uid) $by_user[$uid][$eid] = $n;
-        }
         $sent = 0;
-        foreach ($by_user as $uid => $events) {
-            $total = array_sum($events);
-            arsort($events);
-            $lines = [];
-            foreach (array_slice($events, 0, 3, true) as $eid => $n) $lines[] = html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') . ': ' . $n;
-            if (count($events) > 3) $lines[] = '+ ' . (count($events) - 3) . ' weitere';
-            $one = count($events) === 1 ? (int) array_key_first($events) : 0;
-            $sent += self::send_to_users([$uid], sprintf('%s · %d %s', self::site_name(), $total, $total === 1 ? 'neues Ticket' : 'neue Tickets'),
-                implode(' · ', $lines), ['action' => $one ? 'staff:event:' . $one : 'staff:start', 'type' => 'sales']);
+        $q = (array) get_option(self::OPT_INSTANT_Q, []);
+        if ($q && $now - intval(min(array_column($q, 'at'))) >= self::INSTANT_DELAY) $sent += self::flush_instant();
+        $legacy = intval(get_option(self::OPT_DIGEST_AT, 0));
+        $cache = [];
+        foreach (self::sales_users() as $uid) {
+            $s = self::sales($uid);
+            if ($s['mode'] !== 'interval' && $s['mode'] !== 'times') continue;
+            // Bestand ohne eigenen Merker: ab der letzten globalen Meldung bzw. eine Stunde
+            if (!$s['last']) { $s['last'] = $legacy ?: $now - HOUR_IN_SECONDS; self::save_sales($uid, $s); }
+            if (!self::sales_due($s, $now)) continue;
+            $since = max($s['last'], $now - 7 * DAY_IN_SECONDS);
+            $key = $since . '|' . $now;
+            if (!isset($cache[$key])) $cache[$key] = self::sales_between($since, $now);
+            $events = self::sales_for_user($uid, $cache[$key]);
+            if ($events && self::prefs_allows($uid)) $sent += self::send_sales($uid, $events);
+            $s['last'] = $now;
+            self::save_sales($uid, $s);
+        }
+        update_option(self::OPT_DIGEST_AT, $now, false);
+        return $sent;
+    }
+
+    private static function prefs_allows($uid) {
+        return self::is_staff($uid);
+    }
+
+    /** Sofort: Bestellung in die Warteschlange (die Kasse wartet nicht auf den Versand) */
+    public static function queue_instant($order_id) {
+        $q = (array) get_option(self::OPT_INSTANT_Q, []);
+        $q[] = ['order' => intval($order_id), 'at' => time()];
+        update_option(self::OPT_INSTANT_Q, array_slice($q, -500), false);
+        if (!wp_next_scheduled(self::CRON_INSTANT)) wp_schedule_single_event(time() + self::INSTANT_DELAY, self::CRON_INSTANT);
+    }
+
+    /** Warteschlange senden: je Konto mit Modus „sofort“ eine Meldung für alle gesammelten Bestellungen */
+    public static function flush_instant() {
+        $q = (array) get_option(self::OPT_INSTANT_Q, []);
+        delete_option(self::OPT_INSTANT_Q);
+        $orders = array_values(array_unique(array_filter(array_map('intval', array_column($q, 'order')))));
+        if (!$orders) return 0;
+        $per_event = self::sales_between(0, PHP_INT_MAX, $orders);
+        $sent = 0;
+        foreach (self::sales_users() as $uid) {
+            $s = self::sales($uid);
+            if ($s['mode'] !== 'instant') continue;
+            $events = self::sales_for_user($uid, $per_event);
+            if ($events) $sent += self::send_sales($uid, $events);
+            $s['last'] = time();
+            self::save_sales($uid, $s);
         }
         return $sent;
     }
@@ -421,7 +616,7 @@ class TIX_Staff_Push {
      *   wp tixomat staff-push status
      *   wp tixomat staff-push relay-add <host>      (auf evendis.de: Schlüssel für einen Shop anlegen, wird ausgegeben)
      *   wp tixomat staff-push relay-key <schlüssel>  (im Shop: Schlüssel der Weiterleitung eintragen)
-     *   wp tixomat staff-push digest                 (Sammelmeldung jetzt)
+     *   wp tixomat staff-push digest                 (fällige Sammelmeldungen jetzt prüfen)
      *   wp tixomat staff-push test <user_id>
      */
     public static function cli($args) {

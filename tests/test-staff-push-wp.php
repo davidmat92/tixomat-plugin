@@ -84,20 +84,20 @@ sp_eq('Awareness-Konto bekommt Verkauf nicht', false, in_array($aw, $sent[0]['ui
 echo "── Sammelmeldung ──\n";
 wp_set_current_user($staff);
 sp_rest('POST', '/staff/notify-prefs', ['prefs' => ['sales_digest' => true]]);
-update_option(TIX_Staff_Push::OPT_DIGEST_AT, time() - 3600, false);
-foreach ([1, 2, 3] as $i) { $posts[] = wp_insert_post(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'post_title' => "SP Ticket $i", 'meta_input' => ['_tix_ticket_event_id' => $ev]]); }
+// Verkäufe kommen seit 1.38.592 aus den Bestellungen (mit Umsatz); Merker je Konto
+update_user_meta($staff, TIX_Staff_Push::META_SALES, ['mode' => 'interval', 'hours' => 1, 'times' => [], 'last' => time() - 3600]);
+$sp_order = TIX_Order::create_legacy(['status' => 'completed', 'total' => 30, 'date_created' => wp_date('Y-m-d H:i:s', time() - 60)], [['event_id' => $ev, 'qty' => 3, 'price' => 10]]);
 $sent = [];
 TIX_Staff_Push::cron_digest(time() + 5);
 sp_eq('eine Sammelmeldung', 1, count($sent));
-sp_eq('3 neue Tickets', true, strpos($sent[0]['title'] ?? '', '3 neue Tickets') !== false);
-sp_eq('Event im Text', true, strpos($sent[0]['body'] ?? '', 'SP Testevent: 3') !== false);
+sp_eq('3 Tickets', true, strpos($sent[0]['body'] ?? '', '3 Tickets') !== false);
+sp_eq('Event und Umsatz im Text', true, strpos($sent[0]['body'] ?? '', 'SP Testevent') !== false && strpos($sent[0]['body'] ?? '', '30 €') !== false);
 $sent = [];
 TIX_Staff_Push::cron_digest(time() + 10);
 sp_eq('keine neuen Tickets: keine Meldung', 0, count($sent));
 wp_set_current_user($staff);
 sp_rest('POST', '/staff/notify-prefs', ['prefs' => ['sales_digest' => false]]);
-$posts[] = wp_insert_post(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'post_title' => 'SP Ticket 4', 'meta_input' => ['_tix_ticket_event_id' => $ev]]);
-update_option(TIX_Staff_Push::OPT_DIGEST_AT, time() - 3600, false);
+update_user_meta($staff, TIX_Staff_Push::META_SALES, ['mode' => 'off', 'hours' => 1, 'times' => [], 'last' => time() - 3600]);
 $sent = [];
 TIX_Staff_Push::cron_digest(time() + 15);
 sp_eq('Verkäufe abgeschaltet: keine Meldung', 0, count($sent));
@@ -145,6 +145,8 @@ sp_eq('unbekannte Seite: 403', 403, $st);
 foreach ($posts as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach ($users as $u) wp_delete_user($u);
+global $wpdb;
+if (!empty($sp_order)) { $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $sp_order]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $sp_order]); }
 foreach (['tok' => TIX_Staff_Push::OPT_TOKENS, 'guest' => '_tix_push_tokens', 'digest' => TIX_Staff_Push::OPT_DIGEST_AT, 'sa' => TIX_Staff_Push::OPT_RELAY_SA, 'sites' => TIX_Staff_Push::OPT_RELAY_SITES] as $k => $o) {
     if ($keep[$k] === null) delete_option($o); else update_option($o, $keep[$k], false);
 }
