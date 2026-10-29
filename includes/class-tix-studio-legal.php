@@ -38,7 +38,7 @@ class TIX_Studio_Legal {
     }
 
     public static function routes() {
-        $perm = ['TIX_Studio', 'perm_brand'];
+        $perm = [__CLASS__, 'perm'];
         $key = '(?P<key>impressum|datenschutz|agb|widerruf)';
         register_rest_route(self::NS, '/studio/legal', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $perm]);
         register_rest_route(self::NS, '/studio/legal/' . $key, [
@@ -48,6 +48,17 @@ class TIX_Studio_Legal {
         register_rest_route(self::NS, '/studio/legal/' . $key . '/versions/(?P<vid>[a-z0-9]{6,20})', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_version'], 'permission_callback' => $perm,
         ]);
+    }
+
+    /**
+     * Rechte wie Marke (perm_brand). Plattform (Mehr-Veranstalter, User-Entscheid 2026-10-29): nur der Plattform-Admin –
+     * Veranstalter pflegen ihr Impressum auf der Veranstalterseite (/organizer/profile `imprint`).
+     */
+    public static function perm(WP_REST_Request $req) {
+        if (is_user_logged_in() && !current_user_can('manage_options') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            return new WP_Error('rest_forbidden', 'Die Rechtstexte der Plattform pflegt der Plattform-Betreiber. Dein Impressum trägst du auf deiner Veranstalterseite ein.', ['status' => 403]);
+        }
+        return TIX_Studio::perm_brand($req);
     }
 
     // ═══════════════ Seiten finden ═══════════════
