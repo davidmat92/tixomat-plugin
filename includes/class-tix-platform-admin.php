@@ -302,6 +302,7 @@ class TIX_Platform_Admin {
             return new WP_Error($r->get_error_code(), $r->get_error_message(), ['status' => intval($d['status'] ?? 409)]);
         }
         $s = TIX_Settlement::get($sid);
+        do_action('tix_settlement_status_changed', $sid, (string) $s->status, $s); // Team-Mitteilung (1.38.595)
         return rest_ensure_response(['ok' => true, 'status' => self::ST_OUT[$s->status] ?? (string) $s->status, 'settlement' => self::settlement_row($s)]);
     }
 

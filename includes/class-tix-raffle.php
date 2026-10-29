@@ -439,6 +439,7 @@ class TIX_Raffle {
             if (strpos($wpdb->last_error, 'Duplicate') !== false) return $fail('Du nimmst bereits an diesem Gewinnspiel teil.');
             return $fail('Fehler bei der Teilnahme. Bitte versuche es erneut.');
         }
+        do_action('tix_raffle_entered', intval($event_id)); // Team-Mitteilung (gesammelt, 1.38.595)
         return ['ok' => true, 'message' => 'Du nimmst jetzt teil! Viel Glück!', 'count' => self::count_entries($event_id)];
     }
 

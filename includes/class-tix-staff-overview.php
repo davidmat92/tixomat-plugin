@@ -7,7 +7,8 @@ if (!defined('ABSPATH')) exit;
  *   GET /staff/overview?days=14[&event_id=<id>[&live=1]]
  *     → {days: [{date, tickets, revenue}] (ältester zuerst, ohne Lücken, Ortszeit),
  *        last7 {tickets, revenue}, prev7 {tickets, revenue},
- *        event?: {id, today (Tickets heute), tickets, revenue (gesamt)} mit event_id,
+ *        images {event_id: großes Bild} der nächsten Events,
+ *        event?: {id, today (Tickets heute), tickets, revenue (gesamt), image (groß)} mit event_id,
  *        live?: {event_id, checked_in, total, last15, last_checkin (Ortszeit), last_ago (Sekunden), slots: [5× je 15 Min., ältester zuerst]}}
  * Tage und Umsatz aus den nativen Bestellungen (Status abgeschlossen/in Bearbeitung), nur Events, die das Konto sehen
  * darf (Mehr-Veranstalter-Modus: eigener Veranstalter). Live nur mit `event_id` + `live=1` (Event des Tages): Einlässe der Ticket-
@@ -40,7 +41,7 @@ class TIX_Staff_Overview {
         $ck = 'tix_sov_' . md5(get_current_user_id() . '|' . $days . '|' . $eid . '|' . ($live ? 1 : 0) . '|' . current_time('Y-m-d H:i'));
         $hit = get_transient($ck);
         if (is_array($hit)) return rest_ensure_response($hit);
-        $out = ['ok' => true] + self::days($days);
+        $out = ['ok' => true] + self::days($days) + ['images' => self::upcoming_images()];
         if ($eid) $out['event'] = self::event($eid);
         if ($live) $out['live'] = self::live($eid);
         set_transient($ck, $out, 60);
@@ -82,7 +83,7 @@ class TIX_Staff_Overview {
     /** Ein Event: Tickets heute, Tickets und Umsatz gesamt (abgeschlossene Bestellungen) */
     public static function event($eid, $now = null) {
         $today = gmdate('Y-m-d', $now ?: current_time('timestamp'));
-        $out = ['id' => intval($eid), 'today' => 0, 'tickets' => 0, 'revenue' => 0.0];
+        $out = ['id' => intval($eid), 'today' => 0, 'tickets' => 0, 'revenue' => 0.0, 'image' => self::image($eid)];
         if (!class_exists('TIX_Order')) return $out;
         foreach ((array) TIX_Order::query(['event_id' => $eid, 'status' => ['completed', 'processing'], 'limit' => 20000]) as $o) {
             $c = $o->get_date_created();
@@ -96,6 +97,27 @@ class TIX_Staff_Overview {
         }
         $out['revenue'] = round($out['revenue'], 2);
         return $out;
+    }
+
+    /** Großes Bild (large, ca. 1024 px) – die Staff-Liste liefert nur das kleine */
+    public static function image($eid) {
+        $tid = get_post_thumbnail_id($eid);
+        return $tid ? (string) (wp_get_attachment_image_url($tid, 'large') ?: '') : '';
+    }
+
+    /** Große Bilder der nächsten Events, die das Konto sehen darf {event_id: url} (Bildkarten der Startseite) */
+    public static function upcoming_images($limit = 12) {
+        $ids = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'private'], 'numberposts' => 60, 'fields' => 'ids',
+            'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE']]]);
+        $out = [];
+        foreach ($ids as $eid) {
+            if (!self::allowed($eid)) continue;
+            $u = self::image($eid);
+            if ($u !== '') $out[(string) $eid] = $u;
+            if (count($out) >= $limit) break;
+        }
+        return (object) $out;
     }
 
     /** Einlässe live: gesamt, letzte 15 Min., letzte 5 Viertelstunden */

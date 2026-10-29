@@ -42,13 +42,42 @@ class TIX_Staff_Push {
     const OPT_RELAY_SA   = '_tix_staff_fcm_service_account';     // evendis.de: Firebase-Dienstkonto der neuen App
     const LOW_MIN        = 5;                                    // „knapp“: höchstens 5 bzw. 10 % übrig
 
-    const PREFS = [
-        'sales_digest' => 'Verkäufe',
-        'sold_out'     => 'Ausverkauft',
-        'low_stock'    => 'Kontingent knapp',
-        'support'      => 'Neue Kundenanfrage',
-        'awareness'    => 'Awareness-Meldung',
+    /**
+     * Ereignisse (1.38.595): key => [Bezeichnung, Gruppe, Vorgabe, Modul]. Modul: null = immer, `platform` = nur
+     * evendis.de (Mehr-Veranstalter-Modus), sonst TIX_Plan-Schlüssel (nur zeigen, wenn aktiv bzw. lizenziert).
+     */
+    const EVENTS = [
+        'sales_digest'  => ['Neue Ticketbestellungen', 'sales', true, null],
+        'refund'        => ['Storno und Erstattung', 'sales', true, null],
+        'giftcard_sold' => ['Gutschein verkauft', 'sales', true, 'giftcards'],
+        'wallet_topup'  => ['Guthaben aufgeladen (gesammelt)', 'sales', false, 'wallet'],
+        'sold_out'      => ['Ausverkauft', 'stock', true, null],
+        'low_stock'     => ['Kontingent knapp', 'stock', true, null],
+        'guestlist'     => ['Tischanfragen', 'guests', true, 'seating'],
+        'waitlist'      => ['Warteliste', 'guests', true, null],
+        'raffle'        => ['Gewinnspiel-Teilnahmen (gesammelt)', 'guests', false, 'raffles'],
+        'music'         => ['Musikwünsche (am Eventtag)', 'guests', false, 'music'],
+        'support'       => ['Neue Kundenanfrage', 'requests', true, null],
+        'awareness'     => ['Awareness-Meldung', 'requests', true, 'awareness'],
+        'settlement'    => ['Abrechnung und Auszahlung', 'account', true, 'platform'],
+        'approval'      => ['Konto-Prüfung', 'account', true, 'platform'],
+        'team'          => ['Team-Einladung angenommen', 'account', true, null],
     ];
+    const GROUPS = ['sales' => 'Verkauf', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team'];
+    /** Bezeichnungen (Bestand: Schlüssel → Text) */
+    const PREFS = [
+        'sales_digest' => 'Neue Ticketbestellungen', 'refund' => 'Storno und Erstattung', 'giftcard_sold' => 'Gutschein verkauft',
+        'wallet_topup' => 'Guthaben aufgeladen (gesammelt)', 'sold_out' => 'Ausverkauft', 'low_stock' => 'Kontingent knapp',
+        'guestlist' => 'Tischanfragen', 'waitlist' => 'Warteliste', 'raffle' => 'Gewinnspiel-Teilnahmen (gesammelt)',
+        'music' => 'Musikwünsche (am Eventtag)', 'support' => 'Neue Kundenanfrage', 'awareness' => 'Awareness-Meldung',
+        'settlement' => 'Abrechnung und Auszahlung', 'approval' => 'Konto-Prüfung', 'team' => 'Team-Einladung angenommen',
+    ];
+    /** Gesammelt (stündlich), nicht sofort */
+    const BATCH = ['raffle', 'wallet_topup'];
+    const OPT_EVENT_Q   = 'tix_staff_push_event_q';
+    const OPT_BATCH_AT  = 'tix_staff_push_batch_at';
+    const CRON_EVENTS   = 'tix_staff_push_events';
+    const EVENT_DELAY   = 30;   // Ereignisse eines Moments zusammen
     const STAFF_ROLES     = ['administrator', 'tix_organizer', 'tix_staff', 'tix_entrance', 'tix_cashier', 'tix_dj', 'tix_awareness'];
     const MANAGER_ROLES   = ['administrator', 'tix_organizer', 'tix_staff'];
 
@@ -71,6 +100,19 @@ class TIX_Staff_Push {
         });
         add_action('tix_order_completed', [__CLASS__, 'on_order_completed'], 30);
         add_action('tix_order_completed', [__CLASS__, 'queue_instant'], 40);
+        // weitere Ereignisse (1.38.595)
+        add_action(self::CRON_EVENTS, [__CLASS__, 'flush_events']);
+        add_action('tix_order_completed', [__CLASS__, 'on_giftcard_order'], 45);
+        add_action('tix_order_cancelled', [__CLASS__, 'on_order_cancelled'], 30);
+        add_action('tix_order_refund_recorded', [__CLASS__, 'on_refund'], 30, 3);
+        add_action('tix_table_requested', function ($eid) { TIX_Staff_Push::enqueue('guestlist', $eid); });
+        add_action('tix_waitlist_joined', function ($eid) { TIX_Staff_Push::enqueue('waitlist', $eid); });
+        add_action('tix_music_requested', function ($eid, $title = '', $artist = '') { TIX_Staff_Push::enqueue('music', $eid, ['song' => trim($title . ($artist !== '' ? ' – ' . $artist : ''))]); }, 10, 3);
+        add_action('tix_raffle_entered', function ($eid) { TIX_Staff_Push::enqueue('raffle', $eid); });
+        add_action('tix_wallet_tx_posted', [__CLASS__, 'on_wallet_tx']);
+        add_action('tix_settlement_status_changed', [__CLASS__, 'on_settlement'], 10, 3);
+        add_action('tix_org_approval_changed', [__CLASS__, 'on_approval'], 10, 3);
+        add_action('password_reset', [__CLASS__, 'on_team_joined'], 5);
         add_action('transition_post_status', [__CLASS__, 'on_support_status'], 10, 3);
         add_action('shutdown', [__CLASS__, 'flush_support_queue']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat staff-push', [__CLASS__, 'cli']);
@@ -125,7 +167,7 @@ class TIX_Staff_Push {
         $p = get_user_meta($uid, self::META_PREFS, true);
         $p = is_array($p) ? $p : [];
         $out = [];
-        foreach (array_keys(self::PREFS) as $k) $out[$k] = array_key_exists($k, $p) ? (bool) $p[$k] : true;
+        foreach (self::EVENTS as $k => $e) $out[$k] = array_key_exists($k, $p) ? (bool) $p[$k] : (bool) $e[2];
         $out['sales_digest'] = self::sales($uid)['mode'] !== 'off';
         return $out;
     }
@@ -192,8 +234,11 @@ class TIX_Staff_Push {
         $devices = 0;
         foreach (self::tokens() as $m) if (intval($m['user'] ?? 0) === $uid) $devices++;
         $labels = [];
-        foreach (self::PREFS as $k => $l) $labels[] = ['key' => $k, 'label' => $l];
-        return rest_ensure_response(['ok' => true, 'prefs' => self::prefs($uid), 'labels' => $labels, 'devices' => $devices, 'sales' => self::sales_payload($uid)]);
+        // nur Ereignisse, deren Modul aktiv bzw. lizenziert ist; gruppiert
+        foreach (self::EVENTS as $k => $e) if (self::available($k, $uid)) $labels[] = ['key' => $k, 'label' => $e[0], 'group' => $e[1]];
+        $groups = [];
+        foreach (self::GROUPS as $gk => $gl) $groups[] = ['key' => $gk, 'label' => $gl];
+        return rest_ensure_response(['ok' => true, 'prefs' => self::prefs($uid), 'labels' => $labels, 'groups' => $groups, 'devices' => $devices, 'sales' => self::sales_payload($uid)]);
     }
 
     public static function rest_save_prefs(WP_REST_Request $req) {
@@ -214,7 +259,7 @@ class TIX_Staff_Push {
             $sales = ['mode' => $mode, 'hours' => $hours, 'times' => $times, 'last' => $sales['last'] ?: time()];
         }
         $p = self::prefs($uid);
-        foreach ((array) $in as $k => $v) if (array_key_exists($k, self::PREFS)) $p[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+        foreach ((array) $in as $k => $v) if (array_key_exists($k, self::EVENTS)) $p[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
         // der alte Schalter „Verkäufe“ schaltet den Modus (an = bisheriger bzw. stündlich, aus = aus)
         if (is_array($in) && array_key_exists('sales_digest', $in) && !is_array($sales_in)) {
             if (!$p['sales_digest']) $sales['mode'] = 'off';
@@ -248,7 +293,8 @@ class TIX_Staff_Push {
         foreach (array_keys($users) as $uid) {
             $u = get_user_by('id', $uid);
             if (!$u || !array_intersect($roles, (array) $u->roles)) continue;
-            if (!self::prefs($uid)[$pref]) continue;
+            if (!(self::prefs($uid)[$pref] ?? false)) continue;
+            if (!self::available($pref, $uid)) continue;
             if ($multi) {
                 $oid = TIX_App_Scope::organizer_id_for_user($uid);
                 if (!$oid || !in_array($oid, array_map('intval', $org_ids), true)) continue;
@@ -274,6 +320,7 @@ class TIX_Staff_Push {
         $out = [];
         if (!class_exists('TIX_Order')) return $out;
         $tz = wp_timezone();
+        $gc = class_exists('TIX_Giftcards') ? TIX_Giftcards::system_event_id() : 0; // Gutscheine melden sich eigens
         $orders = $only_orders !== null
             ? array_filter(array_map(['TIX_Order', 'get'], $only_orders))
             : (array) TIX_Order::query(['status' => ['completed', 'processing'], 'date_from' => wp_date('Y-m-d', $since), 'limit' => 20000]);
@@ -286,7 +333,7 @@ class TIX_Staff_Push {
             }
             foreach ($o->get_items() as $it) {
                 $eid = intval($it->get_event_id());
-                if (!$eid || get_post_type($eid) !== 'event') continue;
+                if (!$eid || $eid === $gc || get_post_type($eid) !== 'event') continue;
                 $out[$eid]['tickets'] = ($out[$eid]['tickets'] ?? 0) + intval($it->get_quantity());
                 $out[$eid]['revenue'] = ($out[$eid]['revenue'] ?? 0) + (float) $it->get_total();
             }
@@ -364,6 +411,10 @@ class TIX_Staff_Push {
         $sent = 0;
         $q = (array) get_option(self::OPT_INSTANT_Q, []);
         if ($q && $now - intval(min(array_column($q, 'at'))) >= self::INSTANT_DELAY) $sent += self::flush_instant();
+        // weitere Ereignisse: Sofort-Ereignisse nachholen, gesammelte (Gewinnspiel, Guthaben) stündlich
+        $batch = $now - intval(get_option(self::OPT_BATCH_AT, 0)) >= HOUR_IN_SECONDS - 60;
+        if ($batch) update_option(self::OPT_BATCH_AT, $now, false);
+        if (get_option(self::OPT_EVENT_Q)) $sent += self::flush_events($batch);
         $legacy = intval(get_option(self::OPT_DIGEST_AT, 0));
         $cache = [];
         foreach (self::sales_users() as $uid) {
@@ -413,6 +464,187 @@ class TIX_Staff_Push {
             self::save_sales($uid, $s);
         }
         return $sent;
+    }
+
+    // ═══════════════ Weitere Ereignisse (1.38.595) ═══════════════
+
+    /** Ist das Ereignis für das Konto verfügbar? (Modul aktiv bzw. lizenziert; „platform“ nur auf evendis.de) */
+    public static function available($key, $uid) {
+        $mod = self::EVENTS[$key][3] ?? null;
+        if (!$mod) return true;
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        if ($mod === 'platform') return $multi;
+        if (!class_exists('TIX_Plan')) return true;
+        if ($multi) {
+            $oid = intval(TIX_App_Scope::organizer_id_for_user($uid));
+            return $oid ? TIX_Plan::org_on($mod, $oid) : TIX_Plan::site_on($mod);
+        }
+        return TIX_Plan::site_on($mod);
+    }
+
+    /** Ereignis in die Warteschlange (der auslösende Request wartet nie auf den Versand) */
+    public static function enqueue($type, $eid = 0, array $extra = []) {
+        if (!isset(self::EVENTS[$type])) return;
+        $q = (array) get_option(self::OPT_EVENT_Q, []);
+        $q[] = ['type' => $type, 'eid' => intval($eid), 'at' => time(), 'x' => $extra];
+        update_option(self::OPT_EVENT_Q, array_slice($q, -1000), false);
+        if (!in_array($type, self::BATCH, true) && !wp_next_scheduled(self::CRON_EVENTS)) {
+            wp_schedule_single_event(time() + self::EVENT_DELAY, self::CRON_EVENTS);
+        }
+    }
+
+    /** Warteschlange senden: Sofort-Ereignisse; mit $batch auch die gesammelten (stündlich) */
+    public static function flush_events($batch = false) {
+        $q = (array) get_option(self::OPT_EVENT_Q, []);
+        if (!$q) return 0;
+        $send = []; $keep = [];
+        foreach ($q as $e) {
+            if (!is_array($e) || !isset(self::EVENTS[$e['type'] ?? ''])) continue;
+            if (in_array($e['type'], self::BATCH, true) && !$batch) $keep[] = $e; else $send[] = $e;
+        }
+        update_option(self::OPT_EVENT_Q, $keep, false);
+        // je Typ und Event bündeln (Konto-Ereignisse je Veranstalter)
+        $groups = [];
+        foreach ($send as $e) {
+            $k = $e['type'] . '|' . $e['eid'] . '|' . intval($e['x']['org'] ?? 0);
+            $groups[$k][] = $e;
+        }
+        $sent = 0;
+        foreach ($groups as $list) $sent += self::send_event_group($list);
+        return $sent;
+    }
+
+    private static function send_event_group(array $list) {
+        $first = $list[0];
+        $type = $first['type']; $eid = intval($first['eid']); $x = (array) ($first['x'] ?? []);
+        $n = count($list);
+        $ev = $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : '';
+        $orgs = isset($x['org']) ? [intval($x['org'])] : ($eid ? self::event_orgs($eid) : []);
+        $site = self::site_name();
+        $money = function ($v) { return number_format((float) $v, (floor($v) == $v) ? 0 : 2, ',', '.') . ' €'; };
+        $sum = function ($k) use ($list) { return array_sum(array_map(function ($e) use ($k) { return (float) ($e['x'][$k] ?? 0); }, $list)); };
+        $action = $eid ? 'staff:event:' . $eid : 'staff:start';
+        switch ($type) {
+            case 'refund':
+                $t = intval($sum('tickets')); $amt = $sum('amount');
+                $title = $site . ' · Storno';
+                $body = ($t ? $t . ' ' . ($t === 1 ? 'Ticket' : 'Tickets') . ' storniert' : ($n === 1 ? 'Erstattung' : $n . ' Erstattungen'))
+                    . ($amt > 0 ? ' · ' . $money($amt) : '') . ($ev !== '' ? ' · ' . $ev : '');
+                break;
+            case 'giftcard_sold':
+                $amt = $sum('amount');
+                $title = $site . ' · Gutschein verkauft';
+                $body = ($n === 1 ? '1 Gutschein' : $n . ' Gutscheine') . ($amt > 0 ? ' · ' . $money($amt) : '');
+                $action = 'staff:start';
+                break;
+            case 'guestlist':
+                $title = $site . ' · Tischanfrage';
+                $body = ($n === 1 ? 'Neue Anfrage' : $n . ' neue Anfragen') . ($ev !== '' ? ' · ' . $ev : '');
+                break;
+            case 'waitlist':
+                $title = $site . ' · Warteliste';
+                $body = ($n === 1 ? 'Neuer Eintrag' : $n . ' neue Einträge') . ($ev !== '' ? ' · ' . $ev : '');
+                break;
+            case 'music':
+                $title = $site . ' · Musikwunsch';
+                $body = $n === 1 && !empty($x['song']) ? (string) $x['song'] : $n . ' neue Wünsche' . ($ev !== '' ? ' · ' . $ev : '');
+                break;
+            case 'raffle':
+                $title = $site . ' · Gewinnspiel';
+                $body = ($n === 1 ? '1 neue Teilnahme' : $n . ' neue Teilnahmen') . ($ev !== '' ? ' · ' . $ev : '');
+                break;
+            case 'wallet_topup':
+                $amt = $sum('amount');
+                $title = $site . ' · Guthaben aufgeladen';
+                $body = ($n === 1 ? '1 Aufladung' : $n . ' Aufladungen') . ($amt > 0 ? ' · ' . $money($amt) : '');
+                $action = 'staff:start';
+                break;
+            case 'settlement':
+                $title = $site . ' · Abrechnung';
+                $body = (string) ($x['text'] ?? 'Deine Abrechnung hat sich geändert.');
+                $action = !empty($x['sid']) ? 'staff:settlement:' . intval($x['sid']) : 'staff:start';
+                break;
+            case 'approval':
+                $title = $site . ' · Konto-Prüfung';
+                $body = (string) ($x['text'] ?? 'Neuer Stand deiner Konto-Prüfung.');
+                $action = 'staff:approval';
+                break;
+            case 'team':
+                $title = $site . ' · Team';
+                $names = array_values(array_filter(array_map(function ($e) { return (string) ($e['x']['name'] ?? ''); }, $list)));
+                $body = ($names ? implode(', ', array_slice($names, 0, 3)) : 'Ein Teammitglied') . ($n === 1 ? ' hat die Einladung angenommen.' : ' haben die Einladung angenommen.');
+                $action = 'staff:start';
+                break;
+            default:
+                return 0;
+        }
+        $uids = self::recipients($orgs, $type);
+        return $uids ? self::send_to_users($uids, $title, $body, ['action' => $action, 'type' => $type]) : 0;
+    }
+
+    /** Tickets je Event einer Bestellung (ohne Gutschein-System-Event) */
+    private static function order_tickets($order_id) {
+        $out = [];
+        if (!class_exists('TIX_Order')) return $out;
+        $o = TIX_Order::get($order_id);
+        if (!$o) return $out;
+        $gc = class_exists('TIX_Giftcards') ? TIX_Giftcards::system_event_id() : 0;
+        foreach ($o->get_items() as $it) {
+            $e = intval($it->get_event_id());
+            if (!$e || $e === $gc) continue;
+            $out[$e]['tickets'] = ($out[$e]['tickets'] ?? 0) + intval($it->get_quantity());
+            $out[$e]['amount'] = ($out[$e]['amount'] ?? 0) + (float) $it->get_total();
+        }
+        return $out;
+    }
+
+    public static function on_order_cancelled($order_id) {
+        foreach (self::order_tickets($order_id) as $eid => $v) self::enqueue('refund', $eid, $v);
+    }
+
+    /** Teilerstattung (volle Erstattungen melden sich schon als Storno) */
+    public static function on_refund($order_id, $amount = 0, $full = false) {
+        if ($full) return;
+        $events = array_keys(self::order_tickets($order_id));
+        self::enqueue('refund', $events ? $events[0] : 0, ['amount' => (float) $amount]);
+    }
+
+    public static function on_giftcard_order($order_id) {
+        if (!class_exists('TIX_Order') || !class_exists('TIX_Giftcards')) return;
+        $gc = TIX_Giftcards::system_event_id();
+        $o = $gc ? TIX_Order::get($order_id) : null;
+        if (!$o) return;
+        foreach ($o->get_items() as $it) {
+            if (intval($it->get_event_id()) !== $gc) continue;
+            $q = max(1, intval($it->get_quantity()));
+            for ($i = 0; $i < $q; $i++) self::enqueue('giftcard_sold', 0, ['amount' => (float) $it->get_total() / $q]);
+        }
+    }
+
+    public static function on_wallet_tx($row) {
+        if (!is_array($row) || ($row['type'] ?? '') !== 'topup' || !empty($row['replay'])) return;
+        $org = intval($row['organizer_id'] ?? 0);
+        self::enqueue('wallet_topup', 0, ['amount' => intval($row['amount_paid'] ?? 0) / 100] + ($org ? ['org' => $org] : []));
+    }
+
+    public static function on_settlement($sid, $status, $s = null) {
+        $texts = ['approved' => 'Freigegeben – die Auszahlung ist unterwegs.', 'paid' => 'Ausgezahlt – die Abrechnung kommt per Mail.', 'held' => 'Zurückgestellt – bitte im Studio nachsehen.'];
+        if (!isset($texts[$status])) return;
+        $org = is_object($s) ? intval($s->organizer_id ?? 0) : 0;
+        if ($org) self::enqueue('settlement', 0, ['org' => $org, 'sid' => intval($sid), 'text' => $texts[$status]]);
+    }
+
+    public static function on_approval($oid, $new, $old = '') {
+        $texts = ['approved' => 'Dein Konto ist freigegeben – du kannst verkaufen.', 'rejected' => 'Dein Konto wurde nicht freigegeben. Den Grund siehst du in der App.', 'blocked' => 'Dein Konto ist gesperrt.', 'pending' => 'Dein Konto wird geprüft.'];
+        if ($new === $old || !isset($texts[$new]) || !intval($oid)) return;
+        self::enqueue('approval', 0, ['org' => intval($oid), 'text' => $texts[$new]]);
+    }
+
+    /** Eingeladenes Teammitglied setzt sein Passwort (vor TIX_Team, das den Einladungs-Merker löscht) */
+    public static function on_team_joined($user) {
+        if (!($user instanceof WP_User) || !class_exists('TIX_Team') || !get_user_meta($user->ID, TIX_Team::META_INVITE, true)) return;
+        $org = class_exists('TIX_App_Scope') ? intval(TIX_App_Scope::organizer_id_for_user($user->ID)) : 0;
+        self::enqueue('team', 0, ['name' => $user->display_name] + ($org ? ['org' => $org] : []));
     }
 
     /** Veranstalter eines Events (Einzelseite: leer = alle) */

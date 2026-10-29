@@ -437,7 +437,9 @@ class TIX_Wallet_Balance {
         }
         $id = intval($wpdb->insert_id);
         $wpdb->query('COMMIT');
-        return $wpdb->get_row($wpdb->prepare("SELECT * FROM $T WHERE id = %d", $id), ARRAY_A);
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $T WHERE id = %d", $id), ARRAY_A);
+        if ($row) do_action('tix_wallet_tx_posted', $row); // Team-Mitteilung „Guthaben aufgeladen“ (1.38.595)
+        return $row;
     }
 
     /** Saldo aus den Buchungen nachrechnen. */

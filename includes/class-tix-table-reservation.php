@@ -630,6 +630,7 @@ class TIX_Table_Reservation {
         }
 
         $reservation_id = $wpdb->insert_id;
+        do_action('tix_table_requested', intval($event_id), intval($reservation_id)); // Team-Mitteilung (1.38.595)
 
         // Bei Zahlung: WC Order erstellen
         if ($payment_mode !== 'on_site' && $amount_paid > 0 && class_exists('WooCommerce')) {
@@ -1166,6 +1167,7 @@ class TIX_Table_Reservation {
         ], ['%d','%d','%s','%s','%s','%s','%s','%s','%d','%s','%s','%f','%f','%s','%s','%s']);
 
         $reservation_id = $wpdb->insert_id;
+        if ($reservation_id) do_action('tix_table_requested', intval($event_id), intval($reservation_id));
 
         if ($reservation_id) {
             $order->update_meta_data('_tix_table_reservation_id', $reservation_id);

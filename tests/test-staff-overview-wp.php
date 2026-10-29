@@ -35,6 +35,8 @@ so_eq('stornierte Bestellung zählt nicht', true, end($after['days'])['tickets']
 
 $ev = TIX_Staff_Overview::event($eid, $now);
 so_eq('Event: heute 2, gesamt 5 Tickets, 70 €', [2, 5, 70.0], [$ev['today'], $ev['tickets'], $ev['revenue']]);
+so_eq('Event: Bildfeld da (ohne Beitragsbild leer)', '', $ev['image']);
+so_eq('Bilder der nächsten Events: Objekt', true, is_object(TIX_Staff_Overview::upcoming_images()));
 
 // Live: drei Tickets, zwei eingelassen (vor 5 und vor 40 Minuten)
 $tids = [];

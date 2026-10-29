@@ -52,7 +52,10 @@ sp_rest('POST', '/push/register', ['token' => str_repeat('cd', 32), 'platform' =
 echo "── Einstellungen ──\n";
 wp_set_current_user($staff);
 [$st, $d] = sp_rest('GET', '/staff/notify-prefs');
-sp_eq('Vorgabe: alles an', [true, true, true, true, true], array_values($d['prefs'] ?? []));
+// seit 1.38.595 mehr Ereignisse: die bisherigen fünf an, gesammelte (Gewinnspiel, Guthaben, Musik) aus
+$pf = (array) ($d['prefs'] ?? []);
+sp_eq('Vorgabe: bisherige Ereignisse an', [true, true, true, true, true], [$pf['sales_digest'] ?? null, $pf['sold_out'] ?? null, $pf['low_stock'] ?? null, $pf['support'] ?? null, $pf['awareness'] ?? null]);
+sp_eq('Vorgabe: gesammelte aus', [false, false, false], [$pf['raffle'] ?? null, $pf['wallet_topup'] ?? null, $pf['music'] ?? null]);
 sp_eq('ein Gerät', 1, $d['devices'] ?? null);
 [$st, $d] = sp_rest('POST', '/staff/notify-prefs', ['prefs' => ['sales_digest' => false, 'unbekannt' => true]]);
 sp_eq('speichern: Verkäufe aus', false, $d['prefs']['sales_digest'] ?? null);

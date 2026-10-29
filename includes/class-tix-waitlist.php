@@ -84,6 +84,7 @@ class TIX_Waitlist {
 
         // Rate limit: 5 seconds
         set_transient($ip_key, 1, 5);
+        if ($result) do_action('tix_waitlist_joined', intval($event_id), (string) $type); // Team-Mitteilung (1.38.595)
         return ['ok' => true, 'message' => $type === 'presale'
             ? 'Du wirst benachrichtigt, sobald der Vorverkauf startet!'
             : 'Du stehst auf der Warteliste und wirst benachrichtigt, wenn Tickets verfügbar werden!'];

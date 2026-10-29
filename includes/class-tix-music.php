@@ -825,6 +825,7 @@ class TIX_Music {
         ]);
         $id = intval($wpdb->insert_id);
         if (!$id) return self::error('tix_music_failed', 'Wunsch konnte nicht gespeichert werden.', 500);
+        do_action('tix_music_requested', intval($event_id), $title, $artist); // Team-Mitteilung (1.38.595)
         if ($song_id) $wpdb->query($wpdb->prepare("UPDATE $t SET requests = requests + 1 WHERE id = %d", $song_id));
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $rt WHERE id = %d", $id), ARRAY_A);
         return rest_ensure_response([
