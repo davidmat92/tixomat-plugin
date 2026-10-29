@@ -3634,3 +3634,6 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
   - Rechte `TIX_Studio::perm_brand` (Admin, auf Einzel-Seiten Inhaber). Plattform: nur Admin.
   - Prüfung = Suche nach typischen Angaben, keine Rechtsberatung. Module-Absätze (KI-Assistent, Newsletter, Degaso, Awareness, Guthaben, Gutscheine) nur, wenn eingeschaltet.
 - **Plattform (ab 1.38.580, User-Entscheid 2026-10-29):** `/studio/legal` im Mehr-Veranstalter-Modus nur für den Plattform-Admin (`TIX_Studio_Legal::perm`, 403 mit Hinweis auf die Veranstalterseite). Veranstalter pflegen ihr **Impressum** auf der Veranstalterseite (vorhanden: `TIX_Organizer_Page`, `/organizer/profile {imprint, imprint_url}`, Meta `_tix_org_imprint`); `GET /organizer/profile` liefert zusätzlich `imprint_checks` (gleiche Prüfung wie Studio → Rechtstexte, leer ohne Text).
+
+## 74. Kasse: Idempotenz-Schlüssel für POST /pos/orders (ab 1.38.582)
+- `idempotency_key` im Body (oder Kopfzeile `Idempotency-Key`), 8–64 Zeichen `[A-Za-z0-9_-]`, je Verkaufsvorgang neu. Erfolgreiche Antwort wird 24 h je Nutzer+Schlüssel gemerkt; Wiederholung liefert sie mit `replayed: true`. Läuft derselbe Vorgang noch (Sperre über `add_option`), 409 `tix_pos_in_progress`. Fehler werden nicht gemerkt. Ohne Schlüssel unverändert (App-Kasse alter Builds).

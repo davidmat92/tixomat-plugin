@@ -2093,7 +2093,38 @@ class TIX_REST_API {
     //  POS: ORDER ERSTELLEN
     // ═══════════════════════════════════════════
 
+    /**
+     * POST /pos/orders mit Idempotenz-Schlüssel (1.38.582, Audit Studio 2026-10-29): `idempotency_key` im Body bzw. Kopfzeile
+     * `Idempotency-Key` (8–64 Zeichen, je Vorgang neu). Dieselbe Anfrage noch einmal (Netz weg, Doppelklick) liefert die
+     * gespeicherte Antwort mit `replayed: true` statt eines zweiten Verkaufs; läuft sie noch, 409 `tix_pos_in_progress`.
+     * Ohne Schlüssel wie bisher.
+     */
     public static function pos_create_order(WP_REST_Request $req) {
+        $body = $req->get_json_params();
+        $idem = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ((is_array($body) ? ($body['idempotency_key'] ?? '') : '') ?: $req->get_header('idempotency_key')));
+        if (strlen($idem) < 8 || strlen($idem) > 64) return self::pos_create_order_run($req);
+        $ik = 'tix_pos_idem_' . md5(get_current_user_id() . '|' . $idem);
+        $prev = get_transient($ik);
+        if (is_array($prev)) return rest_ensure_response($prev + ['replayed' => true]);
+        // Sperre über die eindeutige option_name-Spalte: gleichzeitige Doppel-Anfragen kommen nicht beide durch
+        if (!add_option($ik . '_lock', time(), '', 'no')) {
+            $t = intval(get_option($ik . '_lock'));
+            if ($t && time() - $t < 120) return new WP_Error('tix_pos_in_progress', 'Dieser Verkauf läuft gerade schon.', ['status' => 409]);
+            update_option($ik . '_lock', time(), false);
+        }
+        try {
+            $res = self::pos_create_order_run($req);
+            if (!is_wp_error($res)) {
+                $data = $res instanceof WP_REST_Response ? $res->get_data() : $res;
+                if (is_array($data)) set_transient($ik, $data, DAY_IN_SECONDS);
+            }
+            return $res;
+        } finally {
+            delete_option($ik . '_lock');
+        }
+    }
+
+    private static function pos_create_order_run(WP_REST_Request $req) {
         $body = $req->get_json_params();
         if (!is_array($body)) $body = [];
         $event_id       = absint($body['event_id'] ?? 0);
