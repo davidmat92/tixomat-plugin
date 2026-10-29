@@ -35,6 +35,9 @@ class TIX_License_Stage {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('admin_init', [__CLASS__, 'guard_ajax'], 1);
         add_action('admin_notices', [__CLASS__, 'notice']);
+        // Sperre/Basis: Online-Verkauf gilt überall als aus (Website-Knöpfe, /public/events, Apps) – außer im WP-Admin,
+        // damit beim Speichern eines Events der echte Wert erhalten bleibt (1.38.570)
+        add_filter('get_post_metadata', [__CLASS__, 'tickets_meta'], 10, 4);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat license', [__CLASS__, 'cli']);
     }
 
@@ -55,6 +58,7 @@ class TIX_License_Stage {
             update_option(TIX_License::OPT_STATUS, $s, false);
             WP_CLI::success('Sperre aufgehoben. Der nächste signierte Heartbeat setzt den Stand vom Lizenzserver.');
         }
+        self::reset();
         $p = self::payload();
         $s = class_exists('TIX_License') ? TIX_License::status() : [];
         WP_CLI::line(sprintf('Betriebsart %s · Stufe %s · durchgesetzt %s · signiert %s · Ablauf %s', $p['mode'], $p['stage'], $p['enforced'] ? 'ja' : 'nein',
@@ -68,10 +72,26 @@ class TIX_License_Stage {
         return !empty(TIX_License::status()['enforce']);
     }
 
-    /** Aktuelle Stufe (immer active, wenn nicht durchgesetzt). */
+    private static $cached = null;
+
+    /** Aktuelle Stufe (immer active, wenn nicht durchgesetzt); je Anfrage zwischengespeichert. */
     public static function stage($now = null) {
-        if (!self::enforced()) return 'active';
-        return self::compute(TIX_License::status(), $now ?: time(), self::last_event_date());
+        if ($now === null && self::$cached !== null) return self::$cached;
+        $s = self::enforced() ? self::compute(TIX_License::status(), $now ?: time(), self::last_event_date()) : 'active';
+        if ($now === null) self::$cached = $s;
+        return $s;
+    }
+
+    /** Zwischenspeicher leeren (nach check(), in Tests). */
+    public static function reset() {
+        self::$cached = null;
+    }
+
+    public static function tickets_meta($value, $object_id, $meta_key, $single) {
+        if ($meta_key !== '_tix_tickets_enabled' || is_admin()) return $value;
+        $st = self::stage();
+        if ($st !== 'locked' && $st !== 'basis') return $value;
+        return $single ? '0' : ['0'];
     }
 
     /**
@@ -193,6 +213,7 @@ class TIX_License_Stage {
         }
         TIX_License::check();
         delete_transient('tix_last_sold_event');
+        self::reset();
         return rest_ensure_response(['ok' => true, 'stage' => self::stage(), 'checked' => true]);
     }
 

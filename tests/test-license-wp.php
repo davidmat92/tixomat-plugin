@@ -31,6 +31,7 @@ foreach (['tix_license_server', 'tix_license_key', 'tix_license_status', 'tix_li
 $restore = function () use ($keep) {
     foreach ($keep as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v, false); }
     delete_transient('tix_last_sold_event');
+    TIX_License_Stage::reset();
 };
 $admin = get_users(['role' => 'administrator', 'number' => 1]);
 $admin_id = $admin ? intval($admin[0]->ID) : 0;
@@ -133,7 +134,10 @@ tl_eq('Server weg 8 Tage, Laufzeit lang → active', 'active', TIX_License_Stage
 
 $set = function ($stage, $enforce = true) use ($base) {
     update_option('tix_license_status', ['stage' => $stage, 'enforce' => $enforce, 'last_event_date' => $stage === 'locked' ? '2099-12-31' : null] + $base, false);
+    TIX_License_Stage::reset();
 };
+$tev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Lizenz-Verkaufstest']);
+update_post_meta($tev, '_tix_tickets_enabled', '1');
 $set('locked', false);
 tl_eq('ohne enforce: active trotz locked', 'active', TIX_License_Stage::stage());
 [$st, , $code] = tl_rest('POST', '/customer/orders', ['event_id' => 1]);
@@ -145,6 +149,7 @@ tl_eq('Stufe locked', 'locked', TIX_License_Stage::stage());
 tl_eq('locked: Kauf 403', 'tix_license_locked', $code);
 [$st, , $code] = tl_rest('POST', '/customer/cart/quote', ['items' => []]);
 tl_eq('locked: Angebot 403', 'tix_license_locked', $code);
+tl_eq('locked: Online-Verkauf gilt als aus (Website-Knöpfe)', '0', get_post_meta($tev, '_tix_tickets_enabled', true));
 [$st, , $code] = tl_rest('POST', '/pos/orders', ['event_id' => 1]);
 tl_eq('locked: Kasse 403', 'tix_license_locked', $code);
 [$st, , $code] = tl_rest('POST', '/app/config', ['config' => []]);
@@ -174,6 +179,8 @@ tl_eq('allowed(): locked Support', true, TIX_License_Stage::allowed('locked', 'P
 tl_eq('allowed(): locked Event ändern', false, TIX_License_Stage::allowed('locked', 'POST', '/events/5'));
 
 $set('notice');
+tl_eq('notice: Online-Verkauf wieder an', '1', get_post_meta($tev, '_tix_tickets_enabled', true));
+wp_delete_post($tev, true);
 [$st, , $code] = tl_rest('POST', '/customer/orders', ['event_id' => 1]);
 tl_eq('notice: Kauf nicht von Lizenz gesperrt', false, strpos((string) $code, 'tix_license') === 0);
 tl_eq('notice: Hinweistext', true, strpos(TIX_License_Stage::message('notice'), 'läuft') !== false);
