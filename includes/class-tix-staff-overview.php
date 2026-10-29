@@ -1,0 +1,107 @@
+<?php
+if (!defined('ABSPATH')) exit;
+
+/**
+ * TIX_Staff_Overview – Zahlen für die Startseite des Veranstalter-Bereichs (1.38.590).
+ *
+ *   GET /staff/overview?days=14[&event_id=<id>]
+ *     → {days: [{date, tickets, revenue}] (ältester zuerst, ohne Lücken, Ortszeit),
+ *        last7 {tickets, revenue}, prev7 {tickets, revenue},
+ *        live?: {event_id, checked_in, total, last15, last_checkin (Ortszeit), last_ago (Sekunden), slots: [5× je 15 Min., ältester zuerst]}}
+ * Tage und Umsatz aus den nativen Bestellungen (Status abgeschlossen/in Bearbeitung), nur Events, die das Konto sehen
+ * darf (Mehr-Veranstalter-Modus: eigener Veranstalter). Live nur mit `event_id` (Event des Tages): Einlässe der Ticket-
+ * Posts nach `_tix_ticket_checkin_time`. 60 s zwischengespeichert je Konto.
+ */
+class TIX_Staff_Overview {
+
+    const NS = 'tixomat/v1';
+
+    public static function init() {
+        add_action('rest_api_init', function () {
+            register_rest_route(self::NS, '/staff/overview', [
+                'methods' => 'GET', 'callback' => [__CLASS__, 'rest'], 'permission_callback' => ['TIX_REST_API', 'check_organizer'],
+            ]);
+        });
+    }
+
+    private static function allowed($eid) {
+        if (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi())) return true;
+        return TIX_App_Scope::event_allowed($eid);
+    }
+
+    public static function rest(WP_REST_Request $req) {
+        $days = max(7, min(31, intval($req->get_param('days') ?: 14)));
+        $eid = absint($req->get_param('event_id'));
+        if ($eid && (get_post_type($eid) !== 'event' || !TIX_REST_API::can_access_event($eid))) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        }
+        $ck = 'tix_sov_' . md5(get_current_user_id() . '|' . $days . '|' . $eid . '|' . current_time('Y-m-d H:i'));
+        $hit = get_transient($ck);
+        if (is_array($hit)) return rest_ensure_response($hit);
+        $out = ['ok' => true] + self::days($days);
+        if ($eid) $out['live'] = self::live($eid);
+        set_transient($ck, $out, 60);
+        return rest_ensure_response($out);
+    }
+
+    /** Tickets und Umsatz je Tag (Tag der Bestellung, Zeitzone der Seite) */
+    public static function days($days, $now = null) {
+        $now = $now ?: current_time('timestamp');
+        $map = [];
+        // $now ist Ortszeit (current_time('timestamp')) → gmdate liefert den Ortstag
+        for ($i = $days - 1; $i >= 0; $i--) $map[gmdate('Y-m-d', $now - $i * DAY_IN_SECONDS)] = ['tickets' => 0, 'revenue' => 0.0];
+        $from = array_key_first($map);
+        $ok = [];
+        if (class_exists('TIX_Order')) {
+            foreach ((array) TIX_Order::query(['status' => ['completed', 'processing'], 'date_from' => $from, 'limit' => 20000]) as $o) {
+                $c = $o->get_date_created();
+                $day = $c ? $c->format('Y-m-d') : '';
+                if (!isset($map[$day])) continue;
+                foreach ($o->get_items() as $it) {
+                    $e = intval($it->get_event_id());
+                    if (!array_key_exists($e, $ok)) $ok[$e] = $e && self::allowed($e);
+                    if (!$ok[$e]) continue;
+                    $map[$day]['tickets'] += intval($it->get_quantity());
+                    $map[$day]['revenue'] += (float) $it->get_total();
+                }
+            }
+        }
+        $rows = [];
+        foreach ($map as $d => $v) $rows[] = ['date' => $d, 'tickets' => $v['tickets'], 'revenue' => round($v['revenue'], 2)];
+        $sum = function ($list) {
+            return ['tickets' => array_sum(array_column($list, 'tickets')), 'revenue' => round(array_sum(array_column($list, 'revenue')), 2)];
+        };
+        $last7 = array_slice($rows, -7);
+        $prev7 = count($rows) >= 14 ? array_slice($rows, -14, 7) : [];
+        return ['days' => $rows, 'last7' => $sum($last7), 'prev7' => $prev7 ? $sum($prev7) : null];
+    }
+
+    /** Einlässe live: gesamt, letzte 15 Min., letzte 5 Viertelstunden */
+    public static function live($eid, $now = null) {
+        $now = $now ?: current_time('timestamp');
+        $ids = get_posts(['post_type' => 'tix_ticket', 'post_status' => ['publish', 'private', 'draft'], 'numberposts' => -1, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => $eid]]]);
+        $total = 0; $in = 0; $last = 0; $slots = [0, 0, 0, 0, 0];
+        foreach ($ids as $tid) {
+            if ((string) get_post_meta($tid, '_tix_ticket_status', true) === 'cancelled') continue;
+            $total++;
+            if (!get_post_meta($tid, '_tix_ticket_checked_in', true)) continue;
+            $in++;
+            $t = strtotime((string) get_post_meta($tid, '_tix_ticket_checkin_time', true));
+            if (!$t) continue;
+            // gespeichert als current_time('c'): Ortszeit, wie $now
+            $last = max($last, $t);
+            $ago = $now - $t;
+            if ($ago >= 0 && $ago < 75 * MINUTE_IN_SECONDS) $slots[4 - intdiv($ago, 15 * MINUTE_IN_SECONDS)]++;
+        }
+        // Gästeliste zählt mit (ohne Zeit)
+        foreach ((array) get_post_meta($eid, '_tix_guest_list', true) as $g) {
+            if (!is_array($g)) continue;
+            $n = 1 + intval($g['plus'] ?? 0);
+            $total += $n;
+            $in += min($n, isset($g['checked_in_count']) ? intval($g['checked_in_count']) : (!empty($g['checked_in']) ? $n : 0));
+        }
+        return ['event_id' => intval($eid), 'checked_in' => $in, 'total' => $total, 'last15' => $slots[4],
+            'last_checkin' => $last ? gmdate('Y-m-d H:i:s', $last) : null, 'last_ago' => $last ? max(0, $now - $last) : null, 'slots' => $slots];
+    }
+}
