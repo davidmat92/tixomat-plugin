@@ -3621,3 +3621,15 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 - `/support/config.contact_email` liefert die eigene Adresse, wenn „als Kontakt zeigen“ an und die Adresse verbunden ist.
 
 **WP-CLI:** `wp tixomat support-inbound status | hub-key [neu] | site-add <slug> <url> | connect <slug> <secret> [hub] | brevo-key <k> | simulate <rcpt> <datei.eml>`. **Tests:** `tests/test-support-inbound-wp.php` (56) und `tests/test-support-inbound-e2e.sh` (9, Hub → Seite per HTTP inkl. Postfix-Pipe).
+
+## 73. Zentraler Kontakt und Rechtstexte im Studio (ab 1.38.578)
+- **Kontakt – eine Quelle:** `site-config.contact {email, phone, address, company}` (Studio → Marke → Kontakt, `POST /studio/site-config {contact}`). Leere Felder fallen auf die App-Inhalte (`_tix_app_config.contact`) zurück, danach auf die Marke im Client. `TIX_Site_Config::contact()` / `contact_email()` liefern den gültigen Wert.
+  - Wirkt auf: Website (marken-web `liveBrand`: Footer, Kontakt, Support, JSON-LD), Apps (`GET /app/config` überlagert `contact.email/address/company`, wenn App-Inhalte gespeichert sind), Mails (`TIX_Mail_Layout`: Hilfe-Link/Reply-To, wenn kein eigenes „Antworten an“), `GET /support/config.contact_email`.
+  - `GET /studio/site-config` (perm_brand, no-store): Payload + `stored`, `contact_fallback`, `support_alias` (verbundene Support-Adresse).
+  - E-Mail-Eingang: `show_contact` ist abgeleitet (`TIX_Support_Inbound::is_contact()` = Kontakt-E-Mail der Seite = verbundene Support-Adresse). Der Schalter schreibt `site-config.contact.email` (an: Adresse, aus: leeren). Ohne getestete Adresse → 409 `tix_alias_unverified`. Adresse ändern leert den Kontakt, wenn sie der Kontakt war. `state.site_contact_email` zeigt, was ersetzt wird.
+- **Rechtstexte (`TIX_Studio_Legal`):** Impressum, Datenschutz, AGB, Widerruf bleiben WordPress-Seiten. Seite = Slug aus `site-config.legal`, sonst `impressum|imprint`, `datenschutz|datenschutzerklaerung|privacy-policy`, `agb|terms|nutzungsbedingungen`, `widerruf|widerrufsbelehrung|widerrufsrecht`.
+  - `GET /studio/legal` → `{items[{key, title, page_id, slug, url, status publish|draft|missing, modified, modified_by, chars, checks[{key,label,ok,level must|module|tip,hint}], missing}], scope site|platform}`
+  - `GET /studio/legal/{key}` → Eintrag + `html`, `versions[{id, at, by, title, chars}]`; `GET …/versions/{id}` → `html`
+  - `POST /studio/legal/{key} {html, title?}` (wp_kses_post, ≤ 400 KB) bzw. `{restore: id}`. Vorheriger Stand kommt in `_tix_legal_versions` (max. 20). Fehlt die Seite, wird sie veröffentlicht angelegt und in `site-config.legal` verlinkt. Danach Seiten-Cache der Website (`touch_domain`).
+  - Rechte `TIX_Studio::perm_brand` (Admin, auf Einzel-Seiten Inhaber). Plattform: nur Admin.
+  - Prüfung = Suche nach typischen Angaben, keine Rechtsberatung. Module-Absätze (KI-Assistent, Newsletter, Degaso, Awareness, Guthaben, Gutscheine) nur, wenn eingeschaltet.

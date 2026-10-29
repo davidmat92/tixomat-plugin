@@ -68,7 +68,11 @@ class TIX_Site_Config {
 
     public static function register_routes() {
         register_rest_route(self::NS, '/public/site-config', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => '__return_true']);
-        register_rest_route(self::NS, '/studio/site-config', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => ['TIX_Studio', 'perm_brand']]);
+        register_rest_route(self::NS, '/studio/site-config', [
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => ['TIX_Studio', 'perm_brand']],
+            // 1.38.578: Studio liest, was gespeichert ist (stored) und was gilt (payload), plus die verbundene Support-Adresse
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_studio_get'], 'permission_callback' => ['TIX_Studio', 'perm_brand']],
+        ]);
     }
 
     private static function stored() {
@@ -108,6 +112,53 @@ class TIX_Site_Config {
     private static function page_slug_from_url($url) {
         $path = trim((string) wp_parse_url((string) $url, PHP_URL_PATH), '/');
         return $path === '' ? null : basename($path);
+    }
+
+    /** Kontakt aus den App-Inhalten (Rückfall, wenn im Studio nichts eingetragen ist). */
+    private static function computed_contact() {
+        $app_cfg = class_exists('TIX_App_Config') ? TIX_App_Config::stored() : [];
+        $c = isset($app_cfg['contact']) && is_array($app_cfg['contact']) ? $app_cfg['contact'] : [];
+        return [
+            'email' => (string) ($c['email'] ?? '') ?: null,
+            'phone' => (string) ($c['phone'] ?? ($c['whatsapp_display'] ?? '')) ?: null,
+            'address' => (string) ($c['address'] ?? '') ?: null,
+            'company' => (string) ($c['company'] ?? '') ?: null,
+        ];
+    }
+
+    /**
+     * Zentraler Kontakt der Seite (1.38.578): Studio → Marke → Kontakt (site-config.contact) vor den App-Inhalten.
+     * Einzige Quelle für Website (Footer, Kontakt, JSON-LD), Apps (/app/config.contact), Mails (Hilfe-Link, Reply-To)
+     * und /support/config.contact_email. Leere Felder = Rückfall auf die App-Inhalte bzw. die Marke im Client.
+     */
+    public static function contact() {
+        $o = self::stored();
+        $st = is_array($o['contact'] ?? null) ? array_filter($o['contact'], function ($v) { return $v !== null && $v !== ''; }) : [];
+        return array_replace(self::computed_contact(), $st);
+    }
+
+    public static function contact_email() {
+        return (string) (self::contact()['email'] ?? '');
+    }
+
+    /** Nur die E-Mail setzen (Schalter „Support-Adresse als Kontakt“ im E-Mail-Eingang); null = Feld leeren. */
+    public static function set_contact_email($email) {
+        $o = self::stored();
+        $c = is_array($o['contact'] ?? null) ? $o['contact'] : [];
+        $c['email'] = $email ? sanitize_email((string) $email) : null;
+        $o['contact'] = $c;
+        update_option(self::OPTION, $o, false);
+    }
+
+    /** Link einer Rechtstext-Seite festschreiben (Studio → Rechtstexte legt eine Seite an), $lk = privacy|imprint|terms. */
+    public static function set_legal_link($lk, $url) {
+        if (!in_array($lk, ['privacy', 'imprint', 'terms'], true)) return;
+        $o = self::stored();
+        $lg = is_array($o['legal'] ?? null) ? $o['legal'] : [];
+        $lg[$lk] = $url ? self::abs_url($url) : null;
+        $lg[$lk . '_slug'] = $url ? self::page_slug_from_url($url) : null;
+        $o['legal'] = $lg;
+        update_option(self::OPTION, $o, false);
     }
 
     /** Berechnete Werte (ohne Überschreibungen). */
@@ -175,12 +226,7 @@ class TIX_Site_Config {
                 'meta_consent_mode' => $pixel_on ? (string) ($s['meta_consent_mode'] ?? 'always') : null,
                 'consent' => ['banner' => (bool) ($banner['enabled'] ?? false), 'categories' => ['statistics' => (string) ($banner['key_statistics'] ?? 'analytics'), 'marketing' => (string) ($banner['key_marketing'] ?? 'marketing')]],
             ],
-            'contact' => [
-                'email' => (string) ($contact_cfg['email'] ?? '') ?: null,
-                'phone' => (string) ($contact_cfg['phone'] ?? ($contact_cfg['whatsapp_display'] ?? '')) ?: null,
-                'address' => (string) ($contact_cfg['address'] ?? '') ?: null,
-                'company' => (string) ($contact_cfg['company'] ?? '') ?: null,
-            ],
+            'contact' => self::computed_contact(),
             'venue' => self::venue(),
             'legal' => [
                 'privacy' => $privacy ?: null, 'imprint' => $imprint ?: null, 'terms' => $terms ?: null,
@@ -239,7 +285,9 @@ class TIX_Site_Config {
         $venue_id = $c['venue']['id'] ?? null; // kanonisch aus venue(), nicht die gespeicherte Auswahl
         foreach (self::SECTIONS as $k) {
             if (!array_key_exists($k, $o) || $o[$k] === null) continue;
-            $c[$k] = is_array($c[$k] ?? null) && is_array($o[$k]) ? array_replace($c[$k], $o[$k]) : $o[$k];
+            // Kontakt: leere Studio-Felder überschreiben den Rückfall nicht (1.38.578)
+            $ov = $k === 'contact' && is_array($o[$k]) ? array_filter($o[$k], function ($v) { return $v !== null && $v !== ''; }) : $o[$k];
+            $c[$k] = is_array($c[$k] ?? null) && is_array($ov) ? array_replace($c[$k], $ov) : $ov;
         }
         if (is_array($c['venue'] ?? null)) $c['venue']['id'] = $venue_id;
         // Marken-Website (1.38.515, TIX_Website): veröffentlichter Aufbau + Domain-Status; Menü der Website ersetzt das berechnete
@@ -253,6 +301,14 @@ class TIX_Site_Config {
         $c['overrides'] = array_values(array_intersect(self::SECTIONS, array_keys($o)));
         $c['plugin_version'] = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '';
         return ['ok' => true] + $c;
+    }
+
+    /** GET /studio/site-config – {…payload, stored, contact_fallback, support_alias} (nur Inhaber/Admin, nie gecacht). */
+    public static function rest_studio_get(WP_REST_Request $req) {
+        $alias = class_exists('TIX_Support_Inbound') && method_exists('TIX_Support_Inbound', 'verified_alias') ? TIX_Support_Inbound::verified_alias() : '';
+        $r = new WP_REST_Response(self::payload() + ['stored' => (object) self::stored(), 'contact_fallback' => self::computed_contact(), 'support_alias' => $alias ?: null]);
+        $r->header('Cache-Control', 'no-store');
+        return $r;
     }
 
     /** GET /public/site-config – öffentlich, 60 s cachebar. */

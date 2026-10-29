@@ -119,10 +119,24 @@ class TIX_Support_Inbound {
         return null;
     }
 
-    /** Support-Adresse als Kontakt (Website/App), nur wenn eingeschaltet und verbunden */
-    public static function contact_email() {
+    /** Verbundene (getestete) Support-Adresse, sonst '' */
+    public static function verified_alias() {
         $s = self::settings();
-        return (!empty($s['show_contact']) && is_email($s['alias']) && $s['alias_ok_at']) ? (string) $s['alias'] : '';
+        return (is_email($s['alias']) && $s['alias_ok_at']) ? (string) $s['alias'] : '';
+    }
+
+    /**
+     * Ist die Support-Adresse der Kontakt der Seite? Seit 1.38.578 gibt es nur eine Quelle: site-config.contact.email
+     * (Studio → Marke → Kontakt). Der Schalter hier schreibt nur dort hinein, `show_contact` ist abgeleitet.
+     */
+    public static function is_contact() {
+        $a = self::verified_alias();
+        return $a !== '' && class_exists('TIX_Site_Config') && strtolower(TIX_Site_Config::contact_email()) === strtolower($a);
+    }
+
+    /** Support-Adresse als Kontakt (Website/App), nur wenn sie der Kontakt der Seite ist */
+    public static function contact_email() {
+        return self::is_contact() ? self::verified_alias() : '';
     }
 
     // ═══════════════ REST ═══════════════
@@ -195,7 +209,9 @@ class TIX_Support_Inbound {
                 'test_sent_at' => $s['test_sent_at'] ? wp_date('c', $s['test_sent_at']) : '',
             ],
             'takeover_address' => self::takeover_address(),
-            'show_contact'     => (bool) $s['show_contact'],
+            'show_contact'     => self::is_contact(),
+            // 1.38.578: Kontakt-E-Mail der Seite (Studio → Marke → Kontakt), damit der Schalter zeigt, was ersetzt wird
+            'site_contact_email' => class_exists('TIX_Site_Config') ? (TIX_Site_Config::contact_email() ?: null) : null,
             'verifications'    => array_map(function ($v) {
                 return ['id' => $v['id'], 'from' => $v['from'], 'subject' => $v['subject'], 'code' => $v['code'], 'link' => $v['link'], 'excerpt' => $v['excerpt'], 'received_at' => wp_date('c', $v['at'])];
             }, array_slice(array_reverse($ver), 0, 5)),
@@ -216,16 +232,25 @@ class TIX_Support_Inbound {
                 return new WP_Error('rest_invalid_param', 'Bitte deine eigene Adresse eingeben, nicht die Zieladresse.', ['status' => 400, 'field' => 'alias']);
             }
             if ($a !== $s['alias']) {
-                $patch += ['alias' => $a, 'alias_ok_at' => 0, 'alias_last_at' => 0, 'test_nonce' => '', 'test_sent_at' => 0, 'test_ok_at' => 0];
-                if ($a === '') $patch['show_contact'] = 0;
+                // Alte Adresse war der Kontakt → Kontakt leeren (Rückfall), die neue ist noch nicht getestet
+                if (self::is_contact() && class_exists('TIX_Site_Config')) TIX_Site_Config::set_contact_email(null);
+                $patch += ['alias' => $a, 'alias_ok_at' => 0, 'alias_last_at' => 0, 'test_nonce' => '', 'test_sent_at' => 0, 'test_ok_at' => 0, 'show_contact' => 0];
             }
         }
         if ($req->has_param('provider')) {
             $p = sanitize_key((string) $req->get_param('provider'));
             $patch['provider'] = in_array($p, self::PROVIDERS, true) ? $p : '';
         }
-        if ($req->has_param('show_contact')) $patch['show_contact'] = filter_var($req->get_param('show_contact'), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
         if ($patch) self::save($patch);
+        // Schalter „Als Kontakt zeigen“ schreibt in die eine Quelle (site-config.contact.email)
+        if ($req->has_param('show_contact') && class_exists('TIX_Site_Config')) {
+            $on = filter_var($req->get_param('show_contact'), FILTER_VALIDATE_BOOLEAN);
+            $a = self::verified_alias();
+            if ($on && $a === '') return new WP_Error('tix_alias_unverified', 'Bitte zuerst die Weiterleitung mit der Testmail prüfen.', ['status' => 409]);
+            if ($on) TIX_Site_Config::set_contact_email($a);
+            elseif (self::is_contact()) TIX_Site_Config::set_contact_email(null);
+            self::save(['show_contact' => $on ? 1 : 0]);
+        }
         return rest_ensure_response(self::state());
     }
 

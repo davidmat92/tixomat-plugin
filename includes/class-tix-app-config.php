@@ -39,6 +39,13 @@ class TIX_App_Config {
             return rest_ensure_response($out ?: new stdClass());
         }
         if ($features !== null) $c['features'] = $features;
+        // Kontakt (1.38.578): Studio → Marke → Kontakt (site-config) vor den App-Inhalten – eine Quelle für App und Website.
+        // Nur hier (gespeicherte App-Inhalte); ohne sie liest die App weiter die WordPress-Seite app-config.
+        if (class_exists('TIX_Site_Config')) {
+            $sc = array_filter(TIX_Site_Config::contact(), function ($v) { return $v !== null && $v !== ''; });
+            unset($sc['phone']);
+            if ($sc) $c['contact'] = array_replace(isset($c['contact']) && is_array($c['contact']) ? $c['contact'] : [], $sc);
+        }
         if ($sos) {
             $c['nav'] = (isset($c['nav']) && is_array($c['nav']) ? $c['nav'] : []);
             $c['nav']['sos'] = $sos;
