@@ -14,7 +14,8 @@ if (!defined('ABSPATH')) exit;
  *   - Ereignisse: stündliche Sammelmeldung zu Verkäufen; „ausverkauft“ und „Kontingent knapp“ sofort; neue
  *     Kundenanfrage; Awareness-Meldung. Je Konto einstellbar (`GET/POST /staff/notify-prefs`, auch im Studio).
  *   - Abschottung: auf der Plattform nur Konten des Veranstalters des Events (TIX_App_Scope).
- * Aktionen in `data.action`: staff:start · staff:event:<id> · staff:support:<id> · staff:awareness:<id>; `data.site` = Host.
+ * Aktionen in `data.action`: staff:start · staff:event:<id> · staff:support:<id> · staff:awareness:<id>, jeweils mit
+ *   `@<host>` des Shops (z. B. staff:event:12@kitchenklub.de); `data.site` = Host.
  */
 class TIX_Staff_Push {
 
@@ -297,6 +298,11 @@ class TIX_Staff_Push {
         if (!$uids) return 0;
         $uids = array_map('intval', $uids);
         $data += ['site' => self::host()];
+        // Shop in der Aktion (`staff:event:12@kitchenklub.de`): die Veranstalter-App öffnet damit den richtigen Shop,
+        // ohne native Änderung (angetippte Pushes liefern nur data.action)
+        if (isset($data['action']) && strpos((string) $data['action'], 'staff:') === 0 && strpos((string) $data['action'], '@') === false) {
+            $data['action'] .= '@' . $data['site'];
+        }
         // Tests/Protokoll: Versand abfangen (null = normal senden)
         $pre = apply_filters('tix_staff_push_pre_send', null, $uids, $title, $body, $data);
         if ($pre !== null) return intval($pre);

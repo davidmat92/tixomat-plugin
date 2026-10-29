@@ -5,6 +5,7 @@
  */
 if (!defined('ABSPATH') || !class_exists('TIX_Staff_Push')) { echo "WordPress mit Tixomat (TIX_Staff_Push) nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+$at = '@' . strtolower(preg_replace('/^www\\./', '', $h));
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function sp_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
@@ -77,7 +78,7 @@ TIX_Staff_Push::check_stock($ev);
 sp_eq('„Ausverkauft“ genau einmal', 1, count($sent));
 sp_eq('an das Team-Konto', [$staff], $sent[0]['uids'] ?? null);
 sp_eq('Titel mit Seitenname', true, strpos($sent[0]['title'] ?? '', 'Ausverkauft') !== false);
-sp_eq('Aktion staff:event', 'staff:event:' . $ev, $sent[0]['data']['action'] ?? null);
+sp_eq('Aktion staff:event mit Shop', 'staff:event:' . $ev . $at, $sent[0]['data']['action'] ?? null);
 sp_eq('Awareness-Konto bekommt Verkauf nicht', false, in_array($aw, $sent[0]['uids'] ?? [], true));
 
 echo "── Sammelmeldung ──\n";
@@ -106,13 +107,13 @@ $sent = [];
 $sp = wp_insert_post(['post_type' => 'tix_support_ticket', 'post_status' => 'tix_open', 'post_title' => 'Frage zum Einlass']); $posts[] = $sp;
 update_post_meta($sp, '_tix_sp_organizer_id', $org);
 TIX_Staff_Push::flush_support_queue();
-sp_eq('Kundenanfrage gemeldet', 'staff:support:' . $sp, $sent[0]['data']['action'] ?? null);
+sp_eq('Kundenanfrage gemeldet', 'staff:support:' . $sp . $at, $sent[0]['data']['action'] ?? null);
 $sent = [];
 $a2 = wp_insert_post(['post_type' => 'tix_support_ticket', 'post_status' => 'tix_open', 'post_title' => 'Belästigung an der Bar']); $posts[] = $a2;
 update_post_meta($a2, '_tix_sp_category', 'awareness');
 update_post_meta($a2, '_tix_sp_organizer_id', $org);
 TIX_Staff_Push::flush_support_queue();
-sp_eq('Awareness gemeldet', 'staff:awareness:' . $a2, $sent[0]['data']['action'] ?? null);
+sp_eq('Awareness gemeldet', 'staff:awareness:' . $a2 . $at, $sent[0]['data']['action'] ?? null);
 sp_eq('Awareness auch an Awareness-Team', true, in_array($aw, $sent[0]['uids'] ?? [], true));
 TIX_Staff_Push::notify_support($a2);
 sp_eq('nicht doppelt', 1, count($sent));
