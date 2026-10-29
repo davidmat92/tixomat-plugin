@@ -3257,7 +3257,7 @@ class TIX_REST_API {
     /**
      * Hilfsfunktion: Guest-User Daten formatieren.
      */
-    private static function format_guest_user(WP_User $user) {
+    public static function format_guest_user(WP_User $user) {
         self::migrate_avatar_from_library($user->ID);
         $avatar_url = get_user_meta($user->ID, '_tix_avatar_url', true);
         if (empty($avatar_url)) {
