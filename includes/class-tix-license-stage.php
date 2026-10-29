@@ -52,10 +52,12 @@ class TIX_License_Stage {
         $do = $args[0] ?? 'status';
         if ($do === 'check' && class_exists('TIX_License')) TIX_License::check();
         if ($do === 'unlock' && class_exists('TIX_License')) {
+            $before = self::stage();
             $s = TIX_License::status();
             $s['enforce'] = false;
             $s['stage'] = 'active';
             update_option(TIX_License::OPT_STATUS, $s, false);
+            self::changed($before);
             WP_CLI::success('Sperre aufgehoben. Der nächste signierte Heartbeat setzt den Stand vom Lizenzserver.');
         }
         self::reset();
@@ -85,6 +87,16 @@ class TIX_License_Stage {
     /** Zwischenspeicher leeren (nach check(), in Tests). */
     public static function reset() {
         self::$cached = null;
+    }
+
+    /** Nach einer Prüfung: Hat sich die Stufe geändert, Event-Listen und Seiten-Cache leeren (Kauf-Knöpfe sofort richtig). */
+    public static function changed($before) {
+        self::reset();
+        $after = self::stage();
+        if ($before === null || $before === $after) return;
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        do_action('litespeed_purge_all');
+        do_action('tix_license_stage_changed', $after, $before);
     }
 
     public static function tickets_meta($value, $object_id, $meta_key, $single) {

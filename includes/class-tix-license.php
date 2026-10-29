@@ -85,6 +85,15 @@ class TIX_License {
     public static function check() {
         $key = (string) get_option(self::OPT_KEY, '');
         $prev = self::status();
+        $before = class_exists('TIX_License_Stage') ? TIX_License_Stage::stage() : null;
+        try {
+            return self::check_inner($key, $prev);
+        } finally {
+            if (class_exists('TIX_License_Stage')) TIX_License_Stage::changed($before);
+        }
+    }
+
+    private static function check_inner($key, $prev) {
         if ($key === '') {
             update_option(self::OPT_STATUS, ['valid' => false, 'status' => 'missing', 'message' => 'Kein Lizenzschlüssel eingetragen.', 'checked_at' => time()], false);
             return self::status();
