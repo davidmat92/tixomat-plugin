@@ -138,6 +138,14 @@ $set = function ($stage, $enforce = true) use ($base) {
 };
 $tev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Lizenz-Verkaufstest']);
 update_post_meta($tev, '_tix_tickets_enabled', '1');
+update_post_meta($tev, '_tix_presale_active', '1');
+update_post_meta($tev, '_tix_date_start', wp_date('Y-m-d', time() + 20 * DAY_IN_SECONDS));
+update_post_meta($tev, '_tix_ticket_categories', [['name' => 'Normal', 'price' => 10, 'qty' => 100, 'stock' => 100]]);
+// Kauf-Elemente der Website (Ticket-Bereich + Event-Seite), nur echte Elemente – das Wort steht auch im CSS
+$buy = function () use ($tev) {
+    $h = do_shortcode('[tix_ticket_selector id="' . $tev . '"]') . do_shortcode('[tix_event_page id="' . $tev . '"]');
+    return preg_match_all('/class="tix-sel-(cat|btn)[ "]/', $h);
+};
 $set('locked', false);
 tl_eq('ohne enforce: active trotz locked', 'active', TIX_License_Stage::stage());
 [$st, , $code] = tl_rest('POST', '/customer/orders', ['event_id' => 1]);
@@ -150,6 +158,7 @@ tl_eq('locked: Kauf 403', 'tix_license_locked', $code);
 [$st, , $code] = tl_rest('POST', '/customer/cart/quote', ['items' => []]);
 tl_eq('locked: Angebot 403', 'tix_license_locked', $code);
 tl_eq('locked: Online-Verkauf gilt als aus (Website-Knöpfe)', '0', get_post_meta($tev, '_tix_tickets_enabled', true));
+tl_eq('locked: Ticket-Bereich/Event-Seite ohne Kauf-Elemente', 0, $buy());
 [$st, , $code] = tl_rest('POST', '/pos/orders', ['event_id' => 1]);
 tl_eq('locked: Kasse 403', 'tix_license_locked', $code);
 [$st, , $code] = tl_rest('POST', '/app/config', ['config' => []]);
@@ -186,6 +195,7 @@ tl_eq('Stufenwechsel (CLI): Leeren vorgemerkt', '1', get_option(TIX_License_Stag
 delete_option(TIX_License_Stage::PURGE_FLAG);
 $set('notice');
 tl_eq('notice: Online-Verkauf wieder an', '1', get_post_meta($tev, '_tix_tickets_enabled', true));
+tl_eq('notice: Kauf-Elemente wieder da', true, $buy() > 0);
 wp_delete_post($tev, true);
 [$st, , $code] = tl_rest('POST', '/customer/orders', ['event_id' => 1]);
 tl_eq('notice: Kauf nicht von Lizenz gesperrt', false, strpos((string) $code, 'tix_license') === 0);
