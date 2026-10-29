@@ -3637,3 +3637,10 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 
 ## 74. Kasse: Idempotenz-Schlüssel für POST /pos/orders (ab 1.38.582)
 - `idempotency_key` im Body (oder Kopfzeile `Idempotency-Key`), 8–64 Zeichen `[A-Za-z0-9_-]`, je Verkaufsvorgang neu. Erfolgreiche Antwort wird 24 h je Nutzer+Schlüssel gemerkt; Wiederholung liefert sie mit `replayed: true`. Läuft derselbe Vorgang noch (Sperre über `add_option`), 409 `tix_pos_in_progress`. Fehler werden nicht gemerkt. Ohne Schlüssel unverändert (App-Kasse alter Builds).
+
+## 75. Team: Passwort per Einladung oder durch den Admin (ab 1.38.587)
+- `POST /team {email, name?, role, password_mode: invite|set, password?}` – **invite** (Standard): Mail „Du wurdest ins Team von … eingeladen“ mit 6-stelligem Code (7 Tage, `TIX_App_Account::issue_invite_code`, eingelöst über `POST /auth/code/confirm {purpose: reset, new_password}`) und Knopf auf `<Studio>/passwort/?email=…` (nicht für DJ/Awareness – die nutzen die App). **set**: Admin legt das Passwort fest (≥ 10 Zeichen, zwei Zeichenarten, nicht die E-Mail) – nur für Konten ohne eigenes Passwort (`_tix_team_created` oder passwortlos), sonst 409 `tix_has_password`.
+- Rolle **admin**: nur Einladung (400 `tix_admin_invite_only` bei Passwort), Einladung wird immer gesendet.
+- `POST /team/{id}/invite` (neuer Code, max. 5/h), `POST /team/{id}/password {password}` (meldet die Person überall ab).
+- Mitglied: `invite_pending`, `invite_sent_at`, `can_set_password`. „Einladung offen“ bis das Passwort gesetzt ist (Code-Reset, `wp_set_password`, `password_reset`).
+- Rechte wie bisher (`check_admin`), Mehr-Veranstalter-Modus nur eigenes Team. Passwörter werden nie geloggt oder zurückgegeben, der Code steht nur in der Mail.

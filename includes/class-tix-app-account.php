@@ -332,6 +332,16 @@ class TIX_App_Account {
         return self::send_code_email($email, $code, $purpose, $has_account);
     }
 
+    /**
+     * Code fürs Passwort-Setzen ohne Mail (Team-Einladung, TIX_Team 1.38.587): gleicher Weg wie POST /auth/code {purpose: reset},
+     * aber länger gültig – die Mail schreibt TIX_Team selbst. Der Code wird nie gespeichert, nur sein Hash.
+     */
+    public static function issue_invite_code($email, $ttl) {
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        set_transient(self::code_key(sanitize_email($email), 'reset'), ['hash' => self::code_hash($code), 'tries' => 0, 'created' => time()], max(self::CODE_TTL, intval($ttl)));
+        return $code;
+    }
+
     /** Bestätigungscode nach der Registrierung (wird von POST /auth/register aufgerufen). */
     public static function send_verification_code($email) {
         return self::issue_code(sanitize_email($email), 'verify', true);
@@ -489,6 +499,7 @@ class TIX_App_Account {
             $res = wp_update_user(['ID' => $user->ID, 'user_pass' => $password]);
             if (is_wp_error($res)) return self::error('update_failed', $res->get_error_message(), 500);
             delete_user_meta($user->ID, self::META_PASSWORDLESS);
+            delete_user_meta($user->ID, '_tix_team_invite'); // Team-Einladung angenommen (TIX_Team)
             // Andere Geräte abmelden – das Konto wurde gerade neu gesichert
             delete_user_meta($user->ID, '_tix_app_tokens');
             delete_user_meta($user->ID, '_tix_app_token');
