@@ -763,6 +763,8 @@ class TIX_App_Account {
             $out['help_topics'] = array_map(function ($c) { return ['slug' => $c['slug'], 'label' => $c['label']]; }, TIX_Support::studio_topics());
         }
         if (class_exists('TIX_Support_Model')) $out['responsible'] = TIX_Support_Model::responsible_public(absint($req->get_param('event_id')));
+        // Eigene Support-Adresse als Kontakt (Studio → Kundenanfragen → E-Mail-Eingang, 1.38.577)
+        $out['contact_email'] = $enabled && class_exists('TIX_Support_Inbound') ? TIX_Support_Inbound::contact_email() : '';
         return rest_ensure_response($out);
     }
 

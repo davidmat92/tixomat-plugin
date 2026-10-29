@@ -84,6 +84,12 @@ class TIX_Support_Mail {
         return !empty($s['enabled']) && $s['host'] !== '' && $s['user'] !== '' && $s['password_enc'] !== '';
     }
 
+    /** Kommen Kunden-Antworten per Mail an? (IMAP-Postfach oder zentraler Eingang, 1.38.577) */
+    public static function replies_active() {
+        if (self::is_active()) return true;
+        return function_exists('tix_get_settings') && tix_get_settings('support_enabled') && class_exists('TIX_Support_Inbound') && TIX_Support_Inbound::connected();
+    }
+
     /** Adresse, an die Kunden antworten (Reply-To) */
     public static function support_address() {
         $s = self::settings();
@@ -206,7 +212,7 @@ class TIX_Support_Mail {
 
     /** Zeile ganz oben in der Mail (Schnittkante für das Zitat der Kundenantwort) */
     public static function body_top_html() {
-        if (!self::is_active()) return '';
+        if (!self::replies_active()) return '';
         return '<p style="margin:0 0 14px;font-size:11px;line-height:1.4;color:#9ca3af;">' . esc_html(self::MARKER) . '</p>';
     }
 
@@ -214,7 +220,7 @@ class TIX_Support_Mail {
     public static function body_footer_html($ticket_id) {
         $portal = self::portal_link($ticket_id);
         $app    = self::app_link($ticket_id);
-        $active = self::is_active();
+        $active = self::replies_active();
         $html   = '';
         if ($portal || $app || $active) {
             $html .= '<div style="margin:24px 0 8px;padding:18px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;text-align:center;">';
@@ -245,6 +251,9 @@ class TIX_Support_Mail {
         ];
         if (self::is_active() && ($addr = self::support_address())) {
             $headers[] = 'Reply-To: ' . $addr;
+        } elseif (self::replies_active() && ($rt = TIX_Support_Inbound::reply_to_header($ticket_id))) {
+            // Zentraler Eingang: Absender bleibt die Seite, Antworten gehen an die versteckte Antwort-Adresse
+            $headers[] = 'Reply-To: ' . $rt;
         }
         $thread = get_post_meta($ticket_id, '_tix_sp_mail_thread', true);
         if (!is_array($thread)) $thread = [];
@@ -504,7 +513,8 @@ class TIX_Support_Mail {
     /**
      * Rohmail verarbeiten. Ergebnis: imported | duplicate | skipped_loop |
      * skipped_auto | skipped_invalid | ignored_unmatched | ratelimited | error
-     * $ctx: mode (cron|backfill), allow_new, notify, confirm, oversize
+     * $ctx: mode (cron|backfill|inbound), allow_new, notify, confirm, oversize,
+     *       ticket (Zuordnung aus der signierten Antwort-Adresse), notes (zusätzliche Hinweise)
      */
     public static function process_raw($raw, array $ctx = []) {
         $s   = self::settings();
@@ -514,6 +524,8 @@ class TIX_Support_Mail {
             'notify'    => true,
             'confirm'   => true,
             'oversize'  => 0,
+            'ticket'    => 0,
+            'notes'     => [],
         ], $ctx);
 
         $mail    = TIX_Support_Mime::parse($raw);
@@ -539,7 +551,11 @@ class TIX_Support_Mail {
             return $base + ['result' => 'skipped_invalid', 'reason' => 'Kein gültiger Absender'];
         }
 
-        list($ticket_id, $how) = self::match_ticket($mail, $from['email'], $subject);
+        if ($ctx['ticket'] && self::ticket_exists($ctx['ticket'])) {
+            list($ticket_id, $how) = [intval($ctx['ticket']), 'antwort-adresse'];
+        } else {
+            list($ticket_id, $how) = self::match_ticket($mail, $from['email'], $subject);
+        }
 
         $content = self::extract_reply($mail['text'], $mail['html']);
         if ($ctx['oversize']) {
@@ -581,7 +597,7 @@ class TIX_Support_Mail {
         if ($content === '' ) $content = '(Anhang)';
 
         $ticket_email = (string) get_post_meta($ticket_id, '_tix_sp_email', true);
-        $notes = [];
+        $notes = array_values(array_filter((array) $ctx['notes'], 'is_string'));
         if (!$is_new && strcasecmp($ticket_email, $from['email']) !== 0) {
             $notes[] = 'Antwort per E-Mail von abweichender Adresse ' . $from['email'] . ' (zugeordnet über das Kennzeichen der Support-Mail).';
         }
@@ -602,7 +618,7 @@ class TIX_Support_Mail {
         TIX_Support::add_email_message($ticket_id, $msg, [
             'new'     => $is_new,
             'notify'  => (bool) $ctx['notify'],
-            'confirm' => (bool) $ctx['confirm'] && $ctx['mode'] === 'cron',
+            'confirm' => (bool) $ctx['confirm'] && in_array($ctx['mode'], ['cron', 'inbound'], true),
             'notes'   => $notes,
         ]);
         add_post_meta($ticket_id, '_tix_sp_mail_msgid', $hash);
@@ -656,7 +672,8 @@ class TIX_Support_Mail {
         }
         $from_email = strtolower((string) $from_email);
         if ($from_email !== '') {
-            $own = array_filter([strtolower(self::support_address()), strtolower((string) self::settings()['user'])]);
+            $own = array_filter([strtolower(self::support_address()), strtolower((string) self::settings()['user']),
+                class_exists('TIX_Support_Inbound') ? strtolower((string) TIX_Support_Inbound::settings()['alias']) : '']);
             if (in_array($from_email, $own, true)) return 'Absender ist das Support-Postfach';
         }
         return '';

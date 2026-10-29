@@ -3600,3 +3600,24 @@ Beide Bausteine brauchen nur den Degaso-Schlüssel (§69), nicht den Gutschein-S
 - Aus = Gutscheine, Getränkekarte und Abendkasse über Degaso ohne Wirkung (`TIX_Degaso::connected()` = Anbindung an + Schlüssel). Schlüssel und Einstellungen bleiben gespeichert.
 - Mehr-Veranstalter-Modus (evendis): nie an, `/degaso/admin*` 403, Hinweis in `/studio/features`.
 - `/degaso/admin` liefert zusätzlich `integration`.
+
+## 72. Support-Mail-Eingang ohne Postfach (ab 1.38.577, `TIX_Support_Inbound`)
+**Stufe 1 – automatisch:** Ist die Seite am zentralen Eingang angemeldet (`wp tixomat support-inbound connect <slug> <secret>`), bekommen alle Support-Mails an Kunden `Reply-To: "<Seite> Support" <slug-r<id>-<sig12>@support.evendis.de>`. Der Absender bleibt der der Seite. Die Mails tragen den Marker und den Hinweis „einfach antworten“ (`TIX_Support_Mail::replies_active()`). Ein IMAP-Postfach hat Vorrang (Experten-Option im WP-Admin).
+
+**Stufe 2 – eigene Adresse (optional):** Der Veranstalter leitet z. B. `support@seinedomain.de` (nie `mail@`) an `slug-in-<sig10>@support.evendis.de` weiter. Neue Mails werden neue Anfragen, Antworten werden zugeordnet. Bestätigungsmails der Anbieter (Gmail-Code, Microsoft …) landen nicht als Anfrage, sondern unter `verifications`. Die Testmail (`TIXTEST-<nonce>-<sig>`) schaltet auf „Verbunden“. `slug-fw-<sig10>@…` ist die **Einzel-Übernahme**: eine weitergeleitete Mail (inline Gmail/Outlook/Thunderbird oder als Anlage `message/rfc822`) wird zur Anfrage mit dem ursprünglichen Absender, dazu kommt die Notiz „Übernommen aus …“.
+
+**Zentraler Eingang (Hub = veranstalter.evendis.de):** `POST /support/inbound`, Schlüssel `tix_sp_inbound_hub_key` per `X-Tix-Inbound-Key`, `Authorization: Bearer` oder `?key=`. Es gibt drei Formen:
+- Rohmail mit `X-Tix-Rcpt` (Postfix-Pipe, empfohlen; ohne die Kopfzeile gelten To/Delivered-To).
+- `{raw: base64, rcpt: []}`.
+- Brevo Inbound Parsing `{items: []}`, Anhänge über die Brevo-API mit `tix_sp_inbound_brevo_key`, `SpamScore ≥ 5` gilt als Spam.
+
+Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere bekommen `POST <url>/wp-json/tixomat/v1/support/inbound/deliver` mit `X-Tix-Rcpt`, `X-Tix-Ts` und `X-Tix-Sig = HMAC-SHA256(secret, rcpt|ts|sha256(body))` (±10 min). Ist die Seite nicht erreichbar (5xx/429/Netz), antwortet der Hub mit 503, dann wiederholt Postfix. Die Seite prüft die Signatur der Adresse selbst und verarbeitet über `TIX_Support_Mail::process_raw` (`ctx.ticket`, `ctx.notes`, `mode=inbound`). Dazu gehören Zitat-Kürzung, Anhänge (10 × 10 MB), Automatik-/Spam-/Newsletter-Filter, Duplikate, der Hinweis bei abweichendem Absender, die Eingangsbestätigung und die Team-Mitteilung.
+
+**Studio/App:**
+- `GET|POST /support/mail-inbox` mit `{alias, provider gmail|microsoft|ionos|strato|allinkl|other, show_contact}`.
+- `POST /support/mail-inbox/test` und `POST /support/mail-inbox/verifications/{id}/done`.
+- Zustand: `available`, `replies{active,via}`, `alias{address,forward_to,status none|waiting|testing|connected|problem,…}`, `takeover_address`, `verifications[]`, `imap`, `log[]`.
+- Rechte: Admin. Auf Einzel-Seiten auch `tix_organizer`.
+- `/support/config.contact_email` liefert die eigene Adresse, wenn „als Kontakt zeigen“ an und die Adresse verbunden ist.
+
+**WP-CLI:** `wp tixomat support-inbound status | hub-key [neu] | site-add <slug> <url> | connect <slug> <secret> [hub] | brevo-key <k> | simulate <rcpt> <datei.eml>`. **Tests:** `tests/test-support-inbound-wp.php` (56) und `tests/test-support-inbound-e2e.sh` (9, Hub → Seite per HTTP inkl. Postfix-Pipe).
