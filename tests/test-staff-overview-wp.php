@@ -33,6 +33,9 @@ so_eq('Vorwoche +3 Tickets', 3, $after['prev7']['tickets'] - $before['prev7']['t
 so_eq('letzte 7 Tage +2', 2, $after['last7']['tickets'] - $before['last7']['tickets']);
 so_eq('stornierte Bestellung zählt nicht', true, end($after['days'])['tickets'] - end($before['days'])['tickets'] < 9);
 
+$ev = TIX_Staff_Overview::event($eid, $now);
+so_eq('Event: heute 2, gesamt 5 Tickets, 70 €', [2, 5, 70.0], [$ev['today'], $ev['tickets'], $ev['revenue']]);
+
 // Live: drei Tickets, zwei eingelassen (vor 5 und vor 40 Minuten)
 $tids = [];
 foreach ([5, 40, null] as $i => $ago) {
@@ -56,7 +59,10 @@ $r = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/staff/overview'));
 so_eq('REST ohne Event: 200, ohne live', [200, false], [$r->get_status(), isset($r->get_data()['live'])]);
 $q = new WP_REST_Request('GET', '/tixomat/v1/staff/overview'); $q->set_query_params(['event_id' => $eid]);
 $r = rest_do_request($q);
-so_eq('REST mit Event: live dabei', $eid, $r->get_data()['live']['event_id'] ?? null);
+so_eq('REST mit Event: event dabei, live nicht', [$eid, false], [$r->get_data()['event']['id'] ?? null, isset($r->get_data()['live'])]);
+$q = new WP_REST_Request('GET', '/tixomat/v1/staff/overview'); $q->set_query_params(['event_id' => $eid, 'live' => 1]);
+$r = rest_do_request($q);
+so_eq('REST mit live=1: live dabei', $eid, $r->get_data()['live']['event_id'] ?? null);
 wp_set_current_user(0);
 $r = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/staff/overview'));
 so_eq('ohne Anmeldung gesperrt', true, $r->get_status() >= 401);

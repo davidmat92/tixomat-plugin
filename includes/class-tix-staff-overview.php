@@ -4,12 +4,13 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Staff_Overview – Zahlen für die Startseite des Veranstalter-Bereichs (1.38.590).
  *
- *   GET /staff/overview?days=14[&event_id=<id>]
+ *   GET /staff/overview?days=14[&event_id=<id>[&live=1]]
  *     → {days: [{date, tickets, revenue}] (ältester zuerst, ohne Lücken, Ortszeit),
  *        last7 {tickets, revenue}, prev7 {tickets, revenue},
+ *        event?: {id, today (Tickets heute), tickets, revenue (gesamt)} mit event_id,
  *        live?: {event_id, checked_in, total, last15, last_checkin (Ortszeit), last_ago (Sekunden), slots: [5× je 15 Min., ältester zuerst]}}
  * Tage und Umsatz aus den nativen Bestellungen (Status abgeschlossen/in Bearbeitung), nur Events, die das Konto sehen
- * darf (Mehr-Veranstalter-Modus: eigener Veranstalter). Live nur mit `event_id` (Event des Tages): Einlässe der Ticket-
+ * darf (Mehr-Veranstalter-Modus: eigener Veranstalter). Live nur mit `event_id` + `live=1` (Event des Tages): Einlässe der Ticket-
  * Posts nach `_tix_ticket_checkin_time`. 60 s zwischengespeichert je Konto.
  */
 class TIX_Staff_Overview {
@@ -35,11 +36,13 @@ class TIX_Staff_Overview {
         if ($eid && (get_post_type($eid) !== 'event' || !TIX_REST_API::can_access_event($eid))) {
             return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
         }
-        $ck = 'tix_sov_' . md5(get_current_user_id() . '|' . $days . '|' . $eid . '|' . current_time('Y-m-d H:i'));
+        $live = $eid && filter_var($req->get_param('live'), FILTER_VALIDATE_BOOLEAN);
+        $ck = 'tix_sov_' . md5(get_current_user_id() . '|' . $days . '|' . $eid . '|' . ($live ? 1 : 0) . '|' . current_time('Y-m-d H:i'));
         $hit = get_transient($ck);
         if (is_array($hit)) return rest_ensure_response($hit);
         $out = ['ok' => true] + self::days($days);
-        if ($eid) $out['live'] = self::live($eid);
+        if ($eid) $out['event'] = self::event($eid);
+        if ($live) $out['live'] = self::live($eid);
         set_transient($ck, $out, 60);
         return rest_ensure_response($out);
     }
@@ -74,6 +77,25 @@ class TIX_Staff_Overview {
         $last7 = array_slice($rows, -7);
         $prev7 = count($rows) >= 14 ? array_slice($rows, -14, 7) : [];
         return ['days' => $rows, 'last7' => $sum($last7), 'prev7' => $prev7 ? $sum($prev7) : null];
+    }
+
+    /** Ein Event: Tickets heute, Tickets und Umsatz gesamt (abgeschlossene Bestellungen) */
+    public static function event($eid, $now = null) {
+        $today = gmdate('Y-m-d', $now ?: current_time('timestamp'));
+        $out = ['id' => intval($eid), 'today' => 0, 'tickets' => 0, 'revenue' => 0.0];
+        if (!class_exists('TIX_Order')) return $out;
+        foreach ((array) TIX_Order::query(['event_id' => $eid, 'status' => ['completed', 'processing'], 'limit' => 20000]) as $o) {
+            $c = $o->get_date_created();
+            foreach ($o->get_items() as $it) {
+                if (intval($it->get_event_id()) !== intval($eid)) continue;
+                $q = intval($it->get_quantity());
+                $out['tickets'] += $q;
+                $out['revenue'] += (float) $it->get_total();
+                if ($c && $c->format('Y-m-d') === $today) $out['today'] += $q;
+            }
+        }
+        $out['revenue'] = round($out['revenue'], 2);
+        return $out;
     }
 
     /** Einlässe live: gesamt, letzte 15 Min., letzte 5 Viertelstunden */
