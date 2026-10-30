@@ -10,15 +10,19 @@ if (!defined('ABSPATH')) exit;
  *     (z. B. Breakdance unter uploads/breakdance/…; die Datei wird als Kopie mit lokalem Import ausgeliefert)
  *   - preconnect / dns-prefetch zu fonts.googleapis.com bzw. fonts.gstatic.com wird entfernt
  * Ablauf: einmalig serverseitig herunterladen (CSS + woff2) nach uploads/tix-fonts/<familie>-<hash>.css bzw. …/<hash>/*.woff2,
- * Link auf die lokale Datei umschreiben. Ist eine Schrift noch nicht gespiegelt, bleibt der Original-Link und der
- * Download läuft im Hintergrund (Cron); schlägt er fehl, bleibt der Original-Link (Seite nie ohne Schrift) + Hinweis im Admin.
- * Schalter: Option tix_local_fonts ('1' an = Vorgabe, '0' aus) unter Tixomat → Schriften (mit „Neu aufbauen“).
+ * Link auf die lokale Datei umschreiben. Ist eine Schrift noch nicht gespiegelt, fällt der Link weg (Systemschrift, bis der
+ * Download im Hintergrund fertig ist); schlägt er fehl, bleibt es bei der Systemschrift + Hinweis im Admin.
+ * Seit 1.38.600 (User-Vorgabe 2026-10-30 „Schriften NIE von Google laden, immer vom eigenen Server“) immer an: kein
+ * Original-Link mehr als Rückfall, die Option tix_local_fonts schaltet nichts mehr ab. Gilt für die Website, nicht für wp-admin.
  * 1.38.461: gleiche woff2-Datei nur einmal laden (variable Schriften liefern sie für viele Gewichte), nur die
  * Zeichensätze aus tix_font_subsets (Vorgabe latin,latin-ext; 'all' = alle) – andere @font-face-Blöcke fallen aus
  * der lokalen CSS. Grenze 300 Dateien. Fehlversuche sperren nicht dauerhaft: neue Spiegel-Version (REV) startet
  * alle fehlerhaften neu, sonst täglich ein neuer Anlauf nach 3 Fehlversuchen.
  */
 class TIX_Font_Mirror {
+
+    /** rewrite_imports: mindestens ein Import war noch nicht gespiegelt (Kopie später neu schreiben) */
+    private static $pending = false;
 
     const OPTION = 'tix_local_fonts';
     const MAP = 'tix_font_mirror';
@@ -45,8 +49,9 @@ class TIX_Font_Mirror {
         add_action('login_init', [__CLASS__, 'start_buffer'], -1000);
     }
 
+    /** Immer an (1.38.600): Besucher laden nie eine Schrift bei Google. */
     public static function enabled() {
-        return get_option(self::OPTION, '1') !== '0';
+        return true;
     }
 
     private static function map() {
@@ -189,8 +194,8 @@ class TIX_Font_Mirror {
 
     public static function filter_src($src, $handle) {
         if (is_admin() || !self::is_google($src)) return $src;
-        $local = self::local_url($src);
-        return $local ?: $src;
+        // Noch nicht gespiegelt: Stylesheet weglassen (WordPress gibt bei leerer Adresse nichts aus), nie Google
+        return self::local_url($src) ?: false;
     }
 
     public static function filter_hints($urls, $relation) {
@@ -221,10 +226,10 @@ class TIX_Font_Mirror {
             // Verbindungs-Hinweise und vorgeladene Schriftdateien bei Google: entfernen (die Schriften kommen über das CSS)
             if ($google_any && (strpos($rel, 'preconnect') !== false || strpos($rel, 'dns-prefetch') !== false)) return '';
             if ($google_any && !$google_css && strpos($rel, 'preload') !== false) return '';
-            // Google-Stylesheet (auch preload as=style): lokale Kopie, sonst Original
+            // Google-Stylesheet (auch preload as=style): lokale Kopie, sonst weglassen (nie Google)
             if ($google_css) {
                 $local = self::local_url($href);
-                return $local ? str_replace($h[2], esc_url($local), $tag) : $tag;
+                return $local ? str_replace($h[2], esc_url($local), $tag) : '';
             }
             if (strpos($rel, 'stylesheet') === false) return $tag;
             $copy = self::css_copy($href);
@@ -235,14 +240,17 @@ class TIX_Font_Mirror {
         return self::rewrite_imports($html);
     }
 
-    /** @import url(https://fonts.googleapis.com/…) bzw. @import "…" → lokale Datei (falls gespiegelt); „;“ in der Adresse (wght@400;700) bleibt Teil davon. */
+    /** @import url(https://fonts.googleapis.com/…) bzw. @import "…" → lokale Datei; noch nicht gespiegelt → Import fällt weg. „;“ in der Adresse (wght@400;700) bleibt Teil davon. */
     public static function rewrite_imports($css) {
         $g = '(?:https?:)?//fonts\.googleapis\.com/';
-        return preg_replace_callback('#@import\s+(?:url\(\s*(?:"(' . $g . '[^"]+)"|\'(' . $g . '[^\']+)\'|(' . $g . '[^)\s]+))\s*\)|"(' . $g . '[^"]+)"|\'(' . $g . '[^\']+)\')#i', function ($m) {
+        return preg_replace_callback('#@import\s+(?:url\(\s*(?:"(' . $g . '[^"]+)"|\'(' . $g . '[^\']+)\'|(' . $g . '[^)\s]+))\s*\)|"(' . $g . '[^"]+)"|\'(' . $g . '[^\']+)\')(\s*;)?#i', function ($m) {
             $url = '';
             for ($i = 1; $i <= 5; $i++) if (!empty($m[$i])) { $url = $m[$i]; break; }
             $local = $url !== '' ? self::local_url($url) : null;
-            return $local ? '@import url(' . $local . ')' : $m[0];
+            // Semikolon mit ersetzen bzw. mitnehmen – ein übrig gebliebenes „;“ ließe den Browser die nächste Regel verwerfen
+            if ($local) return '@import url(' . $local . ')' . (!empty($m[6]) ? ';' : '');
+            self::$pending = true;
+            return '/* Schrift wird lokal bereitgestellt */';
         }, $css);
     }
 
@@ -259,7 +267,7 @@ class TIX_Font_Mirror {
         $copies = is_array($copies) ? $copies : [];
         $ck = substr(md5($file), 0, 12);
         $d = self::dir();
-        if (isset($copies[$ck]) && intval($copies[$ck]['mtime']) === $mtime) {
+        if (isset($copies[$ck]) && intval($copies[$ck]['mtime']) === $mtime && empty($copies[$ck]['pending'])) {
             if (empty($copies[$ck]['copy'])) return null; // keine Google-Schrift darin
             return is_file($d['path'] . '/css/' . $copies[$ck]['copy']) ? $d['url'] . '/css/' . $copies[$ck]['copy'] . '?v=' . $mtime : null;
         }
@@ -269,8 +277,9 @@ class TIX_Font_Mirror {
             update_option(self::CSS_MAP, $copies, false);
             return null;
         }
+        self::$pending = false;
         $new = self::rewrite_imports($css);
-        if ($new === $css) return null; // Schrift noch nicht gespiegelt → später erneut versuchen (Original bleibt)
+        $pending = self::$pending;
         // relative url(...) auf den Ort der Originaldatei beziehen
         $base = trailingslashit(dirname($path_url));
         $new = preg_replace_callback('#url\(\s*([\'"]?)(?!data:|https?:|//|/|\#)([^\'")]+)\1\s*\)#i', function ($m) use ($base) {
@@ -279,7 +288,8 @@ class TIX_Font_Mirror {
         if (!wp_mkdir_p($d['path'] . '/css')) return null;
         $name = sanitize_file_name(basename($path_url, '.css')) . '-' . $ck . '.css';
         if (@file_put_contents($d['path'] . '/css/' . $name, $new) === false) return null;
-        $copies[$ck] = ['mtime' => $mtime, 'copy' => $name, 'src' => $path_url];
+        // pending: Kopie ohne die noch fehlenden Schriften – beim nächsten Aufruf neu schreiben, bis alle gespiegelt sind
+        $copies[$ck] = ['mtime' => $mtime, 'copy' => $name, 'src' => $path_url, 'pending' => $pending];
         update_option(self::CSS_MAP, $copies, false);
         return $d['url'] . '/css/' . $name . '?v=' . $mtime;
     }
@@ -294,9 +304,9 @@ class TIX_Font_Mirror {
         if (!current_user_can('manage_options')) return;
         $m = self::map();
         $url = admin_url('admin-post.php');
-        echo '<div class="wrap"><h1>Schriften lokal ausliefern</h1><p>Schriften von Google Fonts (Breakdance, Theme, Plugins) werden einmal auf diesen Server geladen und von hier ausgeliefert – Besucher-IPs gehen nicht an Google. Fehlt eine Datei, bleibt der Original-Link, damit die Seite nie ohne Schrift ist.</p>';
+        echo '<div class="wrap"><h1>Schriften lokal ausliefern</h1><p>Schriften von Google Fonts (Breakdance, Theme, Plugins) werden einmal auf diesen Server geladen und von hier ausgeliefert – Besucher-IPs gehen nicht an Google. Fehlt eine Datei noch, zeigt die Seite so lange die Systemschrift – Google wird nie geladen.</p>';
         echo '<form method="post" action="' . esc_url($url) . '">' . wp_nonce_field('tix_font_mirror', '_wpnonce', true, false) . '<input type="hidden" name="action" value="tix_font_mirror">';
-        echo '<p><label><input type="checkbox" name="enabled" value="1"' . checked(self::enabled(), true, false) . '> Schriften lokal ausliefern</label></p>';
+        echo '<p><label><input type="checkbox" checked disabled> Schriften lokal ausliefern</label> <span class="description">immer an – Schriften kommen nie von Google</span></p>';
         echo '<p><label>Zeichensätze <input type="text" name="subsets" value="' . esc_attr((string) get_option(self::SUBSETS, 'latin,latin-ext')) . '" class="regular-text"></label><br><span class="description">Kommagetrennt, z. B. latin,latin-ext (deutsche Seiten) oder all für alle. Andere Zeichensätze (kyrillisch, griechisch …) werden nicht geladen.</span></p>';
         echo '<p><button class="button button-primary" name="do" value="save">Speichern</button> <button class="button" name="do" value="rebuild">Neu aufbauen</button></p></form>';
         echo '<table class="widefat striped" style="max-width:900px;"><thead><tr><th>Google-Adresse</th><th>Status</th><th>Dateien</th></tr></thead><tbody>';
@@ -315,7 +325,6 @@ class TIX_Font_Mirror {
         @set_time_limit(180);
         if ($do === 'rebuild') self::rebuild();
         else {
-            update_option(self::OPTION, !empty($_POST['enabled']) ? '1' : '0', false);
             $sub = strtolower(preg_replace('/[^a-z0-9,\-\[\]]/i', '', (string) wp_unslash($_POST['subsets'] ?? 'latin,latin-ext')));
             $old = (string) get_option(self::SUBSETS, 'latin,latin-ext');
             update_option(self::SUBSETS, $sub === '' ? 'latin,latin-ext' : $sub, false);

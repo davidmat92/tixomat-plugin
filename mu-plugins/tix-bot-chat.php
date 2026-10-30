@@ -158,11 +158,9 @@ function tix_ajax_clear_cart() {
 // CSS
 // ============================================================
 function tix_css($c, $height = '700px') {
-    // Schrift lokal aus dem Tixomat-Plugin (Inter/Outfit/Sora/DM Sans), sonst wie bisher Google Fonts
+    // Schrift lokal aus dem Tixomat-Plugin (Inter/Outfit/Sora/DM Sans), sonst Systemschrift – nie Google (2026-10-30)
     $local = defined('TIXOMAT_URL') && in_array(TIX_CHAT_FONT, ['Inter', 'Outfit', 'Sora', 'DM Sans'], true);
-    $font_import = $local
-        ? '@import url("' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css') . '");'
-        : '@import url("https://fonts.googleapis.com/css2?family=' . urlencode(TIX_CHAT_FONT) . ':wght@400;500;600;700&display=swap");';
+    $font_import = $local ? '@import url("' . esc_url(TIXOMAT_URL . 'assets/css/fonts-local.css') . '");' : '';
     return '
 ' . $font_import . '
 

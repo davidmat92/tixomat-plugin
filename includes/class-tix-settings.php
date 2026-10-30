@@ -2598,7 +2598,8 @@ class TIX_Settings {
             wp_enqueue_style('tix-google-fonts');
         }
 
-        // Andere gewählte Schriften weiter von Google (Hinweis in den Einstellungen)
+        // Andere gewählte Schriften: Google-Adresse nur als Schlüssel – TIX_Font_Mirror (immer an seit 1.38.600) liefert die
+        // gespiegelte Kopie vom eigenen Server aus bzw. lässt das Stylesheet weg, bis sie da ist. Besucher laden nie bei Google.
         if (!empty($families)) {
             $url = 'https://fonts.googleapis.com/css2?family=' . implode('&family=', $families) . '&display=swap';
             wp_enqueue_style('tix-card-fonts', $url, [], null);
@@ -4475,7 +4476,7 @@ class TIX_Settings {
                                                 <p class="tix-settings-hint">Schriftgr&ouml;&szlig;en: &uuml;ber Typografie-Tab steuerbar (Event Cards &amp; Suche)</p>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Keine Verbindung zu Google Fonts. Du musst die Schriften dann selbst in dein Theme einbinden (z.B. per @font-face).'); ?>
+                                                <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Tixomat bindet dann keine weiteren Schriften ein – du bindest sie selbst in dein Theme ein (z. B. per @font-face). Google Fonts lädt die Seite in keinem Fall.'); ?>
                                             </div>
                                         </div>
                                     </div>
@@ -5440,7 +5441,7 @@ class TIX_Settings {
                                         <h3>Globale Schriftarten</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <p class="tix-field-hint" style="color:#6b7280;font-size:12px;margin:0 0 12px;">Sora, DM Sans, Inter und Outfit liefert Tixomat selbst aus (keine Verbindung zu Google, DSGVO-freundlich). Jede andere Schrift wird von Google Fonts geladen – dann in der Datenschutzerklärung nennen.</p>
+                                        <p class="tix-field-hint" style="color:#6b7280;font-size:12px;margin:0 0 12px;">Sora, DM Sans, Inter und Outfit liefert Tixomat selbst aus (keine Verbindung zu Google, DSGVO-freundlich). Jede andere Schrift holt Tixomat einmal auf diesen Server und liefert sie von hier aus (Tixomat → Schriften) – Besucher laden nie bei Google.</p>
                                         <div class="tix-field-grid">
                                             <?php
                                             $fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree'];
