@@ -194,11 +194,49 @@ class TIX_Music {
         if ($id && !is_wp_error($id)) self::update_settings(['dj_page_id' => intval($id)]);
     }
 
-    public static function dj_url() {
+    public static function dj_url($key = null) {
         $s = self::settings();
         $id = intval($s['dj_page_id']);
         $base = $id ? get_permalink($id) : home_url('/dj-musikwuensche/');
-        return add_query_arg('key', self::dj_key(), $base);
+        return add_query_arg('key', $key ?? self::dj_key(), $base);
+    }
+
+    const META_ORG_KEY = '_tix_org_dj_key';
+
+    /** Neuer zufälliger Schlüssel (24 Zeichen, a–z0–9). */
+    private static function new_key() {
+        return strtolower(wp_generate_password(24, false, false));
+    }
+
+    /** DJ-Schlüssel eines Veranstalters (Mehr-Veranstalter-Modus), beim ersten Bedarf erzeugt. */
+    public static function org_dj_key($oid, $renew = false) {
+        $oid = intval($oid);
+        $key = (string) get_post_meta($oid, self::META_ORG_KEY, true);
+        if ($renew || $key === '') {
+            $key = self::new_key();
+            update_post_meta($oid, self::META_ORG_KEY, $key);
+        }
+        return $key;
+    }
+
+    private static function req_key(WP_REST_Request $req) {
+        return (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
+    }
+
+    /**
+     * Wem gehört ein DJ-Schlüssel? 0 = Seiten-Schlüssel (alle Events), >0 = Veranstalter-ID
+     * (nur dessen Events), null = ungültig.
+     */
+    public static function key_scope($key) {
+        $key = (string) $key;
+        if ($key === '' || strlen($key) > 64) return null;
+        if (hash_equals(self::dj_key(), $key)) return 0;
+        $ids = get_posts([
+            'post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1,
+            'fields' => 'ids', 'meta_key' => self::META_ORG_KEY, 'meta_value' => $key, 'no_found_rows' => true,
+        ]);
+        if ($ids && hash_equals((string) get_post_meta($ids[0], self::META_ORG_KEY, true), $key)) return intval($ids[0]);
+        return null;
     }
 
     public static function robots_noindex($robots) {
@@ -565,6 +603,10 @@ class TIX_Music {
         register_rest_route(self::NS, '/music/dj/requests/(?P<id>\d+)/status', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_dj_status'], 'permission_callback' => [__CLASS__, 'check_dj'],
         ]);
+        register_rest_route(self::NS, '/music/dj-link', [
+            ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_dj_link'], 'permission_callback' => [__CLASS__, 'check_dj_link']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_dj_link'], 'permission_callback' => [__CLASS__, 'check_dj_link']],
+        ]);
         register_rest_route(self::NS, '/music/settings', [
             ['methods' => 'GET',  'callback' => [__CLASS__, 'rest_settings'],      'permission_callback' => [__CLASS__, 'check_settings']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_settings_save'], 'permission_callback' => [__CLASS__, 'check_settings']],
@@ -577,6 +619,48 @@ class TIX_Music {
         if (current_user_can('manage_options')) return true;
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return new WP_Error('rest_forbidden', 'Den Musikwunsch der Plattform stellt evendis ein.', ['status' => 403]);
         return class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager() ? true : new WP_Error('rest_forbidden', 'Nur Inhaber und Team-Admins ändern den Musikwunsch.', ['status' => 403]);
+    }
+
+    /**
+     * DJ-Link sehen/erneuern: Admin (Seiten-Link, im Mehr-Veranstalter-Modus optional ?organizer=),
+     * Einzelseite Inhaber/Team-Admin, Mehr-Veranstalter-Modus Inhaber/Team-Admin des eigenen Veranstalters.
+     */
+    public static function check_dj_link(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        if (current_user_can('manage_options')) return true;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            return TIX_App_Scope::organizer_id_for_user() && TIX_App_Scope::is_org_manager()
+                ? true : new WP_Error('rest_forbidden', 'Den DJ-Link sehen nur Inhaber und Team-Admins.', ['status' => 403]);
+        }
+        return class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager() ? true : new WP_Error('rest_forbidden', 'Den DJ-Link sehen nur Inhaber und Team-Admins.', ['status' => 403]);
+    }
+
+    /** GET /music/dj-link → {url, scope}; POST /music/dj-link {renew: true} → neuer Schlüssel, alter Link gilt nicht mehr. */
+    public static function rest_dj_link(WP_REST_Request $req) {
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        $oid = 0;
+        if ($multi) {
+            $oid = current_user_can('manage_options') ? intval($req->get_param('organizer')) : TIX_App_Scope::organizer_id_for_user();
+            if ($oid && get_post_type($oid) !== 'tix_organizer') return self::error('tix_not_found', 'Veranstalter nicht gefunden.', 404);
+        }
+        $renew = $req->get_method() === 'POST' && filter_var($req->get_param('renew'), FILTER_VALIDATE_BOOLEAN);
+        if ($oid) {
+            $key = self::org_dj_key($oid, $renew);
+        } else {
+            if ($renew) self::update_settings(['dj_key' => self::new_key()]);
+            $key = self::dj_key();
+        }
+        if ($renew && class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) {
+            // nie den Schlüssel ins Protokoll
+            TIX_Customers::audit('dj_link_renewed', $oid ? (string) $oid : 'site', ['oid' => $oid, 'scope' => $oid ? 'organizer' : 'site'], ['scope' => $oid ? 'organizer' : 'site']);
+        }
+        return rest_ensure_response([
+            'ok'      => true,
+            'url'     => self::dj_url($key),
+            'scope'   => $oid ? 'organizer' : 'site',
+            'renewed' => $renew,
+            'active'  => self::enabled(),
+        ]);
     }
 
     private static function settings_payload() {
@@ -619,8 +703,7 @@ class TIX_Music {
 
     /** DJ-Zugang: geheimer Schlüssel (?key= oder Header X-Tix-DJ-Key) oder Veranstalter-Login. */
     public static function check_dj(WP_REST_Request $req) {
-        $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
-        if ($key !== '' && hash_equals(self::dj_key(), $key)) return true;
+        if (self::key_scope(self::req_key($req)) !== null) return true;
         // Angemeldeter DJ (Rolle „DJ (App)“) darf die Liste sehen.
         if (is_user_logged_in() && current_user_can('tix_app_dj')) {
             // Mehr-Veranstalter-Modus: nur mit Veranstalter-Zuordnung
@@ -923,11 +1006,21 @@ class TIX_Music {
         return ['requests' => $out, 'counts' => $counts];
     }
 
-    /** Mehr-Veranstalter-Modus ohne DJ-Schlüssel und ohne Admin → nur eigene Events. */
-    private static function dj_scoped(WP_REST_Request $req) {
-        if (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) || !TIX_App_Scope::scoped()) return false;
-        $key = (string) ($req->get_param('key') ?? $req->get_header('x-tix-dj-key') ?? '');
-        return !($key !== '' && hash_equals(self::dj_key(), $key));
+    /**
+     * Auf welchen Veranstalter ist die DJ-Ansicht beschränkt? null = alle Events (Seiten-Schlüssel,
+     * Einzelseite, Admin). Veranstalter-Schlüssel → dessen Events; Mehr-Veranstalter-Modus ohne
+     * Schlüssel → Veranstalter des angemeldeten Nutzers (0 = keiner).
+     */
+    private static function dj_scope_oid(WP_REST_Request $req) {
+        $k = self::key_scope(self::req_key($req));
+        if ($k === 0) return null;
+        if ($k) return $k;
+        if (!(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) || !TIX_App_Scope::scoped()) return null;
+        return TIX_App_Scope::organizer_id_for_user();
+    }
+
+    private static function event_in_scope($event_id, $oid) {
+        return $oid && class_exists('TIX_App_Scope') && in_array(intval($oid), TIX_App_Scope::event_org_ids($event_id), true);
     }
 
     /** GET /music/dj/requests?event_id= */
@@ -935,12 +1028,13 @@ class TIX_Music {
         $event_id = intval($req->get_param('event_id'));
         $events   = self::dj_event_candidates();
         $cur      = self::current_event();
-        if (self::dj_scoped($req)) {
-            if ($event_id && !TIX_App_Scope::event_allowed($event_id)) {
+        $oid = self::dj_scope_oid($req);
+        if ($oid !== null) {
+            if ($event_id && !self::event_in_scope($event_id, $oid)) {
                 return TIX_App_Scope::deny('Kein Zugriff auf dieses Event.');
             }
-            $events = array_values(array_filter($events, fn($e) => TIX_App_Scope::event_allowed($e['id'])));
-            if ($cur && !TIX_App_Scope::event_allowed($cur['id'])) {
+            $events = array_values(array_filter($events, fn($e) => self::event_in_scope($e['id'], $oid)));
+            if ($cur && !self::event_in_scope($cur['id'], $oid)) {
                 // Gerade läuft ein fremdes Event – eigenes laufendes Event suchen
                 $cur = null;
                 foreach ($events as $e) {
@@ -987,7 +1081,8 @@ class TIX_Music {
         if (!isset(self::STATUSES[$status])) return self::error('tix_music_status', 'Ungültiger Status.', 400);
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $rt WHERE id = %d", $id), ARRAY_A);
         if (!$row) return self::error('tix_music_missing', 'Wunsch nicht gefunden.', 404);
-        if (self::dj_scoped($req) && !TIX_App_Scope::event_allowed(intval($row['event_id']))) {
+        $oid = self::dj_scope_oid($req);
+        if ($oid !== null && !self::event_in_scope(intval($row['event_id']), $oid)) {
             return TIX_App_Scope::deny('Kein Zugriff auf diesen Wunsch.');
         }
         $now = self::mysql_now();
@@ -1017,10 +1112,10 @@ class TIX_Music {
 
     public static function shortcode_dj($atts = []) {
         $key = isset($_GET['key']) ? sanitize_text_field(wp_unslash($_GET['key'])) : '';
-        if ($key === '' || !hash_equals(self::dj_key(), $key)) {
+        if (self::key_scope($key) === null) {
             return '<div style="font-family:-apple-system,Inter,sans-serif;background:#131020;color:#fff;padding:48px 24px;text-align:center;min-height:60vh;">'
                  . '<div style="font-size:40px;">🎧</div><h1 style="font-size:22px;margin:12px 0 6px;">Musikwünsche – DJ-Ansicht</h1>'
-                 . '<p style="opacity:.7;">Kein Zugriff. Bitte den geheimen DJ-Link aus dem Tixomat-Backend verwenden.</p></div>';
+                 . '<p style="opacity:.7;">Kein Zugriff. Bitte den aktuellen DJ-Link verwenden – ihn findest du im Studio unter Musikwunsch.</p></div>';
         }
         $cfg = wp_json_encode([
             'rest' => esc_url_raw(rest_url(self::NS . '/music/dj/requests')),
