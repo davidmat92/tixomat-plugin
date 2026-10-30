@@ -32,6 +32,9 @@ class TIX_Website {
         'stage'      => ['Bühne (nächstes Event)', [], null],
         // Laufband (1.38.537, Vertrag uebergaben/vertrag-laufband.md): Quelle, eigene Einträge, Tempo, Richtung, Farbe, Trenner
         'ticker'     => ['Laufband', ['auto', 'items', 'speed', 'direction', 'tone', 'separator'], null],
+        // Saison-Banner (Vertrag uebergaben/vertrag-startseite.md): Aktion mit Zeitraum, z. B. „Silvester-Tickets“ – außerhalb von
+        // from/until zeigt die Website ihn nicht
+        'season'     => ['Saison-Banner', ['title', 'text', 'image', 'url', 'cta', 'from', 'until', 'tone'], null],
         'tickets'    => ['Tickets (Kategorien)', ['title', 'eyebrow'], 'checkout'],
         'arrival'    => ['Anreise & vor Ort', ['title', 'eyebrow'], null],
         'more_dates' => ['Weitere Termine', ['max', 'title', 'eyebrow'], null],
@@ -291,6 +294,33 @@ class TIX_Website {
                             $c['items'][] = $row;
                         }
                         break;
+                    case 'text':
+                        $x = self::text($v, $f . '.text', 200);
+                        if (is_wp_error($x)) return $x;
+                        $c['text'] = $x;
+                        break;
+                    case 'cta':
+                        $x = self::text($v, $f . '.cta', 30);
+                        if (is_wp_error($x)) return $x;
+                        $c['cta'] = $x;
+                        break;
+                    case 'url':
+                        $x = self::url($v, $f . '.url');
+                        if (is_wp_error($x)) return $x;
+                        if (mb_strlen($x) > 300) return self::bad($f . '.url', 'Höchstens 300 Zeichen.');
+                        $c['url'] = $x;
+                        break;
+                    case 'image':
+                        $id = self::image_id(is_array($v) ? ($v['id'] ?? 0) : $v, $f . '.image');
+                        if (is_wp_error($id)) return $id;
+                        $c['image'] = $id;
+                        break;
+                    case 'from':
+                    case 'until':
+                        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $v) || !checkdate(intval(substr($v, 5, 2)), intval(substr($v, 8, 2)), intval(substr($v, 0, 4)))) return self::bad($f . '.' . $opt, 'Datum als JJJJ-MM-TT.');
+                        $c[$opt] = (string) $v;
+                        if ($opt === 'until' && !empty($c['from']) && $c['until'] < $c['from']) return self::bad($f . '.until', '„Bis“ liegt vor „Ab“.');
+                        break;
                     case 'title':
                     case 'eyebrow':
                         $x = self::text($v, $f . '.' . $opt);
@@ -405,6 +435,7 @@ class TIX_Website {
             $k = $s['key'];
             $s['available'] = self::switch_on(self::SECTIONS[$k][2]);
             if (isset($s['images'])) $s['images'] = array_values(array_filter(array_map([__CLASS__, 'image_payload'], $s['images'])));
+            if (isset($s['image'])) $s['image'] = self::image_payload($s['image']);
             if (isset($s['logos'])) $s['logos'] = array_map(function ($l) { $l['image'] = self::image_payload($l['image']); return $l; }, $s['logos']);
             $out[] = $s;
         }
