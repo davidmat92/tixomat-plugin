@@ -63,7 +63,7 @@ class TIX_Staff_Push {
         'approval'      => ['Konto-Prüfung', 'account', true, 'platform'],
         'team'          => ['Team-Einladung angenommen', 'account', true, null],
     ];
-    const GROUPS = ['sales' => 'Verkauf', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team'];
+    const GROUPS = ['sales' => 'Weitere Verkäufe', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team'];
     /** Bezeichnungen (Bestand: Schlüssel → Text) */
     const PREFS = [
         'sales_digest' => 'Neue Ticketbestellungen', 'refund' => 'Storno und Erstattung', 'giftcard_sold' => 'Gutschein verkauft',
