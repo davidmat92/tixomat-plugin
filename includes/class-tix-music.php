@@ -1104,8 +1104,12 @@ class TIX_Music {
         if (!$id || !is_page($id)) return;
         nocache_headers();
         header('Content-Type: text/html; charset=UTF-8');
-        echo '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-           . '<meta name="robots" content="noindex,nofollow"><title>Musikwünsche – ' . esc_html(get_bloginfo('name')) . '</title></head>'
+        // Web-App-Meta-Tags: „Zum Home-Bildschirm“ öffnet die DJ-Ansicht ohne Browserleisten (iPhone hat keine Vollbild-API)
+        echo '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+           . '<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#131020">'
+           . '<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">'
+           . '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Musikwünsche">'
+           . '<title>Musikwünsche – ' . esc_html(get_bloginfo('name')) . '</title></head>'
            . '<body style="margin:0;background:#131020;">' . self::shortcode_dj([]) . '</body></html>';
         exit;
     }
@@ -1153,13 +1157,52 @@ class TIX_Music {
 .tixdj-actions button.no{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.3)}
 .tixdj-empty{opacity:.6;text-align:center;padding:40px 10px;font-size:15px}
 .tixdj-foot{opacity:.45;font-size:12px;text-align:center;margin-top:18px}
-@media(max-width:600px){.tixdj{padding:12px}.tixdj-time{min-width:44px;font-size:15px}.tixdj-cover{width:44px;height:44px}.tixdj-actions button{padding:9px 10px}}
+@media(max-width:600px){.tixdj{padding:12px}.tixdj-head h1{font-size:20px}.tixdj-ev select{max-width:100%;flex:1 1 auto}
+  /* Handy kompakt: Titel volle Breite, Knöpfe in eigener Zeile */
+  .tixdj-row{flex-wrap:wrap;gap:4px 12px;padding:10px 12px}.tixdj-time{min-width:0;font-size:14px;text-align:left}.tixdj-cover{display:none}
+  .tixdj-main{flex:1 1 0}.tixdj-actions{flex:1 1 100%;justify-content:flex-end;margin-top:6px}.tixdj-actions button{padding:9px 14px;min-height:40px}
+  .tixdj-actions button[data-s=played],.tixdj-actions button[data-s=open]{flex:1}}
+.tixdj-ev{flex-wrap:wrap}
+.tixdj-fsbtn{display:inline-flex;align-items:center;gap:6px;background:#fff;color:#131020;border:none;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:800;cursor:pointer;min-height:40px}
+.tixdj-fsbtn svg{width:16px;height:16px}
+.tixdj-clock{display:none;font-variant-numeric:tabular-nums;font-weight:800;font-size:22px;opacity:.85}
+.tixdj-hint{display:none;background:#f5b731;color:#131020;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:600;margin:0 0 12px;align-items:center;gap:10px}
+.tixdj-hint.on{display:flex}
+.tixdj-hint span{flex:1}
+.tixdj-hint button{background:transparent;border:none;font-size:18px;font-weight:800;cursor:pointer;color:#131020;padding:0 4px}
+/* Vollbild: echtes Vollbild (Fullscreen-API) oder Ersatz per CSS (iPhone) */
+.tixdj.is-fs{position:fixed;inset:0;z-index:2147483000;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:100%;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.tixdj.is-fs .tixdj-clock{display:block}
+.tixdj.is-fs .tixdj-foot{display:none}
+.tixdj.is-fs .tixdj-head h1{font-size:24px}
+.tixdj.is-fs .tixdj-title{font-size:19px}
+.tixdj.is-fs .tixdj-actions button{padding:12px 14px;font-size:15px}
+@media(min-width:720px){
+  .tixdj.is-fs{padding:max(28px,env(safe-area-inset-top)) 36px 36px}
+  .tixdj.is-fs .tixdj-head h1{font-size:34px}
+  .tixdj.is-fs .tixdj-head .sub{font-size:17px}
+  .tixdj.is-fs .tixdj-clock{font-size:34px}
+  .tixdj.is-fs .tixdj-tabs button{font-size:17px;padding:11px 20px}
+  .tixdj.is-fs .tixdj-row{padding:18px 22px;gap:20px;border-radius:18px;margin-bottom:14px}
+  .tixdj.is-fs .tixdj-time{font-size:26px;min-width:80px}
+  .tixdj.is-fs .tixdj-cover{width:84px;height:84px;border-radius:12px}
+  .tixdj.is-fs .tixdj-title{font-size:30px}
+  .tixdj.is-fs .tixdj-artist{font-size:21px}
+  .tixdj.is-fs .tixdj-meta{font-size:16px}
+  .tixdj.is-fs .tixdj-count{font-size:19px;padding:6px 14px}
+  .tixdj.is-fs .tixdj-actions{gap:10px}
+  .tixdj.is-fs .tixdj-actions button{padding:16px 22px;font-size:19px;border-radius:14px;min-width:64px}
+  .tixdj.is-fs .tixdj-empty{font-size:22px;padding:80px 10px}
+}
+html.tixdj-lock,html.tixdj-lock body{overflow:hidden}
 </style>
 <div class="tixdj" id="tixdj">
   <div class="tixdj-head">
     <div><h1>🎧 Musikwünsche</h1><div class="sub" id="tixdj-sub">Lade …</div></div>
-    <div class="tixdj-ev"><span class="tixdj-live" id="tixdj-live" style="display:none"><i></i> LIVE</span><select id="tixdj-select"></select></div>
+    <div class="tixdj-ev"><span class="tixdj-clock" id="tixdj-clock"></span><span class="tixdj-live" id="tixdj-live" style="display:none"><i></i> LIVE</span><select id="tixdj-select"></select>
+      <button type="button" class="tixdj-fsbtn" id="tixdj-fs" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>Vollbild</span></button></div>
   </div>
+  <div class="tixdj-hint" id="tixdj-hint" role="status"><span>Für echtes Vollbild auf dem iPhone: Teilen → „Zum Home-Bildschirm“ und die DJ-Ansicht von dort öffnen.</span><button type="button" id="tixdj-hint-x" aria-label="Hinweis schließen">×</button></div>
   <div class="tixdj-tabs">
     <button data-f="open" class="on">Offen <span id="c-open">0</span></button>
     <button data-f="played">Gespielt <span id="c-played">0</span></button>
@@ -1217,7 +1260,44 @@ class TIX_Music {
   });
   $('tixdj-select').addEventListener('change',function(){eventId=parseInt(this.value,10)||0;load()});
   load(); timer=setInterval(load,8000);
-  document.addEventListener('visibilitychange',function(){if(!document.hidden)load()});
+  document.addEventListener('visibilitychange',function(){if(!document.hidden){load();if(fs)lock(true)}});
+
+  // ── Vollbild: Fullscreen-API, sonst (iPhone) Ersatz per CSS; Display bleibt an (Wake-Lock)
+  var root=$('tixdj'), btn=$('tixdj-fs'), fs=false, wake=null, clock=null;
+  var de=document.documentElement;
+  var canApi=!!(de.requestFullscreen||de.webkitRequestFullscreen);
+  var standalone=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+  function fsEl(){return document.fullscreenElement||document.webkitFullscreenElement}
+  function lock(on){
+    if(!('wakeLock' in navigator))return;
+    if(on){navigator.wakeLock.request('screen').then(function(w){wake=w}).catch(function(){})}
+    else if(wake){wake.release().catch(function(){});wake=null}
+  }
+  function tick(){var d=new Date();$('tixdj-clock').textContent=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
+  function setFs(on){
+    fs=on; root.classList.toggle('is-fs',on); de.classList.toggle('tixdj-lock',on);
+    btn.setAttribute('aria-pressed',on?'true':'false');
+    btn.querySelector('span').textContent=on?'Beenden':'Vollbild';
+    btn.setAttribute('aria-label',on?'Vollbild beenden (Esc)':'Vollbild');
+    lock(on); if(on){tick();clock=setInterval(tick,15000)}else{clearInterval(clock)}
+  }
+  function enter(){
+    if(canApi){var r=de.requestFullscreen?de.requestFullscreen():de.webkitRequestFullscreen();if(r&&r.catch)r.catch(function(){setFs(true)});setFs(true);return}
+    setFs(true);
+    if(!standalone){try{if(!sessionStorage.getItem('tixdj-hint'))$('tixdj-hint').classList.add('on')}catch(e){$('tixdj-hint').classList.add('on')}}
+  }
+  function leave(){
+    if(fsEl()){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}
+    setFs(false);
+  }
+  btn.addEventListener('click',function(e){e.stopPropagation();fs?leave():enter()});
+  $('tixdj-hint-x').addEventListener('click',function(e){e.stopPropagation();$('tixdj-hint').classList.remove('on');try{sessionStorage.setItem('tixdj-hint','1')}catch(x){}});
+  function onFsChange(){if(!fsEl()&&fs)setFs(false)}
+  document.addEventListener('fullscreenchange',onFsChange);
+  document.addEventListener('webkitfullscreenchange',onFsChange);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fs&&!fsEl())setFs(false)});
+  // ?vollbild=1 (Link aus Studio/App) und vom Home-Bildschirm gestartet: gleich groß
+  try{if(standalone||new URLSearchParams(location.search).get('vollbild')==='1')setFs(true)}catch(e){}
 })();
 </script>
         <?php
