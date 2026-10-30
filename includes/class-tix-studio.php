@@ -255,13 +255,22 @@ class TIX_Studio {
         return '#FC2F55';
     }
 
+    /** Schriften, die Studio und Website selbst ausliefern (1.38.599, Studio → Marke → Schriften wählen); '' = Vorgabe der Seite. */
+    const FONTS = ['figtree', 'inter', 'geist', 'manrope', 'system', 'plex', 'dmsans', 'jakarta', 'roboto'];
+
+    /** Gewählte Schrift der Seite oder '' (Vorgabe: Figtree im Studio, Manrope auf den Marken-Websites, Figtree auf evendis.de). */
+    public static function font() {
+        $f = (string) (self::brand()['font'] ?? '');
+        return in_array($f, self::FONTS, true) ? $f : '';
+    }
+
     /** Selbst gesetzte Marke: {accent: Hex|null, logo: URL|null}. */
     private static function custom_brand() {
         $b = self::brand();
         $id = intval($b['logo_id'] ?? 0);
         $logo = $id ? (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
         $acc = self::hex($b['accent'] ?? '');
-        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null, 'placeholder' => self::placeholder() !== null];
+        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null, 'placeholder' => self::placeholder() !== null, 'font' => self::font() ?: null];
     }
 
     /** Platzhalterbild der Seite für Events ohne Bild: {id, url (large), url_small (medium)} | null. */
@@ -427,6 +436,8 @@ class TIX_Studio {
             'name'       => html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' Studio',
             'accent'     => self::accent(),
             'logo'       => self::logo(),
+            // 1.38.599: Schrift für Studio und Website (Schlüssel aus FONTS, null = Vorgabe)
+            'font'       => self::font() ?: null,
             // Im Studio gesetzte Werte (null = nur Rückfall, z. B. Website-Icon) – 1.38.446
             'custom'     => self::custom_brand(),
             // 1.38.458: Marke gesammelt, mit Platzhalterbild für Events ohne Bild ({url, url_small} | null)
@@ -618,6 +629,12 @@ class TIX_Studio {
                 $b['accent'] = $h;
             }
         }
+        if ($has('font')) {
+            $fv = trim((string) ($req->get_param('font') ?? ''));
+            if ($fv === '') unset($b['font']);
+            elseif (!in_array($fv, self::FONTS, true)) return new WP_Error('tix_invalid_field', 'Diese Schrift gibt es nicht. Erlaubt: ' . implode(', ', self::FONTS) . '.', ['status' => 400, 'field' => 'font']);
+            else $b['font'] = $fv;
+        }
         if (!empty($files['logo']['tmp_name'])) {
             $id = self::store_logo($files['logo']);
             if (is_wp_error($id)) return $id;
@@ -680,7 +697,7 @@ class TIX_Studio {
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
         // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
         if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
             $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
@@ -694,7 +711,7 @@ class TIX_Studio {
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
             if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
         }
-        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Schrift, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
         // Eigene App übersteuern (nur Admin): true | false | null (automatisch)
         if ($has('has_app')) {
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt fest, ob die Seite eine eigene App hat.', ['status' => 403]);

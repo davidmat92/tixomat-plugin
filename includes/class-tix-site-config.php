@@ -199,6 +199,8 @@ class TIX_Site_Config {
             'name' => $name,
             'profile' => class_exists('TIX_Studio') ? TIX_Studio::app_layout() : 'club',
             'colors' => ['accent' => $accent, 'background' => null, 'glow' => null],
+            // 1.38.599: Schrift aus Studio → Marke → Schriften wählen (null = Vorgabe der Website); Dateien liefert die Website selbst aus
+            'font' => class_exists('TIX_Studio') && method_exists('TIX_Studio', 'font') ? (TIX_Studio::font() ?: null) : null,
             'logo' => ['light' => $logo ?: null, 'dark' => $logo ?: null],
             'icon' => (string) get_site_icon_url(512) ?: null,
             'favicon' => (string) get_site_icon_url(32) ?: null,
