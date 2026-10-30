@@ -8,7 +8,11 @@
  * passendem Schlüssel existiert und bezahlt ist.
  *
  * Tabelle {prefix}tix_web_stats (day, step, ref, n): ref = Event-ID (event/checkout/purchase), 0 bei view, Bestell-ID bei
- * dem Merker „po“ (Tag 2000-01-01, verhindert doppelte Käufe). Aufbewahrung 400 Tage.
+ * dem Merker „po“ (Tag 2000-01-01, verhindert doppelte Käufe), Veranstalter-ID bei „oview“ (Aufruf einer Veranstalterseite,
+ * evendis.de). Aufbewahrung 400 Tage.
+ *
+ * evendis (Mehr-Veranstalter-Modus, 1.38.598): Veranstalter sehen nur ihre Events (Inhaber/Team-Admin), ihr „Seitenaufruf“ ist
+ * der Aufruf ihrer Veranstalterseite; Admins sehen alles, optional ?organizer=<id>.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -42,8 +46,19 @@ class TIX_Web_Stats {
     }
 
     public static function routes() {
-        register_rest_route(self::NS, '/public/stats/hit', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_hit'], 'permission_callback' => ['TIX_Website', 'perm_public']]);
-        register_rest_route(self::NS, '/studio/stats/funnel', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_funnel'], 'permission_callback' => ['TIX_Website', 'perm']]);
+        register_rest_route(self::NS, '/public/stats/hit', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_hit'], 'permission_callback' => '__return_true']);
+        register_rest_route(self::NS, '/studio/stats/funnel', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_funnel'], 'permission_callback' => [__CLASS__, 'perm_funnel']]);
+    }
+
+    private static function multi() { return class_exists('TIX_App_Scope') && TIX_App_Scope::multi(); }
+
+    /** Einzel-Seite: wie /studio/website. evendis: Admin oder Inhaber/Team-Admin eines freigegebenen Veranstalters. */
+    public static function perm_funnel(WP_REST_Request $req) {
+        if (!self::multi()) return TIX_Website::perm($req);
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        if (current_user_can('manage_options')) return true;
+        if (TIX_App_Scope::is_org_manager() && TIX_App_Scope::organizer_id_for_user()) return true;
+        return new WP_Error('rest_forbidden', 'Die Auswertung sehen Inhaber und Admins.', ['status' => 403]);
     }
 
     private static function today() { return wp_date('Y-m-d'); }
@@ -68,7 +83,9 @@ class TIX_Web_Stats {
         $step = (string) $req->get_param('step');
         if (!in_array($step, self::STEPS, true) || self::throttled()) return $done;
         $event = max(0, intval($req->get_param('event_id')));
-        if ($event && get_post_type($event) !== 'event') $event = 0;
+        // Event-Schritte nur mit echtem Event (sonst verfälschen fremde/alte IDs die Summe)
+        if ($event && get_post_type($event) !== 'event') return $done;
+        if ($step !== 'view' && !$event) return $done;
         $day = self::today();
         if ($step === 'purchase') {
             $oid = intval($req->get_param('order_id'));
@@ -82,6 +99,9 @@ class TIX_Web_Stats {
             if (!$new) return $done;
         }
         self::bump($day, $step, $step === 'view' ? 0 : $event);
+        // Veranstalterseite (evendis): zusätzlich je Veranstalter
+        $org = max(0, intval($req->get_param('organizer_id')));
+        if ($step === 'view' && $org && get_post_type($org) === 'tix_organizer') self::bump($day, 'oview', $org);
         if (mt_rand(1, 500) === 1) self::purge();
         return $done;
     }
@@ -99,7 +119,18 @@ class TIX_Web_Stats {
         $to = self::today();
         $from = wp_date('Y-m-d', strtotime($to . ' 12:00:00') - ($days - 1) * DAY_IN_SECONDS);
         $t = self::table();
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT day, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('view','event','checkout','purchase') GROUP BY day, step", $from, $to));
+        // Bereich: Veranstalter (evendis, kein Admin) bzw. ?organizer= für Admins; 0 = ganze Seite
+        $org = 0;
+        if (self::multi()) {
+            $org = current_user_can('manage_options') ? max(0, intval($req->get_param('organizer'))) : intval(TIX_App_Scope::organizer_id_for_user());
+        }
+        if ($org) {
+            $ids = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [TIX_App_Scope::event_meta_clause($org)]]));
+            $in = $ids ? implode(',', $ids) : '0';
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, IF(step = 'oview', 'view', step) AS step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND ((step = 'oview' AND ref = %d) OR (step IN ('event','checkout','purchase') AND ref IN ($in))) GROUP BY day, IF(step = 'oview', 'view', step)", $from, $to, $org));
+        } else {
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('view','event','checkout','purchase') GROUP BY day, step", $from, $to));
+        }
         $byDay = [];
         $totals = array_fill_keys(self::STEPS, 0);
         foreach ((array) $rows as $r) {
@@ -111,7 +142,7 @@ class TIX_Web_Stats {
             $d = wp_date('Y-m-d', strtotime($from . ' 12:00:00') + $i * DAY_IN_SECONDS);
             $list[] = ['date' => $d] + array_merge(array_fill_keys(self::STEPS, 0), $byDay[$d] ?? []);
         }
-        $ev = $wpdb->get_results($wpdb->prepare("SELECT ref, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('event','checkout','purchase') AND ref > 0 GROUP BY ref, step", $from, $to));
+        $ev = $wpdb->get_results($wpdb->prepare("SELECT ref, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('event','checkout','purchase') AND ref > 0" . ($org ? " AND ref IN ($in)" : '') . " GROUP BY ref, step", $from, $to));
         $events = [];
         foreach ((array) $ev as $r) {
             $id = intval($r->ref);
@@ -119,7 +150,7 @@ class TIX_Web_Stats {
             $events[$id][$r->step] = intval($r->n);
         }
         usort($events, function ($a, $b) { return $b['event'] <=> $a['event'] ?: $b['purchase'] <=> $a['purchase']; });
-        return rest_ensure_response(['from' => $from, 'to' => $to, 'totals' => $totals, 'days' => $list, 'events' => array_slice(array_values($events), 0, 20)]);
+        return rest_ensure_response(['scope' => $org ? ['organizer' => $org, 'name' => html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8'), 'view' => 'organizer_page'] : ['organizer' => 0, 'view' => 'site'], 'from' => $from, 'to' => $to, 'totals' => $totals, 'days' => $list, 'events' => array_slice(array_values($events), 0, 20)]);
     }
 }
 
