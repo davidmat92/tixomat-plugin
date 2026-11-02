@@ -938,6 +938,8 @@ class TIX_REST_API {
 
         $posts  = get_posts($args);
         $events = [];
+        // Verkaufszahlen aller Events auf einmal (TIX_Sales_Figures, 1.38.606)
+        if (class_exists('TIX_Sales_Figures')) TIX_Sales_Figures::prime(wp_list_pluck($posts, 'ID'));
 
         foreach ($posts as $p) {
             $events[] = self::format_event($p);
@@ -1050,47 +1052,18 @@ class TIX_REST_API {
         if (!self::can_access_event($id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
         }
-        // Umsatz + Bestellungen aus den nativen Bestellungen (kein WooCommerce)
-        $total_revenue = 0;
-        $total_orders  = 0;
-        $total_tickets = 0;
+        // Eine Rechnung für alle Stellen (TIX_Sales_Figures, 1.38.606): Tickets = gültige Ticket-Posts, Umsatz nach Gutschein und Erstattung, ohne Gebühren
+        $fig = class_exists('TIX_Sales_Figures') ? TIX_Sales_Figures::event($id) : null;
+        $total_revenue = $fig ? $fig['revenue'] : 0;
+        $total_orders  = $fig ? $fig['orders'] : 0;
+        $total_tickets = $fig ? $fig['tickets'] : 0;
         $by_category   = [];
         $by_day        = [];
-        if (class_exists('TIX_Order')) {
-            $native_orders = TIX_Order::query([
-                'event_id' => $id,
-                'status'   => ['completed', 'processing'],
-                'limit'    => 5000,
-            ]);
-            foreach ((array) $native_orders as $native) {
-                $order_event_revenue   = 0;
-                $order_has_event_items = false;
-                $created = $native->get_date_created();
-                $day     = $created ? $created->format('Y-m-d') : '';
-                foreach ($native->get_items() as $item) {
-                    $item_event_id = $item->get_event_id();
-                    if ($item_event_id && $item_event_id != $id) continue;
-                    $order_has_event_items = true;
-                    $qty        = $item->get_quantity();
-                    $cat        = self::item_label($item);
-                    $item_total = (float) $item->get_total();
-                    $total_tickets       += $qty;
-                    $order_event_revenue += $item_total;
-                    if (!isset($by_category[$cat])) {
-                        $by_category[$cat] = ['revenue' => 0, 'tickets' => 0];
-                    }
-                    $by_category[$cat]['revenue'] += $item_total;
-                    $by_category[$cat]['tickets'] += $qty;
-                }
-                if ($order_has_event_items) {
-                    $total_orders++;
-                    $total_revenue += $order_event_revenue;
-                    if ($day) {
-                        $by_day[$day] = ($by_day[$day] ?? 0) + $order_event_revenue;
-                    }
-                }
-            }
+        foreach ($fig ? $fig['by_category'] : [] as $c) {
+            if ($c['tickets'] === 0 && $c['revenue'] == 0 && $c['items'] === 0) continue;
+            $by_category[$c['name']] = ['revenue' => $c['revenue'], 'tickets' => $c['index'] === null ? $c['items'] : $c['tickets']];
         }
+        foreach ($fig ? $fig['by_day'] : [] as $d => $x) if ($x['revenue'] != 0) $by_day[$d] = $x['revenue'];
         // Check-in-Quote: Gästeliste + Ticket-Posts
         $checkin_total = 0;
         $checkin_done  = 0;
@@ -1120,6 +1093,8 @@ class TIX_REST_API {
                 'checkin_total'  => $checkin_total,
                 'checkin_done'   => $checkin_done,
                 'checkin_rate'   => $checkin_rate,
+                // 1.38.606: gleiche Felder wie überall (Umsatz vor Erstattung, Erstattungen, Rabatte, Kundengebühren, Kapazität)
+                'sales'          => $fig ? TIX_Sales_Figures::summary($fig) : null,
             // 1.38.454 (rein hinzufügend, nur Inhaber/Team-Admins): sales_by_day, by_channel, by_source, checkin_by_slot, views, conversion
             ] + (class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager() ? TIX_Studio_Stats::event_extra($id) : []),
         ]);
@@ -1193,6 +1168,8 @@ class TIX_REST_API {
             'per_page' => $per,
             'has_more' => $page * $per < $total,
             'counts'   => $counts,
+            // 1.38.606: Summen über alle Bestellungen des Events (nicht nur diese Seite) – nicht selbst addieren
+            'summary'  => self::sales_payload($id),
         ]);
     }
 
@@ -2514,7 +2491,13 @@ class TIX_REST_API {
             foreach (['by_payment', 'by_category', 'by_hour'] as $k) $report[$k] = (object) $report[$k];
             return rest_ensure_response(['ok' => true, 'report' => $report]);
         }
-        foreach (self::pos_orders_for_day($date, ['completed', 'processing'], $event_id) as $order) {
+        $day_orders = self::pos_orders_for_day($date, ['completed', 'processing'], $event_id);
+        // Tickets, Kategorien und Stunden aus derselben Rechnung wie Statistik und Studio (TIX_Sales_Figures, 1.38.606):
+        // Kategorien/Stunden summieren sich zu `revenue` (= Bestellsummen + Geschenkgutscheine − Erstattungen)
+        $fig = class_exists('TIX_Sales_Figures') ? TIX_Sales_Figures::for_orders(array_map(function ($o) { return $o->get_id(); }, $day_orders), $event_id ? [$event_id] : []) : null;
+        $net = [];
+        foreach ($fig ? $fig['rows'] : [] as $r) $net[intval($r->id)] = ($net[intval($r->id)] ?? 0) + $r->money['net'];
+        foreach ($day_orders as $order) {
             $total   = floatval($order->get_total());
             $payment = substr((string) $order->get_payment_method(), 4) ?: 'cash';
             $created = $order->get_date_created();
@@ -2529,17 +2512,17 @@ class TIX_REST_API {
             }
             $report['by_payment'][$payment] = round(($report['by_payment'][$payment] ?? 0) + $total, 2);
             if (!isset($report['by_hour'][$hour])) $report['by_hour'][$hour] = ['revenue' => 0.0, 'tickets' => 0];
-            foreach ($order->get_items() as $item) {
-                $qty        = $item->get_quantity();
-                $cat_name   = self::item_label($item);
-                $item_total = floatval($item->get_total());
-                $report['total_tickets'] += $qty;
-                $report['by_hour'][$hour]['revenue'] = round($report['by_hour'][$hour]['revenue'] + $item_total, 2);
-                $report['by_hour'][$hour]['tickets'] += $qty;
-                if (!isset($report['by_category'][$cat_name])) $report['by_category'][$cat_name] = ['tickets' => 0, 'revenue' => 0.0];
-                $report['by_category'][$cat_name]['tickets'] += $qty;
-                $report['by_category'][$cat_name]['revenue'] = round($report['by_category'][$cat_name]['revenue'] + $item_total, 2);
+            $report['by_hour'][$hour]['revenue'] = round($report['by_hour'][$hour]['revenue'] + ($net[$order->get_id()] ?? 0), 2);
+            $report['by_hour'][$hour]['tickets'] += intval($fig['order_tickets'][$order->get_id()] ?? 0);
+        }
+        if ($fig) {
+            $report['total_tickets'] = $fig['totals']['tickets'];
+            foreach ($fig['totals']['by_category'] as $c) {
+                if ($c['tickets'] === 0 && $c['items'] === 0 && $c['revenue'] == 0) continue;
+                $report['by_category'][$c['name']] = ['tickets' => $c['index'] === null && $c['tickets'] === 0 ? $c['items'] : $c['tickets'], 'revenue' => $c['revenue']];
             }
+            $report['revenue'] = $fig['totals']['revenue'];
+            $report['sales'] = TIX_Sales_Figures::summary($fig['totals']);
         }
         $report['cancelled']     = count(self::pos_orders_for_day($date, ['cancelled', 'refunded'], $event_id));
         $report['total_revenue'] = round($report['total_revenue'], 2);
@@ -2667,6 +2650,16 @@ class TIX_REST_API {
         ];
     }
 
+    /** Verkaufszahlen eines Events für Antworten: Tickets für alle, Geldwerte nur für Inhaber/Team-Admins (1.38.606). */
+    public static function sales_payload($event_id) {
+        if (!class_exists('TIX_Sales_Figures')) return null;
+        $s = TIX_Sales_Figures::summary(TIX_Sales_Figures::event($event_id));
+        if (class_exists('TIX_Studio_Stats') && !TIX_Studio_Stats::is_manager()) {
+            foreach (['revenue', 'revenue_gross', 'refunds', 'discounts', 'fees'] as $k) $s[$k] = null;
+        }
+        return $s;
+    }
+
     private static function format_event($post, $detailed = false) {
         $id = $post->ID;
 
@@ -2766,6 +2759,8 @@ class TIX_REST_API {
             'total_capacity'   => $total_capacity,
             'total_available'  => $total_available,
             'total_sold'       => $total_sold,
+            // 1.38.606: dieselben Zahlen wie Statistik, Bericht und Studio (TIX_Sales_Figures); Umsatz nur für Inhaber/Team-Admins
+            'sales'            => self::sales_payload($id),
             'has_guest_list'   => (bool) get_post_meta($id, '_tix_guest_list_enabled', true),
             'has_checkin_password' => !empty(get_post_meta($id, '_tix_checkin_password', true)),
             // Studio (1.38.464, alle Seiten, auch Entwürfe): Ticket-Art + Bericht vorhanden
@@ -3405,7 +3400,29 @@ class TIX_REST_API {
             $out[] = self::format_native_order($order);
         }
 
-        return rest_ensure_response(['ok' => true, 'orders' => $out]);
+        $res = ['ok' => true, 'orders' => $out];
+        // 1.38.606: Summen heute / 7 / 30 Tage aus TIX_Sales_Figures (alle Bestellungen, nicht nur diese Liste) – nicht selbst addieren
+        if (class_exists('TIX_Sales_Figures') && class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager()) $res['summary'] = self::orders_summary($event_id);
+        return rest_ensure_response($res);
+    }
+
+    /** {today, days7, days30: {orders, tickets, revenue}, other: {revenue}} – Tickets/Umsatz wie Statistik (ohne Gutschein-/Guthaben-Verkäufe, die stehen in `other`). */
+    public static function orders_summary($event_id = 0) {
+        $to = current_time('Y-m-d');
+        $from = gmdate('Y-m-d', strtotime($to) - 29 * DAY_IN_SECONDS);
+        $ids = $event_id ? [intval($event_id)] : TIX_Export::accessible_event_ids();
+        $sys = array_values(array_filter($ids, function ($id) { return get_post_meta($id, '_tix_system_giftcard_event', true) === '1' || get_post_meta($id, '_tix_system_wallet_event', true) === '1'; }));
+        $ids = array_values(array_diff($ids, $sys));
+        $res = TIX_Sales_Figures::for_events($ids, $from, $to);
+        $sum = function ($days) use ($res, $to) {
+            $f = gmdate('Y-m-d', strtotime($to) - ($days - 1) * DAY_IN_SECONDS);
+            $o = ['orders' => 0, 'tickets' => 0, 'revenue' => 0.0];
+            foreach ($res['totals']['by_day'] as $d => $x) if ($d >= $f && $d <= $to) { $o['orders'] += $x['orders']; $o['tickets'] += $x['tickets']; $o['revenue'] += $x['revenue']; }
+            $o['revenue'] = round($o['revenue'], 2);
+            return $o;
+        };
+        $other = $sys ? TIX_Sales_Figures::for_events($sys, $from, $to)['totals']['revenue'] : 0.0;
+        return ['from' => $from, 'to' => $to, 'today' => $sum(1), 'days7' => $sum(7), 'days30' => $sum(30), 'other' => ['revenue' => $other, 'label' => 'Gutscheine und Guthaben (30 Tage)']];
     }
 
     /**

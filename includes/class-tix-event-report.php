@@ -115,25 +115,21 @@ class TIX_Event_Report {
      * – nur Kategorien mit Preisphasen; Phase = Phase mit dem gezahlten Preis, sonst „Normalpreis“ bzw. „Anderer Preis“.
      */
     public static function report_extras($event_id, array $tickets) {
+        // Bestellungen, Rabatte und Zahlarten aus der gemeinsamen Rechnung (TIX_Sales_Figures, 1.38.606)
         global $wpdb;
-        $t = $wpdb->prefix . 'tix_orders';
-        $ti = $wpdb->prefix . 'tix_order_items';
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT o.id, o.payment_method, o.payment_method_title, o.discount, o.subtotal,
-                SUM(CASE WHEN i.event_id = %d THEN i.total ELSE 0 END) AS ev_total, SUM(i.total) AS all_total
-            FROM $t o INNER JOIN $ti i ON i.order_id = o.id
-            WHERE o.status IN ('completed','processing') AND o.id IN (SELECT order_id FROM $ti WHERE event_id = %d)
-            GROUP BY o.id", $event_id, $event_id));
-        $orders = 0; $discounts = 0.0; $pay = [];
-        foreach ((array) $rows as $r) {
-            $orders++;
-            $base = floatval($r->all_total) > 0 ? floatval($r->all_total) : max(floatval($r->subtotal), floatval($r->ev_total));
-            $share = $base > 0 ? floatval($r->ev_total) / $base : 1.0;
-            $disc = round(floatval($r->discount) * $share, 2);
-            $discounts += $disc;
+        $res = TIX_Sales_Figures::for_events([$event_id]);
+        $f = $res['events'][$event_id] ?? TIX_Sales_Figures::empty_figures(0);
+        $orders = $f['orders']; $discounts = $f['discounts']; $pay = [];
+        $titles = [];
+        $ids = array_map(function ($r) { return intval($r->id); }, $res['rows']);
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ((array) $wpdb->get_results("SELECT id, payment_method_title FROM {$wpdb->prefix}tix_orders WHERE id IN (" . implode(',', $chunk) . ')') as $r) $titles[intval($r->id)] = (string) $r->payment_method_title;
+        }
+        foreach ($res['rows'] as $r) {
             $m = (string) ($r->payment_method ?: 'unknown');
-            if (!isset($pay[$m])) $pay[$m] = ['method' => $m, 'label' => (string) ($r->payment_method_title ?: $m), 'orders' => 0, 'revenue' => 0.0];
-            $pay[$m]['orders']++;
-            $pay[$m]['revenue'] += max(0, floatval($r->ev_total) - $disc);
+            if (!isset($pay[$m])) $pay[$m] = ['method' => $m, 'label' => (string) (($titles[intval($r->id)] ?? '') ?: $m), 'orders' => 0, 'revenue' => 0.0];
+            if ($r->money['paid']) $pay[$m]['orders']++;
+            $pay[$m]['revenue'] += $r->money['net'];
         }
         foreach ($pay as &$p) $p['revenue'] = round($p['revenue'], 2);
         unset($p);
@@ -1115,6 +1111,32 @@ class TIX_Event_Report {
         }
         usort($cat_list, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
 
+        // Kennzahlen wie überall (TIX_Sales_Figures, 1.38.606): Tickets = gültige Tickets echter Kategorien,
+        // Umsatz = gezahlt nach Gutschein und Erstattung, ohne Gebühren; Kategorien summieren sich zum Umsatz
+        if (class_exists('TIX_Sales_Figures')) {
+            $fig = TIX_Sales_Figures::event($event_id);
+            $sold = $fig['tickets']; $revenue = $fig['revenue']; $checked_in = $fig['checked_in'];
+            $by_name = [];
+            foreach ($fig['by_category'] as $fc) $by_name[mb_strtolower($fc['name'])] = $fc;
+            foreach ($cat_list as &$c) {
+                $fc = $by_name[mb_strtolower((string) $c['name'])] ?? null;
+                $c['sold'] = $fc ? ($fc['index'] === null ? $fc['items'] : $fc['tickets']) : 0;
+                $c['revenue'] = $fc ? $fc['revenue'] : 0.0;
+                $c['avg_price'] = $c['sold'] > 0 ? $c['revenue'] / $c['sold'] : 0;
+                $c['available'] = max(0, $c['capacity'] - $c['sold']);
+                $c['sold_through'] = $c['capacity'] > 0 ? round(($c['sold'] / $c['capacity']) * 100, 1) : 0;
+                unset($by_name[mb_strtolower((string) $c['name'])]);
+            }
+            unset($c);
+            foreach ($by_name as $fc) {
+                if ($fc['tickets'] === 0 && $fc['items'] === 0 && $fc['revenue'] == 0) continue;
+                $n = $fc['index'] === null ? $fc['items'] : $fc['tickets'];
+                $cat_list[] = ['name' => $fc['name'], 'sold' => $n, 'checked_in' => 0, 'revenue' => $fc['revenue'], 'avg_price' => $n > 0 ? $fc['revenue'] / $n : 0,
+                    'capacity' => 0, 'available' => 0, 'sold_through' => 0, 'stock_status' => 'unlimited'];
+            }
+            usort($cat_list, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
+        }
+
         // MwSt aus Settings (Fallback 19%)
         $vat_rate = floatval(tix_get_settings('vat_rate') ?: 19);
         $revenue_net = $revenue / (1 + $vat_rate / 100);
@@ -1134,6 +1156,8 @@ class TIX_Event_Report {
                 'payment_fees'           => round($payment_fees, 2),
                 'revenue_after_fees'     => round($revenue - $payment_fees, 2),
                 'revenue_net_after_fees' => round($revenue_net - $payment_fees, 2),
+                // 1.38.606: gleiche Felder wie Statistik und Studio
+                'sales'                  => class_exists('TIX_Sales_Figures') ? TIX_Sales_Figures::summary(TIX_Sales_Figures::event($event_id)) : null,
             ],
             'categories' => $cat_list,
             'tickets'    => $tickets,

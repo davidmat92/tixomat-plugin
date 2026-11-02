@@ -119,6 +119,21 @@ class TIX_Customers {
             $r->qty = intval($it->qty ?? 0);
             $out[intval($r->id)] = $r;
         }
+        // Umsatz und Tickets je Bestellung wie überall (TIX_Sales_Figures, 1.38.606): nach Gutschein und Erstattung, ohne Gebühren;
+        // Tickets = gültige Tickets echter Kategorien (Extras zählen nicht)
+        if ($out && class_exists('TIX_Sales_Figures')) {
+            $fig = TIX_Sales_Figures::for_orders(array_keys($out));
+            $own = function ($eid) use ($sc) { return !$sc['oid'] || intval(get_post_meta($eid, '_tix_organizer_id', true)) === $sc['oid']; };
+            foreach ($out as $r) { $r->own_total = 0.0; $r->qty = 0; }
+            foreach ($fig['rows'] as $fr) {
+                if (!isset($out[intval($fr->id)]) || !$own(intval($fr->eid))) continue;
+                $out[intval($fr->id)]->own_total += $fr->money['net'];
+            }
+            foreach ($fig['order_event_tickets'] as $oid => $by_ev) {
+                if (!isset($out[$oid])) continue;
+                foreach ($by_ev as $eid => $n) if ($own($eid)) $out[$oid]->qty += $n;
+            }
+        }
         return $out;
     }
 
@@ -331,6 +346,16 @@ class TIX_Customers {
             $totals['revenue'] += $ranged ? $r['range_revenue'] : $r['revenue'];
         }
         $totals['revenue'] = round($totals['revenue'], 2);
+        // 1.38.606: Umsatz aller Bestellungen im Bereich (auch Kasse ohne E-Mail) – gleiche Rechnung wie Statistik;
+        // Differenz = Bestellungen ohne Kunde. Nur ohne Suche/Filter aussagekräftig.
+        if (class_exists('TIX_Sales_Figures') && $q === '' && $source === 'all' && !$has_wallet) {
+            global $wpdb;
+            $eids = array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT event_id FROM {$wpdb->prefix}tix_order_items WHERE event_id > 0"));
+            if ($sc['oid']) $eids = array_values(array_filter($eids, function ($e) use ($sc) { return intval(get_post_meta($e, '_tix_organizer_id', true)) === $sc['oid']; }));
+            $all_rev = TIX_Sales_Figures::for_events($eids, $from, $to)['totals']['revenue'];
+            $totals['revenue_all'] = $all_rev;
+            $totals['revenue_without_customer'] = round(max(0, $all_rev - $totals['revenue']), 2);
+        }
         if ($sc['oid'] && class_exists('TIX_Mail_Follow')) $totals['followers'] = TIX_Mail_Follow::count($sc['oid']);
         if (self::$wallets !== null) {
             $wt = ['topped_up' => 0.0, 'spent' => 0.0, 'open' => 0.0];

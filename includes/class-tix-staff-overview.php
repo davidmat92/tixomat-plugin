@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
  *        images {event_id: großes Bild} der nächsten Events,
  *        event?: {id, today (Tickets heute), tickets, revenue (gesamt), image (groß)} mit event_id,
  *        live?: {event_id, checked_in, total, last15, last_checkin (Ortszeit), last_ago (Sekunden), slots: [5× je 15 Min., ältester zuerst]}}
- * Tage und Umsatz aus den nativen Bestellungen (Status abgeschlossen/in Bearbeitung), nur Events, die das Konto sehen
+ * Tage, Tickets und Umsatz aus TIX_Sales_Figures (1.38.606, wie Statistik und Studio), nur Events, die das Konto sehen
  * darf (Mehr-Veranstalter-Modus: eigener Veranstalter). Live nur mit `event_id` + `live=1` (Event des Tages): Einlässe der Ticket-
  * Posts nach `_tix_ticket_checkin_time`. 60 s zwischengespeichert je Konto.
  */
@@ -55,19 +55,17 @@ class TIX_Staff_Overview {
         // $now ist Ortszeit (current_time('timestamp')) → gmdate liefert den Ortstag
         for ($i = $days - 1; $i >= 0; $i--) $map[gmdate('Y-m-d', $now - $i * DAY_IN_SECONDS)] = ['tickets' => 0, 'revenue' => 0.0];
         $from = array_key_first($map);
-        $ok = [];
-        if (class_exists('TIX_Order')) {
-            foreach ((array) TIX_Order::query(['status' => ['completed', 'processing'], 'date_from' => $from, 'limit' => 20000]) as $o) {
-                $c = $o->get_date_created();
-                $day = $c ? $c->format('Y-m-d') : '';
+        // Gemeinsame Rechnung (TIX_Sales_Figures, 1.38.606): Tickets = gültige Tickets echter Kategorien, Umsatz nach Gutschein/Erstattung
+        if (class_exists('TIX_Sales_Figures') && class_exists('TIX_Order')) {
+            global $wpdb;
+            $t = TIX_Order::table_name(); $ti = TIX_Order::items_table_name();
+            $eids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT DISTINCT i.event_id FROM $ti i INNER JOIN $t o ON o.id = i.order_id WHERE o.date_created >= %s AND i.event_id > 0", $from . ' 00:00:00')));
+            $eids = array_values(array_filter($eids, function ($e) { return self::allowed($e) && get_post_meta($e, '_tix_system_giftcard_event', true) !== '1' && get_post_meta($e, '_tix_system_wallet_event', true) !== '1'; }));
+            $res = TIX_Sales_Figures::for_events($eids, $from, array_key_last($map));
+            foreach ($res['totals']['by_day'] as $day => $x) {
                 if (!isset($map[$day])) continue;
-                foreach ($o->get_items() as $it) {
-                    $e = intval($it->get_event_id());
-                    if (!array_key_exists($e, $ok)) $ok[$e] = $e && self::allowed($e);
-                    if (!$ok[$e]) continue;
-                    $map[$day]['tickets'] += intval($it->get_quantity());
-                    $map[$day]['revenue'] += (float) $it->get_total();
-                }
+                $map[$day]['tickets'] += $x['tickets'];
+                $map[$day]['revenue'] += $x['revenue'];
             }
         }
         $rows = [];
@@ -84,17 +82,11 @@ class TIX_Staff_Overview {
     public static function event($eid, $now = null) {
         $today = gmdate('Y-m-d', $now ?: current_time('timestamp'));
         $out = ['id' => intval($eid), 'today' => 0, 'tickets' => 0, 'revenue' => 0.0, 'image' => self::image($eid)];
-        if (!class_exists('TIX_Order')) return $out;
-        foreach ((array) TIX_Order::query(['event_id' => $eid, 'status' => ['completed', 'processing'], 'limit' => 20000]) as $o) {
-            $c = $o->get_date_created();
-            foreach ($o->get_items() as $it) {
-                if (intval($it->get_event_id()) !== intval($eid)) continue;
-                $q = intval($it->get_quantity());
-                $out['tickets'] += $q;
-                $out['revenue'] += (float) $it->get_total();
-                if ($c && $c->format('Y-m-d') === $today) $out['today'] += $q;
-            }
-        }
+        if (!class_exists('TIX_Sales_Figures')) return $out;
+        $f = TIX_Sales_Figures::event($eid);
+        $out['tickets'] = $f['tickets'];
+        $out['revenue'] = $f['revenue'];
+        $out['today'] = intval($f['by_day'][$today]['tickets'] ?? 0);
         $out['revenue'] = round($out['revenue'], 2);
         return $out;
     }

@@ -283,6 +283,7 @@ class TIX_Giftcards {
     public static function get_card(string $code): ?array {
         wp_cache_delete('tix_coupons', 'options');
         $coupons = get_option('tix_coupons', []);
+        if (!is_array($coupons)) return null; // leer gespeichert ('') → sonst PHP-Warnung in REST-Antworten
         foreach ($coupons as $k => $c) {
             if (strcasecmp($k, $code) === 0 && (($c['discount_type'] ?? '') === 'giftcard')) {
                 $c['code'] = $k;
@@ -448,6 +449,7 @@ class TIX_Giftcards {
         $order_id = intval($order_id);
         wp_cache_delete('tix_coupons', 'options');
         $coupons = get_option('tix_coupons', []);
+        if (!is_array($coupons)) return;
         $changed = [];
         foreach ($coupons as $k => &$c) {
             if (($c['discount_type'] ?? '') === 'giftcard' && intval($c['order_id'] ?? 0) === $order_id && floatval($c['balance'] ?? 0) > 0) {
