@@ -76,7 +76,7 @@ class TIX_App_Scope {
     }
 
     /** Veranstalter, bei dem der Nutzer Inhaber ist (beliebiger Status). */
-    private static function owned_organizer($uid) {
+    public static function owned_organizer($uid) {
         $uid = intval($uid);
         if (!$uid) return null;
         $orgs = get_posts([

@@ -9,6 +9,7 @@ function lc_rest($m, $r, array $b = []) { $q = new WP_REST_Request($m, '/tixomat
 $sfx = wp_rand(1000, 9999); $users = []; $posts = [];
 $mk = function ($role) use (&$users, $sfx) { $id = wp_insert_user(['user_login' => "lc_{$role}_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "lc_{$role}_$sfx@example.test", 'role' => $role]); $users[] = $id; return $id; };
 $owner = $mk('tix_organizer'); $helper = $mk('tix_entrance'); $other = $mk('tix_staff'); $guest = $mk('subscriber');
+update_user_meta($helper, '_tix_team_created', 1); // seit Audit 2026-11-03: Codes nur für selbst angelegte Helfer-Konten
 $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
 if ($multi) {
     $org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'LC Veranstalter', 'meta_input' => ['_tix_org_user_id' => $owner]]); $posts[] = $org;

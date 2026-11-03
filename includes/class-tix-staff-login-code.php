@@ -38,12 +38,25 @@ class TIX_Staff_Login_Code {
         return class_exists('TIX_Staff_Push') ? TIX_Staff_Push::is_staff($uid) : user_can($uid, 'manage_options');
     }
 
-    /** Darf $me für $target einen Code erzeugen? */
+    /** Rollen, für die ein anderer einen Code erzeugen darf (Helfer ohne eigenen Bereich). Audit 2026-11-03 (H2). */
+    const ISSUABLE_ROLES = ['tix_entrance', 'tix_cashier', 'tix_dj', 'tix_awareness', 'tix_staff'];
+    const NEVER_ROLES = ['administrator', 'tix_organizer', 'tix_sales'];
+
+    /**
+     * Darf $me für $target einen Code erzeugen?
+     * Audit 2026-11-03: nur für Helfer-Rollen (nie Inhaber, Team-Admin, Vertrieb, Admin) und nur für Konten, die das Team
+     * selbst angelegt hat (K1: sonst Übernahme eines Kundenkontos, das man vorher ins Team geholt hat). Site-Admins dürfen
+     * weiter für jedes Helfer-Konto.
+     */
     public static function may_issue_for($me, $target) {
         if ($me === $target) return true;
         if (!self::is_staff($target)) return false;
         $tu = get_user_by('id', $target);
-        if (!$tu || in_array('administrator', (array) $tu->roles, true)) return false; // nie für Admin-Konten
+        if (!$tu) return false;
+        $roles = (array) $tu->roles;
+        if (array_intersect(self::NEVER_ROLES, $roles) || !array_intersect(self::ISSUABLE_ROLES, $roles)) return false;
+        if (class_exists('TIX_App_Scope') && (TIX_App_Scope::owned_organizer($target) || TIX_App_Scope::is_org_manager($target))) return false;
+        if (!user_can($me, 'manage_options') && !get_user_meta($target, '_tix_team_created', true)) return false;
         $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
         if (!$multi) return user_can($me, 'manage_options') || in_array('tix_organizer', (array) get_userdata($me)->roles, true);
         $oid = TIX_App_Scope::organizer_id_for_user($me);

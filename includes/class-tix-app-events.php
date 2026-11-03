@@ -757,12 +757,16 @@ class TIX_App_Events {
 
             $cat['name']  = $name;
             $cat['price'] = max(0, round(floatval($in['price'] ?? 0), 2));
-            $sale = $in['sale_price'] ?? '';
-            $cat['sale_price'] = ($sale === '' || $sale === null) ? '' : max(0, round(floatval($sale), 2));
+            // Audit 2026-11-03 (K2): Aktionspreis, Beschreibung und „Versteckt“ nur setzen, wenn mitgeschickt – sonst bleiben
+            // sie (ein Editor ohne diese Felder, z. B. das Studio bis 1.38.609, löschte sie bei jedem Speichern)
+            if (!$has_index || array_key_exists('sale_price', $in)) {
+                $sale = $in['sale_price'] ?? '';
+                $cat['sale_price'] = ($sale === '' || $sale === null) ? '' : max(0, round(floatval($sale), 2));
+            }
             $qty = max(0, intval($in['qty'] ?? 0));
             $cat['qty']    = $qty;
-            $cat['desc']   = sanitize_text_field((string) ($in['desc'] ?? ''));
-            $cat['hidden'] = !empty($in['hidden']) ? 1 : 0;
+            if (!$has_index || array_key_exists('desc', $in)) $cat['desc'] = sanitize_text_field((string) ($in['desc'] ?? ''));
+            if (!$has_index || array_key_exists('hidden', $in)) $cat['hidden'] = !empty($in['hidden']) ? 1 : 0;
             // Preisphasen nur, wenn die App sie mitschickt (ältere Apps lassen sie unverändert)
             if (array_key_exists('phase_list', $in) && is_array($in['phase_list'])) {
                 $cat['phases'] = self::clean_phases($in['phase_list']);

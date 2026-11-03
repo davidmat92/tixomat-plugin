@@ -146,13 +146,19 @@ class TIX_Team {
             'invite_sent_at'   => $inv ? wp_date('c', $inv) : null,
             // 1.38.590: Admin setzt das Passwort für jede Rolle außer Admin – nie fürs eigene Konto
             'can_set_password' => $key !== 'admin_wp' && $key !== 'admin' && $u->ID !== get_current_user_id() && self::admin_may_set($u),
+            // Audit 2026-11-03: Anmelde-QR nur für selbst angelegte Helfer-Konten (TIX_Staff_Login_Code::may_issue_for)
+            'can_login_code'   => class_exists('TIX_Staff_Login_Code') && TIX_Staff_Login_Code::may_issue_for(get_current_user_id(), $u->ID),
         ];
     }
 
-    /** Erstes Passwort durch den Admin nur für Konten ohne eigenes Passwort (über das Team angelegt bzw. passwortlos). */
+    /**
+     * Erstes Passwort durch den Admin nur für Konten, die das Team selbst angelegt hat.
+     * Audit 2026-11-03 (K1): „passwortlos“ zählt nicht mehr – das sind Kundenkonten aus dem Code-Login von Gastbestellern;
+     * sonst hätte man einen Kunden ins Team holen und sein Passwort setzen können.
+     */
     private static function may_set_password(WP_User $u) {
         if (in_array('administrator', (array) $u->roles, true)) return false;
-        return (bool) get_user_meta($u->ID, self::META_CREATED, true) || (bool) get_user_meta($u->ID, '_tix_app_passwordless', true);
+        return (bool) get_user_meta($u->ID, self::META_CREATED, true);
     }
 
     /**
