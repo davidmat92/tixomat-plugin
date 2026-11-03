@@ -19,7 +19,8 @@ if (!defined('ABSPATH')) exit;
  *  - ticket_guests   verkaufte gültige Tickets (alle Kanäle)
  *  - guests_on_site  Gäste vor Ort = Check-ins im Zeitraum (Tickets + Gästeliste)
  *  - conversion      bezahlte Website-Bestellungen ÷ Event-Aufrufe (in %)
- * Trichter (Website): view → event → quote → checkout → order (angelegt) → purchase (bezahlt) → checkin (mit Einlass).
+ * Trichter (Website): view → event → checkout (Kasse geöffnet) → quote (Tickets gewählt, weiter zu „Deine Daten“) → order (angelegt)
+ * → purchase (bezahlt) → checkin (mit Einlass). „Kasse geöffnet“ behält seine Bedeutung von vor Stufe 1 (Vergleich mit alten Zahlen).
  * Kleine Gruppen: Quellen/Kampagnen mit weniger als 3 Aufrufen und ohne Kauf werden zu „weitere“ zusammengefasst.
  */
 class TIX_Stats_Audience {
@@ -28,7 +29,7 @@ class TIX_Stats_Audience {
     const PAID = ['completed', 'processing'];
     const MIN_GROUP = 3;
     const FUNNEL = [
-        'view' => 'Seitenaufrufe', 'event' => 'Event-Seite', 'quote' => 'Tickets gewählt', 'checkout' => 'Kasse geöffnet',
+        'view' => 'Seitenaufrufe', 'event' => 'Event-Seite', 'checkout' => 'Kasse geöffnet', 'quote' => 'Tickets gewählt',
         'order' => 'Bestellung angelegt', 'purchase' => 'Bezahlt', 'checkin' => 'Eingecheckt',
     ];
 
@@ -122,7 +123,7 @@ class TIX_Stats_Audience {
         if (!$detail) return ['kpis' => $kpis];
         $checked = self::orders_with_checkin($ids, array_keys($web_paid));
         $funnel = [];
-        $vals = ['view' => $eid ? null : $hits['view'], 'event' => $hits['event'], 'quote' => $hits['quote'], 'checkout' => $hits['checkout'],
+        $vals = ['view' => $eid ? null : $hits['view'], 'event' => $hits['event'], 'checkout' => $hits['checkout'], 'quote' => $hits['quote'],
             'order' => count($web), 'purchase' => count($web_paid), 'checkin' => count($checked)];
         foreach (self::FUNNEL as $k => $label) $funnel[] = ['key' => $k, 'label' => $label, 'n' => $vals[$k]];
         list($by_source, $by_campaign) = self::origins($ids, $org, $eid, $from, $to, $web_paid, $f);

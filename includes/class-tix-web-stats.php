@@ -15,7 +15,8 @@
  * der Aufruf ihrer Veranstalterseite; Admins sehen alles, optional ?organizer=<id>.
  *
  * Statistik Stufe 1 (1.38.617, docs/plan-statistik-marketing.md §4.1):
- *  - Schritt `quote` (Tickets gewählt) zusätzlich; `order`/`checkin` rechnet die Auswertung aus Bestellungen und Tickets.
+ *  - Schritt `quote` (Tickets gewählt = weiter zu „Deine Daten“, nach `checkout` = Kasse geöffnet) zusätzlich; `order`/`checkin`
+ *    rechnet die Auswertung aus Bestellungen und Tickets.
  *  - Dimensionen in {prefix}tix_web_stats_dim (day, step, org_id, event_id, channel web|app, source, medium, campaign, n):
  *    weiter nur Tageszähler ohne Personenbezug. Quelle = utm_source, sonst Referrer-Host (medium referral), sonst „direct“.
  *    Kleine Gruppen (< 3) fasst die Auswertung zusammen.

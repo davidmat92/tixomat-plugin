@@ -87,7 +87,7 @@ sa_eq('Website-Bestellungen bezahlt', 2, $k['web_orders'] ?? null);
 sa_eq('Conversion = 2 / 8', 25.0, $k['conversion'] ?? null);
 sa_eq('Besuche ohne Schalter = null', [true, null], [array_key_exists('visits', $k), $k['visits'] ?? null]);
 $fn = []; foreach ($r['funnel'] ?? [] as $x) $fn[$x['key']] = $x['n'];
-sa_eq('Trichter', ['view' => null, 'event' => 8, 'quote' => 3, 'checkout' => 2, 'order' => 3, 'purchase' => 2, 'checkin' => 1], $fn);
+sa_eq('Trichter', ['view' => null, 'event' => 8, 'checkout' => 2, 'quote' => 3, 'order' => 3, 'purchase' => 2, 'checkin' => 1], $fn);
 $src = []; foreach ($r['by_source'] ?? [] as $x) $src[$x['source']] = [$x['views'], $x['orders']];
 sa_eq('Quelle instagram: 5 Aufrufe, 1 Kauf', [5, 1], $src['instagram'] ?? null);
 sa_eq('Quelle direct: 2 Aufrufe, 1 Kauf', [2, 1], $src['direct'] ?? null);
