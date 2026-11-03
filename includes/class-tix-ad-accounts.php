@@ -554,7 +554,8 @@ class TIX_Ad_Accounts {
 
     /** Google Ads über die Weiche (Developer-Token liegt dort) */
     private static function google(array $body) {
-        $hash = hash('sha256', wp_json_encode($body));
+        // Signatur über feste Felder (nicht über JSON: PHP und Node kodieren unterschiedlich)
+        $hash = hash('sha256', implode("\n", [(string) ($body['op'] ?? ''), (string) ($body['access_token'] ?? ''), (string) ($body['customer_id'] ?? ''), (string) ($body['login_customer_id'] ?? ''), (string) ($body['query'] ?? '')]));
         $r = self::hub('/api/connect/google', $body + ['body_hash' => $hash], 'google|{ts}|' . $hash);
         if (is_wp_error($r)) return $r;
         list($code, $j) = $r;
