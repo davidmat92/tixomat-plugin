@@ -92,11 +92,36 @@ class TIX_App_Config {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
             return TIX_App_Scope::deny('Die App-Inhalte pflegt der Plattform-Betreiber. Deine Veranstalter-Seite bearbeitest du unter „Veranstalter-Seite“.');
         }
+        // Audit 2026-11-03 (H4): App-Inhalte (und damit HTML der Website) nur Admin bzw. Inhaber/Team-Admin, nie Mitarbeiter
+        if ($deny = self::deny_staff()) return $deny;
         $b = $req->get_json_params();
         if (!is_array($b)) {
             return new WP_Error('bad_data', 'Ungültige Daten.', ['status' => 400]);
         }
         unset($b['ok']);
+        // Audit 2026-11-03 (H11, M18): Editoren, die GET /app/config ganz zurückschicken, senden `features` (Karte mit
+        // enabled/can_edit) und den gemischten `contact` mit. Unveränderte Werte nicht anwenden bzw. nicht einfrieren.
+        if (isset($b['features']) && is_array($b['features']) && class_exists('TIX_Features')) {
+            $cur = TIX_Features::map();
+            foreach ($b['features'] as $k => $v) {
+                $now = $cur[$k] ?? null;
+                $same = wp_json_encode($v) === wp_json_encode($now)
+                    || (is_array($v) && is_array($now) && array_key_exists('enabled', $v) && array_key_exists('enabled', $now) && (bool) $v['enabled'] === (bool) $now['enabled'] && count(array_diff(array_keys($v), ['enabled', 'can_edit'])) === 0)
+                    || (is_bool($v) && is_array($now) && array_key_exists('enabled', $now) && $v === (bool) $now['enabled']);
+                if ($same) unset($b['features'][$k]);
+                elseif (is_array($v) && array_key_exists('enabled', $v) && count(array_diff(array_keys($v), ['enabled', 'can_edit'])) === 0) $b['features'][$k] = (bool) $v['enabled'];
+            }
+            if (!$b['features']) unset($b['features']);
+        }
+        if (isset($b['contact']) && is_array($b['contact']) && class_exists('TIX_Site_Config')) {
+            $stored = get_option('_tix_app_config', []);
+            $stored = is_array($stored) && isset($stored['contact']) && is_array($stored['contact']) ? $stored['contact'] : [];
+            $sc = array_filter(TIX_Site_Config::contact(), function ($v) { return $v !== null && $v !== ''; });
+            $echo = $sc ? array_replace($stored, $sc) : $stored;
+            if (wp_json_encode($b['contact']) === wp_json_encode($echo)) { if ($stored) $b['contact'] = $stored; else unset($b['contact']); }
+        }
+        // Audit 2026-11-03 (H3): HTML der Textseiten/FAQ landet auf der Website (gleiche Herkunft wie WordPress) → kses
+        if (isset($b['pages']) && is_array($b['pages'])) $b['pages'] = self::kses_pages($b['pages']);
         // App-Funktionen an/aus mitgeschickt (1.38.524, „Einstellungen App = Studio“): wie POST /studio/features, nie in die App-Inhalte
         $sent_features = false;
         foreach (['app_features', 'features'] as $fk) {
@@ -136,6 +161,21 @@ class TIX_App_Config {
         return rest_ensure_response(['ok' => true]);
     }
 
+    /** Mitarbeiter (tix_staff, Einlass, Kasse …) dürfen App-Inhalte lesen, aber nicht ändern. */
+    private static function deny_staff() {
+        if (current_user_can('manage_options')) return null;
+        $u = wp_get_current_user();
+        if ($u && $u->ID && in_array('tix_organizer', (array) $u->roles, true)) return null;
+        return new WP_Error('rest_forbidden', 'App-Inhalte ändern Admin und Inhaber.', ['status' => 403]);
+    }
+
+    /** HTML-Felder (html, a, answer, content) rekursiv durch wp_kses_post. */
+    private static function kses_pages($v, $key = '') {
+        if (is_array($v)) { foreach ($v as $k => $x) $v[$k] = self::kses_pages($x, (string) $k); return $v; }
+        if (is_string($v) && in_array($key, ['html', 'a', 'answer', 'content'], true)) return wp_kses_post($v);
+        return $v;
+    }
+
     public static function register_routes() {
         $organizer = ['TIX_REST_API', 'check_organizer'];
         register_rest_route(self::NS, '/app/config', [
@@ -158,6 +198,7 @@ class TIX_App_Config {
     }
 
     public static function rest_image(WP_REST_Request $req) {
+        if ($deny = self::deny_staff()) return $deny; // Audit 2026-11-03 (H4)
         $kind = sanitize_key((string) ($req->get_param('kind') ?: 'image'));
         if (!in_array($kind, ['banner', 'image'], true)) return new WP_Error('tix_invalid_field', 'kind: banner oder image.', ['status' => 400, 'field' => 'kind']);
         $files = $req->get_file_params();

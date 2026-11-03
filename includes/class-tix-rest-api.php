@@ -1251,6 +1251,21 @@ class TIX_REST_API {
         $status = get_post_meta($ticket->ID, '_tix_ticket_status', true) ?: 'valid';
         $name   = get_post_meta($ticket->ID, '_tix_ticket_owner_name', true);
 
+        // Audit 2026-11-03 (H1): Am Einlass von Event A kein Ticket von Event B einchecken (vorher wurde es verbraucht)
+        if ($event_id && $ticket_event_id && $ticket_event_id !== intval($event_id)) {
+            $d = (string) get_post_meta($ticket_event_id, '_tix_date_start', true);
+            return rest_ensure_response([
+                'ok'          => true,
+                'status'      => 'invalid',
+                'wrong_event' => true,
+                'ticket_event' => ['id' => $ticket_event_id, 'title' => html_entity_decode((string) get_the_title($ticket_event_id), ENT_QUOTES, 'UTF-8'), 'date' => $d],
+                'name'        => $name,
+                'type'        => 'ticket',
+                'code'        => $code,
+                'message'     => 'Falsches Event: Dieses Ticket gilt für „' . html_entity_decode((string) get_the_title($ticket_event_id), ENT_QUOTES, 'UTF-8') . '“' . ($d ? ' am ' . date_i18n('d.m.Y', strtotime($d . ' 12:00:00')) : '') . '.',
+            ]);
+        }
+
         if ($status === 'cancelled') {
             return rest_ensure_response([
                 'ok'      => true,
@@ -2172,6 +2187,8 @@ class TIX_REST_API {
             $subtotal += $price * $qty;
         }
         // Gutschein-Code (Rabatt/Geschenkgutschein) wie in der App-Kasse; ungültig → 409 statt still ignorieren (1.38.484)
+        // Audit 2026-11-03 (H5): „Kostenlos“ → kein Gutschein (sonst rechnet app_prepare_cart mit echten Preisen und bucht ab)
+        if ($payment === 'free') $coupon_code = '';
         if ($coupon_code !== '' && method_exists('TIX_Native_Checkout', 'app_prepare_cart')) {
             $cart = TIX_Native_Checkout::app_prepare_cart($cart, $coupon_code);
             if (empty($cart['coupon']['code'])) {

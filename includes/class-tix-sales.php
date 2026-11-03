@@ -207,6 +207,10 @@ class TIX_Sales {
             if ($u->has_cap('manage_options')) return new WP_Error('tix_invalid_field', 'Admins brauchen keinen Vertriebs-Zugang.', ['status' => 409, 'field' => 'email']);
             $owned = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => '_tix_org_user_id', 'meta_value' => $u->ID]);
             if ($owned) return new WP_Error('tix_invalid_field', 'Dieses Konto gehört zu einem Veranstalter.', ['status' => 409, 'field' => 'email']);
+            // Audit 2026-11-03 (H9): nie ein Team-Mitglied eines anderen Veranstalters umhängen; alten Stand merken
+            $team = intval(get_user_meta($u->ID, '_tix_team_organizer_id', true));
+            if ($team && $team !== intval(self::demo_id())) return new WP_Error('tix_invalid_field', 'Dieses Konto gehört zum Team eines Veranstalters. Bitte eine andere E-Mail nehmen.', ['status' => 409, 'field' => 'email']);
+            if (!in_array(self::ROLE, (array) $u->roles, true)) update_user_meta($u->ID, '_tix_sales_prev', ['roles' => array_values((array) $u->roles), 'team' => $team]);
             $created = false;
         } else {
             $login = sanitize_user(strtok($email, '@'), true) ?: 'vertrieb';
@@ -216,6 +220,7 @@ class TIX_Sales {
             if (is_wp_error($uid)) return new WP_Error('tix_invalid_field', $uid->get_error_message(), ['status' => 400, 'field' => 'email']);
             $u = get_userdata($uid);
             $created = true;
+            update_user_meta($u->ID, '_tix_sales_created', 1);
         }
         if (!$created) wp_update_user(['ID' => $u->ID, 'display_name' => $name]);
         self::attach($u->ID);
@@ -247,6 +252,17 @@ class TIX_Sales {
         if (!$u || !in_array(self::ROLE, (array) $u->roles, true)) return new WP_Error('tix_not_found', 'Vertriebs-Konto nicht gefunden.', ['status' => 404]);
         $admin = get_current_user_id();
         if (class_exists('TIX_Sales_Previews') && method_exists('TIX_Sales_Previews', 'reassign')) TIX_Sales_Previews::reassign($u->ID, $admin);
+        // Audit 2026-11-03 (H9): nur selbst angelegte Konten löschen; bestehende (Kunde) bekommen ihren alten Stand zurück
+        $prev = get_user_meta($u->ID, '_tix_sales_prev', true);
+        if (!get_user_meta($u->ID, '_tix_sales_created', true) && is_array($prev)) {
+            $u->remove_role(self::ROLE);
+            if (!in_array('tix_organizer', (array) ($prev['roles'] ?? []), true)) $u->remove_role('tix_organizer');
+            foreach ((array) ($prev['roles'] ?? []) as $r) if (!in_array($r, (array) $u->roles, true)) $u->add_role($r);
+            if (!$u->roles) $u->add_role('subscriber');
+            if (!empty($prev['team'])) update_user_meta($u->ID, '_tix_team_organizer_id', intval($prev['team'])); else delete_user_meta($u->ID, '_tix_team_organizer_id');
+            delete_user_meta($u->ID, '_tix_sales_prev');
+            return rest_ensure_response(['ok' => true, 'deleted' => false, 'restored' => true]);
+        }
         if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
         wp_delete_user($u->ID, $admin);
         return rest_ensure_response(['ok' => true, 'deleted' => true]);

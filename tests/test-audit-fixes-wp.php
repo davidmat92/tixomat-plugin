@@ -78,6 +78,58 @@ af_eq('K2 mitgeschickt leer = gelöscht (Aktionspreis)', '', $c[0]['sale_price']
 af_eq('K2 mitgeschickt false = sichtbar', 0, intval($c[1]['hidden'] ?? 9));
 af_eq('Emoji-Slug ohne %', false, strpos((string) get_post_field('post_name', $ev), '%') !== false);
 
+// ── H1: Einlass von Event A nimmt kein Ticket von Event B ──
+$evA = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'AF A', 'meta_input' => ['_tix_organizer_id' => $org, '_tix_date_start' => wp_date('Y-m-d')]]); $posts[] = $evA;
+$evB = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'AF B', 'meta_input' => ['_tix_organizer_id' => $org, '_tix_date_start' => wp_date('Y-m-d', time() + 86400)]]); $posts[] = $evB;
+$tk = wp_insert_post(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'post_title' => 'AFTK' . $sfx . 'XYZ0', 'meta_input' => ['_tix_ticket_event_id' => $evB, '_tix_ticket_code' => 'AFTK' . $sfx . 'XYZ0', '_tix_ticket_status' => 'valid', '_tix_ticket_cat_index' => 0]]); $posts[] = $tk;
+wp_set_current_user($owner);
+[$st, $d] = af_rest('POST', '/checkin/scan', ['code' => 'AFTK' . $sfx . 'XYZ0', 'event_id' => $evA]);
+af_eq('H1 falsches Event abgelehnt', 'invalid', $d['status'] ?? '');
+af_eq('H1 Grund wrong_event', true, !empty($d['wrong_event']));
+af_eq('H1 Ticket nicht verbraucht', 'valid', get_post_meta($tk, '_tix_ticket_status', true));
+[$st, $d] = af_rest('POST', '/checkin/scan', ['code' => 'AFTK' . $sfx . 'XYZ0', 'event_id' => $evB]);
+af_eq('H1 richtiges Event geht', true, in_array($d['status'] ?? '', ['valid', 'success', 'ok', 'checked_in'], true) || !empty($d['ok']) && ($d['status'] ?? '') !== 'invalid');
+
+// ── H3/H4/H11: App-Inhalte ──
+if (!$multi) {
+    $staffer = $mk('tix_staff', 'staff');
+    wp_set_current_user($staffer);
+    [$st] = af_rest('POST', '/app/config', ['pages' => ['kontakt' => ['html' => '<p>x</p>']]]);
+    af_eq('H4 Mitarbeiter darf App-Inhalte nicht ändern', 403, $st);
+    wp_set_current_user($owner);
+    $prev = get_option('_tix_app_config', null);
+    [$st] = af_rest('POST', '/app/config', ['pages' => ['kontakt' => ['html' => '<p>Hallo</p><img src=x onerror=alert(1)><a href="javascript:alert(1)">x</a>'], 'faq' => ['faq' => [['q' => 'F', 'a' => '<script>alert(1)</script>ok']]]]]);
+    af_eq('H4 Inhaber darf', 200, $st);
+    $cfg = get_option('_tix_app_config', []);
+    $html = (string) ($cfg['pages']['kontakt']['html'] ?? '');
+    af_eq('H3 onerror entfernt', false, stripos($html, 'onerror') !== false);
+    af_eq('H3 javascript: entfernt', false, stripos($html, 'javascript:') !== false);
+    af_eq('H3 script in FAQ entfernt', false, stripos((string) ($cfg['pages']['faq']['faq'][0]['a'] ?? ''), '<script') !== false);
+    // H11: GET-Antwort unverändert zurückschicken → 200, keine Schalter neu gesetzt
+    [, $G] = af_rest('GET', '/app/config');
+    unset($G['ok']);
+    [$st, $d] = af_rest('POST', '/app/config', is_array($G) ? $G : []);
+    af_eq('H11 ganze GET-Antwort zurück = 200', 200, $st);
+    if ($prev === null) delete_option('_tix_app_config'); else update_option('_tix_app_config', $prev, false);
+}
+
+// ── H9: Vertriebler aus bestehendem Konto, Entfernen löscht es nicht ──
+if ($multi && class_exists('TIX_Sales')) {
+    wp_set_current_user(1);
+    $gast = $mk('subscriber', 'vgast');
+    [$st, $d] = af_rest('POST', '/platform/sales', ['email' => "af_vgast_$sfx@example.test", 'name' => 'V Gast']);
+    af_eq('H9 bestehendes Kundenkonto als Vertrieb', 201, $st);
+    [$st, $d] = af_rest('DELETE', "/platform/sales/$gast");
+    af_eq('H9 Entfernen ok', 200, $st);
+    $gu = get_userdata($gast);
+    af_eq('H9 Kundenkonto bleibt bestehen', true, (bool) $gu);
+    af_eq('H9 Rolle zurück auf subscriber', ['subscriber'], $gu ? array_values((array) $gu->roles) : []);
+    $tm = $mk('tix_entrance', 'vteam'); $org2 = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'AF Fremd']); $posts[] = $org2;
+    update_user_meta($tm, '_tix_team_organizer_id', $org2);
+    [$st] = af_rest('POST', '/platform/sales', ['email' => "af_vteam_$sfx@example.test", 'name' => 'V Team']);
+    af_eq('H9 Team-Mitglied eines Veranstalters abgelehnt', 409, $st);
+}
+
 // Aufräumen
 wp_set_current_user(1);
 foreach ($posts as $p) wp_delete_post($p, true);
