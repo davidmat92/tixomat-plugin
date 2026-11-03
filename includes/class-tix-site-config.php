@@ -194,6 +194,12 @@ class TIX_Site_Config {
         $wallet = class_exists('TIX_Wallet_Balance') && method_exists('TIX_Wallet_Balance', 'settings') && !empty(TIX_Wallet_Balance::settings()['enabled']);
         $banner = class_exists('TIX_Consent_Banner') ? TIX_Consent_Banner::settings() : null;
         $pixel_on = !empty($s['meta_pixel_enabled']) && !empty($s['meta_pixel_id']);
+        $bid = class_exists('TIX_Conversions') ? TIX_Conversions::browser_ids() : [];
+        // Fund Stufe 3a: TIX_Google_Tag schreibt GA4/Ads nur in wp_head – die öffentlichen Seiten kommen aber aus Next und laden
+        // WordPress nie. Alte WP-Einstellungen gelten deshalb als Rückfall für die Website (nur eigene Shops, nicht evendis.de).
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        if (!$multi && empty($bid['ga4']) && !empty($s['ga4_enabled']) && preg_match('/^G-[A-Z0-9]{4,15}$/', (string) ($s['ga4_measurement_id'] ?? ''))) $bid['ga4'] = (string) $s['ga4_measurement_id'];
+        if (!$multi && empty($bid['gads']) && !empty($s['google_ads_enabled']) && preg_match('/^AW-\d{6,15}$/', (string) ($s['google_ads_id'] ?? ''))) $bid['gads'] = ['id' => (string) $s['google_ads_id'], 'label' => (string) ($s['google_ads_conversion_label'] ?? '')];
         $name = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
         return [
             'name' => $name,
@@ -224,7 +230,12 @@ class TIX_Site_Config {
                 'app_banner' => (bool) $app['has_app'],
             ],
             'tracking' => [
-                'meta_pixel_id' => $pixel_on ? (string) $s['meta_pixel_id'] : null,
+                // Stufe 3a: Browser-IDs aus dem Studio (Statistik & Werbung) vor den alten WP-Einstellungen; nur nach Einwilligung laden
+                'meta_pixel_id' => ($bid['meta'] ?? '') !== '' ? $bid['meta'] : ($pixel_on ? (string) $s['meta_pixel_id'] : null),
+                'tiktok_pixel_id' => ($bid['tiktok'] ?? '') !== '' ? $bid['tiktok'] : null,
+                'ga4_id' => ($bid['ga4'] ?? '') !== '' ? $bid['ga4'] : null,
+                'google_ads' => $bid['gads'] ?? null,
+                'matomo' => class_exists('TIX_Matomo') ? TIX_Matomo::browser(0) : null,
                 'meta_consent_mode' => $pixel_on ? (string) ($s['meta_consent_mode'] ?? 'always') : null,
                 // Statistik Stufe 1: geschätzte Besuche (F1 B) – die Website schickt den Tages-Hash nur, wenn das an ist
                 'visits' => class_exists('TIX_Web_Stats') && TIX_Web_Stats::visits_on(),

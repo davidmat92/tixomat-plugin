@@ -752,8 +752,11 @@ require_once TIXOMAT_PATH . 'includes/class-tix-export.php';
 TIX_Export::init();
 // ── Studio Paket 2: Statistik, Kanäle, Einlass-/Gutschein-Export, Ticket umschreiben (1.38.454) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-stats.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-stats-audience.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-ad-accounts.php'; // Statistik Stufe 2: Werbekonten (Meta, Google Ads, TikTok) über connect.evendis.de, Werbekosten, Kosten von Hand // Statistik Stufe 1: Kennzahlen-Katalog GET /organizer/stats/audience
+require_once TIXOMAT_PATH . 'includes/class-tix-stats-audience.php'; // Statistik Stufe 1: Kennzahlen-Katalog GET /organizer/stats/audience
+require_once TIXOMAT_PATH . 'includes/class-tix-ad-accounts.php'; // Statistik Stufe 2: Werbekonten (Meta, Google Ads, TikTok) über connect.evendis.de, Werbekosten, Kosten von Hand
+require_once TIXOMAT_PATH . 'includes/class-tix-conversions.php'; // Stufe 3a: Conversion-Verteiler (Meta CAPI, TikTok Events API, GA4 MP) + Tracking-IDs
+require_once TIXOMAT_PATH . 'includes/class-tix-consent-log.php'; // Stufe 3a: Nachweis der Banner-Einwilligung (ohne IP)
+require_once TIXOMAT_PATH . 'includes/class-tix-matomo.php'; // Stufe 3a: Matomo (stats.evendis.de oder eigenes), Reporting im Studio, Kauf über die Tracking API
 TIX_Studio_Stats::init();
 // ── Info-Abschnitte (Reihenfolge, Künstler-Info, Barrierefreiheit) + Textfelder im Editor (1.38.455) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-texts.php';

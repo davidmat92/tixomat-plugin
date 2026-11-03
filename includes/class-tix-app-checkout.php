@@ -1614,11 +1614,19 @@ class TIX_App_Checkout {
         // Browser für den späteren Kauf-Event speichern (der Webhook kennt sie nicht)
         $fbp = $clip($attr['fbp'] ?? '', 200);
         $fbc = $clip($attr['fbc'] ?? '', 500);
+        // Statistik-Einwilligung (Stufe 3a): GA4-Client-ID (_ga) und Matomo-Besucher-ID (_pk_id) für die Kauf-Meldung
+        if (!empty($attr['consent_analytics'])) {
+            $an = [];
+            $ai = is_array($attr['analytics_ids'] ?? null) ? $attr['analytics_ids'] : [];
+            if (preg_match('/^\d{5,12}\.\d{5,12}$/', (string) ($ai['ga_cid'] ?? ''))) $an['ga_cid'] = (string) $ai['ga_cid'];
+            if (preg_match('/^[a-f0-9]{16}$/', (string) ($ai['pk_vid'] ?? ''))) $an['pk_vid'] = (string) $ai['pk_vid'];
+            TIX_Order_Attribution::set($order_id, ['consent_analytics' => 1] + ($an ? ['analytics_ids' => $an] : []));
+        }
         // Klick-IDs der Werbenetze nur mit Einwilligung „Marketing“ (die Website schickt sie nur dann mit)
         $consent = $fbp !== '' || $fbc !== '' || !empty($attr['consent_marketing']);
         if ($consent && !empty($attr['click_ids']) && is_array($attr['click_ids'])) {
             $ids = [];
-            foreach (['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'sccid', 'epik', 'msclkid'] as $k) {
+            foreach (['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'ttp', 'sccid', 'epik', 'msclkid'] as $k) {
                 $v = (string) ($attr['click_ids'][$k] ?? '');
                 if ($v !== '' && preg_match('/^[A-Za-z0-9._~-]{1,255}$/', $v)) $ids[$k] = $v;
             }

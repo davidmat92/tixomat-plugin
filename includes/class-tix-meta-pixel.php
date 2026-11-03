@@ -336,7 +336,9 @@ class TIX_Meta_Pixel {
             && (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbp') === '' && (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbc') === '') {
             $no_consent = true;
         }
-        if (!$no_consent && !empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
+        // Stufe 3a: Ist Meta im Conversion-Verteiler (Studio → Statistik & Werbung) eingetragen, meldet nur der – nie doppelt
+        $new_path = class_exists('TIX_Conversions') && TIX_Conversions::handles_meta_site();
+        if (!$new_path && !$no_consent && !empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
             // Bei Website-Bestellungen kommen IP/Browser/fbp/fbc aus der Bestellung (der Kauf wird
             // meist im Zahlungs-Webhook abgeschlossen, der den Besucher nicht kennt)
             $saved_ip = (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_client_ip');

@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) exit;
  */
 class TIX_Order_Attribution {
 
-    const DB_VERSION = '2'; // 2 = utm_id (Kampagnen-ID der Werbung, Stufe 2)
+    const DB_VERSION = '3'; // 2 = utm_id (Stufe 2), 3 = consent_analytics + analytics_ids (Stufe 3a: GA4, Matomo)
     const BATCH = 500;
 
     /** alter Postmeta-Schlüssel → Spalte */
@@ -73,6 +73,8 @@ class TIX_Order_Attribution {
             promoter_attribution VARCHAR(20) NOT NULL DEFAULT '',
             promoter_done TINYINT(1) NOT NULL DEFAULT 0,
             consent_marketing TINYINT(1) NULL DEFAULT NULL,
+            consent_analytics TINYINT(1) NULL DEFAULT NULL,
+            analytics_ids TEXT NULL,
             fbp VARCHAR(200) NOT NULL DEFAULT '',
             fbc VARCHAR(500) NOT NULL DEFAULT '',
             client_ip VARCHAR(64) NOT NULL DEFAULT '',
@@ -144,7 +146,8 @@ class TIX_Order_Attribution {
             elseif ($k === 'promoter_id') { $row[$k] = max(0, intval($v)); $fmt[] = '%d'; }
             elseif ($k === 'promoter_done') { $row[$k] = $v ? 1 : 0; $fmt[] = '%d'; }
             elseif ($k === 'consent_marketing') { $row[$k] = $v === null ? null : ($v ? 1 : 0); $fmt[] = $v === null ? null : '%d'; }
-            elseif ($k === 'click_ids') { $row[$k] = is_array($v) && $v ? wp_json_encode($v) : null; $fmt[] = '%s'; }
+            elseif ($k === 'click_ids' || $k === 'analytics_ids') { $row[$k] = is_array($v) && $v ? wp_json_encode($v) : null; $fmt[] = '%s'; }
+            elseif ($k === 'consent_analytics') { $row[$k] = $v === null ? null : ($v ? 1 : 0); $fmt[] = $v === null ? null : '%d'; }
         }
         if (!$row) return false;
         $row['updated'] = current_time('mysql', true); $fmt[] = '%s';
@@ -168,7 +171,7 @@ class TIX_Order_Attribution {
     public static function forget($order_id) {
         global $wpdb;
         $id = intval($order_id);
-        $wpdb->query($wpdb->prepare("UPDATE " . self::table() . " SET consent_marketing = NULL, fbp = '', fbc = '', client_ip = '', client_ua = '', click_ids = NULL WHERE order_id = %d", $id));
+        $wpdb->query($wpdb->prepare("UPDATE " . self::table() . " SET consent_marketing = NULL, consent_analytics = NULL, fbp = '', fbc = '', client_ip = '', client_ua = '', click_ids = NULL, analytics_ids = NULL WHERE order_id = %d", $id));
         unset(self::$cache[$id]);
         foreach (['_tix_meta_consent', '_tix_meta_no_consent', '_tix_meta_fbp', '_tix_meta_fbc', '_tix_meta_client_ip', '_tix_meta_client_ua'] as $k) delete_post_meta($id, $k);
         if (class_exists('TIX_Mirror')) TIX_Mirror::touch('order', $id);
