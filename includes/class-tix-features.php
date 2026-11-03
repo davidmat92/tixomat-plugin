@@ -345,7 +345,8 @@ class TIX_Features {
      * Schalter setzen (für POST /studio/features und /studio/config app_features). Erst alles prüfen, dann schreiben.
      * $in = {key: bool | {enabled: bool}} → true | WP_Error (field app_features.<key>)
      */
-    public static function apply($in, WP_REST_Request $req = null) {
+    /** $dry (Audit 2026-11-03 M17): nur prüfen, nichts schreiben – für Aufrufer, die vor dem ersten Schreiben alles prüfen. */
+    public static function apply($in, WP_REST_Request $req = null, $dry = false) {
         if (!is_array($in)) return new WP_Error('tix_invalid_field', 'app_features bitte als Objekt {<key>: true|false}.', ['status' => 400, 'field' => 'app_features']);
         list($scope, $oid) = self::scope($req);
         // awareness: false = Stufe 2 und 3 aus, true = Stufe 2 an (Live-Alarm nur ausdrücklich), {report?, alarm?, enabled?}
@@ -375,6 +376,7 @@ class TIX_Features {
             if (!self::can_edit($k, $scope, $oid)) return new WP_Error('rest_forbidden', in_array($k, ['awareness_report', 'awareness_alarm'], true) && self::multi() ? 'Awareness schaltet auf evendis nur der Plattform-Admin.' : 'Diese Funktion kannst du hier nicht schalten.', ['status' => 403, 'field' => 'app_features.' . $k]);
             $todo[$k] = $b;
         }
+        if ($dry) return true;
         foreach ($todo as $k => $b) {
             if ($scope === 'organizer' && self::FEATURES[$k][1]) self::set_org($k, $oid, $b);
             else self::set_site($k, $b);

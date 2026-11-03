@@ -12,6 +12,7 @@ if (!defined('ABSPATH')) exit;
  *   POST /events/{id}/raffle/draw {notify}       409 no_entries | no_prizes | already_drawn
  *   POST /events/{id}/raffle/notify {entry_id?}  409 not_drawn, 404 tix_raffle_winner
  *   POST /events/{id}/raffle/reset               409 tix_raffle_checked_in
+ * entries, draw, notify und reset nur Manager (perm_manager, Audit 2026-11-03 S10); draw 409 draw_running bei parallelem Lauf (S9).
  */
 class TIX_Raffle_API {
 
@@ -30,10 +31,27 @@ class TIX_Raffle_API {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => $perm],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => $perm],
         ]);
-        register_rest_route(self::NS, $id . '/entries', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_entries'], 'permission_callback' => $perm]);
-        register_rest_route(self::NS, $id . '/draw', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_draw'], 'permission_callback' => $perm]);
-        register_rest_route(self::NS, $id . '/notify', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_notify'], 'permission_callback' => $perm]);
-        register_rest_route(self::NS, $id . '/reset', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reset'], 'permission_callback' => $perm]);
+        // Audit 2026-11-03 (S10): Teilnehmerdaten (Namen, E-Mails), Auslosen, Benachrichtigen und Zurücksetzen nur für Manager
+        $mgr = [__CLASS__, 'perm_manager'];
+        register_rest_route(self::NS, $id . '/entries', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_entries'], 'permission_callback' => $mgr]);
+        register_rest_route(self::NS, $id . '/draw', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_draw'], 'permission_callback' => $mgr]);
+        register_rest_route(self::NS, $id . '/notify', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_notify'], 'permission_callback' => $mgr]);
+        register_rest_route(self::NS, $id . '/reset', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reset'], 'permission_callback' => $mgr]);
+    }
+
+    /**
+     * Audit 2026-11-03 (S10): wie im Studio nur Manager – Admin; Mehr-Veranstalter-Modus Inhaber bzw. Team-Admin
+     * (TIX_App_Scope::is_org_manager); Einzel-Seite Rolle tix_organizer. Team-Mitglieder (tix_staff, Einlass, Kasse) 403.
+     */
+    public static function perm_manager(WP_REST_Request $req) {
+        $c = TIX_REST_API::check_organizer($req);
+        if ($c !== true) return $c;
+        if (current_user_can('manage_options')) return true;
+        $u = wp_get_current_user();
+        $ok = (class_exists('TIX_App_Scope') && TIX_App_Scope::multi())
+            ? TIX_App_Scope::is_org_manager()
+            : in_array('tix_organizer', (array) $u->roles, true);
+        return $ok ? true : self::err('rest_forbidden', 'Teilnehmerdaten und Auslosung verwalten nur Inhaber und Team-Admins.', 403);
     }
 
     private static function err($code, $msg, $status, $field = '') {
@@ -252,7 +270,7 @@ class TIX_Raffle_API {
         $notify = $req->get_param('notify') === null ? true : filter_var($req->get_param('notify'), FILTER_VALIDATE_BOOLEAN);
         $r = TIX_Raffle::draw_winners($eid, $notify);
         if (is_wp_error($r)) {
-            $msg = ['no_entries' => 'Noch niemand nimmt teil – ausgelost werden kann erst mit Teilnehmenden.', 'no_prizes' => 'Lege zuerst mindestens einen Preis an und speichere.', 'already_drawn' => 'Dieses Gewinnspiel ist schon ausgelost.'];
+            $msg = ['no_entries' => 'Noch niemand nimmt teil – ausgelost werden kann erst mit Teilnehmenden.', 'no_prizes' => 'Lege zuerst mindestens einen Preis an und speichere.', 'already_drawn' => 'Dieses Gewinnspiel ist schon ausgelost.', 'draw_running' => 'Die Auslosung läuft gerade schon – bitte kurz warten.'];
             return self::err($r->get_error_code(), $msg[$r->get_error_code()] ?? $r->get_error_message(), 409);
         }
         $p = self::payload($eid);

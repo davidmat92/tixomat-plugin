@@ -1192,7 +1192,8 @@ class TIX_REST_API {
         }
 
         // ── 2. GL-Format: GL-{EVENT_ID}-{CODE} ──
-        if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,20})$/', $code, $m)) {
+        // Audit 2026-11-03 (M3): bis 40 Zeichen, damit auch lange Bestands-Gast-IDs (UUID aus Studio/App) scannbar sind
+        if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,40})$/', $code, $m)) {
             $gl_event_id = intval($m[1]);
             $inner_code  = $m[2];
 
@@ -1345,6 +1346,21 @@ class TIX_REST_API {
     }
 
     /**
+     * Audit 2026-11-03 (M3): Neue Gast-ID wie in der Metabox (6 Zeichen, groß), eindeutig in der Liste.
+     * Vorher wp_generate_uuid4() – 36 Zeichen klein, der QR-Code „GL-{Event}-{ID}“ war nicht scannbar.
+     */
+    private static function new_guest_id($guests) {
+        $taken = [];
+        foreach ((array) $guests as $g) {
+            if (is_array($g) && isset($g['id'])) $taken[strtoupper((string) $g['id'])] = true;
+        }
+        do {
+            $id = strtoupper(wp_generate_password(6, false, false));
+        } while (isset($taken[$id]));
+        return $id;
+    }
+
+    /**
      * Gast-Code validieren und einchecken.
      */
     private static function validate_and_checkin_guest($event_id, $guest_id, WP_REST_Request $req) {
@@ -1370,8 +1386,10 @@ class TIX_REST_API {
             ]);
         }
 
+        // Audit 2026-11-03 (M3): Gast-ID ohne Rücksicht auf Groß-/Kleinschreibung (Code wird großgeschrieben, UUIDs sind klein)
+        $guest_id = strtoupper((string) $guest_id);
         foreach ($guests as &$g) {
-            if (($g['id'] ?? '') !== $guest_id) continue;
+            if ($guest_id === '' || strtoupper((string) ($g['id'] ?? '')) !== $guest_id) continue;
 
             $total_expected = 1 + intval($g['plus'] ?? 0);
 
@@ -1803,7 +1821,7 @@ class TIX_REST_API {
             $guests = get_post_meta($event_id, '_tix_guest_list', true);
             if (!is_array($guests)) $guests = [];
             $guest = [
-                'id'               => wp_generate_uuid4(),
+                'id'               => self::new_guest_id($guests),
                 'name'             => $name,
                 'email'            => sanitize_email($body['email'] ?? ''),
                 'plus'             => absint($body['plus'] ?? 0),
@@ -1833,8 +1851,11 @@ class TIX_REST_API {
 
         $clean = [];
         foreach ($guests as $g) {
+            $gid = sanitize_text_field((string) ($g['id'] ?? ''));
+            // Audit 2026-11-03 (M3): neue Gäste bekommen eine kurze Großbuchstaben-ID wie in der Metabox (scannbar)
+            if ($gid === '') $gid = self::new_guest_id(array_merge($guests, $clean));
             $clean[] = [
-                'id'               => sanitize_text_field($g['id'] ?? wp_generate_uuid4()),
+                'id'               => $gid,
                 'name'             => sanitize_text_field($g['name'] ?? ''),
                 'email'            => sanitize_email($g['email'] ?? ''),
                 'plus'             => absint($g['plus'] ?? 0),

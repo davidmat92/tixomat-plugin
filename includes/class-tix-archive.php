@@ -110,12 +110,19 @@ class TIX_Archive {
     }
 
     /** POST /studio/config {archive: {enabled?, grace_hours?, skip_drafts?}} → true | WP_Error */
-    public static function save($in, $oid = 0) {
+    /** Audit 2026-11-03 (M17): nur prüfen (ohne zu schreiben), damit Aufrufer vor dem ersten Schreiben alles prüfen können. */
+    public static function check($in) {
         if (!is_array($in)) return new WP_Error('tix_invalid_field', 'archive: Objekt erwartet.', ['status' => 400, 'field' => 'archive']);
         if (array_key_exists('grace_hours', $in) && $in['grace_hours'] !== null && $in['grace_hours'] !== '') {
             $g = $in['grace_hours'];
             if (!is_numeric($g) || intval($g) != $g || intval($g) < 0 || intval($g) > 720) return new WP_Error('tix_invalid_field', 'Gnadenfrist: ganze Stunden von 0 bis 720.', ['status' => 400, 'field' => 'archive.grace_hours']);
         }
+        return true;
+    }
+
+    public static function save($in, $oid = 0) {
+        $ok = self::check($in);
+        if (is_wp_error($ok)) return $ok;
         if ($oid) {
             // Veranstalter (evendis): eigene Werte; null/"" = wieder Vorgabe der Plattform
             $c = self::org_overrides($oid);

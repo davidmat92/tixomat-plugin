@@ -361,7 +361,7 @@ class TIX_Support_Model {
     /** Postfach: Admins sowie Inhaber und Team-Admins (Rolle Veranstalter); Einlass, DJ, Awareness, Kasse und App-Mitarbeiter 403. */
     public static function perm_staff(WP_REST_Request $req) {
         if (!class_exists('TIX_REST_API')) return false;
-        // Awareness-Meldungen (1.38.559): öffnen, gelesen, antworten, Status auch für Awareness-Rolle und Staff (report_access)
+        // Awareness-Meldungen (1.38.559): öffnen, gelesen, antworten, Status auch für die Awareness-Rolle (report_access; Staff seit Audit 2026-11-03 M15 nicht mehr)
         $tid = absint($req['id'] ?? 0);
         if ($tid && self::awareness($tid) && preg_match('#/support/inbox/\d+(/(reply|status|read))?$#', (string) $req->get_route())) {
             return TIX_Awareness_Live::report_access($tid) ? true : new WP_Error('not_found', 'Anfrage nicht gefunden.', ['status' => 404]);
@@ -396,7 +396,7 @@ class TIX_Support_Model {
     private static function visible($tid) {
         if (get_post_type($tid) !== self::CPT) return false;
         if (current_user_can('manage_options')) return true;
-        if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return self::awareness($tid) && TIX_Awareness_Live::report_access($tid); // Admin, Awareness-Team, Staff (1.38.559)
+        if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return self::awareness($tid) && TIX_Awareness_Live::report_access($tid); // Admin, Awareness-Team, Inhaber (1.38.559, Audit 2026-11-03 M15)
         if (!self::multi()) return true;
         $oid = TIX_App_Scope::organizer_id_for_user();
         $r = self::responsible($tid);

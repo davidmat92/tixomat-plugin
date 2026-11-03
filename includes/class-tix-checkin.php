@@ -203,7 +203,7 @@ class TIX_Checkin {
         }
 
         // ── 2. GL-Format (QR-Scan): GL-{EVENT_ID}-{CODE} ──
-        if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,20})$/', $code, $m)) {
+        if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,40})$/', $code, $m)) { // Audit 2026-11-03 (M3): auch lange Bestands-IDs (UUID)
             $event_id   = intval($m[1]);
             $inner_code = $m[2];
 
@@ -238,7 +238,8 @@ class TIX_Checkin {
         }
 
         foreach ($guests as &$g) {
-            if (($g['id'] ?? '') !== $guest_id) continue;
+            // Audit 2026-11-03 (M3): ohne Rücksicht auf Groß-/Kleinschreibung (UUIDs aus Studio/App sind klein)
+            if (strtoupper((string) ($g['id'] ?? '')) !== $guest_id) continue;
 
             $total_expected = 1 + intval($g['plus'] ?? 0);
 
@@ -502,7 +503,7 @@ class TIX_Checkin {
         if (empty($_GET['tix_guest'])) return;
 
         $code = strtoupper(sanitize_text_field($_GET['tix_guest']));
-        if (!preg_match('/^GL-(\d+)-([A-Z0-9-]{3,20})$/', $code, $m)) {
+        if (!preg_match('/^GL-(\d+)-([A-Z0-9-]{3,40})$/', $code, $m)) { // Audit 2026-11-03 (M3): auch lange Bestands-IDs (UUID)
             wp_die('Ungültiger Gästeliste-Code.', 'Fehler', ['response' => 404]);
         }
 
@@ -521,7 +522,7 @@ class TIX_Checkin {
 
         $guest = null;
         foreach ($guests as $g) {
-            if (($g['id'] ?? '') === $guest_id) { $guest = $g; break; }
+            if (strtoupper((string) ($g['id'] ?? '')) === $guest_id) { $guest = $g; break; } // Audit 2026-11-03 (M3)
         }
 
         if (!$guest) {

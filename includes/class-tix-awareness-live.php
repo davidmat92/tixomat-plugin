@@ -22,8 +22,8 @@ if (!defined('ABSPATH')) exit;
  *   POST /awareness/feedback                   öffentlich {event_id, answer: yes|partly|no, note?, device}
  *   GET  /awareness/feedback?event_id=         Team/Veranstalter: Summe erst ab 5 Antworten
  *   GET  /awareness/reports?event_id=          Inhaber/Admin bzw. Awareness-Team: Awareness-Meldungen der eigenen Events
- *                                              event_id=0 bzw. ohne (1.38.559): Meldungen ohne Event (Admin, Awareness-Rolle, Staff der
- *                                              Einzel-Seite; Mehr-Veranstalter nur Admin, sonst leere Liste); je Meldung status, status_label,
+ *                                              event_id=0 bzw. ohne (1.38.559): Meldungen ohne Event (Admin, Awareness-Rolle, Inhaber der
+ *                                              Einzel-Seite – seit Audit 2026-11-03 M15 nicht mehr tix_staff; Mehr-Veranstalter nur Admin, sonst leere Liste); je Meldung status, status_label,
  *                                              editable, event_id. Bearbeiten über /support/inbox/{id} (report_access).
  * Melden (B8): POST /customer/support mit category=awareness (+ event_id), Name/E-Mail optional.
  *
@@ -31,7 +31,8 @@ if (!defined('ABSPATH')) exit;
  * im Mehr-Veranstalter-Modus nur Events des eigenen Veranstalters (TIX_App_Scope).
  * Push an alle im Dienst ohne Inhalt („Neuer Hinweis für das Awareness-Team“). Höchstens 3 Hinweise je Gerät und Event.
  * Löschung (Cron täglich): Hinweise und Feedback-Einzelantworten 30 Tage nach dem Event (Feedback-Summe bleibt am Event),
- * Awareness-Meldungen nach 6 Monaten, Meldungen ohne Event 30 Tage nach Eingang (1.38.559).
+ * Awareness-Meldungen mit Event ebenfalls 30 Tage nach dem Event-Ende (Audit 2026-11-03 M14, vorher 6 Monate nach Eingang;
+ * ohne bestimmbares Event-Ende 30 Tage nach Eingang), Meldungen ohne Event 30 Tage nach Eingang (1.38.559).
  * Test-Modus (unsichtbares Test-Event nur für Tester): TIX_Awareness_Test. Admin: Liste der Hinweise + CSV-Export.
  */
 class TIX_Awareness_Live {
@@ -199,13 +200,22 @@ class TIX_Awareness_Live {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             return TIX_App_Scope::is_org_manager() && TIX_App_Scope::event_allowed($event_id);
         }
-        return class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user(wp_get_current_user());
+        // Audit 2026-11-03 (M15): Einzel-Seite nur Inhaber (Rolle tix_organizer), nicht jedes Staff-Konto (tix_staff, Einlass, Kasse)
+        return self::single_owner(wp_get_current_user());
     }
 
-    /** Rollen für Meldungen (1.38.559): Admin, Awareness-Rolle, Staff der Einzel-Seite (wie rest_events). */
+    /** Audit 2026-11-03 (M15): Inhaber der Einzel-Seite = Rolle tix_organizer (App-Team-Rolle „Admin“). */
+    private static function single_owner($u) {
+        return $u && $u->ID && in_array('tix_organizer', (array) $u->roles, true);
+    }
+
+    /**
+     * Rollen für Meldungen (1.38.559): Admin, Awareness-Rolle und auf Einzel-Seiten der Inhaber (tix_organizer).
+     * Audit 2026-11-03 (M15): vorher jedes Staff-Konto (tix_staff) – das Studio sagt „nur Inhaber, Team-Admins, Admins, Awareness-Team“.
+     */
     private static function report_role($u = null) {
         $u = $u ?: wp_get_current_user();
-        return $u && $u->ID && ($u->has_cap('manage_options') || $u->has_cap('tix_app_awareness') || (class_exists('TIX_REST_API') && TIX_REST_API::is_staff_user($u)));
+        return $u && $u->ID && ($u->has_cap('manage_options') || $u->has_cap('tix_app_awareness') || self::single_owner($u));
     }
 
     /** Meldungen ohne Event sehen? Mehr-Veranstalter: nur Admins (kein Veranstalter zuzuordnen). */
@@ -218,7 +228,7 @@ class TIX_Awareness_Live {
 
     /**
      * Darf das Konto diese Awareness-Meldung öffnen, beantworten und den Status setzen (Postfach, 1.38.559)?
-     * Admin immer; Einzel-Seite: Awareness-Rolle bzw. Staff; Mehr-Veranstalter: Awareness-Rolle bzw. Inhaber/Team-Admin
+     * Admin immer; Einzel-Seite: Awareness-Rolle bzw. Inhaber (tix_organizer, Audit 2026-11-03 M15); Mehr-Veranstalter: Awareness-Rolle bzw. Inhaber/Team-Admin
      * des Veranstalters des Events, ohne Event nur Admin.
      */
     public static function report_access($tid) {
@@ -789,10 +799,24 @@ class TIX_Awareness_Live {
                 $wpdb->query($wpdb->prepare("DELETE FROM $ft WHERE event_id = %d AND delete_after < %s", $eid, $now));
             }
         }
-        $old = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => self::support_statuses(), 'posts_per_page' => 200, 'fields' => 'ids',
-            'date_query' => [['before' => gmdate('Y-m-d H:i:s', current_time('timestamp') - 180 * DAY_IN_SECONDS)]],
-            'meta_query' => [['key' => '_tix_sp_category', 'value' => 'awareness']]]);
-        foreach ($old as $pid) wp_delete_post($pid, true);
+        // Audit 2026-11-03 (M14): Meldungen mit Event 30 Tage nach dem Event-Ende (wie das Studio zusagt),
+        // vorher 180 Tage nach Eingang. Ohne bestimmbares Ende (kein Termin, Event gelöscht): 30 Tage nach Eingang.
+        $now_ts = self::now_ts();
+        $ends = [];
+        $with_event = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => self::support_statuses(), 'posts_per_page' => 500, 'fields' => 'ids',
+            'orderby' => 'date', 'order' => 'ASC',
+            'meta_query' => ['relation' => 'AND', ['key' => '_tix_sp_category', 'value' => 'awareness'],
+                ['key' => '_tix_sp_event_id', 'value' => ['', '0'], 'compare' => 'NOT IN']]]);
+        foreach ($with_event as $pid) {
+            $eid = intval(get_post_meta($pid, '_tix_sp_event_id', true));
+            if (!$eid) continue;
+            if (!array_key_exists($eid, $ends)) {
+                $w = get_post_type($eid) === 'event' ? self::window($eid) : null;
+                $ends[$eid] = $w ? intval($w['end']) : 0;
+            }
+            $base = $ends[$eid] ?: strtotime((string) get_post_field('post_date', $pid));
+            if ($base && $base + 30 * DAY_IN_SECONDS < $now_ts) wp_delete_post($pid, true);
+        }
         // Meldungen ohne Event: 30 Tage nach Eingang (1.38.559)
         $limit = strtotime(current_time('mysql')) - 30 * DAY_IN_SECONDS;
         foreach (self::no_event_ids(200) as $pid) if (strtotime((string) get_post_field('post_date', $pid)) < $limit) wp_delete_post($pid, true);

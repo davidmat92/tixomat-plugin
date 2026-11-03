@@ -610,6 +610,11 @@ class TIX_Studio {
             $other = array_diff(array_keys((array) $p), array_merge(['archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features'], $feature_params));
             if ($other || $req->get_file_params()) return new WP_Error('rest_forbidden', 'Hier kannst du nur das Auto-Archiv und die Funktionen deines Veranstalters einstellen.', ['status' => 403]);
             if ($archive_in === null && $features_in === null) return new WP_Error('tix_invalid_field', 'Keine Archiv-Einstellung übergeben.', ['status' => 400, 'field' => 'archive']);
+            // Audit 2026-11-03 (M17): Archiv vor dem Umschalten der Funktionen prüfen
+            if ($archive_in !== null && method_exists('TIX_Archive', 'check')) {
+                $ar = TIX_Archive::check($archive_in);
+                if (is_wp_error($ar)) return $ar;
+            }
             if ($features_in !== null && class_exists('TIX_Features')) {
                 $fr = TIX_Features::apply($features_in, $req);
                 if (is_wp_error($fr)) return $fr;
@@ -634,6 +639,50 @@ class TIX_Studio {
             if ($fv === '') unset($b['font']);
             elseif (!in_array($fv, self::FONTS, true)) return new WP_Error('tix_invalid_field', 'Diese Schrift gibt es nicht. Erlaubt: ' . implode(', ', self::FONTS) . '.', ['status' => 400, 'field' => 'font']);
             else $b['font'] = $fv;
+        }
+        // ── Audit 2026-11-03 (M17): alle Prüfungen vor dem ersten Schreiben ──
+        // Vorher liefen Logo-Upload, Auto-Archiv und Funktionen schon, bevor unbekannte Felder, die Admin-Rechte für
+        // app_layout/has_app oder das Bestellnummern-Kürzel geprüft wurden – Antwort „Fehler“, aber ein Teil gespeichert.
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
+        if ($has('app_layout')) {
+            $lv = $req->get_param('app_layout');
+            if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
+            if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
+        }
+        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Schrift, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
+        // Eigene App übersteuern nur Admin
+        if ($has('has_app') && !current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt fest, ob die Seite eine eigene App hat.', ['status' => 403]);
+        // Bestellnummern (1.38.481): order_number_mode legacy|short, order_number_code (2–5 Zeichen A–Z/0–9; auf evendis fest EV)
+        if ($has('order_number_mode')) {
+            $om = (string) $req->get_param('order_number_mode');
+            if (!in_array($om, ['legacy', 'short'], true)) return new WP_Error('tix_invalid_field', 'Bestellnummer: legacy oder short.', ['status' => 400, 'field' => 'order_number_mode']);
+        }
+        if ($has('order_number_code')) {
+            $oc = strtoupper(trim((string) $req->get_param('order_number_code')));
+            if ($oc !== '' && !preg_match('/^[A-Z0-9]{2,5}$/', $oc)) return new WP_Error('tix_invalid_field', 'Kürzel: 2 bis 5 Zeichen (A–Z, 0–9).', ['status' => 400, 'field' => 'order_number_code']);
+            if (self::multi() && $oc !== '' && $oc !== 'EV') return new WP_Error('tix_invalid_field', 'Auf evendis ist das Kürzel immer EV.', ['status' => 400, 'field' => 'order_number_code']);
+        }
+        // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
+        if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
+            $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
+            $sd = $req->get_param('syndicate_default');
+            if ($has('syndicate_default') && filter_var($sd, FILTER_VALIDATE_BOOLEAN) && !$avail) {
+                return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf evendis ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate_default']);
+            }
+        }
+        if ($archive_in !== null && class_exists('TIX_Archive') && method_exists('TIX_Archive', 'check')) {
+            $ar = TIX_Archive::check($archive_in);
+            if (is_wp_error($ar)) return $ar;
+        }
+        if ($features_in !== null && class_exists('TIX_Features')) {
+            $fr = TIX_Features::apply($features_in, $req, true); // nur prüfen
+            if (is_wp_error($fr)) return $fr;
+        }
+        $mail_in = [];
+        foreach (self::MAIL_KEYS as $mk) if ($has($mk)) $mail_in[$mk] = $req->get_param($mk);
+        if ($mail_in) {
+            $nb = self::apply_mail_fields($b, $mail_in); // nur prüfen, angewendet wird unten
+            if (is_wp_error($nb)) return $nb;
         }
         if (!empty($files['logo']['tmp_name'])) {
             $id = self::store_logo($files['logo']);
@@ -670,16 +719,6 @@ class TIX_Studio {
                 $b[$ik] = intval($mid);
             }
         }
-        // Bestellnummern (1.38.481): order_number_mode legacy|short, order_number_code (2–5 Zeichen A–Z/0–9; auf evendis fest EV)
-        if ($has('order_number_mode')) {
-            $om = (string) $req->get_param('order_number_mode');
-            if (!in_array($om, ['legacy', 'short'], true)) return new WP_Error('tix_invalid_field', 'Bestellnummer: legacy oder short.', ['status' => 400, 'field' => 'order_number_mode']);
-        }
-        if ($has('order_number_code')) {
-            $oc = strtoupper(trim((string) $req->get_param('order_number_code')));
-            if ($oc !== '' && !preg_match('/^[A-Z0-9]{2,5}$/', $oc)) return new WP_Error('tix_invalid_field', 'Kürzel: 2 bis 5 Zeichen (A–Z, 0–9).', ['status' => 400, 'field' => 'order_number_code']);
-            if (self::multi() && $oc !== '' && $oc !== 'EV') return new WP_Error('tix_invalid_field', 'Auf evendis ist das Kürzel immer EV.', ['status' => 400, 'field' => 'order_number_code']);
-        }
         if ($archive_in !== null && class_exists('TIX_Archive') && method_exists('TIX_Archive', 'save')) {
             $ar = TIX_Archive::save($archive_in);
             if (is_wp_error($ar)) return $ar;
@@ -690,31 +729,13 @@ class TIX_Studio {
         }
         if ($has('order_number_mode')) update_option('tix_order_number_mode', (string) $req->get_param('order_number_mode'), false);
         if ($has('order_number_code')) { if ($oc === '') delete_option('tix_order_number_code'); else update_option('tix_order_number_code', $oc, false); }
-        $mail_in = [];
-        foreach (self::MAIL_KEYS as $mk) if ($has($mk)) $mail_in[$mk] = $req->get_param($mk);
         if ($mail_in) {
             $nb = self::apply_mail_fields($b, $mail_in);
             if (is_wp_error($nb)) return $nb;
             $b = $nb;
         }
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
-        // Vorgabe „alle Events auf evendis teilen“ (1.38.465): true | false | null (nicht eingestellt)
-        if ($has('syndicate_default') || $has('syndicate_default_partner_sales')) {
-            $avail = class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured() && !self::multi();
-            $sd = $req->get_param('syndicate_default');
-            if ($has('syndicate_default') && filter_var($sd, FILTER_VALIDATE_BOOLEAN) && !$avail) {
-                return new WP_Error('tix_syndication_unavailable', 'Die Verteilung auf evendis ist hier nicht eingerichtet.', ['status' => 409, 'field' => 'syndicate_default']);
-            }
-        }
-        if ($has('app_layout')) {
-            $lv = $req->get_param('app_layout');
-            if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
-            if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
-        }
-        if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Schrift, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
         // Eigene App übersteuern (nur Admin): true | false | null (automatisch)
         if ($has('has_app')) {
-            if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt fest, ob die Seite eine eigene App hat.', ['status' => 403]);
             $v = $req->get_param('has_app');
             if ($v === null || $v === '') delete_option(self::HAS_APP);
             else update_option(self::HAS_APP, filter_var($v, FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);

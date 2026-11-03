@@ -214,7 +214,8 @@ class TIX_Website {
     private static function url($v, $field) {
         $v = trim((string) $v);
         if ($v === '') return '';
-        if (preg_match('#^/[^\s]*$#', $v)) return $v;
+        // Audit 2026-11-03 (S12): „//fremd.tld“ bzw. „/\fremd.tld“ sind protokoll-relative Links auf fremde Seiten, keine Pfade
+        if (preg_match('#^/(?![/\\\\])[^\s]*$#', $v)) return $v;
         if (preg_match('#^https://[^\s/$.?\#].[^\s]*$#i', $v)) return esc_url_raw($v, ['https']);
         return self::bad($field, 'Bitte einen Pfad (/…) oder eine https-Adresse angeben.');
     }

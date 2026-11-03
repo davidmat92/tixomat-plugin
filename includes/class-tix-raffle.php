@@ -617,10 +617,28 @@ class TIX_Raffle {
     public static function draw_winners($event_id, $notify = true) {
         self::ensure_table();
         global $wpdb;
+        // Audit 2026-11-03 (S9): atomare Sperre je Event (MySQL GET_LOCK, endet spätestens mit der Verbindung).
+        // Vorher konnten Cron (Teilnahmeschluss) und „Jetzt auslosen“ gleichzeitig ziehen → doppelte Freikarten und Mails.
+        $lock = substr('tix_raffle_' . $wpdb->prefix . intval($event_id), 0, 64);
+        if ((string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $lock)) !== '1') {
+            return new \WP_Error('draw_running', 'Die Auslosung läuft gerade schon.');
+        }
+        try {
+            return self::draw_winners_locked($event_id, $notify);
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+        }
+    }
+
+    private static function draw_winners_locked($event_id, $notify) {
+        global $wpdb;
         $table = $wpdb->prefix . self::TABLE;
 
+        // Audit 2026-11-03 (S9): Stand frisch aus der Datenbank (nicht aus dem Objekt-Cache) und auch am Zeitpunkt erkennen,
+        // falls ein paralleler Lauf den Status danach wieder überschrieben hat (Cron setzt „closed“)
+        wp_cache_delete(intval($event_id), 'post_meta');
         $status = get_post_meta($event_id, '_tix_raffle_status', true) ?: 'open';
-        if ($status === 'drawn') {
+        if ($status === 'drawn' || (string) get_post_meta($event_id, '_tix_raffle_drawn_at', true) !== '') {
             return new \WP_Error('already_drawn', 'Gewinner wurden bereits ausgelost.');
         }
 
@@ -856,6 +874,9 @@ class TIX_Raffle {
 
         foreach ($events as $event) {
             if (!self::auto_draw_on($event->ID)) continue; // je Gewinnspiel abschaltbar (1.38.489)
+            // Audit 2026-11-03 (S9): nicht „closed“ über ein inzwischen von Hand ausgelostes Gewinnspiel schreiben
+            wp_cache_delete($event->ID, 'post_meta');
+            if ((get_post_meta($event->ID, '_tix_raffle_status', true) ?: 'open') !== 'open' || (string) get_post_meta($event->ID, '_tix_raffle_drawn_at', true) !== '') continue;
             // Status schliessen
             update_post_meta($event->ID, '_tix_raffle_status', 'closed');
             // Auslosen
