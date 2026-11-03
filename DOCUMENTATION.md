@@ -2605,6 +2605,12 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
 - **Einwilligungs-Nachweise nach dem Widerruf** (`tix_artist_follow_proofs`, 1.38.529; Entscheid User 2026-11-03) in `artist_follow_proofs`: Künstler, `proof_hash` (Hash aus WordPress mit dem Seitengeheimnis, nie die Adresse), Einwilligungstext, Zeitpunkte, Quelle, Widerrufsgrund, Fristende.
   - Neue Zeilen über den Nachlauf (ID), das Löschen nach Fristende (stündlich in WordPress) holt der tägliche Abgleich. Nachweise zu Sandbox-Künstlern bleiben draußen. Migration `20261103120000_mirror_artist_follow_proofs.sql`.
 - **Kassenbon mit TSE (Degaso-Abendkasse):** Option `_tix_pos_receipt_<order>` steht als `orders.data.pos_receipt` im Spiegel (Kasse, Bon-/TSE-Angaben, Positionen, Storno-Zeitpunkt; keine Personendaten). Keine Migration.
+- **Auswertung Herkunft (Statistik Stufe 1):** Views über `orders.data.attribution` (seit 1.38.618), Migration `20261104090000_mirror_attribution_views.sql`, `security_invoker`, nur `service_role`.
+  - `order_attribution`: je Bestellung Kanal, Quelle, Medium, Kampagne, Link-Code, Umsatz und Tickets.
+  - `attribution_daily`: je Seite, Veranstalter, Tag (Europe/Berlin) und Herkunft.
+  - `attribution_totals`: dasselbe ohne Tage.
+  - `attribution_platform_monthly`: Plattform-Sicht ohne Veranstalter. Kampagnen mit weniger als 3 bezahlten Bestellungen je Monat stehen dort als „(sonstige)“.
+  - Regeln wie `TIX_Sales_Figures`: bezahlt = completed/processing, Umsatz = total − refunded_total. Kanal = `channel_key`, ohne Herkunftsangaben pos_* → pos, sonst other.
 - **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
   - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
   - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.
