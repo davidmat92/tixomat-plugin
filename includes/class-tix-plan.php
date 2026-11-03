@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Plan {
     const ALWAYS   = ['tickets', 'checkin', 'pos', 'guestlist', 'coupons', 'support', 'stats', 'team', 'invoices'];
     const PACKAGES = ['website', 'app'];
-    const EXTRAS   = ['seating', 'wallet', 'giftcards', 'loyalty', 'music', 'awareness', 'muttizettel', 'raffles', 'assistant', 'degaso'];
+    const EXTRAS   = ['seating', 'wallet', 'giftcards', 'loyalty', 'music', 'awareness', 'muttizettel', 'raffles', 'assistant', 'degaso', 'marketing'];
 
     /** Vorgaben für Veranstalter ohne gespeicherten Wert (Bestand: was bisher galt). */
     const ORG_DEFAULTS = [
@@ -40,6 +40,7 @@ class TIX_Plan {
         'raffles'     => true,  // bisher ohne Veranstalter-Schalter verfügbar
         'assistant'   => false, // auf evendis bisher nur Admin
         'degaso'      => false, // evendis nutzt Degaso nicht
+        'marketing'   => false, // kostenpflichtig (F9), erst nach Kauf
     ];
 
     /** App-Extras: nur über die Lizenz verkauft, Betrieb über die App-Funktionen (TIX_Features) */
@@ -48,7 +49,7 @@ class TIX_Plan {
     /** Modul → Betriebsschalter in „Deine App“ (TIX_Features) für „derzeit an/aus“ */
     const USAGE_FEATURE = [
         'wallet' => 'wallet', 'giftcards' => 'giftcards', 'loyalty' => 'loyalty', 'music' => 'music', 'awareness' => 'awareness_report',
-        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso',
+        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso', 'marketing' => 'marketing',
         'tips' => 'tips', 'party_game' => 'party_game', 'sos' => 'sos',
     ];
 
@@ -93,7 +94,7 @@ class TIX_Plan {
         'website' => 'Eigene Website', 'app' => 'Eigene App',
         'seating' => 'Saalplan & Tische', 'wallet' => 'Guthaben', 'giftcards' => 'Geschenkgutscheine', 'loyalty' => 'Prämien',
         'music' => 'Musikwunsch', 'awareness' => 'Awareness', 'muttizettel' => 'Muttizettel', 'raffles' => 'Gewinnspiele',
-        'assistant' => 'KI-Assistent', 'degaso' => 'Degaso-Kasse',
+        'assistant' => 'KI-Assistent', 'degaso' => 'Degaso-Kasse', 'marketing' => 'Marketing',
     ];
 
     public static function init() {

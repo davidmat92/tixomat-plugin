@@ -42,6 +42,8 @@ class TIX_Modules {
         'raffles'     => ['Gewinnspiele', '#^/(raffles|public/events/\d+/raffle)(/|$)#', 'extra'],
         'assistant'   => ['KI-Assistent', '#^/assistant(/|$)#', 'extra'],
         'degaso'      => ['Degaso-Kasse', '#^/degaso(/|$)#', 'extra'],
+        // Statistik Stufe 1 (1.38.617, F9): Marketing als eigenes, kostenpflichtiges Modul; die Basis-Statistik bleibt für alle
+        'marketing'   => ['Marketing (Kampagnen & Werbung)', null, 'extra'],
         'tips'        => ['Tipps des Tages', '#^/(app|public)/tips(/|$)#', 'app'],
         'party_game'  => ['Partyspiel', '#^/party(/|$)#', 'app'],
         'sos'         => ['SOS', '#^/app/sos(/|$)#', 'app'],

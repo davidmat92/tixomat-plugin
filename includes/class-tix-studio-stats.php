@@ -195,7 +195,7 @@ class TIX_Studio_Stats {
     }
 
     /** Events, die der Nutzer auswerten darf (Mehr-Veranstalter: nur eigene). */
-    private static function scope_ids() {
+    public static function scope_ids() {
         // System-Events (Geschenkgutscheine, Guthaben) sind keine Veranstaltungen
         return array_values(array_filter(TIX_Export::accessible_event_ids(), function ($id) {
             return get_post_meta($id, '_tix_system_giftcard_event', true) !== '1' && get_post_meta($id, '_tix_system_wallet_event', true) !== '1';

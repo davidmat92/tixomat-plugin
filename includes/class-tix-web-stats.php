@@ -13,6 +13,17 @@
  *
  * evendis (Mehr-Veranstalter-Modus, 1.38.598): Veranstalter sehen nur ihre Events (Inhaber/Team-Admin), ihr „Seitenaufruf“ ist
  * der Aufruf ihrer Veranstalterseite; Admins sehen alles, optional ?organizer=<id>.
+ *
+ * Statistik Stufe 1 (1.38.617, docs/plan-statistik-marketing.md §4.1):
+ *  - Schritt `quote` (Tickets gewählt) zusätzlich; `order`/`checkin` rechnet die Auswertung aus Bestellungen und Tickets.
+ *  - Dimensionen in {prefix}tix_web_stats_dim (day, step, org_id, event_id, channel web|app, source, medium, campaign, n):
+ *    weiter nur Tageszähler ohne Personenbezug. Quelle = utm_source, sonst Referrer-Host (medium referral), sonst „direct“.
+ *    Kleine Gruppen (< 3) fasst die Auswertung zusammen.
+ *  - App-Treffer: `src=app` (Schritte event/quote/checkout, nur in den Dimensionen, nicht in den Website-Zahlen).
+ *  - Bots: Kennungen bekannter Bots werden geprüft, nie gespeichert.
+ *  - Geschätzte Besuche (F1 B, Schalter tix_web_visits, Vorgabe AUS bis zur Rechtsprüfung): die Website schickt `vh`, einen
+ *    Hash, den sie mit einem täglich neuen Salz im Arbeitsspeicher aus IP, Browser und Host bildet. Das Plugin hält nur
+ *    md5(vh) für den laufenden Tag in {prefix}tix_web_visits und löscht frühere Tage; gespeichert bleibt die Zahl (`visit`).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -20,12 +31,18 @@ class TIX_Web_Stats {
     const NS = 'tixomat/v1';
     const DB_VERSION = '1';
     const STEPS = ['view', 'event', 'checkout', 'purchase'];
+    /** Schritte, die eine Website bzw. App melden darf */
+    const HIT_STEPS = ['view', 'event', 'quote', 'checkout', 'purchase'];
+    const DIM_VERSION = '1';
+    const OPT_VISITS = 'tix_web_visits';
+    const BOT = '/bot|crawl|spider|slurp|preview|headless|lighthouse|pingdom|monitor|curl|wget|python|axios|node-fetch|scrapy|httpclient|java\//i';
     const KEEP_DAYS = 400;
     const PER_MINUTE = 3000;
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('init', [__CLASS__, 'maybe_create'], 20);
+        add_action('init', [__CLASS__, 'maybe_create_dim'], 21);
     }
 
     public static function table() { global $wpdb; return $wpdb->prefix . 'tix_web_stats'; }
@@ -43,6 +60,73 @@ class TIX_Web_Stats {
             PRIMARY KEY  (day, step, ref)
         ) " . $wpdb->get_charset_collate() . ";");
         update_option('tix_web_stats_db', self::DB_VERSION, true);
+    }
+
+    public static function dim_table() { global $wpdb; return $wpdb->prefix . 'tix_web_stats_dim'; }
+    public static function visits_table() { global $wpdb; return $wpdb->prefix . 'tix_web_visits'; }
+
+    public static function maybe_create_dim() {
+        if (get_option('tix_web_stats_dim_db') === self::DIM_VERSION) return;
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $c = $wpdb->get_charset_collate();
+        $d = self::dim_table(); $v = self::visits_table();
+        dbDelta("CREATE TABLE $d (
+            day DATE NOT NULL,
+            step VARCHAR(10) NOT NULL,
+            org_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            event_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            channel VARCHAR(10) NOT NULL DEFAULT 'web',
+            source VARCHAR(64) NOT NULL DEFAULT '',
+            medium VARCHAR(64) NOT NULL DEFAULT '',
+            campaign VARCHAR(64) NOT NULL DEFAULT '',
+            n INT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY  (day, step, org_id, event_id, channel, source, medium, campaign),
+            KEY event_day (event_id, day),
+            KEY org_day (org_id, day)
+        ) $c;");
+        dbDelta("CREATE TABLE $v (
+            day DATE NOT NULL,
+            scope BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            h CHAR(32) NOT NULL,
+            PRIMARY KEY  (day, scope, h)
+        ) $c;");
+        update_option('tix_web_stats_dim_db', self::DIM_VERSION, true);
+    }
+
+    /** Geschätzte Besuche eingeschaltet? (Vorgabe aus, bis der Anwalt geprüft hat) */
+    public static function visits_on() { return get_option(self::OPT_VISITS, '0') === '1'; }
+
+    /** Wert für eine Dimension: klein, ohne Leer-/Sonderzeichen, höchstens 64 Zeichen */
+    public static function norm($v, $len = 64) {
+        $v = mb_strtolower(trim(wp_strip_all_tags((string) $v)));
+        $v = preg_replace('/[^\p{L}\p{N}._+-]+/u', '-', $v);
+        return mb_substr(trim((string) $v, '-'), 0, $len);
+    }
+
+    /** Herkunft eines Treffers: [source, medium, campaign] */
+    public static function origin(WP_REST_Request $req) {
+        $src = self::norm($req->get_param('utm_source') ?? $req->get_param('us'));
+        $med = self::norm($req->get_param('utm_medium') ?? $req->get_param('um'));
+        $cmp = self::norm($req->get_param('utm_campaign') ?? $req->get_param('uc'));
+        if ($src !== '') return [$src, $med, $cmp];
+        $host = strtolower(preg_replace('/[^A-Za-z0-9.-]/', '', (string) ($req->get_param('ref_host') ?? $req->get_param('rh'))));
+        $host = preg_replace('/^www\./', '', $host);
+        $own = preg_replace('/^www\./', '', strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)));
+        if ($host !== '' && $host !== $own && strpos($host, '.') !== false) return [mb_substr($host, 0, 64), 'referral', $cmp];
+        return ['direct', '', $cmp];
+    }
+
+    private static function bump_dim($day, $step, $org, $event, $channel, array $o) {
+        global $wpdb;
+        $wpdb->query($wpdb->prepare("INSERT INTO " . self::dim_table() . " (day, step, org_id, event_id, channel, source, medium, campaign, n) VALUES (%s, %s, %d, %d, %s, %s, %s, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1",
+            $day, $step, $org, $event, $channel, $o[0], $o[1], $o[2]));
+    }
+
+    /** Veranstalter eines Events (0 auf Einzel-Seiten) */
+    private static function org_of($event) {
+        if (!$event || !self::multi()) return 0;
+        return intval(get_post_meta($event, '_tix_organizer_id', true));
     }
 
     public static function routes() {
@@ -77,11 +161,18 @@ class TIX_Web_Stats {
         return false;
     }
 
-    /** POST /public/stats/hit {step, event_id?, order_id?, order_key?} → 204 (auch wenn nichts gezählt wurde) */
+    /**
+     * POST /public/stats/hit {step, event_id?, order_id?, order_key?, organizer_id?, src? web|app, utm_source?, utm_medium?,
+     * utm_campaign?, ref_host?, vh?} → 204 (auch wenn nichts gezählt wurde)
+     */
     public static function rest_hit(WP_REST_Request $req) {
         $done = new WP_REST_Response(null, 204);
         $step = (string) $req->get_param('step');
-        if (!in_array($step, self::STEPS, true) || self::throttled()) return $done;
+        if (!in_array($step, self::HIT_STEPS, true) || self::throttled()) return $done;
+        if (preg_match(self::BOT, (string) $req->get_header('user-agent'))) return $done;
+        $channel = $req->get_param('src') === 'app' ? 'app' : 'web';
+        // Apps melden keine Seitenaufrufe und keine Käufe (die zählen aus den Bestellungen)
+        if ($channel === 'app' && !in_array($step, ['event', 'quote', 'checkout'], true)) return $done;
         $event = max(0, intval($req->get_param('event_id')));
         // Event-Schritte nur mit echtem Event (sonst verfälschen fremde/alte IDs die Summe)
         if ($event && get_post_type($event) !== 'event') return $done;
@@ -98,16 +189,40 @@ class TIX_Web_Stats {
             $new = $wpdb->query($wpdb->prepare("INSERT IGNORE INTO " . self::table() . " (day, step, ref, n) VALUES ('2000-01-01', 'po', %d, 1)", $oid));
             if (!$new) return $done;
         }
-        self::bump($day, $step, $step === 'view' ? 0 : $event);
-        // Veranstalterseite (evendis): zusätzlich je Veranstalter
         $org = max(0, intval($req->get_param('organizer_id')));
-        if ($step === 'view' && $org && get_post_type($org) === 'tix_organizer') self::bump($day, 'oview', $org);
+        if ($org && get_post_type($org) !== 'tix_organizer') $org = 0;
+        $o = self::origin($req);
+        self::maybe_create_dim();
+        if ($channel === 'web') {
+            self::bump($day, $step, $step === 'view' ? 0 : $event);
+            // Veranstalterseite (evendis): zusätzlich je Veranstalter
+            if ($step === 'view' && $org) self::bump($day, 'oview', $org);
+            if ($step === 'view') self::visit($day, $org, (string) $req->get_param('vh'));
+        }
+        self::bump_dim($day, $step, $step === 'view' ? $org : self::org_of($event), $step === 'view' ? 0 : $event, $channel, $o);
         if (mt_rand(1, 500) === 1) self::purge();
         return $done;
     }
 
+    /** Geschätzter Besuch: einmal je Tag und Hash (Seite bzw. Veranstalterseite) */
+    private static function visit($day, $org, $vh) {
+        if (!self::visits_on() || !preg_match('/^[a-f0-9]{32,128}$/', $vh)) return;
+        global $wpdb;
+        $h = md5($vh . '|' . wp_salt('nonce'));
+        foreach (array_unique([0, intval($org)]) as $scope) {
+            $new = $wpdb->query($wpdb->prepare("INSERT IGNORE INTO " . self::visits_table() . " (day, scope, h) VALUES (%s, %d, %s)", $day, $scope, $h));
+            if (!$new) continue;
+            self::bump($day, $scope ? 'ovisit' : 'visit', $scope);
+            self::bump_dim($day, 'visit', $scope, 0, 'web', ['', '', '']);
+        }
+        // frühere Tage nie aufheben
+        if (mt_rand(1, 50) === 1) $wpdb->query($wpdb->prepare("DELETE FROM " . self::visits_table() . " WHERE day < %s", $day));
+    }
+
     private static function purge() {
         global $wpdb;
+        $wpdb->query($wpdb->prepare("DELETE FROM " . self::dim_table() . " WHERE day < %s", wp_date('Y-m-d', time() - self::KEEP_DAYS * DAY_IN_SECONDS)));
+        $wpdb->query($wpdb->prepare("DELETE FROM " . self::visits_table() . " WHERE day < %s", wp_date('Y-m-d')));
         $wpdb->query($wpdb->prepare("DELETE FROM " . self::table() . " WHERE day < %s AND step <> 'po'", wp_date('Y-m-d', time() - self::KEEP_DAYS * DAY_IN_SECONDS)));
         // Merker „po“ bleiben (eine Zeile je Bestellung), sonst zählte ein später erneut geöffneter Kauf doppelt
     }
@@ -127,12 +242,14 @@ class TIX_Web_Stats {
         if ($org) {
             $ids = array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [TIX_App_Scope::event_meta_clause($org)]]));
             $in = $ids ? implode(',', $ids) : '0';
-            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, IF(step = 'oview', 'view', step) AS step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND ((step = 'oview' AND ref = %d) OR (step IN ('event','checkout','purchase') AND ref IN ($in))) GROUP BY day, IF(step = 'oview', 'view', step)", $from, $to, $org));
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, CASE step WHEN 'oview' THEN 'view' WHEN 'ovisit' THEN 'visit' ELSE step END AS step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND ((step IN ('oview','ovisit') AND ref = %d) OR (step IN ('event','quote','checkout','purchase') AND ref IN ($in))) GROUP BY day, CASE step WHEN 'oview' THEN 'view' WHEN 'ovisit' THEN 'visit' ELSE step END", $from, $to, $org));
         } else {
-            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('view','event','checkout','purchase') GROUP BY day, step", $from, $to));
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT day, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('view','visit','event','quote','checkout','purchase') GROUP BY day, step", $from, $to));
         }
         $byDay = [];
-        $totals = array_fill_keys(self::STEPS, 0);
+        // quote/visit seit 1.38.617 (Stufe 1): ältere Studios lesen nur die vier alten Schlüssel
+        $steps = array_merge(self::STEPS, ['quote', 'visit']);
+        $totals = array_fill_keys($steps, 0);
         foreach ((array) $rows as $r) {
             $byDay[$r->day][$r->step] = intval($r->n);
             $totals[$r->step] += intval($r->n);
@@ -140,17 +257,17 @@ class TIX_Web_Stats {
         $list = [];
         for ($i = 0; $i < $days; $i++) {
             $d = wp_date('Y-m-d', strtotime($from . ' 12:00:00') + $i * DAY_IN_SECONDS);
-            $list[] = ['date' => $d] + array_merge(array_fill_keys(self::STEPS, 0), $byDay[$d] ?? []);
+            $list[] = ['date' => $d] + array_merge(array_fill_keys($steps, 0), $byDay[$d] ?? []);
         }
-        $ev = $wpdb->get_results($wpdb->prepare("SELECT ref, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('event','checkout','purchase') AND ref > 0" . ($org ? " AND ref IN ($in)" : '') . " GROUP BY ref, step", $from, $to));
+        $ev = $wpdb->get_results($wpdb->prepare("SELECT ref, step, SUM(n) AS n FROM $t WHERE day BETWEEN %s AND %s AND step IN ('event','quote','checkout','purchase') AND ref > 0" . ($org ? " AND ref IN ($in)" : '') . " GROUP BY ref, step", $from, $to));
         $events = [];
         foreach ((array) $ev as $r) {
             $id = intval($r->ref);
-            if (!isset($events[$id])) $events[$id] = ['id' => $id, 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'), 'date' => (string) get_post_meta($id, '_tix_date_start', true), 'event' => 0, 'checkout' => 0, 'purchase' => 0];
+            if (!isset($events[$id])) $events[$id] = ['id' => $id, 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'), 'date' => (string) get_post_meta($id, '_tix_date_start', true), 'event' => 0, 'quote' => 0, 'checkout' => 0, 'purchase' => 0];
             $events[$id][$r->step] = intval($r->n);
         }
         usort($events, function ($a, $b) { return $b['event'] <=> $a['event'] ?: $b['purchase'] <=> $a['purchase']; });
-        return rest_ensure_response(['scope' => $org ? ['organizer' => $org, 'name' => html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8'), 'view' => 'organizer_page'] : ['organizer' => 0, 'view' => 'site'], 'from' => $from, 'to' => $to, 'totals' => $totals, 'days' => $list, 'events' => array_slice(array_values($events), 0, 20)]);
+        return rest_ensure_response(['scope' => $org ? ['organizer' => $org, 'name' => html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8'), 'view' => 'organizer_page'] : ['organizer' => 0, 'view' => 'site'], 'from' => $from, 'to' => $to, 'totals' => $totals, 'visits_enabled' => self::visits_on(), 'days' => $list, 'events' => array_slice(array_values($events), 0, 20)]);
     }
 }
 

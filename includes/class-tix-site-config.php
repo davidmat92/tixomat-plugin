@@ -226,6 +226,8 @@ class TIX_Site_Config {
             'tracking' => [
                 'meta_pixel_id' => $pixel_on ? (string) $s['meta_pixel_id'] : null,
                 'meta_consent_mode' => $pixel_on ? (string) ($s['meta_consent_mode'] ?? 'always') : null,
+                // Statistik Stufe 1: geschätzte Besuche (F1 B) – die Website schickt den Tages-Hash nur, wenn das an ist
+                'visits' => class_exists('TIX_Web_Stats') && TIX_Web_Stats::visits_on(),
                 'consent' => ['banner' => (bool) ($banner['enabled'] ?? false), 'categories' => ['statistics' => (string) ($banner['key_statistics'] ?? 'analytics'), 'marketing' => (string) ($banner['key_marketing'] ?? 'marketing')]],
             ],
             'contact' => self::computed_contact(),

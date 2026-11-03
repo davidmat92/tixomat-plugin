@@ -42,6 +42,9 @@ class TIX_Features {
         // Anbindung Degaso-Kasse (1.38.558): Vorgabe aus; erst damit wirken Gutscheine, Getränkekarte und Abendkasse über Degaso.
         // Nur Einzel-Seiten (evendis nutzt Degaso nicht: dort nur Admin, mit Hinweis)
         'degaso'           => ['Degaso-Kasse (Anbindung)', null],
+        // Marketing (Statistik Stufe 1, F9): eigenes, kostenpflichtiges Modul (Kampagnen, Kurzlinks, Werbe-Anbindungen ab Stufe 2);
+        // Vorgabe aus. Die Basis-Statistik (Besucher → Kauf, Quellen) gilt unabhängig davon für alle.
+        'marketing'        => ['Marketing (Kampagnen & Werbung)', null],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -52,6 +55,8 @@ class TIX_Features {
     const OPT_MUTTIZETTEL = 'tix_muttizettel_enabled';
     /** Hörproben: Vorgabe AUS (anders als die übrigen neuen Schalter) */
     const OPT_ARTIST_PREVIEWS = 'tix_artist_previews_enabled';
+    /** Marketing: Vorgabe AUS */
+    const OPT_MARKETING = 'tix_marketing_enabled';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -118,6 +123,7 @@ class TIX_Features {
             case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
             case 'assistant': return class_exists('TIX_Assistant') && TIX_Assistant::enabled();
             case 'degaso': return class_exists('TIX_Degaso') && TIX_Degaso::integration_on();
+            case 'marketing': return get_option(self::OPT_MARKETING, '0') === '1';
             case 'live_now':
                 $c = class_exists('TIX_App_Config') ? (array) TIX_App_Config::stored() : [];
                 return !isset($c['home']['now']['show']) || !empty($c['home']['now']['show']);
@@ -141,7 +147,7 @@ class TIX_Features {
     const PLAN_MODULE = [
         'awareness_report' => 'awareness', 'awareness_alarm' => 'awareness', 'sos' => 'awareness',
         'music' => 'music', 'loyalty' => 'loyalty', 'wallet' => 'wallet', 'giftcards' => 'giftcards',
-        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso',
+        'muttizettel' => 'muttizettel', 'raffles' => 'raffles', 'assistant' => 'assistant', 'degaso' => 'degaso', 'marketing' => 'marketing',
         'party_game' => 'app', 'live_now' => 'app', 'tips' => 'app',
     ];
 
@@ -177,7 +183,7 @@ class TIX_Features {
     }
 
     /** Schlüssel für Apps/Studio (Reihenfolge); `awareness` fasst Stufe 2/3 zusammen. */
-    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews', 'degaso'];
+    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews', 'degaso', 'marketing'];
 
     /**
      * Öffentlich für /app/config und /info: {<key>: {enabled, can_edit}}, `awareness` {enabled, report, alarm, can_edit}
@@ -237,6 +243,7 @@ class TIX_Features {
             case 'artist_previews': update_option(self::OPT_ARTIST_PREVIEWS, $on ? '1' : '0', false); return;
             case 'assistant': if (class_exists('TIX_Assistant')) TIX_Assistant::set_enabled($on); return;
             case 'degaso': if (class_exists('TIX_Degaso')) TIX_Degaso::set_integration($on); return;
+            case 'marketing': update_option(self::OPT_MARKETING, $on ? '1' : '0', false); return;
             case 'live_now':
                 $c = (array) TIX_App_Config::stored();
                 $now = isset($c['home']['now']) && is_array($c['home']['now']) ? $c['home']['now'] : [];
@@ -294,7 +301,7 @@ class TIX_Features {
     const LICENSE_MODULE = [
         'awareness_report' => 'awareness', 'awareness_alarm' => 'awareness', 'music' => 'music', 'loyalty' => 'loyalty',
         'wallet' => 'wallet', 'giftcards' => 'giftcards', 'muttizettel' => 'muttizettel', 'raffles' => 'raffles',
-        'assistant' => 'assistant', 'degaso' => 'degaso', 'tips' => 'tips', 'party_game' => 'party_game', 'sos' => 'sos',
+        'assistant' => 'assistant', 'degaso' => 'degaso', 'marketing' => 'marketing', 'tips' => 'tips', 'party_game' => 'party_game', 'sos' => 'sos',
     ];
 
     private static function entitled($key) {
