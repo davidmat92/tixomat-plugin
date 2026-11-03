@@ -4,10 +4,13 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Matomo – Matomo auf stats.evendis.de bzw. eigenes Matomo des Veranstalters (Statistik Stufe 3a, Plan §4.3, §12.1, F2/F3).
  *
- *  - Instanz: Option tix_matomo {url, token} – Token des Nutzers „tix-provision“ (Superuser, nur POST), nur auf unseren Seiten
- *    (evendis, KitchenKlub, Mallorca; setzt geheimnisse.sh). Klartext-Token wird beim ersten Lesen verschlüsselt.
- *  - Site je Bereich (Einzel-Seite 0, evendis 0 = Plattform bzw. je Veranstalter): POST /marketing/matomo/activate legt sie an
- *    (SitesManager.addSite, E-Commerce an, Europe/Berlin, EUR). Eigenes Matomo optional: {own_url, own_site_id, own_token}.
+ *  - Instanz: Option tix_matomo (setzt seiten.sh per WP-CLI, Schnittstelle in ops/stats-hetzner/README.md):
+ *      evendis      {url, id_site, login: "tix-provision", token, password} – Superuser, Token nur per POST (secureOnly);
+ *      KK/Mallorca  {url, id_site, reader: "lesen-<seite>", token}         – liest nur die eigene Site.
+ *    Klartext-Token/-Passwort werden beim ersten Lesen verschlüsselt. id_site ist die Site der Seite selbst (Gruppe <seite>:seite).
+ *  - Veranstalter (nur evendis, nur mit Superuser): POST /marketing/matomo/activate sucht die Site der Gruppe
+ *    evendis:org-<id> (SitesManager.getSitesFromGroup) und legt sie sonst an (addSite, E-Commerce, Europe/Berlin, EUR,
+ *    excludeUnknownUrls). Eigenes Matomo optional: {own_url, own_site_id, own_token}.
  *  - Browser: nur mit Einwilligung „Statistik“ (F3 A) – die Website lädt matomo.js mit {url, site_id} aus site-config
  *    tracking.matomo bzw. GET /public/tracking?organizer= (evendis: zusätzlicher Tracker für die Seiten des Veranstalters).
  *  - Studio: GET /marketing/matomo/stats?from&to – Besuche, Aktionen, Absprung, Verweildauer, Quellen-Typen, Geräte, Länder,
@@ -30,19 +33,30 @@ class TIX_Matomo {
 
     private static function multi() { return class_exists('TIX_App_Scope') && TIX_App_Scope::multi(); }
 
-    /** Instanz {url, token} oder null */
+    /** Instanz {url, token, id_site, superuser} oder null */
     public static function instance() {
         $o = get_option(self::OPT, []);
         if (!is_array($o) || empty($o['url'])) return null;
-        if (!empty($o['token']) && empty($o['token_enc'])) { $o['token_enc'] = TIX_Ad_Accounts::enc((string) $o['token']); unset($o['token']); update_option(self::OPT, $o, false); }
+        $dirty = false;
+        foreach (['token', 'password'] as $k) {
+            if (isset($o[$k]) && $o[$k] !== '') { $o[$k . '_enc'] = TIX_Ad_Accounts::enc((string) $o[$k]); unset($o[$k]); $dirty = true; }
+        }
+        if ($dirty) update_option(self::OPT, $o, false);
         $t = TIX_Ad_Accounts::dec($o['token_enc'] ?? '');
         $u = rtrim((string) $o['url'], '/');
-        return $t !== '' && preg_match('#^https://#', $u) ? ['url' => $u, 'token' => $t] : null;
+        if ($t === '' || !preg_match('#^https://#', $u)) return null;
+        return ['url' => $u, 'token' => $t, 'id_site' => intval($o['id_site'] ?? 0), 'superuser' => (string) ($o['login'] ?? '') !== ''];
     }
+
+    /** Gruppe der Veranstalter-Site in Matomo (Mandanten-Schlüssel, nur evendis) */
+    public static function group($org) { return 'evendis:org-' . intval($org); }
 
     public static function site($org) {
         $v = $org ? get_post_meta(intval($org), self::META_SITE, true) : get_option(self::OPT_SITE, []);
-        return is_array($v) ? $v : [];
+        $v = is_array($v) ? $v : [];
+        // Site der Seite selbst kommt aus der Instanz (seiten.sh), nicht aus dem Studio
+        if (!$org && empty($v['site_id'])) { $i = self::instance(); if ($i && $i['id_site'] > 0) $v['site_id'] = $i['id_site']; }
+        return $v;
     }
     private static function save_site($org, array $v) { if ($org) update_post_meta(intval($org), self::META_SITE, $v); else update_option(self::OPT_SITE, $v, false); }
 
@@ -106,19 +120,27 @@ class TIX_Matomo {
         return self::rest_get($req);
     }
 
-    /** POST /marketing/matomo/activate – Site auf stats.evendis.de anlegen (einmal) */
+    /** POST /marketing/matomo/activate – Site einschalten: Seite = id_site aus der Instanz; Veranstalter (evendis) = Site der Gruppe finden oder anlegen */
     public static function rest_activate(WP_REST_Request $req) {
         $org = TIX_Ad_Accounts::org($req);
         $i = self::instance();
         if (!$i) return new WP_Error('tix_matomo_missing', 'Matomo ist für diese Seite noch nicht eingerichtet.', ['status' => 503]);
         $s = self::site($org);
         if (empty($s['site_id'])) {
-            $name = $org ? html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8') : get_bloginfo('name');
-            $urls = [home_url('/')];
-            if ($org && class_exists('TIX_Public_Platform') && method_exists('TIX_Public_Platform', 'slug')) $urls[] = home_url('/v/' . TIX_Public_Platform::slug($org) . '/');
-            $r = self::api($i, 'SitesManager.addSite', ['siteName' => mb_substr($name ?: 'Seite', 0, 90), 'urls' => $urls, 'ecommerce' => 1, 'timezone' => 'Europe/Berlin', 'currency' => 'EUR', 'excludeUnknownUrls' => 0]);
-            if (is_wp_error($r)) return $r;
-            $sid = is_array($r) ? intval($r['value'] ?? 0) : intval($r);
+            if (!$org) return new WP_Error('tix_matomo_missing', 'Matomo ist für diese Seite noch nicht eingerichtet.', ['status' => 503]);
+            if (!$i['superuser']) return new WP_Error('tix_matomo_forbidden', 'Eigene Matomo-Websites für Veranstalter gibt es nur auf evendis.', ['status' => 403]);
+            $sid = 0;
+            $found = self::api($i, 'SitesManager.getSitesFromGroup', ['group' => self::group($org)]);
+            if (is_wp_error($found)) return $found;
+            foreach ((array) $found as $x) if (is_array($x) && intval($x['idsite'] ?? 0) > 0) { $sid = intval($x['idsite']); break; }
+            if (!$sid) {
+                $name = html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8');
+                $urls = [home_url('/')];
+                if (class_exists('TIX_Public_Platform') && method_exists('TIX_Public_Platform', 'slug')) $urls[] = home_url('/v/' . TIX_Public_Platform::slug($org) . '/');
+                $r = self::api($i, 'SitesManager.addSite', ['siteName' => mb_substr($name ?: 'Veranstalter', 0, 90), 'urls' => $urls, 'ecommerce' => 1, 'timezone' => 'Europe/Berlin', 'currency' => 'EUR', 'group' => self::group($org), 'excludeUnknownUrls' => 1]);
+                if (is_wp_error($r)) return $r;
+                $sid = is_array($r) ? intval($r['value'] ?? 0) : intval($r);
+            }
             if ($sid < 1) return new WP_Error('tix_matomo_error', 'Matomo hat keine Website angelegt.', ['status' => 502]);
             $s['site_id'] = $sid;
             self::save_site($org, $s);

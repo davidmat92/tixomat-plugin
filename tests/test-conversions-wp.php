@@ -32,6 +32,7 @@ add_filter('pre_http_request', function ($pre, $args, $url) {
     if (strpos($url, 'https://stats.test/index.php') === 0) {
         $m = $body['method'] ?? '';
         if ($m === 'SitesManager.addSite') return $J(200, ['value' => 7]);
+        if ($m === 'SitesManager.getSitesFromGroup') return $J(200, $GLOBALS['cv']['group_sites'] ?? []);
         if ($m === 'VisitsSummary.get') return $J(200, ['nb_visits' => 120, 'nb_uniq_visitors' => 90, 'nb_actions' => 400, 'bounce_rate' => '41%', 'avg_time_on_site' => 95, 'nb_actions_per_visit' => 3.3]);
         if ($m === 'Goals.get') return $J(200, ['nb_conversions' => 4, 'revenue' => 80, 'conversion_rate' => '3.3%']);
         return $J(200, [['label' => 'Suchmaschinen', 'nb_visits' => 50], ['label' => 'Direkt', 'nb_visits' => 40]]);
@@ -134,12 +135,26 @@ if (!$multi) {
 }
 
 // ── Matomo ──
-update_option('tix_matomo', ['url' => 'https://stats.test', 'token' => str_repeat('a', 32)]);
-cv_eq('Matomo-Token wird verschlüsselt', [true, false], [TIX_Matomo::instance()['token'] === str_repeat('a', 32), isset(get_option('tix_matomo')['token'])]);
+// Option wie seiten.sh: evendis mit Superuser (login + password), KK/Mallorca mit Lese-Nutzer
+update_option('tix_matomo', $multi
+    ? ['url' => 'https://stats.test', 'id_site' => 3, 'login' => 'tix-provision', 'token' => str_repeat('a', 32), 'password' => 'geheimPW']
+    : ['url' => 'https://stats.test', 'id_site' => 7, 'reader' => 'lesen-kk', 'token' => str_repeat('a', 32)]);
+$i0 = TIX_Matomo::instance();
+$raw = wp_json_encode(get_option('tix_matomo'));
+cv_eq('Matomo-Token und Passwort werden verschlüsselt', [true, false, false], [$i0['token'] === str_repeat('a', 32), strpos($raw, str_repeat('a', 32)) !== false, strpos($raw, 'geheimPW') !== false]);
+cv_eq('Site der Seite aus der Option', $multi ? 3 : 7, TIX_Matomo::site(0)['site_id'] ?? null);
+if ($multi) {
+    $GLOBALS['cv']['group_sites'] = [['idsite' => 9, 'group' => 'evendis:org-' . $org]];
+    [$st, $r] = cv_rest('POST', '/marketing/matomo/activate');
+    cv_eq('Veranstalter: vorhandene Site der Gruppe übernommen, kein addSite', [200, 9, 0], [$st, $r['site_id'] ?? null, count(array_filter($calls('https://stats.test/index.php'), function ($c) { return ($c['body']['method'] ?? '') === 'SitesManager.addSite'; }))]);
+    delete_post_meta($org, '_tix_matomo_site');
+    $GLOBALS['cv']['group_sites'] = [];
+}
 [$st, $r] = cv_rest('POST', '/marketing/matomo/activate');
-cv_eq('Matomo: Site angelegt', [200, 7, true], [$st, $r['site_id'] ?? null, $r['active'] ?? null]);
-$add = $calls('https://stats.test/index.php');
-cv_eq('addSite mit E-Commerce, Berlin, EUR', ['SitesManager.addSite', 1, 'Europe/Berlin', 'EUR'], [$add[0]['body']['method'] ?? '', intval($add[0]['body']['ecommerce'] ?? 0), $add[0]['body']['timezone'] ?? '', $add[0]['body']['currency'] ?? '']);
+cv_eq('Matomo: Site aktiv', [200, 7, true], [$st, $r['site_id'] ?? null, $r['active'] ?? null]);
+$add = array_values(array_filter($calls('https://stats.test/index.php'), function ($c) { return ($c['body']['method'] ?? '') === 'SitesManager.addSite'; }));
+if ($multi) cv_eq('addSite mit Gruppe evendis:org-<id>, E-Commerce, Berlin, EUR, unbekannte URLs aus', ['evendis:org-' . $org, 1, 'Europe/Berlin', 'EUR', 1], [$add[0]['body']['group'] ?? '', intval($add[0]['body']['ecommerce'] ?? 0), $add[0]['body']['timezone'] ?? '', $add[0]['body']['currency'] ?? '', intval($add[0]['body']['excludeUnknownUrls'] ?? 0)]);
+else cv_eq('Eigener Shop: kein addSite (Site legt seiten.sh an)', 0, count($add));
 [$st, $r] = cv_rest('GET', '/marketing/matomo/stats', ['from' => wp_date('Y-m-d', time() - 6 * DAY_IN_SECONDS), 'to' => wp_date('Y-m-d')]);
 cv_eq('Matomo-Zahlen im Studio', [120, 4, 'Suchmaschinen'], [$r['summary']['visits'] ?? null, $r['ecommerce']['orders'] ?? null, $r['referrers'][0]['label'] ?? null]);
 [$st, $pub] = cv_rest('GET', '/public/tracking', ['organizer' => (string) $org]);
@@ -147,6 +162,7 @@ cv_eq('Browser bekommt nur URL und Site-ID', ['https://stats.test', 7, false], [
 TIX_Matomo::send_order($o1, $org);
 $mp = $calls('https://stats.test/matomo.php');
 cv_eq('Matomo-Kauf: Besucher-ID, ec_id, Umsatz', ['abcdef0123456789', 'tix_' . $num, 30.0], [$mp[0]['body']['_id'] ?? '', $mp[0]['body']['ec_id'] ?? '', floatval($mp[0]['body']['revenue'] ?? 0)]);
+cv_eq('Matomo-Kauf ohne token_auth, cip, cdt (keine Kunden-IP)', [false, false, false], [isset($mp[0]['body']['token_auth']), isset($mp[0]['body']['cip']), isset($mp[0]['body']['cdt'])]);
 $n = count($calls('https://stats.test/matomo.php'));
 TIX_Matomo::send_order($o2, $org);
 cv_eq('Matomo-Kauf nur mit Einwilligung Statistik', $n, count($calls('https://stats.test/matomo.php')));
