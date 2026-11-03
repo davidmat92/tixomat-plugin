@@ -315,6 +315,7 @@ class TIX_App_Scope {
             // Platzhalter für Events ohne Bild (1.38.465): {url, url_small} | null (dann der Platzhalter der Seite)
             'placeholder' => ($pu = $img('_tix_org_placeholder_id', 'large')) ? ['url' => $pu, 'url_small' => $img('_tix_org_placeholder_id', 'medium') ?: $pu] : null,
             // Prüfung des Impressums der Veranstalterseite (1.38.580; Feld imprint/imprint_url kommt aus TIX_Organizer_Page)
+            'updated_at'  => (string) get_post_meta($oid, self::META_PROFILE_UPDATED, true), // Audit 2026-11-03 (M19)
             'imprint_checks' => class_exists('TIX_Studio_Legal') && trim((string) get_post_meta($oid, self::META_IMPRINT, true)) !== '' ? TIX_Studio_Legal::checks('impressum', wpautop((string) get_post_meta($oid, self::META_IMPRINT, true)), true) : [],
         ] + ((class_exists('TIX_Organizer_Link') && TIX_Organizer_Link::multi()) ? TIX_Organizer_Link::profile_extra(intval($oid)) : [])
           + ((class_exists('TIX_Organizer_Page') && TIX_Organizer_Page::multi()) ? TIX_Organizer_Page::profile_extra(intval($oid)) : []);
@@ -331,7 +332,15 @@ class TIX_App_Scope {
 
     public static function rest_save_profile(WP_REST_Request $req) {
         $b = $req->get_json_params();
-        $r = self::save_profile(self::organizer_id_for_user(), is_array($b) ? $b : []);
+        $b = is_array($b) ? $b : [];
+        $oid = self::organizer_id_for_user();
+        // Audit 2026-11-03 (M19): mit `updated_at` nur speichern, wenn niemand dazwischen gespeichert hat; ohne Feld (ältere Builds) wie bisher
+        if (array_key_exists('updated_at', $b)) {
+            $cur = (string) get_post_meta($oid, self::META_PROFILE_UPDATED, true);
+            if ((string) $b['updated_at'] !== $cur) return new WP_Error('tix_profile_conflict', 'Die Seite wurde inzwischen an anderer Stelle gespeichert. Bitte neu laden und die Änderung noch einmal machen.', ['status' => 409, 'updated_at' => $cur]);
+            unset($b['updated_at']);
+        }
+        $r = self::save_profile($oid, $b);
         if (is_wp_error($r)) return $r;
         return self::rest_profile($req);
     }
@@ -410,8 +419,18 @@ class TIX_App_Scope {
         }
         // Gutschein-Event an Modul/Beträge angleichen (legt es beim ersten Einschalten an)
         if (class_exists('TIX_Giftcards') && (array_key_exists('giftcards', $b) || array_key_exists('modules', $b))) TIX_Giftcards::ensure_organizer_event(intval($oid));
+        update_post_meta($oid, self::META_PROFILE_UPDATED, self::stamp()); // Audit 2026-11-03 (M19)
         self::flush_public_cache();
         return true;
+    }
+
+    /** Audit 2026-11-03 (M19): Stand der Veranstalter-Seite für die Konflikt-Prüfung (zwei Geräte bearbeiten gleichzeitig). */
+    const META_PROFILE_UPDATED = '_tix_org_profile_updated';
+
+    /** Zeitstempel mit Mikrosekunden (UTC), eindeutig genug für die Gleichheits-Prüfung. */
+    public static function stamp() {
+        $t = microtime(true);
+        return gmdate('Y-m-d\\TH:i:s', (int) $t) . sprintf('.%06dZ', (int) (($t - floor($t)) * 1000000));
     }
 
     /**

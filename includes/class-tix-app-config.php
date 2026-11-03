@@ -59,7 +59,7 @@ class TIX_App_Config {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
             return TIX_App_Scope::deny('Die App-Inhalte pflegt der Plattform-Betreiber.');
         }
-        return rest_ensure_response(['config' => (object) self::stored(), 'defaults' => self::defaults()] + (class_exists('TIX_App_Sos') ? ['nav_sos' => TIX_App_Sos::settings()] : []));
+        return rest_ensure_response(['config' => (object) self::stored(), 'defaults' => self::defaults(), 'updated_at' => self::updated_at()] + (class_exists('TIX_App_Sos') ? ['nav_sos' => TIX_App_Sos::settings()] : []));
     }
 
     /**
@@ -99,6 +99,12 @@ class TIX_App_Config {
             return new WP_Error('bad_data', 'Ungültige Daten.', ['status' => 400]);
         }
         unset($b['ok']);
+        // Audit 2026-11-03 (M19): mit `updated_at` nur speichern, wenn niemand dazwischen gespeichert hat; ohne Feld (ältere Builds) wie bisher
+        if (array_key_exists('updated_at', $b)) {
+            $cur = self::updated_at();
+            if ((string) $b['updated_at'] !== $cur) return new WP_Error('tix_app_config_conflict', 'Die App-Inhalte wurden inzwischen an anderer Stelle gespeichert. Bitte neu laden und die Änderung noch einmal machen.', ['status' => 409, 'updated_at' => $cur]);
+            unset($b['updated_at']);
+        }
         // Audit 2026-11-03 (H11, M18): Editoren, die GET /app/config ganz zurückschicken, senden `features` (Karte mit
         // enabled/can_edit) und den gemischten `contact` mit. Unveränderte Werte nicht anwenden bzw. nicht einfrieren.
         if (isset($b['features']) && is_array($b['features']) && class_exists('TIX_Features')) {
@@ -158,7 +164,18 @@ class TIX_App_Config {
             if (!$b['nav']) unset($b['nav']);
         }
         update_option('_tix_app_config', $b, false);
-        return rest_ensure_response(['ok' => true]);
+        $stamp = self::touch();
+        return rest_ensure_response(['ok' => true, 'updated_at' => $stamp]);
+    }
+
+    /** Audit 2026-11-03 (M19): Stand der App-Inhalte für die Konflikt-Prüfung ('' = noch nie mit Stempel gespeichert). */
+    const OPT_UPDATED = '_tix_app_config_updated';
+    public static function updated_at() { return (string) get_option(self::OPT_UPDATED, ''); }
+    public static function touch() {
+        $t = microtime(true);
+        $stamp = gmdate('Y-m-d\\TH:i:s', (int) $t) . sprintf('.%06dZ', (int) (($t - floor($t)) * 1000000));
+        update_option(self::OPT_UPDATED, $stamp, false);
+        return $stamp;
     }
 
     /** Mitarbeiter (tix_staff, Einlass, Kasse …) dürfen App-Inhalte lesen, aber nicht ändern. */

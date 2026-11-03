@@ -243,6 +243,7 @@ class TIX_Features {
                 $c['home'] = isset($c['home']) && is_array($c['home']) ? $c['home'] : [];
                 $c['home']['now'] = array_merge($now, ['show' => (bool) $on]);
                 update_option('_tix_app_config', $c, false);
+                TIX_App_Config::touch(); // Audit 2026-11-03 (M19)
                 return;
         }
     }
