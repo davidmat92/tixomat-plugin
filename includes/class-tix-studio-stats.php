@@ -64,16 +64,14 @@ class TIX_Studio_Stats {
         return TIX_Sales_Figures::for_events($event_ids, $from, $to);
     }
 
-    /** Kanäle für viele Bestellungen auf einmal (Postmeta + Optionen in Blöcken). */
+    /** Kanäle für viele Bestellungen auf einmal (Herkunft aus TIX_Order_Attribution + Optionen in Blöcken). */
     public static function channels(array $order_ids) {
         global $wpdb;
         $order_ids = array_values(array_unique(array_map('intval', $order_ids)));
         $meta = []; $src = []; $pm = [];
+        foreach (self::attribution($order_ids) as $id => $a) $meta[$id] = ['_tix_order_channel' => $a['channel'], '_tix_campaign_source' => $a['source']];
         foreach (array_chunk($order_ids, 500) as $chunk) {
             $in = implode(',', $chunk);
-            foreach ((array) $wpdb->get_results("SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ($in) AND meta_key IN ('_tix_order_channel','_tix_campaign_source')") as $r) {
-                $meta[intval($r->post_id)][$r->meta_key] = (string) $r->meta_value;
-            }
             $names = "'" . implode("','", array_map(function ($id) { return '_tix_order_source_' . $id; }, $chunk)) . "'";
             foreach ((array) $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ($names)") as $r) {
                 $src[intval(substr($r->option_name, strlen('_tix_order_source_')))] = (string) $r->option_value;
@@ -84,6 +82,26 @@ class TIX_Studio_Stats {
         foreach ($order_ids as $id) {
             $m = $meta[$id] ?? [];
             $out[$id] = self::channel_of($pm[$id] ?? '', $src[$id] ?? '', $m['_tix_order_channel'] ?? '', $m['_tix_campaign_source'] ?? '');
+        }
+        return $out;
+    }
+
+    /**
+     * Herkunft vieler Bestellungen: [id => {channel, source, medium, campaign, link_code}] – aus der Tabelle, für Bestellungen
+     * ohne Zeile (Umzug noch nicht durch) aus der alten Postmeta.
+     */
+    public static function attribution(array $order_ids) {
+        global $wpdb;
+        $out = TIX_Order_Attribution::many($order_ids);
+        if (TIX_Order_Attribution::migrated()) return $out;
+        $rest = array_values(array_diff(array_map('intval', $order_ids), array_keys($out)));
+        $keys = ['_tix_order_channel' => 'channel', '_tix_campaign_source' => 'source', '_tix_campaign_medium' => 'medium', '_tix_campaign_name' => 'campaign'];
+        foreach (array_chunk($rest, 500) as $chunk) {
+            foreach ((array) $wpdb->get_results("SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN (" . implode(',', $chunk) . ") AND meta_key IN ('" . implode("','", array_keys($keys)) . "')") as $r) {
+                $id = intval($r->post_id);
+                if (!isset($out[$id])) $out[$id] = ['order_id' => $id, 'channel' => '', 'source' => '', 'medium' => '', 'campaign' => '', 'link_code' => ''];
+                $out[$id][$keys[$r->meta_key]] = (string) $r->meta_value;
+            }
         }
         return $out;
     }
@@ -253,10 +271,7 @@ class TIX_Studio_Stats {
         // Herkunft (utm_source; ohne = direct)
         $src = [];
         $oids = array_values(array_unique(array_map(function ($r) { return intval($r->id); }, array_filter($rows, function ($r) { return $r->money['paid']; }))));
-        $cs = [];
-        foreach (array_chunk($oids, 500) as $chunk) {
-            foreach ((array) $wpdb->get_results("SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_tix_campaign_source' AND post_id IN (" . implode(',', $chunk) . ")") as $r) $cs[intval($r->post_id)] = (string) $r->meta_value;
-        }
+        $cs = array_map(function ($a) { return (string) $a['source']; }, self::attribution($oids));
         foreach ($rows as $r) {
             $k = ($cs[intval($r->id)] ?? '') ?: 'direct';
             if (!isset($src[$k])) $src[$k] = ['source' => $k, 'orders' => [], 'revenue' => 0.0];

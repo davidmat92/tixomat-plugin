@@ -94,10 +94,9 @@ class TIX_Promoter {
 
         if (!$promoter_id) return;
 
-        // Als Post-Meta auf das tix_order — nutzt update_post_meta auch wenn TIX_Order
-        // intern eine eigene Tabelle hat; das post_id existiert.
-        update_post_meta($order_id, '_tix_promoter_id',          $promoter_id);
-        update_post_meta($order_id, '_tix_promoter_attribution', $attribution);
+        // An der Bestellung (TIX_Order_Attribution, seit 1.38.616 nicht mehr als Postmeta an der Bestell-ID)
+        TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_id', $promoter_id);
+        TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_attribution', $attribution);
 
         // Zuordnung dieses Besuchs verbrauchen (nächste Bestellung neu zuordnen)
         $k = self::session_key();
@@ -408,16 +407,16 @@ class TIX_Promoter {
         // Promoter-ID aus Order-Meta (WC + native einheitlich via post_meta)
         $promoter_id = $is_wc
             ? intval($order->get_meta('_tix_promoter_id'))
-            : intval(get_post_meta($order_id, '_tix_promoter_id', true));
+            : intval(TIX_Order_Attribution::meta($order_id, '_tix_promoter_id'));
         if (!$promoter_id) return;
 
         // Doppelte Berechnung vermeiden
         $already = $is_wc
             ? $order->get_meta('_tix_promoter_commissions_calculated')
-            : get_post_meta($order_id, '_tix_promoter_commissions_calculated', true);
+            : TIX_Order_Attribution::meta($order_id, '_tix_promoter_commissions_calculated');
         if ($already) return;
 
-        $attribution = ($is_wc ? $order->get_meta('_tix_promoter_attribution') : get_post_meta($order_id, '_tix_promoter_attribution', true)) ?: 'referral';
+        $attribution = ($is_wc ? $order->get_meta('_tix_promoter_attribution') : TIX_Order_Attribution::meta($order_id, '_tix_promoter_attribution')) ?: 'referral';
 
         foreach ($order->get_items() as $item_id => $item) {
             // Event-ID aus Item ermitteln — WC vs. native
@@ -478,7 +477,7 @@ class TIX_Promoter {
             $order->update_meta_data('_tix_promoter_commissions_calculated', 1);
             $order->save();
         } else {
-            update_post_meta($order_id, '_tix_promoter_commissions_calculated', 1);
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_commissions_calculated', 1);
         }
 
         // Referral-Cookie löschen

@@ -329,18 +329,18 @@ class TIX_Meta_Pixel {
         $pixel_id = $s['meta_pixel_id'] ?? '';
         $token = $s['meta_access_token'] ?? '';
         // Website-Bestellung über die Schnittstelle ohne Einwilligung (kein fbp/fbc) → nichts an Meta
-        $no_consent = get_post_meta($order_id, '_tix_meta_no_consent', true) === '1';
+        $no_consent = TIX_Order_Attribution::meta($order_id, '_tix_meta_no_consent') === '1';
         // Modus „nur nach Einwilligung“ (1.38.458): nur mit nachgewiesener Einwilligung beim Kauf (Website-Kasse bzw. fbp/fbc).
         // App-Bestellungen und Bestellungen ohne Nachweis gehen nicht an Meta.
-        if (($s['meta_consent_mode'] ?? 'always') === 'consent_required' && get_post_meta($order_id, '_tix_meta_consent', true) !== '1'
-            && (string) get_post_meta($order_id, '_tix_meta_fbp', true) === '' && (string) get_post_meta($order_id, '_tix_meta_fbc', true) === '') {
+        if (($s['meta_consent_mode'] ?? 'always') === 'consent_required' && TIX_Order_Attribution::meta($order_id, '_tix_meta_consent') !== '1'
+            && (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbp') === '' && (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbc') === '') {
             $no_consent = true;
         }
         if (!$no_consent && !empty($s['meta_capi_enabled']) && !empty($pixel_id) && !empty($token)) {
             // Bei Website-Bestellungen kommen IP/Browser/fbp/fbc aus der Bestellung (der Kauf wird
             // meist im Zahlungs-Webhook abgeschlossen, der den Besucher nicht kennt)
-            $saved_ip = (string) get_post_meta($order_id, '_tix_meta_client_ip', true);
-            $saved_ua = (string) get_post_meta($order_id, '_tix_meta_client_ua', true);
+            $saved_ip = (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_client_ip');
+            $saved_ua = (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_client_ua');
             $user_data = [
                 'client_ip_address' => $saved_ip !== '' ? $saved_ip : self::get_client_ip(),
                 'client_user_agent' => $saved_ua !== '' ? $saved_ua : ($_SERVER['HTTP_USER_AGENT'] ?? ''),
@@ -357,8 +357,8 @@ class TIX_Meta_Pixel {
 
             if (!empty($_COOKIE['_fbc'])) $user_data['fbc'] = sanitize_text_field($_COOKIE['_fbc']);
             if (!empty($_COOKIE['_fbp'])) $user_data['fbp'] = sanitize_text_field($_COOKIE['_fbp']);
-            $saved_fbc = (string) get_post_meta($order_id, '_tix_meta_fbc', true);
-            $saved_fbp = (string) get_post_meta($order_id, '_tix_meta_fbp', true);
+            $saved_fbc = (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbc');
+            $saved_fbp = (string) TIX_Order_Attribution::meta($order_id, '_tix_meta_fbp');
             if ($saved_fbc !== '') $user_data['fbc'] = $saved_fbc;
             if ($saved_fbp !== '') $user_data['fbp'] = $saved_fbp;
 

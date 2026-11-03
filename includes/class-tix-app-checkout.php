@@ -1569,15 +1569,15 @@ class TIX_App_Checkout {
         if (!is_array($attr)) return;
         $clip = function ($v, $len) { return mb_substr(sanitize_text_field((string) $v), 0, $len); };
         // Kanal merken (Bestellquelle bleibt „app“, damit die Apps keinen neuen Wert sehen)
-        update_post_meta($order_id, '_tix_order_channel', 'web');
+        TIX_Order_Attribution::set_meta($order_id, '_tix_order_channel', 'web');
 
         // Promoter: ein Promo-Code als Gutschein (bereits beim Anlegen zugeordnet) hat Vorrang
         $code = $clip($attr['promoter_code'] ?? '', 64);
-        if ($code !== '' && class_exists('TIX_Promoter_DB') && !get_post_meta($order_id, '_tix_promoter_id', true)) {
+        if ($code !== '' && class_exists('TIX_Promoter_DB') && !TIX_Order_Attribution::meta($order_id, '_tix_promoter_id')) {
             $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
             if ($promoter && !empty($promoter->id)) {
-                update_post_meta($order_id, '_tix_promoter_id', intval($promoter->id));
-                update_post_meta($order_id, '_tix_promoter_attribution', 'referral');
+                TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_id', intval($promoter->id));
+                TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_attribution', 'referral');
             }
         }
 
@@ -1593,14 +1593,17 @@ class TIX_App_Checkout {
             $v = $field === 'utm_source' ? sanitize_key((string) ($attr[$field] ?? '')) : $clip($attr[$field] ?? '', $len);
             $v = mb_substr($v, 0, $len);
             if ($v === '') continue;
-            update_post_meta($order_id, $meta, $v);
+            TIX_Order_Attribution::set_meta($order_id, $meta, $v);
             $any = true;
         }
+        // Kampagnen-Code aus der Adresse (`c=`, Statistik Stufe 1: ohne Gerätespeicher bis zur Kasse weitergereicht)
+        $lc = (string) ($attr['link_code'] ?? ($attr['c'] ?? ''));
+        if (preg_match('/^[A-Za-z0-9_-]{1,32}$/', $lc)) TIX_Order_Attribution::set($order_id, ['link_code' => $lc]);
         $ref = strtolower(preg_replace('/[^A-Za-z0-9.-]/', '', (string) ($attr['referrer_host'] ?? '')));
         if ($ref !== '') {
-            update_post_meta($order_id, '_tix_campaign_referrer', mb_substr($ref, 0, 190));
-            if (!$any && get_post_meta($order_id, '_tix_campaign_source', true) === 'direct') {
-                update_post_meta($order_id, '_tix_campaign_source', 'referral');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_campaign_referrer', mb_substr($ref, 0, 190));
+            if (!$any && TIX_Order_Attribution::meta($order_id, '_tix_campaign_source') === 'direct') {
+                TIX_Order_Attribution::set_meta($order_id, '_tix_campaign_source', 'referral');
             }
         }
 
@@ -1608,14 +1611,24 @@ class TIX_App_Checkout {
         // Browser für den späteren Kauf-Event speichern (der Webhook kennt sie nicht)
         $fbp = $clip($attr['fbp'] ?? '', 200);
         $fbc = $clip($attr['fbc'] ?? '', 500);
-        if ($fbp !== '' || $fbc !== '') {
-            update_post_meta($order_id, '_tix_meta_consent', '1');
-            if ($fbp !== '') update_post_meta($order_id, '_tix_meta_fbp', $fbp);
-            if ($fbc !== '') update_post_meta($order_id, '_tix_meta_fbc', $fbc);
-            update_post_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
-            update_post_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
+        // Klick-IDs der Werbenetze nur mit Einwilligung „Marketing“ (die Website schickt sie nur dann mit)
+        $consent = $fbp !== '' || $fbc !== '' || !empty($attr['consent_marketing']);
+        if ($consent && !empty($attr['click_ids']) && is_array($attr['click_ids'])) {
+            $ids = [];
+            foreach (['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'sccid', 'epik', 'msclkid'] as $k) {
+                $v = (string) ($attr['click_ids'][$k] ?? '');
+                if ($v !== '' && preg_match('/^[A-Za-z0-9._~-]{1,255}$/', $v)) $ids[$k] = $v;
+            }
+            if ($ids) TIX_Order_Attribution::set($order_id, ['click_ids' => $ids]);
+        }
+        if ($consent) {
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_consent', '1');
+            if ($fbp !== '') TIX_Order_Attribution::set_meta($order_id, '_tix_meta_fbp', $fbp);
+            if ($fbc !== '') TIX_Order_Attribution::set_meta($order_id, '_tix_meta_fbc', $fbc);
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
         } else {
-            update_post_meta($order_id, '_tix_meta_no_consent', '1');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_no_consent', '1');
         }
     }
 

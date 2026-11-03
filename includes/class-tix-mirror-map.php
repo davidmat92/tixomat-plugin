@@ -442,9 +442,15 @@ class TIX_Mirror_Map {
         $newsletter = $opt('_tix_order_newsletter');
         $coupon = $opt('_tix_order_coupon');
         $data = [];
-        // Pixel-Einwilligung (1.38.458) als Post-Meta an der Bestell-ID
-        if (get_post_meta($id, '_tix_meta_consent', true) === '1') $data['meta_consent'] = true;
-        elseif (get_post_meta($id, '_tix_meta_no_consent', true) === '1') $data['meta_consent'] = false;
+        // Pixel-Einwilligung (1.38.458) – seit 1.38.616 in TIX_Order_Attribution
+        if (TIX_Order_Attribution::meta($id, '_tix_meta_consent') === '1') $data['meta_consent'] = true;
+        elseif (TIX_Order_Attribution::meta($id, '_tix_meta_no_consent') === '1') $data['meta_consent'] = false;
+        // Herkunft (Statistik Stufe 1): Kanal, Quelle, Medium, Kampagne, Referrer-Host, Link-Code – ohne IP und Kennungen
+        $attr = TIX_Order_Attribution::mirror_data($id) ?: [];
+        $src = get_option('_tix_order_source_' . $id, '');
+        if ($src !== '' && $src !== false) $attr['order_source'] = (string) $src;
+        if (class_exists('TIX_Studio_Stats')) $attr['channel_key'] = TIX_Studio_Stats::channel_of((string) $o['payment_method'], (string) $src, (string) ($attr['channel'] ?? ''), (string) ($attr['source'] ?? ''));
+        if ($attr) $data['attribution'] = $attr;
         foreach (['fees' => '_tix_order_fees', 'campaign' => '_tix_order_campaign', 'group' => '_tix_order_group_data',
                   'partner' => '_tix_order_partner', 'pos' => '_tix_pos_order', 'coupon' => '_tix_order_coupon',
                   'last_refund' => '_tix_refund',

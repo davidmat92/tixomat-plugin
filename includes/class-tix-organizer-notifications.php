@@ -947,11 +947,11 @@ class TIX_Organizer_Notifications {
      * Liefert leeren String wenn keinerlei Tracking-Daten vorhanden sind.
      */
     private static function build_source_line($order_id): string {
-        $source    = (string) get_post_meta($order_id, '_tix_campaign_source', true);
-        $medium    = (string) get_post_meta($order_id, '_tix_campaign_medium', true);
-        $name      = (string) get_post_meta($order_id, '_tix_campaign_name', true);
-        $content   = (string) get_post_meta($order_id, '_tix_campaign_content', true);
-        $referrer  = (string) get_post_meta($order_id, '_tix_campaign_referrer', true);
+        $source    = (string) TIX_Order_Attribution::meta($order_id, '_tix_campaign_source');
+        $medium    = (string) TIX_Order_Attribution::meta($order_id, '_tix_campaign_medium');
+        $name      = (string) TIX_Order_Attribution::meta($order_id, '_tix_campaign_name');
+        $content   = (string) TIX_Order_Attribution::meta($order_id, '_tix_campaign_content');
+        $referrer  = (string) TIX_Order_Attribution::meta($order_id, '_tix_campaign_referrer');
 
         if (!$source && !$medium && !$name && !$referrer) return '';
 

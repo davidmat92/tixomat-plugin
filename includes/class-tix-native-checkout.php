@@ -1994,15 +1994,15 @@ class TIX_Native_Checkout {
     /** Einwilligung „Marketing“ des Besuchers an der Bestellung merken (Meta Conversions-API, 1.38.458). */
     public static function record_meta_consent($order_id) {
         if (class_exists('TIX_Consent') && TIX_Consent::has('marketing')) {
-            update_post_meta($order_id, '_tix_meta_consent', '1');
-            delete_post_meta($order_id, '_tix_meta_no_consent');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_consent', '1');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_no_consent', null);
             foreach (['_fbp' => '_tix_meta_fbp', '_fbc' => '_tix_meta_fbc'] as $c => $m) {
-                if (!empty($_COOKIE[$c])) update_post_meta($order_id, $m, mb_substr(sanitize_text_field(wp_unslash($_COOKIE[$c])), 0, 500));
+                if (!empty($_COOKIE[$c])) TIX_Order_Attribution::set_meta($order_id, $m, mb_substr(sanitize_text_field(wp_unslash($_COOKIE[$c])), 0, 500));
             }
-            update_post_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
-            update_post_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_client_ip', class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : '');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_client_ua', mb_substr(sanitize_text_field((string) ($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 400));
         } else {
-            update_post_meta($order_id, '_tix_meta_no_consent', '1');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_meta_no_consent', '1');
         }
     }
 

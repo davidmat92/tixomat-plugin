@@ -166,16 +166,15 @@ class TIX_Organizer_Link {
         // Käufe: bezahlte Bestellungen mit dieser Herkunft; Umsatz = eigene Positionen
         $orders = 0; $tickets = 0; $revenue = 0.0;
         if (class_exists('TIX_Order')) {
-            $o = TIX_Order::table_name(); $i = TIX_Order::items_table_name(); $pm = $wpdb->postmeta;
+            $o = TIX_Order::table_name(); $i = TIX_Order::items_table_name(); $at = TIX_Order_Attribution::table();
             $rows = $wpdb->get_results($slug !== '' ? $wpdb->prepare(
                 "SELECT o.id FROM $o o
-                 JOIN $pm s ON s.post_id = o.id AND s.meta_key = '_tix_campaign_source' AND s.meta_value = %s
-                 JOIN $pm m ON m.post_id = o.id AND m.meta_key = '_tix_campaign_medium' AND m.meta_value = %s
+                 JOIN $at a ON a.order_id = o.id AND a.source = %s AND a.medium = %s
                  WHERE o.status IN ('completed','processing') AND o.date_created >= %s",
                 sanitize_key(self::SOURCE), $slug, $since . ' 00:00:00'
             ) : $wpdb->prepare(
                 "SELECT o.id FROM $o o
-                 JOIN $pm s ON s.post_id = o.id AND s.meta_key = '_tix_campaign_source' AND s.meta_value = %s
+                 JOIN $at a ON a.order_id = o.id AND a.source = %s
                  WHERE o.status IN ('completed','processing') AND o.date_created >= %s",
                 sanitize_key(self::SOURCE), $since . ' 00:00:00'
             ));

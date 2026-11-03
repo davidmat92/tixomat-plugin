@@ -141,7 +141,8 @@ class TIX_Account_Delete {
                     $wpdb->update($t, $full, ['id' => $oid]);
                 }
                 // Marketing-Einwilligung und Tracking-IDs der Bestellung (Meta-Pixel) sofort weg
-                foreach (['_tix_meta_consent', '_tix_meta_fbp', '_tix_meta_fbc'] as $mk) delete_post_meta($oid, $mk);
+                if (class_exists('TIX_Order_Attribution')) TIX_Order_Attribution::forget($oid);
+                else foreach (['_tix_meta_consent', '_tix_meta_fbp', '_tix_meta_fbc'] as $mk) delete_post_meta($oid, $mk);
                 $orders++;
             }
         }

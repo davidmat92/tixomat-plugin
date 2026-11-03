@@ -250,7 +250,7 @@ class TIX_Order_Admin {
                                     <br><a href="<?php echo esc_url($customer_url); ?>" style="color:#9ca3af;font-size:12px;text-decoration:none;"><?php echo esc_html($o->billing_email); ?></a>
                                     <?php
                                     // Quelle-Badge
-                                    $row_source = get_post_meta($o->id, '_tix_campaign_source', true);
+                                    $row_source = TIX_Order_Attribution::meta($o->id, '_tix_campaign_source');
                                     if ($row_source && class_exists('TIX_Campaign_Tracking')):
                                         $row_label = TIX_Campaign_Tracking::get_channel_label($row_source);
                                         $colors_map = ['instagram'=>'#e4405f','facebook'=>'#1877f2','tiktok'=>'#000000','youtube'=>'#ff0000','whatsapp'=>'#25d366','google_organic'=>'#4285f4','google_ads'=>'#34a853','email'=>'#f59e0b','direct'=>'#6b7280','referral'=>'#8b5cf6'];
@@ -691,11 +691,11 @@ class TIX_Order_Admin {
 
                         <?php
                         // ── Herkunft / Kampagne ──
-                        $camp_source   = get_post_meta($order_id, '_tix_campaign_source', true);
-                        $camp_name     = get_post_meta($order_id, '_tix_campaign_name', true);
-                        $camp_content  = get_post_meta($order_id, '_tix_campaign_content', true);
-                        $camp_medium   = get_post_meta($order_id, '_tix_campaign_medium', true);
-                        $camp_referrer = get_post_meta($order_id, '_tix_campaign_referrer', true);
+                        $camp_source   = TIX_Order_Attribution::meta($order_id, '_tix_campaign_source');
+                        $camp_name     = TIX_Order_Attribution::meta($order_id, '_tix_campaign_name');
+                        $camp_content  = TIX_Order_Attribution::meta($order_id, '_tix_campaign_content');
+                        $camp_medium   = TIX_Order_Attribution::meta($order_id, '_tix_campaign_medium');
+                        $camp_referrer = TIX_Order_Attribution::meta($order_id, '_tix_campaign_referrer');
 
                         if ($camp_source || $camp_referrer):
                             $source_label = '—';

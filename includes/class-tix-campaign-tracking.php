@@ -272,27 +272,27 @@ class TIX_Campaign_Tracking {
         $http_referer = sanitize_text_field($_SERVER['HTTP_REFERER'] ?? '');
 
         if ($source) {
-            update_post_meta($tix_order_id, '_tix_campaign_source', $source);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_source', $source);
         }
         if ($campaign) {
-            update_post_meta($tix_order_id, '_tix_campaign_name', $campaign);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_name', $campaign);
         }
         if ($content) {
-            update_post_meta($tix_order_id, '_tix_campaign_content', $content);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_content', $content);
         }
         if ($medium) {
-            update_post_meta($tix_order_id, '_tix_campaign_medium', $medium);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_medium', $medium);
         }
         if ($cookie_referrer) {
-            update_post_meta($tix_order_id, '_tix_campaign_referrer', $cookie_referrer);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_referrer', $cookie_referrer);
         } elseif ($http_referer) {
-            update_post_meta($tix_order_id, '_tix_campaign_referrer', $http_referer);
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_referrer', $http_referer);
         }
 
         // Landing-Page (auf der der Cookie initial gesetzt wurde — falls trackbar)
         // Falls keine direkte Quelle ermittelbar, mark mit 'direct'
         if (!$source && !$cookie_referrer && !$http_referer) {
-            update_post_meta($tix_order_id, '_tix_campaign_source', 'direct');
+            TIX_Order_Attribution::set_meta($tix_order_id, '_tix_campaign_source', 'direct');
         }
     }
 
