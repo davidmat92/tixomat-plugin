@@ -1,11 +1,13 @@
-name: Deploy to Server
+name: Deploy to Server (stillgelegt)
 
+# Stillgelegt 2026-11-03: tixomat.de wird abgeschaltet. Ein Push auf main
+# deployt nicht mehr. Die Kunden-Seiten laufen weiter über deploy-site.yml.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
