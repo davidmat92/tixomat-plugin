@@ -76,6 +76,12 @@ $body['categories'][0] += ['sale_price' => '', 'desc' => '']; $body['categories'
 $c = get_post_meta($ev, '_tix_ticket_categories', true);
 af_eq('K2 mitgeschickt leer = gelöscht (Aktionspreis)', '', $c[0]['sale_price'] ?? 'x');
 af_eq('K2 mitgeschickt false = sichtbar', 0, intval($c[1]['hidden'] ?? 9));
+// M4: Kombinier-Schalter des Mengenrabatts bleiben, wenn nicht mitgeschickt
+update_post_meta($ev, '_tix_group_discount', ['enabled' => 1, 'tiers' => [['min_qty' => 4, 'percent' => 10]], 'combine_bundle' => 1, 'combine_combo' => 0, 'combine_phase' => 1]);
+[$st] = af_rest('POST', "/events/$ev", $body + ['group_discount' => ['enabled' => true, 'tiers' => [['min_qty' => 4, 'percent' => 10]]]]);
+$gd = get_post_meta($ev, '_tix_group_discount', true);
+af_eq('M4 combine_bundle bleibt', 1, intval($gd['combine_bundle'] ?? 0));
+af_eq('M4 combine_phase bleibt', 1, intval($gd['combine_phase'] ?? 0));
 af_eq('Emoji-Slug ohne %', false, strpos((string) get_post_field('post_name', $ev), '%') !== false);
 
 // ── H1: Einlass von Event A nimmt kein Ticket von Event B ──

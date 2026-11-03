@@ -643,7 +643,15 @@ class TIX_App_Events {
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {
             if ($pricing['group_discount'] === null) delete_post_meta($post_id, '_tix_group_discount');
-            else update_post_meta($post_id, '_tix_group_discount', $pricing['group_discount']);
+            else {
+                // Audit 2026-11-03 (M4): Kombinier-Schalter nur ändern, wenn mitgeschickt (Studio/App kennen sie nicht)
+                $prev_gd = get_post_meta($post_id, '_tix_group_discount', true);
+                $sent_gd = is_array($body['group_discount'] ?? null) ? $body['group_discount'] : [];
+                foreach (['combine_bundle', 'combine_combo', 'combine_phase'] as $ck) {
+                    if (!array_key_exists($ck, $sent_gd) && is_array($prev_gd) && array_key_exists($ck, $prev_gd)) $pricing['group_discount'][$ck] = !empty($prev_gd[$ck]) ? 1 : 0;
+                }
+                update_post_meta($post_id, '_tix_group_discount', $pricing['group_discount']);
+            }
         }
 
         // ── Sparte (vorab geprüft) ──
@@ -1249,6 +1257,8 @@ class TIX_App_Events {
                 'subtotal'       => method_exists($order, 'get_subtotal') ? floatval($order->get_subtotal()) : floatval($order->get_total()),
                 'tax'            => floatval($order->get_total_tax()),
                 'discount'       => floatval($order->get_total_discount()),
+                // Audit 2026-11-03 (S5): schon erstattet – Studio nennt beim Erstatten den offenen Betrag
+                'refunded_total' => class_exists('TIX_Order_Admin') ? round(floatval(TIX_Order_Admin::refunded_total($order->get_id())), 2) : 0.0,
                 'coupon'         => is_array($coupon) ? (string) ($coupon['code'] ?? '') : '',
                 'customer'       => trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()),
                 'email'          => (string) $order->get_billing_email(),
