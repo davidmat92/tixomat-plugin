@@ -204,6 +204,23 @@ class TIX_Order_Attribution {
     // ═══════════════ Umzug Postmeta → Tabelle ═══════════════
 
     const MIGRATE_VERSION = '1';
+    /**
+     * Stand des Umzugs für /info: {attribution: {done, pending (bool)}}; Admins zusätzlich rows (Zeilen in der Tabelle) und
+     * left (Bestellungen mit Postmeta, die noch umziehen; höchstens 1000 gezählt).
+     */
+    public static function status($detail = false) {
+        global $wpdb;
+        $left = 0;
+        if (class_exists('TIX_Order') && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', TIX_Order::table_name())) === TIX_Order::table_name()) {
+            $keys = "'" . implode("','", array_keys(self::META_MAP)) . "'";
+            $left = intval($wpdb->get_var("SELECT COUNT(*) FROM (SELECT DISTINCT pm.post_id FROM {$wpdb->postmeta} pm INNER JOIN " . TIX_Order::table_name() . " o ON o.id = pm.post_id
+                LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.meta_key IN ($keys) AND (p.ID IS NULL OR p.post_type NOT IN ('shop_order','shop_order_refund','shop_order_placehold')) LIMIT 1000) x"));
+        }
+        $out = ['done' => self::migrated(), 'pending' => $left > 0, 'db' => (string) get_option('tix_order_attribution_db', '')];
+        if ($detail) { $out['rows'] = intval($wpdb->get_var("SELECT COUNT(*) FROM " . self::table())); $out['left'] = $left; }
+        return ['attribution' => $out];
+    }
+
     public static function migrated() { return get_option('tix_attr_migrated') === self::MIGRATE_VERSION; }
 
     /** Ein Block je Aufruf (init bzw. Cron); läuft weiter, bis nichts mehr übrig ist */
