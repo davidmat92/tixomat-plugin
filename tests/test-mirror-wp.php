@@ -124,6 +124,17 @@ $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_phone' => '0221 12345'], [
 m_run();
 t_eq('Nachlauf holt direkte Änderung', '0221 12345', m_one('orders', $oid)['billing_phone'] ?? null);
 
+// ── 4b. Kassenbon mit TSE (Degaso, Option _tix_pos_receipt_<id>) → orders.data.pos_receipt ──
+update_option('_tix_pos_receipt_' . $oid, ['provider' => 'degaso', 'cash' => 'Kasse 1', 'order_id' => 'dg-' . $oid, 'total' => 12.5, 'payment' => 'cash',
+    'lines' => [['name' => 'Ticket', 'price' => '12.50']], 'signed_at' => current_time('mysql'), 'receipt' => ['receiptNumber' => '4711', 'tseSignature' => 'c2lnbmF0dXI=']], false);
+m_run();
+$rc = m_one('orders', $oid)['data']['pos_receipt'] ?? [];
+t_eq('Kassenbon an der Bestellung (Bon-Nr., TSE)', '4711|c2lnbmF0dXI=', ($rc['receipt']['receiptNumber'] ?? '') . '|' . ($rc['receipt']['tseSignature'] ?? ''));
+$rc2 = get_option('_tix_pos_receipt_' . $oid); $rc2['voided'] = current_time('mysql'); update_option('_tix_pos_receipt_' . $oid, $rc2, false);
+m_run();
+t_true('Storno-Bon (voided) nachgezogen', !empty(m_one('orders', $oid)['data']['pos_receipt']['voided']));
+delete_option('_tix_pos_receipt_' . $oid);
+
 // ── 5. Check-in und Rücknahme ──
 TIX_Tickets::checkin_ticket($tickets[0], 'test');
 m_run();

@@ -38,6 +38,7 @@ class TIX_Mirror_Reconcile {
             'artists'             => 'artist',
             'artist_followers'    => 'artist_follower',
             'organizer_followers' => 'org_follower',
+            'artist_follow_proofs' => 'artist_proof',
         ];
     }
 
@@ -209,6 +210,13 @@ class TIX_Mirror_Reconcile {
             case 'organizers': foreach ($ids as $id) if (TIX_Mirror_Map::is_sandbox_org($id)) $drop[] = $id; break;
             case 'artist_followers':
                 foreach ((array) $wpdb->get_results("SELECT id, artist_id FROM {$wpdb->prefix}tix_artist_mail_followers WHERE id IN ($in)", ARRAY_A) as $r) {
+                    $a = get_post_meta((int) $r['artist_id'], '_tix_artist', true);
+                    $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+                    if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'artist_follow_proofs':
+                foreach ((array) $wpdb->get_results("SELECT id, artist_id FROM {$wpdb->prefix}tix_artist_follow_proofs WHERE id IN ($in)", ARRAY_A) as $r) {
                     $a = get_post_meta((int) $r['artist_id'], '_tix_artist', true);
                     $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
                     if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = (int) $r['id'];
@@ -386,6 +394,13 @@ class TIX_Mirror_Reconcile {
                     }
                     $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['status'], self::bool(!empty($r['share_email'])), $conf]);
                 }
+                return $out;
+
+            case 'artist_follow_proofs':
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, artist_id, revoke_reason FROM {$wpdb->prefix}tix_artist_follow_proofs WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([(int) $r['artist_id'], $r['revoke_reason']]);
                 return $out;
 
             case 'audit_log':

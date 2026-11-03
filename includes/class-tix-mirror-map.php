@@ -447,7 +447,8 @@ class TIX_Mirror_Map {
         elseif (get_post_meta($id, '_tix_meta_no_consent', true) === '1') $data['meta_consent'] = false;
         foreach (['fees' => '_tix_order_fees', 'campaign' => '_tix_order_campaign', 'group' => '_tix_order_group_data',
                   'partner' => '_tix_order_partner', 'pos' => '_tix_pos_order', 'coupon' => '_tix_order_coupon',
-                  'last_refund' => '_tix_refund'] as $name => $key) {
+                  'last_refund' => '_tix_refund',
+                  'pos_receipt' => '_tix_pos_receipt'] as $name => $key) { // Kassenbon mit TSE (Degaso, nur Bon-/TSE-Angaben)
             $v = $opt($key);
             if ($v !== null && $v !== '' && $v !== false) $data[$name] = $v;
         }

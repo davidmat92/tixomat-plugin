@@ -665,6 +665,47 @@ if (post_type_exists('tix_artist')) {
         $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
         t2_true('Vergleich: Folgen gleich', (bool) preg_match('/artist_followers\s+(\d+)\s+\1\s+gleich/', $vout));
         $wpdb->delete($ft, ['artist_id' => $art]); TIX_Mirror::touch('artist_follower', $fid);
+
+        // Einwilligungs-Nachweise nach dem Widerruf (tix_artist_follow_proofs, 1.38.529) – nur WP-Hash, Text, Zeiten
+        $pt = $wpdb->prefix . 'tix_artist_follow_proofs';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$pt'") === $pt) {
+            $pmail = "nachweis$sfx@example.test";
+            $now = current_time('mysql');
+            $p_row = function ($artist, $reason, $until) use ($pmail, $now) {
+                return ['artist_id' => $artist, 'email_hash' => TIX_Artist_Follow::proof_hash($pmail), 'consent_text' => 'Ich möchte Mails zu Spiegel-Band', 'consent_at' => $now,
+                    'confirmed_at' => $now, 'source' => 'email', 'revoked_at' => $now, 'revoke_reason' => $reason, 'delete_after' => $until];
+            };
+            $wpdb->insert($pt, $p_row($art, 'unsubscribe', gmdate('Y-m-d H:i:s', strtotime('+3 years', current_time('timestamp')))));
+            $pid = (int) $wpdb->insert_id;
+            $wpdb->insert($pt, $p_row($art, 'unfollow', gmdate('Y-m-d H:i:s', current_time('timestamp') - 60))); // Frist schon abgelaufen
+            $pid_old = (int) $wpdb->insert_id;
+            $wpdb->insert($pt, $p_row($sbart, 'unfollow', gmdate('Y-m-d H:i:s', strtotime('+3 years', current_time('timestamp')))));
+            $pid_sb = (int) $wpdb->insert_id;
+            $sb_on = [$demo]; add_filter('tix_sandbox_organizer', $sb_filter, 10, 2); TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+            m2_run();
+            $mp = m2_one('artist_follow_proofs', $pid);
+            t2_eq('Nachweis gespiegelt (Künstler, Grund, Quelle)', $art . '|unsubscribe|email', ($mp['artist_id'] ?? '') . '|' . ($mp['revoke_reason'] ?? '') . '|' . ($mp['source'] ?? ''));
+            t2_eq('Nachweis: nur der WordPress-Hash', TIX_Artist_Follow::proof_hash($pmail), $mp['proof_hash'] ?? null);
+            t2_true('Nachweis: Zeitpunkte und Fristende', !empty($mp['consent_at']) && !empty($mp['revoked_at']) && !empty($mp['delete_after']));
+            $pj = wp_json_encode(m2_rows('artist_follow_proofs')) . wp_json_encode(m2_rows('change_log', ['entity' => 'eq.artist_follow_proofs']));
+            t2_true('Nachweis: keine Adresse im Spiegel (auch Verlauf)', stripos($pj, $pmail) === false);
+            t2_eq('Nachweis zum Demo-Künstler nicht gespiegelt', null, m2_one('artist_follow_proofs', $pid_sb));
+            $rep = m2_reconcile();
+            t2_eq('Abgleich: Nachweise ohne Abweichung', 0, (int) ($rep['tables']['artist_follow_proofs']['differ'] ?? -1) + (int) ($rep['tables']['artist_follow_proofs']['missing'] ?? -1));
+            // Fristende in WordPress (stündlicher Lauf, echtes DELETE) → Abgleich entfernt im Spiegel
+            TIX_Artist_Follow::purge_proofs();
+            t2_eq('WordPress: abgelaufener Nachweis gelöscht', null, $wpdb->get_var($wpdb->prepare("SELECT id FROM $pt WHERE id = %d", $pid_old)));
+            $rep = m2_reconcile(); m2_run(2);
+            t2_eq('Spiegel: abgelaufener Nachweis über den Abgleich entfernt', null, m2_one('artist_follow_proofs', $pid_old));
+            t2_true('Spiegel: gültiger Nachweis bleibt', m2_one('artist_follow_proofs', $pid) !== null);
+            $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+            t2_true('Vergleich: Nachweise gleich', (bool) preg_match('/artist_follow_proofs\s+(\d+)\s+\1\s+gleich/', $vout));
+            remove_filter('tix_sandbox_organizer', $sb_filter, 10); $sb_on = []; TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+            $wpdb->query($wpdb->prepare("DELETE FROM $pt WHERE id IN (%d, %d)", $pid, $pid_sb));
+            TIX_Mirror::touch('artist_proof', $pid); TIX_Mirror::touch('artist_proof', $pid_sb);
+        } else {
+            echo "      (Tabelle tix_artist_follow_proofs fehlt – übersprungen)\n";
+        }
     }
     wp_delete_post($art, true); $posts = array_diff($posts, [$art]);
     m2_run();

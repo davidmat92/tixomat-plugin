@@ -2602,6 +2602,9 @@ Zweite Speicherung aller Seiten in einem eigenen Supabase-Projekt (EU). **WordPr
   - Neue Zeilen kommen über den Nachlauf, Änderungen und Löschungen über den Abgleich.
   - Folgen von Sandbox-Veranstaltern bleiben draußen. Die Erstbefüllung holt den Bestand nach. Migration `20261020150000_mirror_organizer_followers.sql`.
   - Ausgeliefert mit 1.38.520 (beide Spiegel-Teile zusammen).
+- **Einwilligungs-Nachweise nach dem Widerruf** (`tix_artist_follow_proofs`, 1.38.529; Entscheid User 2026-11-03) in `artist_follow_proofs`: Künstler, `proof_hash` (Hash aus WordPress mit dem Seitengeheimnis, nie die Adresse), Einwilligungstext, Zeitpunkte, Quelle, Widerrufsgrund, Fristende.
+  - Neue Zeilen über den Nachlauf (ID), das Löschen nach Fristende (stündlich in WordPress) holt der tägliche Abgleich. Nachweise zu Sandbox-Künstlern bleiben draußen. Migration `20261103120000_mirror_artist_follow_proofs.sql`.
+- **Kassenbon mit TSE (Degaso-Abendkasse):** Option `_tix_pos_receipt_<order>` steht als `orders.data.pos_receipt` im Spiegel (Kasse, Bon-/TSE-Angaben, Positionen, Storno-Zeitpunkt; keine Personendaten). Keine Migration.
 - **Nicht gespiegelt: Sandbox (Live-Demo Vertrieb).** Demo Club und Vorschau-Veranstalter (`TIX_Sales::is_sandbox_organizer($oid)`, Filter `tix_sandbox_organizer`).
   - Ausgeschlossen werden Veranstalter, Events (Haupt-Veranstalter), Kategorien, Gäste, Bestellungen mit einer Position an einem Sandbox-Event (inkl. Positionen, Zahlung, Check-ins, Stornos), Tickets, Gutscheine (`organizer_id`/`order_id`), Geldbörsen, Buchungen, Abrechnungen, Belege, Protokoll (`scope …:<id>`) und Stempelkarten.
   - Schon Gespiegeltes löscht der Plan bzw. der tägliche Abgleich: Er zählt Sandbox auf der WP-Seite nicht mit, nimmt sie aber erst nach der Paketgrenze heraus.

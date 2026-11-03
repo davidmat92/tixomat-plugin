@@ -37,6 +37,7 @@ class TIX_Mirror_Extra {
             case 'artist':          return self::plan_artist($site, (int) $id);
             case 'artist_follower': return self::plan_artist_follower($site, (int) $id);
             case 'org_follower':    return self::plan_org_follower($site, (int) $id);
+            case 'artist_proof':    return self::plan_artist_proof($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -483,6 +484,39 @@ class TIX_Mirror_Extra {
         return [['upsert', 'artist_followers', [self::follower_row($site, $f)]]];
     }
 
+    /** Sandbox-Künstler (verwaltet von Demo-/Vorschau-Veranstalter)? */
+    private static function sandbox_artist($artist_id) {
+        $a = get_post_meta((int) $artist_id, '_tix_artist', true);
+        $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
+        return ($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0);
+    }
+
+    /**
+     * Einwilligungs-Nachweis nach dem Widerruf (tix_artist_follow_proofs, 1.38.529): nur der Hash aus WordPress
+     * (HMAC mit dem Seitengeheimnis, ohne Adresse nicht umkehrbar), Text und Zeitpunkte. Zeilen ändern sich nicht;
+     * neue kommen per Nachlauf, das Löschen nach Fristende (delete_after) holt der tägliche Abgleich.
+     */
+    private static function plan_artist_proof($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $f = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_artist_follow_proofs WHERE id = %d", $id), ARRAY_A);
+        $wpdb->suppress_errors($prev);
+        if ($f && self::sandbox_artist($f['artist_id'])) $f = null; // Demo/Vorschau
+        if (!$f) return [self::del('artist_follow_proofs', $site, $id)];
+        return [['upsert', 'artist_follow_proofs', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $f['id'],
+            'artist_id'     => (int) $f['artist_id'],
+            'proof_hash'    => (string) $f['email_hash'],   // WordPress-Hash (Seitengeheimnis), nie die Adresse
+            'consent_text'  => (string) $f['consent_text'],
+            'consent_at'    => self::local_iso($f['consent_at']),
+            'confirmed_at'  => self::local_iso($f['confirmed_at']),
+            'source'        => (string) $f['source'],
+            'revoked_at'    => self::local_iso($f['revoked_at']),
+            'revoke_reason' => (string) $f['revoke_reason'],
+            'delete_after'  => self::local_iso($f['delete_after']),
+        ])]]];
+    }
+
     /** E-Mail-Folgen eines Veranstalters (tix_mail_followers) – pseudonymisiert wie bei Künstlern (Entscheid User 2026-10-20). */
     private static function plan_org_follower($site, $id) {
         global $wpdb;
@@ -550,6 +584,7 @@ class TIX_Mirror_Extra {
             // E-Mail-Folgen von Künstlern (1.38.518): neue Zeilen; Bestätigen/Ändern/Löschen holt der tägliche Abgleich
             ['artist_follower', $wpdb->prefix . 'tix_artist_mail_followers', 'id', 'id',         true],
             ['org_follower',    $wpdb->prefix . 'tix_mail_followers',   'id',      'id',         true],  // E-Mail-Folgen Veranstalter
+            ['artist_proof',    $wpdb->prefix . 'tix_artist_follow_proofs', 'id',  'id',         true],  // Einwilligungs-Nachweise (1.38.529)
         ];
     }
 }

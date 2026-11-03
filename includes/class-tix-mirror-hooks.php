@@ -26,7 +26,7 @@ class TIX_Mirror_Hooks {
                               '_tix_artist_log', '_tix_artist_norm', '_tix_artist_spotify', '_tix_artist_apple']; // Künstler: Protokoll/abgeleitete Suchschlüssel
 
     /** Optionen je Bestellung: Präfix vor "_{id}". */
-    const ORDER_OPTIONS = '/^_tix_(order_coupon|order_fees|order_campaign|order_group_data|order_newsletter|order_partner|pos_order|refund|refund_total|mollie_payment|paypal_order|paypal_capture|stripe_session|stripe_method|stripe_pi)_(\d+)$/';
+    const ORDER_OPTIONS = '/^_tix_(order_coupon|order_fees|order_campaign|order_group_data|order_newsletter|order_partner|pos_order|pos_receipt|refund|refund_total|mollie_payment|paypal_order|paypal_capture|stripe_session|stripe_method|stripe_pi)_(\d+)$/';
 
     public static function init() {
         // Posts (Events, Tickets)
