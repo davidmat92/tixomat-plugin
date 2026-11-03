@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) exit;
  */
 class TIX_Order_Attribution {
 
-    const DB_VERSION = '1';
+    const DB_VERSION = '2'; // 2 = utm_id (Kampagnen-ID der Werbung, Stufe 2)
     const BATCH = 500;
 
     /** alter Postmeta-Schlüssel → Spalte */
@@ -42,7 +42,7 @@ class TIX_Order_Attribution {
 
     /** Spalten mit Länge (Text) */
     const TEXT = ['channel' => 20, 'source' => 64, 'medium' => 100, 'campaign' => 100, 'content' => 100, 'referrer' => 190,
-        'link_code' => 32, 'fbp' => 200, 'fbc' => 500, 'client_ip' => 64, 'client_ua' => 400, 'promoter_attribution' => 20];
+        'link_code' => 32, 'utm_id' => 64, 'fbp' => 200, 'fbc' => 500, 'client_ip' => 64, 'client_ua' => 400, 'promoter_attribution' => 20];
 
     private static $cache = [];
 
@@ -68,6 +68,7 @@ class TIX_Order_Attribution {
             content VARCHAR(100) NOT NULL DEFAULT '',
             referrer VARCHAR(190) NOT NULL DEFAULT '',
             link_code VARCHAR(32) NOT NULL DEFAULT '',
+            utm_id VARCHAR(64) NOT NULL DEFAULT '',
             promoter_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             promoter_attribution VARCHAR(20) NOT NULL DEFAULT '',
             promoter_done TINYINT(1) NOT NULL DEFAULT 0,
@@ -80,7 +81,8 @@ class TIX_Order_Attribution {
             updated DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00',
             PRIMARY KEY  (order_id),
             KEY source (source),
-            KEY link_code (link_code)
+            KEY link_code (link_code),
+            KEY utm_id (utm_id)
         ) " . $wpdb->get_charset_collate() . ";");
         update_option('tix_order_attribution_db', self::DB_VERSION, true);
     }
@@ -194,14 +196,15 @@ class TIX_Order_Attribution {
         return array_filter([
             'channel' => (string) $r['channel'], 'source' => (string) $r['source'], 'medium' => (string) $r['medium'],
             'campaign' => (string) $r['campaign'], 'content' => (string) $r['content'], 'referrer_host' => strtolower($host),
-            'link_code' => (string) $r['link_code'], 'promoter_id' => intval($r['promoter_id']) ?: null,
+            'link_code' => (string) $r['link_code'], 'utm_id' => (string) ($r['utm_id'] ?? ''), 'promoter_id' => intval($r['promoter_id']) ?: null,
             'consent_marketing' => $r['consent_marketing'] === null ? null : (bool) intval($r['consent_marketing']),
         ], function ($v) { return $v !== '' && $v !== null; });
     }
 
     // ═══════════════ Umzug Postmeta → Tabelle ═══════════════
 
-    public static function migrated() { return get_option('tix_attr_migrated') === self::DB_VERSION; }
+    const MIGRATE_VERSION = '1';
+    public static function migrated() { return get_option('tix_attr_migrated') === self::MIGRATE_VERSION; }
 
     /** Ein Block je Aufruf (init bzw. Cron); läuft weiter, bis nichts mehr übrig ist */
     public static function maybe_migrate() {
@@ -211,7 +214,7 @@ class TIX_Order_Attribution {
         $n = self::migrate_batch(self::BATCH);
         delete_transient('tix_attr_migrating');
         if ($n < 0) return; // Datenbankfehler: nicht als fertig markieren, beim nächsten Aufruf erneut
-        if ($n === 0) { update_option('tix_attr_migrated', self::DB_VERSION, true); return; }
+        if ($n === 0) { update_option('tix_attr_migrated', self::MIGRATE_VERSION, true); return; }
         if (!wp_next_scheduled('tix_attr_migrate')) wp_schedule_single_event(time() + 30, 'tix_attr_migrate');
     }
 

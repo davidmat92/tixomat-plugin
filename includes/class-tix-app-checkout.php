@@ -1599,6 +1599,9 @@ class TIX_App_Checkout {
         // Kampagnen-Code aus der Adresse (`c=`, Statistik Stufe 1: ohne Gerätespeicher bis zur Kasse weitergereicht)
         $lc = (string) ($attr['link_code'] ?? ($attr['c'] ?? ''));
         if (preg_match('/^[A-Za-z0-9_-]{1,32}$/', $lc)) TIX_Order_Attribution::set($order_id, ['link_code' => $lc]);
+        // Kampagnen-ID der Werbung (utm_id aus der URL-Vorlage des Werbekontos, Stufe 2): Zuordnung zu den Werbekosten
+        $uid = (string) ($attr['utm_id'] ?? '');
+        if (preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $uid)) TIX_Order_Attribution::set($order_id, ['utm_id' => $uid]);
         $ref = strtolower(preg_replace('/[^A-Za-z0-9.-]/', '', (string) ($attr['referrer_host'] ?? '')));
         if ($ref !== '') {
             TIX_Order_Attribution::set_meta($order_id, '_tix_campaign_referrer', mb_substr($ref, 0, 190));

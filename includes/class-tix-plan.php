@@ -40,7 +40,7 @@ class TIX_Plan {
         'raffles'     => true,  // bisher ohne Veranstalter-Schalter verfügbar
         'assistant'   => false, // auf evendis bisher nur Admin
         'degaso'      => false, // evendis nutzt Degaso nicht
-        'marketing'   => false, // kostenpflichtig (F9), erst nach Kauf
+        'marketing'   => true,  // P3: für Veranstalter der Ticketplattform kostenlos (Einzel-Seiten: Buchung bzw. 30-Tage-Test)
     ];
 
     /** App-Extras: nur über die Lizenz verkauft, Betrieb über die App-Funktionen (TIX_Features) */

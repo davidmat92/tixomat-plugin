@@ -34,7 +34,7 @@ class TIX_Web_Stats {
     const STEPS = ['view', 'event', 'checkout', 'purchase'];
     /** Schritte, die eine Website bzw. App melden darf */
     const HIT_STEPS = ['view', 'event', 'quote', 'checkout', 'purchase'];
-    const DIM_VERSION = '1';
+    const DIM_VERSION = '2'; // 2 = utm_id (Kampagnen-ID der Werbung) als Dimension
     const OPT_VISITS = 'tix_web_visits';
     const BOT = '/bot|crawl|spider|slurp|preview|headless|lighthouse|pingdom|monitor|curl|wget|python|axios|node-fetch|scrapy|httpclient|java\//i';
     const KEEP_DAYS = 400;
@@ -69,6 +69,12 @@ class TIX_Web_Stats {
     public static function maybe_create_dim() {
         if (get_option('tix_web_stats_dim_db') === self::DIM_VERSION) return;
         global $wpdb;
+        // 1 → 2: Spalte utm_id in den Primärschlüssel (dbDelta ändert Primärschlüssel nicht)
+        $d0 = self::dim_table();
+        if (get_option('tix_web_stats_dim_db') === '1' && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $d0)) === $d0) {
+            if (!$wpdb->get_var("SHOW COLUMNS FROM $d0 LIKE 'utm_id'")) $wpdb->query("ALTER TABLE $d0 ADD COLUMN utm_id VARCHAR(64) NOT NULL DEFAULT '' AFTER campaign");
+            $wpdb->query("ALTER TABLE $d0 DROP PRIMARY KEY, ADD PRIMARY KEY (day, step, org_id, event_id, channel, source, medium, campaign, utm_id)");
+        }
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         $c = $wpdb->get_charset_collate();
         $d = self::dim_table(); $v = self::visits_table();
@@ -81,8 +87,9 @@ class TIX_Web_Stats {
             source VARCHAR(64) NOT NULL DEFAULT '',
             medium VARCHAR(64) NOT NULL DEFAULT '',
             campaign VARCHAR(64) NOT NULL DEFAULT '',
+            utm_id VARCHAR(64) NOT NULL DEFAULT '',
             n INT UNSIGNED NOT NULL DEFAULT 0,
-            PRIMARY KEY  (day, step, org_id, event_id, channel, source, medium, campaign),
+            PRIMARY KEY  (day, step, org_id, event_id, channel, source, medium, campaign, utm_id),
             KEY event_day (event_id, day),
             KEY org_day (org_id, day)
         ) $c;");
@@ -105,23 +112,25 @@ class TIX_Web_Stats {
         return mb_substr(trim((string) $v, '-'), 0, $len);
     }
 
-    /** Herkunft eines Treffers: [source, medium, campaign] */
+    /** Herkunft eines Treffers: [source, medium, campaign, utm_id] */
     public static function origin(WP_REST_Request $req) {
         $src = self::norm($req->get_param('utm_source') ?? $req->get_param('us'));
         $med = self::norm($req->get_param('utm_medium') ?? $req->get_param('um'));
         $cmp = self::norm($req->get_param('utm_campaign') ?? $req->get_param('uc'));
-        if ($src !== '') return [$src, $med, $cmp];
+        $uid = (string) ($req->get_param('utm_id') ?? $req->get_param('ui'));
+        $uid = preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $uid) ? $uid : '';
+        if ($src !== '') return [$src, $med, $cmp, $uid];
         $host = strtolower(preg_replace('/[^A-Za-z0-9.-]/', '', (string) ($req->get_param('ref_host') ?? $req->get_param('rh'))));
         $host = preg_replace('/^www\./', '', $host);
         $own = preg_replace('/^www\./', '', strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)));
-        if ($host !== '' && $host !== $own && strpos($host, '.') !== false) return [mb_substr($host, 0, 64), 'referral', $cmp];
-        return ['direct', '', $cmp];
+        if ($host !== '' && $host !== $own && strpos($host, '.') !== false) return [mb_substr($host, 0, 64), 'referral', $cmp, $uid];
+        return ['direct', '', $cmp, $uid];
     }
 
     private static function bump_dim($day, $step, $org, $event, $channel, array $o) {
         global $wpdb;
-        $wpdb->query($wpdb->prepare("INSERT INTO " . self::dim_table() . " (day, step, org_id, event_id, channel, source, medium, campaign, n) VALUES (%s, %s, %d, %d, %s, %s, %s, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1",
-            $day, $step, $org, $event, $channel, $o[0], $o[1], $o[2]));
+        $wpdb->query($wpdb->prepare("INSERT INTO " . self::dim_table() . " (day, step, org_id, event_id, channel, source, medium, campaign, utm_id, n) VALUES (%s, %s, %d, %d, %s, %s, %s, %s, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1",
+            $day, $step, $org, $event, $channel, $o[0], $o[1], $o[2], $o[3] ?? ''));
     }
 
     /** Veranstalter eines Events (0 auf Einzel-Seiten) */
@@ -214,7 +223,7 @@ class TIX_Web_Stats {
             $new = $wpdb->query($wpdb->prepare("INSERT IGNORE INTO " . self::visits_table() . " (day, scope, h) VALUES (%s, %d, %s)", $day, $scope, $h));
             if (!$new) continue;
             self::bump($day, $scope ? 'ovisit' : 'visit', $scope);
-            self::bump_dim($day, 'visit', $scope, 0, 'web', ['', '', '']);
+            self::bump_dim($day, 'visit', $scope, 0, 'web', ['', '', '', '']);
         }
         // frühere Tage nie aufheben
         if (mt_rand(1, 50) === 1) $wpdb->query($wpdb->prepare("DELETE FROM " . self::visits_table() . " WHERE day < %s", $day));

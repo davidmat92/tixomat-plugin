@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.618
+ * Version: 1.38.619
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.618');
+define('TIXOMAT_VERSION', '1.38.619');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -752,7 +752,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-export.php';
 TIX_Export::init();
 // ── Studio Paket 2: Statistik, Kanäle, Einlass-/Gutschein-Export, Ticket umschreiben (1.38.454) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-stats.php';
-require_once TIXOMAT_PATH . 'includes/class-tix-stats-audience.php'; // Statistik Stufe 1: Kennzahlen-Katalog GET /organizer/stats/audience
+require_once TIXOMAT_PATH . 'includes/class-tix-stats-audience.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-ad-accounts.php'; // Statistik Stufe 2: Werbekonten (Meta, Google Ads, TikTok) über connect.evendis.de, Werbekosten, Kosten von Hand // Statistik Stufe 1: Kennzahlen-Katalog GET /organizer/stats/audience
 TIX_Studio_Stats::init();
 // ── Info-Abschnitte (Reihenfolge, Künstler-Info, Barrierefreiheit) + Textfelder im Editor (1.38.455) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-texts.php';

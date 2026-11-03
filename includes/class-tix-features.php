@@ -95,6 +95,8 @@ class TIX_Features {
 
     /** Ist die Funktion auf Seiten- bzw. Plattform-Ebene an? */
     public static function site_on($key) {
+        // Marketing-Test (P4): 30 Tage kostenlos, auch ohne Buchung (TIX_Ad_Accounts::trial_active)
+        if ($key === 'marketing' && !self::multi() && class_exists('TIX_Ad_Accounts') && TIX_Ad_Accounts::trial_active()) return true;
         // nicht lizenziert = aus (Lizenziert heißt „darf“, der Schalter darunter „nutzt“)
         if (!self::entitled($key)) return false;
         switch ($key) {
@@ -123,7 +125,8 @@ class TIX_Features {
             case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
             case 'assistant': return class_exists('TIX_Assistant') && TIX_Assistant::enabled();
             case 'degaso': return class_exists('TIX_Degaso') && TIX_Degaso::integration_on();
-            case 'marketing': return get_option(self::OPT_MARKETING, '0') === '1';
+            // P3: auf der Ticketplattform (evendis) frei → Vorgabe an; Einzel-Seiten: gebucht und eingeschaltet
+            case 'marketing': return get_option(self::OPT_MARKETING, self::multi() ? '1' : '0') === '1';
             case 'live_now':
                 $c = class_exists('TIX_App_Config') ? (array) TIX_App_Config::stored() : [];
                 return !isset($c['home']['now']['show']) || !empty($c['home']['now']['show']);
@@ -153,6 +156,7 @@ class TIX_Features {
 
     public static function on($key, $oid = 0) {
         if (!isset(self::FEATURES[$key])) return false;
+        if ($key === 'marketing' && !self::multi() && class_exists('TIX_Ad_Accounts') && TIX_Ad_Accounts::trial_active()) return true;
         // Modul aus (Plattform-Studio bzw. Lizenz) → Funktion aus; Einzelseiten: reine App-Schalter nicht über
         // „Eigene App“ (ihr Verhalten bleibt wie bisher), nur auf der Plattform je Veranstalter
         $mod = self::PLAN_MODULE[$key] ?? null;

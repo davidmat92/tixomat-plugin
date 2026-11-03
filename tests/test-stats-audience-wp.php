@@ -95,7 +95,7 @@ sa_eq('kleine Gruppe google.com zusammengefasst', [false, [1, 0]], [isset($src['
 $cmp = []; foreach ($r['by_campaign'] ?? [] as $x) $cmp[$x['campaign']] = [$x['views'], $x['orders'], $x['revenue']];
 sa_eq('Kampagne herbst-2026', [5, 1, 20.0], $cmp['herbst-2026'] ?? null);
 sa_eq('App-Aufrufe', 1, $r['app']['event_views'] ?? null);
-sa_eq('Marketing-Modul aus', false, $r['modules']['marketing'] ?? null);
+sa_eq('Marketing-Modul: Plattform frei, Einzel-Seite aus', $multi, $r['modules']['marketing'] ?? null);
 sa_eq('Platz für Matomo', ['available' => false, 'connected' => false], $r['matomo'] ?? null);
 sa_eq('Vorperiode vorhanden', true, isset($r['previous']['event_views']));
 
@@ -124,7 +124,7 @@ sa_eq('Trichter-Route kennt quote', true, $st === 200 && array_key_exists('quote
 
 // ── Modul Marketing ──
 $map = TIX_Features::map($org);
-sa_eq('Funktion marketing vorhanden, aus', false, $map['marketing']['enabled'] ?? null);
+sa_eq('Funktion marketing vorhanden (Plattform frei, sonst aus)', $multi, $map['marketing']['enabled'] ?? null);
 update_option('tix_marketing_enabled', '1');
 sa_eq('marketing an (Seite)', true, TIX_Features::site_on('marketing'));
 delete_option('tix_marketing_enabled');
