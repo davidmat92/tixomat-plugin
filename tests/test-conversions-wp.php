@@ -151,6 +151,19 @@ $n = count($calls('https://stats.test/matomo.php'));
 TIX_Matomo::send_order($o2, $org);
 cv_eq('Matomo-Kauf nur mit Einwilligung Statistik', $n, count($calls('https://stats.test/matomo.php')));
 
+// ── Kennungen löschen: nach der letzten Meldung bzw. nach 90 Tagen ──
+$a1 = TIX_Order_Attribution::get($o1);
+cv_eq('Vor dem Abschluss: Kennungen noch da (Aufträge offen)', true, $a1['fbp'] !== '' && $a1['click_ids'] !== null);
+wp_unschedule_hook('tix_conv_send'); wp_unschedule_hook('tix_matomo_order');
+TIX_Conversions::forget_if_done($o1);
+$a1 = TIX_Order_Attribution::get($o1);
+cv_eq('Nach der letzten Meldung: fbp, IP, Klick- und Statistik-IDs weg, Herkunft bleibt', ['', '', null, null, 'web'], [$a1['fbp'], $a1['client_ip'], $a1['click_ids'], $a1['analytics_ids'], $a1['channel']]);
+$o6 = $mk(['channel' => 'web', 'consent_marketing' => 1, 'fbc' => 'fb.1.alt', 'click_ids' => ['gclid' => 'g']]);
+$wpdb->update(TIX_Order_Attribution::table(), ['updated' => gmdate('Y-m-d H:i:s', time() - 91 * DAY_IN_SECONDS)], ['order_id' => $o6]);
+TIX_Conversions::cleanup();
+$a6 = TIX_Order_Attribution::get($o6);
+cv_eq('Nach 90 Tagen ohne Meldung: Kennungen weg', ['', null], [$a6['fbc'], $a6['click_ids']]);
+
 // ── Einwilligungs-Nachweis ──
 $cid = wp_generate_uuid4();
 $q = new WP_REST_Request('POST', '/tixomat/v1/public/consent'); $q->set_body_params(['id' => $cid, 'action' => 'accept', 'categories' => ['analytics', 'marketing', 'evil'], 'revision' => 3, 'host' => 'kitchenklub.de']);
@@ -166,7 +179,7 @@ foreach ($orders as $o) { $wpdb->delete($ot, ['id' => $o]); $wpdb->delete($oi, [
 $wpdb->query("DELETE FROM " . TIX_Conversions::table() . " WHERE order_id = 0");
 $wpdb->delete(TIX_Consent_Log::table(), ['consent_id' => $cid]);
 foreach ($keep as $k => $v) { if ($v === null) delete_option($k); else update_option($k, $v); }
-wp_clear_scheduled_hook('tix_conv_send'); wp_clear_scheduled_hook('tix_matomo_order');
+wp_unschedule_hook('tix_conv_send'); wp_unschedule_hook('tix_matomo_order');
 foreach ($posts as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);

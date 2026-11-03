@@ -30,12 +30,16 @@ class TIX_Conversions {
     const CRON = 'tix_conv_send';
     const KEEP_LOG = 200;
     const GRAPH = 'v21.0';
+    /** Kennungen aus dem Werbe-Link bzw. den Cookies der Dienste: löschen nach Zustellung, spätestens nach 90 Tagen (Datenschutz) */
+    const KEEP_IDS_DAYS = 90;
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_create'], 6);
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('tix_order_completed', [__CLASS__, 'on_paid'], 20);
         add_action(self::CRON, [__CLASS__, 'send'], 10, 4);
+        add_action('tix_conv_cleanup', [__CLASS__, 'cleanup']);
+        add_action('init', function () { if (!wp_next_scheduled('tix_conv_cleanup')) wp_schedule_event(time() + 900, 'daily', 'tix_conv_cleanup'); }, 50);
     }
 
     public static function table() { global $wpdb; return $wpdb->prefix . 'tix_conv_log'; }
@@ -298,11 +302,32 @@ class TIX_Conversions {
         if ($ev === false && (TIX_Order_Attribution::get($order_id)['channel'] ?? '') !== 'web') return;
         if ($ev === false) { self::log($org, $t, $order_id, '', 'skipped', 0, $t === 'ga4' ? 'Ohne Einwilligung „Statistik“ bzw. ohne GA4-Kennung' : 'Ohne Einwilligung „Marketing“'); return; }
         $res = self::deliver($t, $c, $ev, false);
-        if ($res['ok']) { self::log($org, $t, $order_id, $ev['event_id'], 'sent', $res['code'], $res['message'], $attempt); return; }
+        if ($res['ok']) { self::log($org, $t, $order_id, $ev['event_id'], 'sent', $res['code'], $res['message'], $attempt); self::forget_if_done($order_id); return; }
         $last = $attempt >= 3 || ($res['code'] >= 400 && $res['code'] < 500 && $res['code'] !== 429);
         self::log($org, $t, $order_id, $ev['event_id'], $last ? 'failed' : 'retry', $res['code'], $res['message'], $attempt);
         if (!$last) wp_schedule_single_event(time() + ($attempt === 1 ? 300 : 1800), self::CRON, [$order_id, $org, $t, $attempt + 1]);
+        else self::forget_if_done($order_id);
     }
+
+    /** Offene Aufträge einer Bestellung (geplant, aber noch nicht gesendet/abgeschlossen)? */
+    private static function pending($order_id) {
+        foreach ((array) _get_cron_array() as $hooks) {
+            foreach ((array) ($hooks[self::CRON] ?? []) as $e) if (intval($e['args'][0] ?? 0) === intval($order_id)) return true;
+            foreach ((array) ($hooks['tix_matomo_order'] ?? []) as $e) if (intval($e['args'][0] ?? 0) === intval($order_id)) return true;
+        }
+        return false;
+    }
+
+    /** Nach der letzten Meldung: Kennungen der Bestellung löschen (Herkunft bleibt) */
+    public static function forget_if_done($order_id) {
+        if (self::pending($order_id)) return;
+        self::forget_ids($order_id);
+    }
+
+    public static function forget_ids($order_id) { TIX_Order_Attribution::forget_ids($order_id); }
+
+    /** Täglich: Kennungen älter als 90 Tage löschen, auch ohne Meldung (z. B. Modul aus) */
+    public static function cleanup() { TIX_Order_Attribution::forget_old_ids(self::KEEP_IDS_DAYS); }
 
     /** An ein Ziel senden → {ok, code, message} */
     public static function deliver($t, array $c, array $ev, $test) {

@@ -177,6 +177,22 @@ class TIX_Order_Attribution {
         if (class_exists('TIX_Mirror')) TIX_Mirror::touch('order', $id);
     }
 
+    /** Kennungen nach der letzten Kauf-Meldung bzw. nach 90 Tagen löschen (Einwilligung und Herkunft bleiben) */
+    public static function forget_ids($order_id) {
+        global $wpdb;
+        $id = intval($order_id);
+        $wpdb->query($wpdb->prepare("UPDATE " . self::table() . " SET fbp = '', fbc = '', client_ip = '', client_ua = '', click_ids = NULL, analytics_ids = NULL WHERE order_id = %d", $id));
+        unset(self::$cache[$id]);
+    }
+
+    /** Täglich: alle Kennungen älter als $days Tage löschen → Anzahl */
+    public static function forget_old_ids($days) {
+        global $wpdb;
+        self::$cache = [];
+        return intval($wpdb->query($wpdb->prepare("UPDATE " . self::table() . " SET fbp = '', fbc = '', client_ip = '', client_ua = '', click_ids = NULL, analytics_ids = NULL
+            WHERE updated < %s AND (fbp <> '' OR fbc <> '' OR client_ip <> '' OR client_ua <> '' OR click_ids IS NOT NULL OR analytics_ids IS NOT NULL)", gmdate('Y-m-d H:i:s', time() - intval($days) * DAY_IN_SECONDS))));
+    }
+
     /** Für viele Bestellungen auf einmal: [order_id => Zeile] (ohne Zeile fehlt der Schlüssel) */
     public static function many(array $order_ids, array $cols = ['channel', 'source', 'medium', 'campaign', 'link_code']) {
         global $wpdb;

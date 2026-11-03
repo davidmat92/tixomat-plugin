@@ -204,7 +204,10 @@ class TIX_Matomo {
             'url' => home_url('/kasse/status/'), 'send_image' => 0];
         $r = wp_remote_post($c['url'] . '/matomo.php', ['timeout' => 10, 'body' => $q]);
         $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
-        if (class_exists('TIX_Conversions')) TIX_Conversions::log_public($org, 'matomo', $order_id, $eid, $code >= 200 && $code < 300 ? 'sent' : 'failed', $code, $code >= 200 && $code < 300 ? 'Angenommen' : 'Nicht erreichbar');
+        if (class_exists('TIX_Conversions')) {
+            TIX_Conversions::log_public($org, 'matomo', $order_id, $eid, $code >= 200 && $code < 300 ? 'sent' : 'failed', $code, $code >= 200 && $code < 300 ? 'Angenommen' : 'Nicht erreichbar');
+            TIX_Conversions::forget_if_done($order_id);
+        }
     }
 }
 
