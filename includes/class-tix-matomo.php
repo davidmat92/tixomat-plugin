@@ -148,10 +148,13 @@ class TIX_Matomo {
         return self::rest_get($req);
     }
 
-    /** GET /public/tracking?organizer=<id|slug> → {matomo: {url, site_id}|null} (evendis: Seiten des Veranstalters) */
+    /** GET /public/tracking?organizer=<id|slug> → {matomo: {url, site_id}|null, server?: ['meta','tiktok']} (evendis: Seiten des Veranstalters) */
     public static function rest_public(WP_REST_Request $req) {
         $org = class_exists('TIX_Features') ? TIX_Features::org_from_param((string) $req->get_param('organizer')) : 0;
-        $res = rest_ensure_response(['matomo' => $org ? self::browser($org) : self::browser(0)]);
+        $out = ['matomo' => $org ? self::browser($org) : self::browser(0)];
+        // Banner der Plattform: welche Kauf-Meldungen vom Server es überhaupt gibt (nur Namen, keine IDs)
+        if (!$org && class_exists('TIX_Conversions')) $out['server'] = TIX_Conversions::server_targets_any();
+        $res = rest_ensure_response($out);
         $res->header('Cache-Control', 'public, max-age=300');
         return $res;
     }

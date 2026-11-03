@@ -83,6 +83,30 @@ class TIX_Conversions {
 
     private static function save_raw($org, array $v) {
         if ($org) update_post_meta(intval($org), self::META, $v); else update_option(self::OPT, $v, false);
+        delete_transient('tix_conv_server_any');
+    }
+
+    /**
+     * Welche Server-Meldungen sind irgendwo auf dieser Seite eingerichtet (Seite selbst oder ein Veranstalter)?
+     * Für den Banner auf evendis.de: er nennt nur Dienste, die es wirklich gibt (banner-texte.md). 10 min zwischengespeichert.
+     */
+    public static function server_targets_any() {
+        $c = get_transient('tix_conv_server_any');
+        if (is_array($c)) return $c;
+        global $wpdb;
+        $sets = [get_option(self::OPT, [])];
+        foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s", self::META)) as $v) $sets[] = maybe_unserialize($v);
+        $on = [];
+        foreach ($sets as $set) {
+            if (!is_array($set)) continue;
+            foreach (['meta', 'tiktok'] as $t) {
+                $r = $set[$t] ?? null;
+                if (is_array($r) && !empty($r['enabled']) && !empty($r['pixel_id']) && !empty($r['token_enc'])) $on[$t] = true;
+            }
+        }
+        $out = array_values(array_intersect(['meta', 'tiktok'], array_keys($on)));
+        set_transient('tix_conv_server_any', $out, 10 * MINUTE_IN_SECONDS);
+        return $out;
     }
 
     /** Ziel mit entschlüsseltem Token (nur serverseitig) */

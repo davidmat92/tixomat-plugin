@@ -158,6 +158,8 @@ else cv_eq('Eigener Shop: kein addSite (Site legt seiten.sh an)', 0, count($add)
 [$st, $r] = cv_rest('GET', '/marketing/matomo/stats', ['from' => wp_date('Y-m-d', time() - 6 * DAY_IN_SECONDS), 'to' => wp_date('Y-m-d')]);
 cv_eq('Matomo-Zahlen im Studio', [120, 4, 'Suchmaschinen'], [$r['summary']['visits'] ?? null, $r['ecommerce']['orders'] ?? null, $r['referrers'][0]['label'] ?? null]);
 [$st, $pub] = cv_rest('GET', '/public/tracking', ['organizer' => (string) $org]);
+[$st, $pub0] = cv_rest('GET', '/public/tracking');
+cv_eq('Banner: eingerichtete Server-Meldungen (nur Namen)', [true, false], [in_array('meta', $pub0['server'] ?? [], true), strpos(wp_json_encode($pub0), 'EAAG') !== false]);
 cv_eq('Browser bekommt nur URL und Site-ID', ['https://stats.test', 7, false], [$pub['matomo']['url'] ?? null, $pub['matomo']['site_id'] ?? null, strpos(wp_json_encode($pub), str_repeat('a', 32)) !== false]);
 TIX_Matomo::send_order($o1, $org);
 $mp = $calls('https://stats.test/matomo.php');
