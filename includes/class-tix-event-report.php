@@ -2016,6 +2016,7 @@ class TIX_Simple_PDF {
         // UTF-8 → Latin-1 konvertieren, € durch "EUR" ersetzen (Helvetica hat kein €-Glyph in Latin-1 bei nicht WinAnsi).
         $s = (string) $s;
         $s = str_replace(['€', '–', '—', '…', '✓', '✗'], ['EUR', '-', '-', '...', 'X', 'X'], $s);
+        if (class_exists('TIX_Emoji')) $s = TIX_Emoji::strip($s); // 1.38.609
         // UTF-8 → CP1252 (Latin-1 Erweiterung mit den meisten Sonderzeichen)
         if (function_exists('iconv')) {
             $conv = @iconv('UTF-8', 'CP1252//IGNORE', $s);

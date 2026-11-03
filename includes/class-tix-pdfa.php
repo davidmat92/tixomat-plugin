@@ -120,6 +120,7 @@ class TIX_PDFA {
     /** UTF-8 → CP1252, Zeichen ohne Glyphe entfallen (PDF/A: keine .notdef). */
     private function enc($s) {
         $s = str_replace(["\r", "\n", "\t"], ' ', (string) $s);
+        if (class_exists('TIX_Emoji')) $s = TIX_Emoji::strip($s); // sonst „?“ (1.38.609)
         $c = function_exists('iconv') ? @iconv('UTF-8', 'CP1252//TRANSLIT//IGNORE', $s) : false;
         if ($c === false) $c = function_exists('mb_convert_encoding') ? (string) @mb_convert_encoding($s, 'CP1252', 'UTF-8') : $s;
         $f = self::font($this->font);

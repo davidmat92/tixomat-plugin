@@ -612,7 +612,9 @@ class TIX_Artists {
         register_rest_route(self::NS, '/artists/(?P<id>\d+)', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get']] + $staff,
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_update']] + $mgr,
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete']] + $mgr, // 1.38.609
         ]);
+        register_rest_route(self::NS, '/artists/(?P<id>\d+)/merge', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_merge_own']] + $mgr); // 1.38.609
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image']] + $mgr);
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_events']] + $mgr);
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/events/(?P<event_id>\d+)', ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_unassign']] + $mgr);
@@ -825,8 +827,22 @@ class TIX_Artists {
         $c = self::clean($b, $base, true);
         if (is_wp_error($c)) return $c;
         list($d, $name) = $c;
+        // 1.38.609: gleichzeitiges Anlegen desselben Namens (Doppel-Klick, zwei Tabs) sperren – add_option ist atomar
+        $lock = '_tix_artist_lock_' . md5(self::norm($name) ?: $name);
+        if (!add_option($lock, time(), '', 'no')) {
+            if (time() - intval(get_option($lock)) < 30) return new WP_Error('tix_artist_busy', 'Dieser Künstler wird gerade schon angelegt.', ['status' => 409]);
+            update_option($lock, time(), false);
+        }
+        $r = self::create_locked($b, $d, $name);
+        delete_option($lock);
+        return $r;
+    }
+
+    private static function create_locked(array $b, array $d, $name) {
         $dups = self::find(['name' => $name, 'spotify' => $d['ids']['spotify'] ?? '', 'apple' => $d['ids']['apple'] ?? ''], 5, false);
         $force = !empty($b['force']) && filter_var($b['force'], FILTER_VALIDATE_BOOLEAN);
+        // Einzel-Seite (1.38.609): ein Name bzw. Spotify-/Apple-Eintrag = ein Künstler, kein „Trotzdem anlegen“
+        if ($dups && !self::multi()) return new WP_Error('tix_artist_exists', 'Diesen Künstler gibt es auf dieser Seite schon. Nutze den vorhandenen Eintrag.', ['status' => 409, 'duplicates' => $dups]);
         if ($dups && !$force) return new WP_Error('tix_artist_duplicate', 'Diesen Künstler gibt es vielleicht schon. Meinst du einen dieser Einträge?', ['status' => 409, 'duplicates' => $dups]);
         if ($dups) $d['duplicate_of'] = $dups[0]['id'];
         $id = wp_insert_post(['post_type' => self::CPT, 'post_status' => 'publish', 'post_title' => $name, 'post_name' => self::unique_slug($name)], true);
@@ -988,6 +1004,52 @@ class TIX_Artists {
         if (is_wp_error($from)) return $from;
         $into = intval(self::body($req)['into'] ?? 0);
         if (!self::raw($into) || $into === $from || get_post_meta($into, self::META_REDIRECT, true)) return self::bad('into', 'Ziel-Künstler nicht gefunden.');
+        $moved = self::merge_into($from, $into);
+        return rest_ensure_response(['ok' => true, 'artist' => self::payload($into, true), 'moved_events' => $moved]);
+    }
+
+    /**
+     * POST /artists/{id}/merge {into} (1.38.609) – Verwalter führt zwei eigene Künstler zusammen (Dublette auflösen):
+     * beide muss er pflegen dürfen, auf evendis beide vom selben Verwalter. Ablauf wie /platform/…/merge.
+     */
+    public static function rest_merge_own(WP_REST_Request $req) {
+        $from = self::load($req['id']);
+        if (is_wp_error($from)) return $from;
+        return self::merge_own($from, intval(self::body($req)['into'] ?? 0));
+    }
+
+    private static function merge_own($from, $into) {
+        if (!self::raw($into) || $into === $from || get_post_meta($into, self::META_REDIRECT, true) || get_post_status($into) !== 'publish') return self::bad('into', 'Ziel-Künstler nicht gefunden.');
+        $a = self::raw($from); $b = self::raw($into);
+        if (!self::can_manage($a) || !self::can_manage($b)) return new WP_Error('tix_artist_not_manager', 'Zusammenführen kann nur, wer beide Künstler pflegt.', ['status' => 403]);
+        if (self::multi() && !self::is_admin() && (array) ($a['managed_by'] ?? []) != (array) ($b['managed_by'] ?? [])) return new WP_Error('tix_artist_not_manager', 'Zusammenführen kann nur, wer beide Künstler pflegt.', ['status' => 403]);
+        $moved = self::merge_into($from, $into);
+        return rest_ensure_response(['ok' => true, 'artist' => self::payload($into, true), 'moved_events' => $moved]);
+    }
+
+    /**
+     * DELETE /artists/{id}[?into=] (1.38.609) – Verwalter löscht einen Künstler.
+     *  - mit `into`: erst zusammenführen (Termine/Follower wandern), dann ist der alte Eintrag weg (Weiterleitung bleibt),
+     *  - ohne Termine (alle Status außer Papierkorb) und ohne Follower: in den Papierkorb,
+     *  - sonst 409 tix_artist_in_use {events: [{id, title, date_start, status}], followers}.
+     */
+    public static function rest_delete(WP_REST_Request $req) {
+        $id = self::load($req['id']);
+        if (is_wp_error($id)) return $id;
+        if (!self::can_manage(self::raw($id))) return new WP_Error('tix_artist_not_manager', 'Löschen kann nur der Verwalter des Künstlers.', ['status' => 403]);
+        if (intval($req->get_param('into'))) return self::merge_own($id, intval($req->get_param('into')));
+        $events = array_map(function ($eid) { return ['id' => $eid, 'title' => (string) get_the_title($eid), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'status' => (string) get_post_status($eid)]; },
+            self::event_ids($id, ['publish', 'future', 'draft', 'pending', 'private']));
+        $followers = class_exists('TIX_Artist_Follow') && method_exists('TIX_Artist_Follow', 'count') ? intval(TIX_Artist_Follow::count($id)) : 0;
+        if ($events || $followers) return new WP_Error('tix_artist_in_use', $events ? 'Der Künstler steht noch in Events. Entferne ihn dort oder führe ihn mit einem anderen Eintrag zusammen.' : 'Dem Künstler folgen Gäste. Führe ihn mit einem anderen Eintrag zusammen.',
+            ['status' => 409, 'events' => $events, 'followers' => $followers]);
+        self::log($id, 'deleted');
+        wp_trash_post($id);
+        return rest_ensure_response(['ok' => true, 'deleted' => true]);
+    }
+
+    /** Zusammenführen $from → $into (Profil ergänzen, Events, Follower, Weiterleitung) → Zahl der Events */
+    private static function merge_into($from, $into) {
         $a = self::raw($from); $b = self::raw($into);
         foreach (self::LINKS as $k) if (empty($b['links'][$k]) && !empty($a['links'][$k])) $b['links'][$k] = $a['links'][$k];
         foreach (['spotify', 'apple'] as $k) if (empty($b['ids'][$k]) && !empty($a['ids'][$k])) $b['ids'][$k] = $a['ids'][$k];
@@ -1019,7 +1081,7 @@ class TIX_Artists {
         wp_update_post(['ID' => $from, 'post_status' => 'draft', 'post_name' => get_post_field('post_name', $from) . '-zusammengefuehrt']);
         self::log($into, 'merged', ['from' => $from, 'events' => $moved]);
         self::log($from, 'merged_into', ['into' => $into]);
-        return rest_ensure_response(['ok' => true, 'artist' => self::payload($into, true), 'moved_events' => $moved]);
+        return $moved;
     }
 }
 

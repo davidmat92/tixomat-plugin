@@ -79,6 +79,7 @@ class TIX_Invoice_Export {
             }
         }
         $data = implode("\r\n", $lines) . "\r\n";
+        if (class_exists('TIX_Emoji')) $data = implode("\r\n", array_map(['TIX_Emoji', 'strip'], explode("\r\n", $data))); // sonst „?“ (1.38.609)
         if (function_exists('iconv')) {
             $c = @iconv('UTF-8', 'CP1252//TRANSLIT', $data);
             if ($c !== false) $data = $c;
