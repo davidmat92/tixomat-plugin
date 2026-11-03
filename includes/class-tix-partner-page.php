@@ -97,7 +97,9 @@ class TIX_Partner_Page {
         $oid = self::partner_org();
         if (is_wp_error($oid)) return $oid;
         $b = $req->get_json_params();
-        $r = TIX_App_Scope::save_profile($oid, is_array($b) ? $b : []);
+        $b = is_array($b) ? $b : [];
+        if (method_exists('TIX_App_Scope', 'profile_conflict') && ($c = TIX_App_Scope::profile_conflict($oid, $b))) return $c; // Audit 2026-11-03 (M19)
+        $r = TIX_App_Scope::save_profile($oid, $b);
         if (is_wp_error($r)) return $r;
         return rest_ensure_response(self::platform_payload($oid));
     }

@@ -334,12 +334,7 @@ class TIX_App_Scope {
         $b = $req->get_json_params();
         $b = is_array($b) ? $b : [];
         $oid = self::organizer_id_for_user();
-        // Audit 2026-11-03 (M19): mit `updated_at` nur speichern, wenn niemand dazwischen gespeichert hat; ohne Feld (ältere Builds) wie bisher
-        if (array_key_exists('updated_at', $b)) {
-            $cur = (string) get_post_meta($oid, self::META_PROFILE_UPDATED, true);
-            if ((string) $b['updated_at'] !== $cur) return new WP_Error('tix_profile_conflict', 'Die Seite wurde inzwischen an anderer Stelle gespeichert. Bitte neu laden und die Änderung noch einmal machen.', ['status' => 409, 'updated_at' => $cur]);
-            unset($b['updated_at']);
-        }
+        if ($c = self::profile_conflict($oid, $b)) return $c;
         $r = self::save_profile($oid, $b);
         if (is_wp_error($r)) return $r;
         return self::rest_profile($req);
@@ -426,6 +421,15 @@ class TIX_App_Scope {
 
     /** Audit 2026-11-03 (M19): Stand der Veranstalter-Seite für die Konflikt-Prüfung (zwei Geräte bearbeiten gleichzeitig). */
     const META_PROFILE_UPDATED = '_tix_org_profile_updated';
+
+    /** Mit `updated_at` nur speichern, wenn niemand dazwischen gespeichert hat (entfernt das Feld); ohne Feld (ältere Builds) wie bisher. */
+    public static function profile_conflict($oid, array &$b) {
+        if (!array_key_exists('updated_at', $b)) return null;
+        $cur = (string) get_post_meta(intval($oid), self::META_PROFILE_UPDATED, true);
+        $sent = (string) $b['updated_at'];
+        unset($b['updated_at']);
+        return $sent === $cur ? null : new WP_Error('tix_profile_conflict', 'Die Seite wurde inzwischen an anderer Stelle gespeichert. Bitte neu laden und die Änderung noch einmal machen.', ['status' => 409, 'updated_at' => $cur]);
+    }
 
     /** Zeitstempel mit Mikrosekunden (UTC), eindeutig genug für die Gleichheits-Prüfung. */
     public static function stamp() {

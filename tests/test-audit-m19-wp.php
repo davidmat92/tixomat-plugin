@@ -50,6 +50,13 @@ if ($multi) {
     [$st] = m19_rest('POST', '/organizer/profile', ['tagline' => 'Ohne']);
     m19_eq('Profil: ohne Feld wird gespeichert', 200, $st);
     m19_eq('Profil: ohne Feld übernommen', 'Ohne', (string) get_post_meta($org, '_tix_org_landing_tagline', true));
+    // Partner-Brücke (KitchenKlub/Mallorca → evendis) nutzt dieselbe Prüfung
+    $cur = (string) get_post_meta($org, '_tix_org_profile_updated', true);
+    $b = ['tagline' => 'X', 'updated_at' => $p0];
+    $c = TIX_App_Scope::profile_conflict($org, $b);
+    m19_eq('Brücke: veralteter Stand → 409', 'tix_profile_conflict', is_wp_error($c) ? $c->get_error_code() : '');
+    $b = ['tagline' => 'X', 'updated_at' => $cur];
+    m19_eq('Brücke: aktueller Stand geht, Feld entfernt', [null, false], [TIX_App_Scope::profile_conflict($org, $b), array_key_exists('updated_at', $b)]);
 }
 
 wp_set_current_user(1);
