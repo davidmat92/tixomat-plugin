@@ -192,9 +192,10 @@ class TIX_Retention {
     /** Fällige DSA-Meldungen: abgeschlossen vor mehr als 2 Jahren bzw. offen und seit 2 Jahren unverändert. → [id] */
     public static function dsa_due($limit = 200) {
         $cut = wp_date('Y-m-d H:i:s', strtotime('-' . self::YEARS_DSA . ' years', current_time('timestamp')));
-        $ids = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids',
-            'suppress_filters' => true, 'no_found_rows' => true,
-            'meta_query' => [['key' => '_tix_sp_category', 'value' => self::DSA_CATEGORY]]]);
+        global $wpdb;
+        // direkt per SQL: post_status 'any' ließe eigene Status mit exclude_from_search aus
+        $ids = $wpdb->get_col($wpdb->prepare("SELECT p.ID FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_tix_sp_category'
+            WHERE p.post_type = 'tix_support_ticket' AND p.post_status NOT IN ('trash', 'auto-draft') AND m.meta_value = %s", self::DSA_CATEGORY));
         $out = [];
         foreach ($ids as $id) {
             $closed = in_array(get_post_status($id), ['tix_resolved', 'tix_closed'], true);

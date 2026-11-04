@@ -48,7 +48,7 @@ $at = TIX_Order_Attribution::table();
 $base = 990000000 + wp_rand(0, 9999) * 10;
 $o_old = $base + 1; $o_new = $base + 2; $o_orphan = $base + 3;
 $ins = function ($id, $date) use ($wpdb, $ot) {
-    $ok = $wpdb->insert($ot, ['id' => $id, 'date_created' => $date]);
+    $ok = $wpdb->insert($ot, ['id' => $id, 'order_number' => 'RT-' . $id, 'date_created' => $date]);
     if ($ok === false) echo "  (Bestellung $id nicht angelegt: {$wpdb->last_error})\n";
 };
 $ins($o_old, $ago('-26 months'));
