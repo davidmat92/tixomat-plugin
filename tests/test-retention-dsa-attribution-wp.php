@@ -112,7 +112,7 @@ if (class_exists('TIX_Contract') && TIX_Contract::multi()) {
     rt_eq('Entwurf sichtbar mit Stichtag', true, is_array($c3['draft']) && $c3['draft']['autopublish_at'] !== '' && in_array('vorlage', $c3['draft']['changes'], true) || is_array($c3['draft']) && !$c3['current']);
     if (is_array($os)) update_option(TIX_Org_Approval::OPTION, $os, false); else delete_option(TIX_Org_Approval::OPTION);
     delete_option(TIX_Contract_Template::OPTION_DRAFT);
-} else rt_eq('/info contract null auf Einzel-Seite', null, $info['contract'] ?? 'fehlt');
+} else rt_eq('/info contract null auf Einzel-Seite', true, array_key_exists('contract', $info) && $info['contract'] === null);
 
 // ── Aufräumen ──
 foreach ([$dsa_new, $dsa_open_n, $sup_old] as $id) wp_delete_post($id, true);
