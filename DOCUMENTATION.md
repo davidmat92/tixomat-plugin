@@ -3741,7 +3741,7 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 
 Tests: `tests/test-stufe2-wp.php` (Einzel-Seite 28/28, Plattform 32/32).
 
-## 79. Newsletter über Brevo (Modul Marketing, ab 1.38.637)
+## 79. Newsletter über Brevo (Modul Marketing, ab 1.38.639)
 
 `TIX_Newsletter`:
 - **Bereich:** Einzel-Seite bzw. auf evendis je Veranstalter. Auf evendis bringt der Veranstalter sein eigenes Brevo-Konto mit und ist Verantwortlicher.
@@ -3794,3 +3794,5 @@ Tests: `tests/test-stufe2-wp.php` (Einzel-Seite 28/28, Plattform 32/32).
   - `orders`, `tickets` und `revenue` stammen aus bezahlten Bestellungen mit Herkunft `nl-<id>` (`TIX_Sales_Figures`).
 
 Tests: `tests/test-newsletter-wp.php` (34/34 in beiden Modi).
+
+**Kanal der App-Bestellung (1.38.639):** `attribution.channel` (`web`|`app`) setzt `_tix_order_channel`. Ohne Angabe gilt `web` (Websites), bei `utm_medium=push` gilt `app`. Apps schicken bei einem Kauf aus einer Mitteilung `attribution {channel: 'app', utm_source: 'push', utm_medium: 'push', utm_campaign: <Kennung>}`; die Statistik zählt den Kauf dann unter „App“.

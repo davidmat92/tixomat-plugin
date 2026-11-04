@@ -199,6 +199,16 @@ wp_set_current_user($staff);
 [$st] = nl_rest('GET', '/marketing/newsletter/campaigns');
 nl_eq('Mitarbeiter → 403', 403, $st);
 
+// ═══ Kanal der App-Bestellung (apply_attribution) ═══
+$apply = new ReflectionMethod('TIX_App_Checkout', 'apply_attribution'); $apply->setAccessible(true);
+$chan = [];
+foreach (['web' => ['utm_source' => 'instagram'], 'push' => ['utm_source' => 'push', 'utm_medium' => 'push', 'utm_campaign' => 'push-abcdefgh'], 'app' => ['channel' => 'app', 'utm_source' => 'app']] as $k => $a) {
+    $oid = $mk_order("kanal_{$k}_$sfx@example.test");
+    $apply->invoke(null, $oid, $a, ['items' => []]);
+    $chan[$k] = TIX_Studio_Stats::channel_of('mollie', 'app', (string) TIX_Order_Attribution::meta($oid, '_tix_order_channel'), (string) TIX_Order_Attribution::meta($oid, '_tix_campaign_source'));
+}
+nl_eq('Kanal: Website-Herkunft → web, Push → app, channel app → app', ['web' => 'web', 'push' => 'app', 'app' => 'app'], $chan);
+
 // Aufräumen
 wp_set_current_user(1);
 foreach ($orders as $o) { $wpdb->delete($ot, ['id' => $o]); $wpdb->delete($oi, ['order_id' => $o]); $wpdb->delete(TIX_Order_Attribution::table(), ['order_id' => $o]); }

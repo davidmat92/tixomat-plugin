@@ -1572,8 +1572,11 @@ class TIX_App_Checkout {
     private static function apply_attribution($order_id, $attr, array $cart) {
         if (!is_array($attr)) return;
         $clip = function ($v, $len) { return mb_substr(sanitize_text_field((string) $v), 0, $len); };
-        // Kanal merken (Bestellquelle bleibt „app“, damit die Apps keinen neuen Wert sehen)
-        TIX_Order_Attribution::set_meta($order_id, '_tix_order_channel', 'web');
+        // Kanal merken (Bestellquelle bleibt „app“, damit die Apps keinen neuen Wert sehen). Websites schicken eine Herkunft
+        // ohne `channel` → web; Apps schicken `channel: app` (z. B. Kauf aus einer Mitteilung), utm_medium=push gilt ebenfalls als App
+        $ch = (string) ($attr['channel'] ?? '');
+        if (!in_array($ch, ['web', 'app'], true)) $ch = strtolower((string) ($attr['utm_medium'] ?? '')) === 'push' ? 'app' : 'web';
+        TIX_Order_Attribution::set_meta($order_id, '_tix_order_channel', $ch);
 
         // Promoter: ein Promo-Code als Gutschein (bereits beim Anlegen zugeordnet) hat Vorrang
         $code = $clip($attr['promoter_code'] ?? '', 64);
