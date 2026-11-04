@@ -3903,3 +3903,20 @@ Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 4
 Die REST-Routen laufen auch bei ausgeschaltetem Promoter-System. Provisionen entstehen aber nur, wenn `enabled` an ist.
 
 Tests: `tests/test-promoter-audit-wp.php` (32/32 Einzel-Seite, 41/41 Plattform).
+## 82. Geführte Tour im Studio: Gesehen-Stand je Konto (ab 1.38.644)
+
+`TIX_Studio_Tour` (`includes/class-tix-studio-tour.php`):
+- **Zweck:** Das Studio merkt sich je Konto, welche Tour-Schritte gesehen wurden, damit der Stand auf allen Geräten gilt und „Neuerungen“ nur Neues zeigen.
+- **Rechte:** jedes angemeldete Konto, nur für sich selbst (auch Team, Einlass, Kasse).
+- `GET /studio/tour` → `{seen[], offered[], done[], welcome {state: new|later|running|done, step}, since, hidden_new}`.
+  - `since` (Y-m-d) wird beim ersten Abruf gesetzt. Für neue Konten gelten alle Schritte bis dahin als gesehen.
+  - Antwort mit `Cache-Control: no-store` und `X-LiteSpeed-Cache-Control: no-cache`.
+- `POST /studio/tour {seen?[], offered?[], done?[], welcome?, hidden_new?, reset?}` → neuer Stand.
+  - Listen werden ergänzt, nie ersetzt. IDs werden klein geschrieben, erlaubt sind `a–z 0–9 . _ -` mit höchstens 64 Zeichen; je Liste höchstens 2000 (die neuesten bleiben).
+  - `welcome.step` 0–99. Ein unbekannter `state` gibt 400 `tix_invalid_field`.
+  - `hidden_new` (Y-m-d): Neuerungen bis zu diesem Tag werden nicht mehr angeboten.
+  - `reset: true` setzt alles zurück, `since` bleibt.
+- **Speicher:** User-Meta `_tix_studio_tour` (JSON, nur IDs und Datumswerte, keine Inhalte).
+- Ältere Plugins: Das Studio speichert dann im Browser (gilt nur auf dem Gerät).
+
+Tests: `tests/test-studio-tour-wp.php` (13/13 Einzel-Seite und Plattform).
