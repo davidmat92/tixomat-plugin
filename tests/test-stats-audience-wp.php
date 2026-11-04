@@ -91,6 +91,8 @@ sa_eq('Trichter', ['view' => null, 'event' => 8, 'checkout' => 2, 'quote' => 3, 
 $src = []; foreach ($r['by_source'] ?? [] as $x) $src[$x['source']] = [$x['views'], $x['orders']];
 sa_eq('Quelle instagram: 5 Aufrufe, 1 Kauf', [5, 1], $src['instagram'] ?? null);
 sa_eq('Quelle direct: 2 Aufrufe, 1 Kauf', [2, 1], $src['direct'] ?? null);
+$sq = []; foreach ($r['by_source'] ?? [] as $x) $sq[$x['source']] = [$x['quote'] ?? null, $x['checkout'] ?? null];
+sa_eq('Trichter je Quelle: direct 3× Tickets gewählt, 2× Kasse; instagram 0', [[3, 2], [0, 0]], [$sq['direct'] ?? null, $sq['instagram'] ?? null]);
 sa_eq('kleine Gruppe google.com zusammengefasst', [false, [1, 0]], [isset($src['google.com']), $src['weitere'] ?? null]);
 $cmp = []; foreach ($r['by_campaign'] ?? [] as $x) $cmp[$x['campaign']] = [$x['views'], $x['orders'], $x['revenue']];
 sa_eq('Kampagne herbst-2026', [5, 1, 20.0], $cmp['herbst-2026'] ?? null);
@@ -114,6 +116,17 @@ sa_eq('Liste: 200, 14 Tage', [200, 14, 14, 14], [$st, $r['days'] ?? null, count(
 sa_eq('Liste: Aufrufe, App, Kasse, Website-Käufe, Conversion', [8, 1, 2, 2, 25.0], [$x['event_views'] ?? null, $x['app_views'] ?? null, $x['checkout'] ?? null, $x['web_orders'] ?? null, $x['conversion'] ?? null]);
 sa_eq('Liste: heute in der Reihe', [8, 3], [end($x['views_days']), end($x['orders_days'])]);
 sa_eq('Liste: fremde und unbekannte Events fehlen', $multi ? [false, false] : [true, false], [isset($byid[$other]), isset($byid[123456789])]);
+sa_eq('Liste: ohne pace kein Tempo', false, isset($x['pace']));
+[$st, $r] = sa_rest('GET', '/organizer/stats/events', ['ids' => (string) $ev, 'pace' => 30]);
+$pc = $r['events'][0]['pace'] ?? [];
+sa_eq('Tempo: 30 Tage bis Event-Tag, heute 6 Tickets (3 bezahlte × 2), davor 0', [30, $today, 6, 0, 6], [count($pc['tickets'] ?? []), $pc['date'] ?? '', end($pc['tickets']), $pc['before'] ?? null, array_sum($pc['tickets'] ?? [])]);
+update_post_meta($ev, '_tix_date_start', wp_date('Y-m-d', strtotime($today) + 10 * DAY_IN_SECONDS));
+[$st, $r] = sa_rest('GET', '/organizer/stats/events', ['ids' => (string) $ev, 'pace' => 5]);
+$pc = $r['events'][0]['pace'] ?? [];
+sa_eq('Tempo: Event in 10 Tagen, Fenster 5 Tage → Verkäufe von heute zählen als davor', [5, 6, 0], [count($pc['tickets'] ?? []), $pc['before'] ?? null, array_sum($pc['tickets'] ?? [])]);
+[$st, $r] = sa_rest('GET', '/organizer/stats/events', ['ids' => (string) $ev, 'pace' => 999]);
+sa_eq('Tempo: höchstens 180 Tage', 180, count($r['events'][0]['pace']['tickets'] ?? []));
+update_post_meta($ev, '_tix_date_start', $today);
 [$st] = sa_rest('GET', '/organizer/stats/events', ['ids' => implode(',', range(1, 101))]);
 sa_eq('Liste: höchstens 100 Events', 400, $st);
 wp_set_current_user($staff);

@@ -10,6 +10,9 @@ if (!defined('ABSPATH')) exit;
  *   GET /organizer/stats/events?ids=1,2,…[&days=14] (höchstens 100 Events, nur eigene) – Sammelabfrage für die Event-Liste:
  *   → {ok, days, events[{id, event_views, app_views, checkout, web_orders, conversion, views_days[], orders_days[]}]}
  *     Summen seit Verkaufsbeginn (ohne Zeitraum), die Reihen = die letzten `days` Tage (bis heute).
+ *     Mit `pace=N` (1–180) zusätzlich je Event `pace{date, before, tickets[]}`: verkaufte Tickets je Tag (alle Kanäle, bezahlt)
+ *     für die N Tage bis einschließlich Event-Tag (Index 0 = N−1 Tage vorher), `before` = Tickets davor – für Prognose und den
+ *     Vergleich mit einem früheren Event („Tage bis Event“). Studio-Statistik „Wie laufen deine nächsten Events?“.
  *
  * Eine Zahl, eine Rechnung: Verkauf aus TIX_Sales_Figures, Besucher aus tix_web_stats (Website) bzw. tix_web_stats_dim
  * (Quelle/Kampagne, App), Herkunft der Bestellungen aus TIX_Order_Attribution. Rechte wie /organizer/stats (Inhaber,
@@ -119,6 +122,33 @@ class TIX_Stats_Audience {
         return $out;
     }
 
+    /** Tickets je Tag bis zum Event-Tag (bezahlte Bestellungen aller Kanäle) */
+    private static function pace(array $ids, $n) {
+        global $wpdb;
+        $out = [];
+        if (!$ids || !class_exists('TIX_Order')) return $out;
+        $t = TIX_Order::table_name(); $ti = TIX_Order::items_table_name();
+        $start = [];
+        foreach ($ids as $id) {
+            $date = substr((string) get_post_meta($id, '_tix_date_start', true), 0, 10);
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) continue;
+            $start[$id] = strtotime($date) - ($n - 1) * DAY_IN_SECONDS;
+            $out[$id] = ['date' => $date, 'before' => 0, 'tickets' => array_fill(0, $n, 0)];
+        }
+        if (!$out) return $out;
+        foreach (array_chunk(array_keys($out), 500) as $chunk) {
+            $rows = $wpdb->get_results("SELECT i.event_id, DATE(o.date_created) d, SUM(i.quantity) q FROM $t o INNER JOIN $ti i ON i.order_id = o.id WHERE i.event_id IN (" . implode(',', array_map('intval', $chunk)) . ") AND o.status IN ('completed','processing') GROUP BY i.event_id, d");
+            foreach ((array) $rows as $r) {
+                $eid = intval($r->event_id);
+                $i = intval(round((strtotime((string) $r->d) - $start[$eid]) / DAY_IN_SECONDS));
+                if ($i < 0) $out[$eid]['before'] += intval($r->q);
+                elseif ($i < $n) $out[$eid]['tickets'][$i] += intval($r->q);
+                // nach dem Event-Tag verkauft (Nachbuchung, Korrektur): zählt nicht zum Tempo
+            }
+        }
+        return $out;
+    }
+
     /** GET /organizer/stats/events?ids=…&days=14 – kompakte Kennzahlen für die Event-Liste in einer Abfrage */
     public static function rest_events(WP_REST_Request $req) {
         global $wpdb;
@@ -131,6 +161,7 @@ class TIX_Stats_Audience {
         $from = gmdate('Y-m-d', strtotime($today) - ($days - 1) * DAY_IN_SECONDS);
         $axis = [];
         for ($i = 0; $i < $days; $i++) $axis[gmdate('Y-m-d', strtotime($from) + $i * DAY_IN_SECONDS)] = $i;
+        $pace = max(0, min(180, intval($req->get_param('pace'))));
         $ev = [];
         foreach ($ids as $id) $ev[$id] = ['id' => $id, 'event_views' => 0, 'app_views' => 0, 'checkout' => 0, 'web_orders' => 0, 'conversion' => null, 'views_days' => array_fill(0, $days, 0), 'orders_days' => array_fill(0, $days, 0)];
         if ($ids) {
@@ -157,6 +188,7 @@ class TIX_Stats_Audience {
                     if (in_array($ch[$oid] ?? '', ['web', 'link'], true)) $ev[$eid]['web_orders']++;
                 }
             }
+            if ($pace) foreach (self::pace($ids, $pace) as $eid => $p) $ev[$eid]['pace'] = $p;
             foreach ($ev as &$x) $x['conversion'] = $x['event_views'] > 0 ? round($x['web_orders'] / $x['event_views'] * 100, 2) : null;
             unset($x);
         }
@@ -312,16 +344,18 @@ class TIX_Stats_Audience {
         $d = TIX_Web_Stats::dim_table();
         $src = []; $cmp = [];
         $add = function (&$bucket, $key, $label, $k, $v) {
-            if (!isset($bucket[$key])) $bucket[$key] = $label + ['views' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0];
+            if (!isset($bucket[$key])) $bucket[$key] = $label + ['views' => 0, 'quote' => 0, 'checkout' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0];
             $bucket[$key][$k] += $v;
         };
         foreach (array_chunk(array_map('intval', $ids), 500) as $chunk) {
             if (!$chunk) continue;
-            $rows = $wpdb->get_results($wpdb->prepare("SELECT source, medium, campaign, SUM(n) n FROM $d WHERE day BETWEEN %s AND %s AND channel = 'web' AND step = 'event' AND event_id IN (" . implode(',', $chunk) . ") GROUP BY source, medium, campaign", $from, $to));
+            // Event-Aufrufe und (ab 1.38.633) Kasse/Tickets gewählt je Quelle – für den Trichter je Quelle im Studio
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT step, source, medium, campaign, SUM(n) n FROM $d WHERE day BETWEEN %s AND %s AND channel = 'web' AND step IN ('event','quote','checkout') AND event_id IN (" . implode(',', $chunk) . ") GROUP BY step, source, medium, campaign", $from, $to));
             foreach ((array) $rows as $r) {
                 $s = (string) $r->source ?: 'direct';
-                $add($src, $s . '|' . $r->medium, ['source' => $s, 'medium' => (string) $r->medium], 'views', intval($r->n));
-                if ((string) $r->campaign !== '') $add($cmp, $r->campaign . '|' . $s, ['campaign' => (string) $r->campaign, 'source' => $s], 'views', intval($r->n));
+                $k = $r->step === 'event' ? 'views' : (string) $r->step;
+                $add($src, $s . '|' . $r->medium, ['source' => $s, 'medium' => (string) $r->medium], $k, intval($r->n));
+                if ((string) $r->campaign !== '') $add($cmp, $r->campaign . '|' . $s, ['campaign' => (string) $r->campaign, 'source' => $s], $k, intval($r->n));
             }
         }
         if ($web_paid) {
@@ -348,8 +382,8 @@ class TIX_Stats_Audience {
         $out = []; $other = null;
         foreach ($rows as $r) {
             if ($r['views'] < self::MIN_GROUP && $r['orders'] === 0) {
-                if (!$other) $other = $other_label + ['views' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0, 'grouped' => true];
-                $other['views'] += $r['views'];
+                if (!$other) $other = $other_label + ['views' => 0, 'quote' => 0, 'checkout' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0, 'grouped' => true];
+                $other['views'] += $r['views']; $other['quote'] += $r['quote']; $other['checkout'] += $r['checkout'];
                 continue;
             }
             $out[] = $r;
