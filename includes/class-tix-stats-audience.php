@@ -100,6 +100,8 @@ class TIX_Stats_Audience {
             'by_campaign' => $cur['by_campaign'],
             'app' => $cur['app'],
             'series' => $eid && $days <= 400 ? self::series($eid, $from, $to) : null,
+            // ab 1.38.634: ohne event_id Aufrufe der Event-Seiten je Tag (Mini-Kurve „Leute haben geschaut“ in der Studio-Statistik)
+            'views_series' => !$eid && $days <= 400 ? self::views_series($ids, $from, $to) : null,
             'visits_enabled' => TIX_Web_Stats::visits_on(),
             'modules' => ['marketing' => (bool) $mk],
             // F2: Matomo-Zahlen kommen später hierher (eigene Instanz stats.evendis.de) – Platz für das Studio
@@ -210,6 +212,19 @@ class TIX_Stats_Audience {
         foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT day, SUM(n) n FROM $w WHERE step = 'event' AND ref = %d AND day BETWEEN %s AND %s GROUP BY day", $eid, $from, $to)) as $r) if (isset($rows[$r->day])) $rows[$r->day]['views'] += intval($r->n);
         foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT day, SUM(n) n FROM $d WHERE channel = 'app' AND step = 'event' AND event_id = %d AND day BETWEEN %s AND %s GROUP BY day", $eid, $from, $to)) as $r) if (isset($rows[$r->day])) $rows[$r->day]['app_views'] += intval($r->n);
         foreach (self::paid_by_event([$eid], $from . ' 00:00:00')[$eid] ?? [] as $day) if (isset($rows[$day])) $rows[$day]['orders']++;
+        return array_values($rows);
+    }
+
+    /** Aufrufe der Event-Seiten (Website) aller Events im Bereich je Tag: [{date, views}] */
+    public static function views_series(array $ids, $from, $to) {
+        global $wpdb;
+        $rows = [];
+        for ($t = strtotime($from); $t <= strtotime($to); $t += DAY_IN_SECONDS) $rows[gmdate('Y-m-d', $t)] = ['date' => gmdate('Y-m-d', $t), 'views' => 0];
+        $w = TIX_Web_Stats::table();
+        foreach (array_chunk(array_map('intval', $ids), 500) as $chunk) {
+            if (!$chunk) continue;
+            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT day, SUM(n) n FROM $w WHERE step = 'event' AND day BETWEEN %s AND %s AND ref IN (" . implode(',', $chunk) . ") GROUP BY day", $from, $to)) as $r) if (isset($rows[$r->day])) $rows[$r->day]['views'] += intval($r->n);
+        }
         return array_values($rows);
     }
 
