@@ -3662,3 +3662,21 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
   - `POST /team/{id}/password` für jedes Mitglied außer Admins: beendet Sitzungen und Tokens, Info-Mail „Dein Passwort wurde vom Team geändert“ (ohne Passwort; nicht bei offener Einladung), Antwort `notified`. Im Mehr-Veranstalter-Modus nur bei Konten, die das Team angelegt hat (sonst 409 `tix_has_password` → Link), damit kein fremdes Kundenkonto übernommen wird. `can_set_password` folgt dieser Regel.
   - Nie das eigene Konto (409 `tix_self`), nie WP-Admins (409 `tix_is_admin`), Admin-Rolle nur Link (400 `tix_admin_invite_only`).
   - Änderungsprotokoll `tix_audit_log`: `team_password_set` (`role`, `first`), `team_reset_sent`, `team_invite_sent` – ohne Passwort oder Code.
+
+## 76. Statistik Stufe 3a: Matomo, Conversion-Verteiler, Einwilligungs-Nachweis (ab 1.38.629)
+- **Einwilligung:** Die Websites schicken mit der Bestellung `attribution.consent_marketing` (Banner-Kategorie „Marketing“) und `consent_analytics` („Statistik“), dazu `analytics_ids {ga_cid, pk_vid}` (nur mit „Statistik“). Ohne `consent_marketing = 1` geht keine Server-Meldung raus. Nachweis jeder Banner-Entscheidung: `POST /public/consent {id, action, categories, revision, host}` → Tabelle `tix_consent_log`, ohne IP und Browser, 1100 Tage.
+- **Conversion-Verteiler (`TIX_Conversions`):**
+  - Ziele `meta`, `tiktok`, `ga4`, `gads` je Bereich (Option `tix_conv_targets` bzw. Postmeta `_tix_conv_targets`); Token/Secret verschlüsselt.
+  - Studio: `GET/POST /marketing/tracking`, `POST /marketing/tracking/test` (Modul Marketing).
+  - Auf `tix_order_completed` je Bereich und Ziel ein Cron `tix_conv_send`: Meta Graph v21.0 `/events`, TikTok v1.3 `/event/track/`, GA4 `mp/collect`. event_id `tix_<Bestellnummer>` (Dedup mit dem Browser-Pixel), Wiederholung nach 5 und 30 min, Protokoll `tix_conv_log`.
+  - Im Mehr-Veranstalter-Modus kein GA4 und kein Google Ads; auf evendis.de nur Server-Meldungen.
+  - Kennungen (fbp, fbc, ttp, Klick-IDs, GA-/Matomo-ID, IP, Browser) werden nach der letzten Meldung gelöscht, spätestens nach 90 Tagen (Cron `tix_conv_cleanup`).
+- **Matomo (`TIX_Matomo`):**
+  - Option `tix_matomo` setzt seiten.sh: evendis `{url, id_site, login, token, password}` (Superuser), KitchenKlub/Mallorca `{url, id_site, reader, token}` (nur Lesen). Token und Passwort werden beim ersten Lesen verschlüsselt.
+  - Die Site der Seite ist `id_site`. Veranstalter (nur evendis): `POST /marketing/matomo/activate` sucht die Site der Gruppe `evendis:org-<id>` (getSitesFromGroup), sonst addSite mit Gruppe und `excludeUnknownUrls`.
+  - Studio: `GET/POST /marketing/matomo` (auch eigenes Matomo), `GET /marketing/matomo/stats` (1 h Cache).
+  - Website: `GET /public/tracking[?organizer=]` → `{matomo: {url, site_id}|null, server: [meta, tiktok]}`. `server` gibt es nur ohne organizer; es nennt die irgendwo eingerichteten Kauf-Meldungen, damit der Banner nur sie aufführt.
+  - Kauf an `matomo.php` mit `_id = pk_vid`, ohne token_auth und ohne cip.
+  - Matomo gehört zum Modul Marketing.
+- **site-config `tracking`:** `meta_pixel_id`, `tiktok_pixel_id`, `ga4_id`, `google_ads {id, label}`, `matomo`, `visits`. Fund: `TIX_Google_Tag` hängt nur an `wp_head`, das auf den Next-Seiten nie läuft – die alten WP-Einstellungen dienen deshalb nur als Rückfall für site-config.
+- Tests: `tests/test-conversions-wp.php` (Einzel-Seite 38, Plattform 35).
