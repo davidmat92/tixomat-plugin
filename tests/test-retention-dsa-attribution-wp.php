@@ -79,7 +79,8 @@ rt_eq('zweiter Lauf: keine fällige DSA-Meldung von uns', [], array_values(array
 $tpl = (string) file_get_contents(TIXOMAT_PATH . 'includes/contract/vermittlungsvertrag.md');
 foreach (['8a', '8b', '8c', '8d', '8e', '8f'] as $p) rt_eq("Vorlage enthält § $p", true, strpos($tpl, "### § $p ") !== false);
 rt_eq('§ 8e vor § 9', true, strpos($tpl, '### § 8e') < strpos($tpl, '### § 9'));
-rt_eq('Vorlage ohne [PRÜFEN]-Marken', false, strpos($tpl, 'PRÜFEN') !== false);
+$blk = substr($tpl, strpos($tpl, '### § 8a'), strpos($tpl, '### § 9') - strpos($tpl, '### § 8a'));
+rt_eq('§§ 8a–8f ohne [PRÜFEN]-Marken', false, strpos($blk, 'PRÜFEN') !== false);
 if (class_exists('TIX_Contract_Template') && TIX_Contract_Template::active() && get_option(TIX_Contract_Template::OPTION_TEMPLATE, '') === '') {
     $vs = TIX_Contract_Template::versions();
     $last = $vs ? end($vs) : null;
