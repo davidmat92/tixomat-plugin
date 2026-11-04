@@ -3663,7 +3663,7 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
   - Nie das eigene Konto (409 `tix_self`), nie WP-Admins (409 `tix_is_admin`), Admin-Rolle nur Link (400 `tix_admin_invite_only`).
   - Änderungsprotokoll `tix_audit_log`: `team_password_set` (`role`, `first`), `team_reset_sent`, `team_invite_sent` – ohne Passwort oder Code.
 
-## 76. Statistik Stufe 3a: Matomo, Conversion-Verteiler, Einwilligungs-Nachweis (ab 1.38.629)
+## 76. Statistik Stufe 3a: Matomo, Conversion-Verteiler, Einwilligungs-Nachweis (ab 1.38.631)
 - **Einwilligung:** Die Websites schicken mit der Bestellung `attribution.consent_marketing` (Banner-Kategorie „Marketing“) und `consent_analytics` („Statistik“), dazu `analytics_ids {ga_cid, pk_vid}` (nur mit „Statistik“). Ohne `consent_marketing = 1` geht keine Server-Meldung raus. Nachweis jeder Banner-Entscheidung: `POST /public/consent {id, action, categories, revision, host}` → Tabelle `tix_consent_log`, ohne IP und Browser, 1100 Tage.
 - **Conversion-Verteiler (`TIX_Conversions`):**
   - Ziele `meta`, `tiktok`, `ga4`, `gads` je Bereich (Option `tix_conv_targets` bzw. Postmeta `_tix_conv_targets`); Token/Secret verschlüsselt.
