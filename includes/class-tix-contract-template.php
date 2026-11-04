@@ -500,7 +500,7 @@ class TIX_Contract_Template {
 
     /** Neuen Entwurf anlegen/aktualisieren, wenn sich allgemeine Werte geändert haben (nur Vorlagen-Modus). */
     public static function detect() {
-        if (!self::active()) return null;
+        if (!self::active()) { delete_option(self::OPTION_DRAFT); return null; }
         self::retract_obsolete();
         $raw = self::raw_values();
         $vs = self::versions();
@@ -571,6 +571,7 @@ class TIX_Contract_Template {
 
     public static function cron() {
         if (class_exists('TIX_Planned_Values')) TIX_Planned_Values::apply_due();
+        if (!self::active()) { delete_option(self::OPTION_DRAFT); return; } // Quelle „Seite“: nie veröffentlichen, alten Entwurf verwerfen
         self::detect();
         $d = self::draft();
         if ($d && time() - intval($d['created_at']) >= self::DRAFT_AUTOPUBLISH && !self::missing_master_data($d['values'])) self::publish(null, 0);

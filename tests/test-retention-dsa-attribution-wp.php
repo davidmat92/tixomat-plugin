@@ -110,6 +110,36 @@ if (class_exists('TIX_Contract') && TIX_Contract::multi()) {
     TIX_Contract_Template::detect();
     $c3 = TIX_Contract_Template::info_payload();
     rt_eq('Entwurf sichtbar mit Stichtag', true, is_array($c3['draft']) && $c3['draft']['autopublish_at'] !== '' && in_array('vorlage', $c3['draft']['changes'], true) || is_array($c3['draft']) && !$c3['current']);
+    // Erste Version mit Vorlauf (Weg für evendis): Stammdaten, Quelle Vorlage, detect, publish('adverse')
+    $keep = ['tix_settings' => get_option('tix_settings'), TIX_Contract_Template::OPTION_VERSIONS => get_option(TIX_Contract_Template::OPTION_VERSIONS),
+        TIX_Contract::OPTION_SNAPS => get_option(TIX_Contract::OPTION_SNAPS)];
+    $ts = is_array($keep['tix_settings']) ? $keep['tix_settings'] : [];
+    $ts['invoice_company_name'] = 'RT GmbH'; $ts['invoice_company_address'] = "Teststr. 1\n12345 Test"; $ts['invoice_company_ust_id'] = 'DE123456789';
+    update_option('tix_settings', $ts);
+    $tmp2 = $tmp; $tmp2['contract'] = array_merge((array) ($tmp2['contract'] ?? []), ['evendis_vertreten_durch' => 'RT Person']);
+    update_option(TIX_Org_Approval::OPTION, $tmp2, false);
+    delete_option(TIX_Contract_Template::OPTION_VERSIONS);
+    $d0 = TIX_Contract_Template::detect();
+    rt_eq('erste Version: Entwurf ohne fehlende Stammdaten', [], is_array($d0) ? TIX_Contract_Template::missing_master_data($d0['values']) : ['kein Entwurf']);
+    $ver = TIX_Contract_Template::publish('adverse', 1);
+    $days = is_array($ver) ? round((intval($ver['valid_from']) - time()) / DAY_IN_SECONDS) : -1;
+    rt_eq('erste Version „adverse“: gilt nach Vorlauf (42 Tage)', 42.0, (float) $days);
+    rt_eq('während des Vorlaufs keine Pflicht-Zustimmung', null, TIX_Contract_Template::required_version());
+    $oid = (int) (get_posts(['post_type' => 'tix_organizer', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any'])[0] ?? 0);
+    if ($oid) rt_eq('Veranstalter während des Vorlaufs nicht gesperrt', true, TIX_Org_Approval::terms_accepted($oid));
+    rt_eq('angekündigte Version zustimmbar', true, in_array($ver['version'], TIX_Org_Approval::acceptable_versions(), true));
+    rt_eq('/info zeigt pending mit Stichtag', true, (TIX_Contract_Template::info_payload()['pending']['version'] ?? '') === $ver['version']);
+    foreach ($keep as $k => $v) { if ($v === false) delete_option($k); else update_option($k, $v, false); }
+
+    // Quelle zurück auf „Seite“ mit altem Entwurf: Cron veröffentlicht nicht, sondern verwirft
+    $tmp['terms_source'] = 'page';
+    update_option(TIX_Org_Approval::OPTION, $tmp, false);
+    $d = get_option(TIX_Contract_Template::OPTION_DRAFT, []);
+    if (is_array($d) && $d) { $d['created_at'] = time() - 2 * HOUR_IN_SECONDS; update_option(TIX_Contract_Template::OPTION_DRAFT, $d, false); }
+    $vbefore = count(TIX_Contract_Template::versions());
+    TIX_Contract_Template::cron();
+    rt_eq('Quelle „Seite“: Cron veröffentlicht keinen Entwurf', $vbefore, count(TIX_Contract_Template::versions()));
+    rt_eq('Quelle „Seite“: Cron verwirft den Entwurf', false, (bool) get_option(TIX_Contract_Template::OPTION_DRAFT, false));
     if (is_array($os)) update_option(TIX_Org_Approval::OPTION, $os, false); else delete_option(TIX_Org_Approval::OPTION);
     delete_option(TIX_Contract_Template::OPTION_DRAFT);
 } else rt_eq('/info contract null auf Einzel-Seite', true, array_key_exists('contract', $info) && $info['contract'] === null);
