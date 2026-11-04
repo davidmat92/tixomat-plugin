@@ -14,6 +14,9 @@ echo $multi ? "── Mehr-Veranstalter-Modus\n" : "── Einzel-Seite\n";
 $sfx = wp_rand(1000, 9999); $users = []; $posts = []; $orders = [];
 $opt_before = ['s' => get_option(TIX_Newsletter::OPT, null), 't' => get_option('tix_marketing_trial_until', null), 'm' => get_option('tix_marketing_enabled', null), 'ts' => get_option('tix_settings', null)];
 delete_option(TIX_Newsletter::OPT);
+// Anmelde-Sperre (5 je Stunde und IP) aus früheren Testläufen zurücksetzen
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_nl\\_subscribe\\_%'");
+wp_cache_flush();
 $ts = is_array($opt_before['ts']) ? $opt_before['ts'] : []; unset($ts['brevo_api_key']); update_option('tix_settings', $ts);
 delete_option('tix_marketing_trial_until');
 $owner = wp_insert_user(['user_login' => "nl_owner_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "nl_owner_$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $owner;
