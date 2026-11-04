@@ -94,6 +94,26 @@ rt_eq('Vorlage ohne HTML', false, (bool) preg_match('/<\/?(li|ol|h3|strong)>/', 
 $aw = (string) file_get_contents(TIXOMAT_PATH . 'includes/class-tix-awareness.php');
 rt_eq('„Hilfe vor Ort“ ohne Hinweis auf rechtliche Prüfung', false, strpos($aw, 'erst nach der rechtlichen Prüfung') !== false);
 
+// ── /info: Vertragsstand ──
+$info = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/info'))->get_data();
+if (class_exists('TIX_Contract') && TIX_Contract::multi()) {
+    $c = $info['contract'] ?? null;
+    rt_eq('/info contract vorhanden (Mehr-Veranstalter)', true, is_array($c));
+    rt_eq('/info contract.source page|template', true, is_array($c) && in_array($c['source'], ['page', 'template'], true));
+    rt_eq('/info contract hat current/pending/draft/custom_template', true, is_array($c) && array_key_exists('current', $c) && array_key_exists('pending', $c) && array_key_exists('draft', $c) && is_bool($c['custom_template']));
+    $os = get_option(TIX_Org_Approval::OPTION);
+    $tmp = is_array($os) ? $os : [];
+    $tmp['terms_source'] = 'template';
+    update_option(TIX_Org_Approval::OPTION, $tmp, false);
+    $c2 = TIX_Contract_Template::info_payload();
+    rt_eq('mit terms_source=template: active', true, $c2['source'] === 'template' && $c2['active'] === true);
+    TIX_Contract_Template::detect();
+    $c3 = TIX_Contract_Template::info_payload();
+    rt_eq('Entwurf sichtbar mit Stichtag', true, is_array($c3['draft']) && $c3['draft']['autopublish_at'] !== '' && in_array('vorlage', $c3['draft']['changes'], true) || is_array($c3['draft']) && !$c3['current']);
+    if (is_array($os)) update_option(TIX_Org_Approval::OPTION, $os, false); else delete_option(TIX_Org_Approval::OPTION);
+    delete_option(TIX_Contract_Template::OPTION_DRAFT);
+} else rt_eq('/info contract null auf Einzel-Seite', null, $info['contract'] ?? 'fehlt');
+
 // ── Aufräumen ──
 foreach ([$dsa_new, $dsa_open_n, $sup_old] as $id) wp_delete_post($id, true);
 $wpdb->query("DELETE FROM $at WHERE order_id BETWEEN $base AND " . ($base + 9));

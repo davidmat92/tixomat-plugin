@@ -762,6 +762,8 @@ class TIX_REST_API {
             'plugin_version' => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : 'unknown',
             // Statistik Stufe 1: Umzug der Bestell-Herkunft prüfbar ohne SSH (öffentlich nur ja/nein, Zahlen nur für Admins)
             'migrations'     => class_exists('TIX_Order_Attribution') ? TIX_Order_Attribution::status(current_user_can('manage_options')) : null,
+            // Vermittlungsvertrag (Mehr-Veranstalter-Modus): Quelle, gültige/angekündigte Version, Entwurf – prüfbar ohne SSH
+            'contract'       => class_exists('TIX_Contract_Template') && class_exists('TIX_Contract') && TIX_Contract::multi() ? TIX_Contract_Template::info_payload() : null,
             'api_version'    => '1.0.0',
             'features'       => $features,
             'compat'         => class_exists('TIX_App_Compat') ? TIX_App_Compat::info_payload($req) : null,

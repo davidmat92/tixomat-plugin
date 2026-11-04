@@ -390,6 +390,30 @@ class TIX_Contract_Template {
         return ($last && intval($last['valid_from']) > time()) ? $last : null;
     }
 
+    /**
+     * Stand für /info (öffentlich, ohne Inhalte): Quelle (Option tix_org_approval_settings.terms_source = page|template),
+     * aktiv, eigene Vorlage im Admin ja/nein, gültige und angekündigte Version mit Stichtag, offener Entwurf.
+     */
+    public static function info_payload() {
+        $src = class_exists('TIX_Org_Approval') ? (string) (TIX_Org_Approval::settings()['terms_source'] ?? 'page') : 'page';
+        $v = function ($x) {
+            return $x ? ['version' => (string) $x['version'], 'valid_from' => wp_date('c', intval($x['valid_from'])),
+                'classification' => (string) ($x['classification'] ?? ''), 'requires_consent' => !empty($x['requires_consent'])] : null;
+        };
+        $d = self::draft();
+        return [
+            'source'          => $src,
+            'active'          => self::active(),
+            'custom_template' => trim((string) get_option(self::OPTION_TEMPLATE, '')) !== '',
+            'current'         => $v(self::current()),
+            'pending'         => $v(self::pending()),
+            'draft'           => $d ? ['classification' => (string) $d['classification'], 'created_at' => wp_date('c', intval($d['created_at'])),
+                'autopublish_at' => wp_date('c', intval($d['created_at']) + self::DRAFT_AUTOPUBLISH),
+                'changes' => array_values(array_column((array) $d['changes'], 'key')),
+                'missing_master_data' => (bool) self::missing_master_data($d['values'])] : null,
+        ];
+    }
+
     public static function find($version) {
         foreach (self::versions() as $v) if ($v['version'] === (string) $version) return $v;
         return null;
