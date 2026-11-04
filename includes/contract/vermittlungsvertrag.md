@@ -116,12 +116,21 @@ und
 
 ### § 8e Auftragsverarbeitung
 
-1. Soweit evendis für den Veranstalter personenbezogene Daten im Auftrag verarbeitet (Gästeliste, Einlass, Mitteilungen an Gäste, Awareness-Hinweise und -Meldungen), gilt dieser Paragraf als Vereinbarung nach Art. 28 Abs. 3 DSGVO. Für die Daten aus dem Ticketverkauf bleibt es bei § 8 Abs. 1.
+1. Soweit evendis für den Veranstalter personenbezogene Daten im Auftrag verarbeitet (Gästeliste, Einlass, Mitteilungen an Gäste, Awareness-Hinweise und -Meldungen, Statistik und Werbung nach § 8f), gilt dieser Paragraf als Vereinbarung nach Art. 28 Abs. 3 DSGVO. Für die Daten aus dem Ticketverkauf bleibt es bei § 8 Abs. 1.
 2. evendis verarbeitet diese Daten nur auf dokumentierte Weisung des Veranstalters; als Weisung gelten dieser Vertrag und die Einstellungen im Veranstalter-Bereich. Personen, die Zugriff haben, sind zur Vertraulichkeit verpflichtet.
 3. evendis trifft angemessene technische und organisatorische Maßnahmen nach Art. 32 DSGVO, unter anderem verschlüsselte Übertragung, Rollen und Rechte, Trennung der Daten je Veranstalter, Protokolle und Datensicherung.
 4. Der Veranstalter genehmigt die in der Datenschutzerklärung von evendis genannten Unterauftragsverarbeiter (u. a. Hosting, E-Mail-Versand, Push-Dienste). Über neue Unterauftragsverarbeiter informiert evendis vorher; der Veranstalter kann aus wichtigem Grund widersprechen.
 5. evendis unterstützt den Veranstalter bei Anfragen betroffener Personen und bei seinen Pflichten nach Art. 32 bis 36 DSGVO und meldet Verletzungen des Schutzes dieser Daten unverzüglich.
 6. Nach Vertragsende löscht evendis die Daten bzw. gibt sie zurück, soweit keine Pflicht zur Aufbewahrung besteht, und weist die Einhaltung dieser Pflichten auf Anfrage nach.
+
+### § 8f Statistik und Werbung
+
+1. evendis zählt Aufrufe, das Öffnen der Kasse, die Auswahl von Tickets und Käufe der Events des Veranstalters ohne Cookies und ohne Personenbezug, auch nach Quelle, Kanal und Kampagne, und zeigt sie ihm im Studio und im Veranstalter-Bereich der App als Summen. Über alle Veranstalter wertet evendis nur Summen aus; anderen Veranstaltern zeigt evendis nur anonyme Vergleichswerte, nie die Zahlen eines einzelnen Veranstalters.
+2. Bucht der Veranstalter das Modul „Marketing“, kann er im Studio eigene Konten bei Statistik- und Werbediensten hinterlegen (u. a. Matomo, Google Analytics, Google Ads, Meta, TikTok) und seine Werbekonten zum Abruf der Werbekosten verbinden; für die Verbindung gelten zusätzlich die Nutzungsbedingungen „Werbekonten verbinden“. evendis meldet bezahlte Käufe seiner Events vom Server aus an diese Konten, aber nur, wenn die Käuferin bzw. der Käufer in die Kategorie „Marketing“ eingewilligt hat. Für diese Meldungen ist der Veranstalter Verantwortlicher; evendis verarbeitet die Daten in seinem Auftrag nach § 8e. Als Weisung gelten die Einstellungen im Studio. Die Statistik-Instanz „stats.evendis.de“ (Matomo) betreibt evendis ebenfalls im Auftrag; der Veranstalter sieht dort und im Studio nur die Zahlen seiner eigenen Seiten.
+3. Auf evendis.de bindet evendis keine Pixel oder Skripte der Werbedienste des Veranstalters ein. Auf einer eigenen Shop-Seite kann der Veranstalter Pixel einbinden; dafür ist er allein verantwortlich, im Verhältnis zum jeweiligen Werbedienst ggf. gemeinsam mit diesem (Art. 26 DSGVO). Er schließt die nötigen Vereinbarungen mit den Werbediensten selbst ab und nennt die Dienste in seiner Datenschutzerklärung. evendis stellt dafür Textbausteine bereit; das ist keine Rechtsberatung.
+4. Der Veranstalter sichert zu, dass die hinterlegten Konten ihm gehören oder er sie nutzen darf, dass er die Bedingungen der Werbedienste einhält und die gemeldeten Daten nicht nutzt, um Personen außerhalb des Werbedienstes zu identifizieren. evendis speichert Zugangsschlüssel verschlüsselt und zeigt im Studio höchstens die letzten vier Zeichen.
+5. Unterauftragsverarbeiter für diese Leistungen ist die Hetzner Online GmbH (Server für Matomo). Die Werbedienste sind Empfänger im Auftrag des Veranstalters, keine Unterauftragsverarbeiter von evendis.
+6. Das Modul „Marketing“ ist kostenpflichtig; Preis und Laufzeit ergeben sich aus den Konditionen. Endet das Modul oder dieser Vertrag, trennt evendis alle Verbindungen und löscht Zugangsschlüssel und abgerufene Werbekosten innerhalb von 30 Tagen.
 
 ### § 9 Haftung
 

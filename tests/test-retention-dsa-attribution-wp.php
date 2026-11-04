@@ -77,8 +77,18 @@ rt_eq('zweiter Lauf: keine fällige DSA-Meldung von uns', [], array_values(array
 
 // ── Vertragsvorlage + Schalter ──
 $tpl = (string) file_get_contents(TIXOMAT_PATH . 'includes/contract/vermittlungsvertrag.md');
-foreach (['8a', '8b', '8c', '8d', '8e'] as $p) rt_eq("Vorlage enthält § $p", true, strpos($tpl, "### § $p ") !== false);
+foreach (['8a', '8b', '8c', '8d', '8e', '8f'] as $p) rt_eq("Vorlage enthält § $p", true, strpos($tpl, "### § $p ") !== false);
 rt_eq('§ 8e vor § 9', true, strpos($tpl, '### § 8e') < strpos($tpl, '### § 9'));
+rt_eq('Vorlage ohne [PRÜFEN]-Marken', false, strpos($tpl, 'PRÜFEN') !== false);
+if (class_exists('TIX_Contract_Template') && TIX_Contract_Template::active() && get_option(TIX_Contract_Template::OPTION_TEMPLATE, '') === '') {
+    $vs = TIX_Contract_Template::versions();
+    $last = $vs ? end($vs) : null;
+    $d = TIX_Contract_Template::detect();
+    if ($last && ($last['values']['vorlage'] ?? '') !== hash('sha256', TIX_Contract_Template::template())) {
+        rt_eq('Vorlage geändert → Entwurf mit Änderung „vorlage“', true, is_array($d) && in_array('vorlage', array_column((array) $d['changes'], 'key'), true));
+        rt_eq('Entwurf braucht neue Zustimmung (nicht „favorable“)', true, is_array($d) && $d['auto'] !== 'favorable');
+    } else echo "  (Vertragsversion: keine veröffentlichte Version zum Vergleich)\n";
+} else echo "  (Vertragsvorlage hier nicht aktiv – Versionsprüfung übersprungen)\n";
 rt_eq('Vorlage ohne HTML', false, (bool) preg_match('/<\/?(li|ol|h3|strong)>/', $tpl));
 $aw = (string) file_get_contents(TIXOMAT_PATH . 'includes/class-tix-awareness.php');
 rt_eq('„Hilfe vor Ort“ ohne Hinweis auf rechtliche Prüfung', false, strpos($aw, 'erst nach der rechtlichen Prüfung') !== false);
