@@ -13,6 +13,11 @@ if (!defined('ABSPATH')) exit;
  *     Auszahlungs-Anfragen mit _tix_sp_retain_until in der Zukunft bleiben bis dahin (TIX_Account_Delete).
  *  3. Musikwünsche (tix_song_requests): 30 Tage nach dem Event gelöscht (ohne Event: 30 Tage nach dem Wunsch),
  *     außerdem bei Kontolöschung (Konto-ID) und beim endgültigen Löschen des Events.
+ *  4. „Event melden“ (DSA Art. 16, tix_support_ticket mit Kategorie event_report; 1.38.623): 2 Jahre nach Abschluss ganz gelöscht
+ *     (Beitrag samt Anhängen), offene Meldungen 2 Jahre nach der letzten Änderung. Nicht anonymisiert wie unter 2.
+ *  5. Herkunft an der Bestellung (Tabelle tix_order_attribution, TIX_Order_Attribution; 1.38.623): 25 Monate nach dem
+ *     Bestelldatum gelöscht (ohne Bestellung: nach der letzten Änderung der Zeile); der Datenspiegel wird angestoßen.
+ *     Klick-IDs/Kennungen (nach Zustellung, spätestens 90 Tage) löscht TIX_Conversions.
  * Täglicher Lauf (Cron tix_retention_daily); wp tixomat retention status | run [--dry-run].
  */
 class TIX_Retention {
@@ -21,6 +26,9 @@ class TIX_Retention {
     const DAYS_WAITLIST = 30;
     const DAYS_MUSIC = 30;
     const YEARS_SUPPORT = 2;
+    const YEARS_DSA = 2;
+    const MONTHS_ATTRIBUTION = 25;
+    const DSA_CATEGORY = 'event_report';
     const META_CLOSED = '_tix_sp_closed_at';
     const META_ANON = '_tix_sp_anonymized_at';
     const ANON_NAME = '[Gelöscht]';
@@ -125,6 +133,7 @@ class TIX_Retention {
             'meta_query' => [['key' => self::META_ANON, 'compare' => 'NOT EXISTS']]]);
         $out = [];
         foreach ($ids as $id) {
+            if ((string) get_post_meta($id, '_tix_sp_category', true) === self::DSA_CATEGORY) continue; // eigene Frist (4.)
             if (self::closed_at($id) >= $cut) continue;
             $until = (string) get_post_meta($id, '_tix_sp_retain_until', true);
             if ($until !== '' && $until >= $today) continue; // Auszahlungs-Anfrage: eigene Frist
@@ -154,25 +163,74 @@ class TIX_Retention {
         update_post_meta($id, '_tix_sp_name', self::ANON_NAME);
         foreach (['_tix_sp_attachments', '_tix_sp_file_map', '_tix_sp_ai_summary', '_tix_sp_access_key', '_tix_sp_mail_thread', '_tix_sp_mail_msgid', '_tix_sp_inquiries',
             '_tix_sp_order_id', '_tix_sp_platform_order', '_tix_sp_ticket_code', '_tix_sp_customer_n'] as $k) delete_post_meta($id, $k);
-        // Anhänge im geschützten Ordner
-        if (class_exists('TIX_Support')) {
-            $dir = TIX_Support::private_base() . '/support/' . $id;
-            if (is_dir($dir)) {
-                foreach ((array) glob($dir . '/*') as $f) if (is_file($f)) @unlink($f);
-                foreach ((array) glob($dir . '/.*') as $f) if (is_file($f)) @unlink($f);
-                @rmdir($dir);
-            }
-        }
+        self::delete_files($id);
         $cat = (string) get_post_meta($id, '_tix_sp_category', true);
         wp_update_post(['ID' => $id, 'post_title' => 'Anfrage #' . $id . ($cat !== '' ? ' (' . $cat . ')' : '') . ' – gelöscht', 'post_content' => '', 'post_excerpt' => '']);
         update_post_meta($id, self::META_ANON, current_time('mysql'));
         return true;
     }
 
+    /** Anhänge einer Anfrage im geschützten Ordner löschen */
+    private static function delete_files($id) {
+        if (!class_exists('TIX_Support')) return;
+        $dir = TIX_Support::private_base() . '/support/' . intval($id);
+        if (!is_dir($dir)) return;
+        foreach ((array) glob($dir . '/*') as $f) if (is_file($f)) @unlink($f);
+        foreach ((array) glob($dir . '/.*') as $f) if (is_file($f)) @unlink($f);
+        @rmdir($dir);
+    }
+
     public static function support($dry = false) {
         $ids = self::support_due($dry ? 100000 : 200);
         if ($dry) return count($ids);
         foreach ($ids as $id) self::anonymize_ticket($id);
+        return count($ids);
+    }
+
+    // ═══════════════ 4. „Event melden“ (DSA) ═══════════════
+
+    /** Fällige DSA-Meldungen: abgeschlossen vor mehr als 2 Jahren bzw. offen und seit 2 Jahren unverändert. → [id] */
+    public static function dsa_due($limit = 200) {
+        $cut = wp_date('Y-m-d H:i:s', strtotime('-' . self::YEARS_DSA . ' years', current_time('timestamp')));
+        $ids = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids',
+            'suppress_filters' => true, 'no_found_rows' => true,
+            'meta_query' => [['key' => '_tix_sp_category', 'value' => self::DSA_CATEGORY]]]);
+        $out = [];
+        foreach ($ids as $id) {
+            $closed = in_array(get_post_status($id), ['tix_resolved', 'tix_closed'], true);
+            $ref = $closed ? self::closed_at($id) : (string) get_post_field('post_modified', $id);
+            if ($ref === '' || $ref >= $cut) continue;
+            $out[] = intval($id);
+            if (count($out) >= $limit) break;
+        }
+        return $out;
+    }
+
+    public static function dsa($dry = false) {
+        $ids = self::dsa_due($dry ? 100000 : 200);
+        if ($dry) return count($ids);
+        foreach ($ids as $id) { self::delete_files($id); wp_delete_post($id, true); }
+        return count($ids);
+    }
+
+    // ═══════════════ 5. Herkunft an der Bestellung ═══════════════
+
+    public static function attribution($dry = false) {
+        global $wpdb;
+        if (!class_exists('TIX_Order_Attribution')) return 0;
+        $t = TIX_Order_Attribution::table();
+        if (!self::table_exists($t)) return 0;
+        $cut = wp_date('Y-m-d H:i:s', strtotime('-' . self::MONTHS_ATTRIBUTION . ' months', current_time('timestamp')));
+        $cut_gmt = gmdate('Y-m-d H:i:s', strtotime('-' . self::MONTHS_ATTRIBUTION . ' months'));
+        $ot = class_exists('TIX_Order') ? TIX_Order::table_name() : '';
+        $join = ($ot !== '' && self::table_exists($ot)) ? "LEFT JOIN $ot o ON o.id = a.order_id" : '';
+        $when = $join !== '' ? $wpdb->prepare('(o.id IS NOT NULL AND o.date_created < %s) OR (o.id IS NULL AND a.updated < %s)', $cut, $cut_gmt)
+            : $wpdb->prepare('a.updated < %s', $cut_gmt);
+        if ($dry) return intval($wpdb->get_var("SELECT COUNT(*) FROM $t a $join WHERE $when"));
+        $ids = array_map('intval', (array) $wpdb->get_col("SELECT a.order_id FROM $t a $join WHERE $when LIMIT 2000"));
+        if (!$ids) return 0;
+        $wpdb->query("DELETE FROM $t WHERE order_id IN (" . implode(',', $ids) . ")");
+        if (class_exists('TIX_Mirror')) foreach ($ids as $id) TIX_Mirror::touch('order', $id);
         return count($ids);
     }
 
@@ -210,10 +268,11 @@ class TIX_Retention {
 
     // ═══════════════ Lauf, Status, CLI ═══════════════
 
-    /** Täglicher Lauf. → {waitlist, support, music} (Zahl gelöschter Zeilen bzw. anonymisierter Anfragen) */
+    /** Täglicher Lauf. → {waitlist, support, music, dsa, attribution} (Zahl gelöschter Zeilen bzw. anonymisierter/gelöschter Anfragen) */
     public static function run($dry = false) {
         $dry = $dry === true;
-        $r = ['waitlist' => self::waitlist($dry), 'support' => self::support($dry), 'music' => self::music($dry)];
+        $r = ['waitlist' => self::waitlist($dry), 'support' => self::support($dry), 'music' => self::music($dry),
+            'dsa' => self::dsa($dry), 'attribution' => self::attribution($dry)];
         if (!$dry) update_option('tix_retention_last', ['at' => current_time('mysql')] + $r, false);
         return $r;
     }
@@ -224,7 +283,7 @@ class TIX_Retention {
         if ($cmd === 'status' || ($cmd === 'run' && !empty($assoc['dry-run']))) {
             $r = self::run(true);
             WP_CLI::line(wp_json_encode(['fällig' => $r, 'fristen' => ['warteliste_tage_nach_event' => self::DAYS_WAITLIST, 'support_jahre_nach_abschluss' => self::YEARS_SUPPORT,
-                'musikwuensche_tage_nach_event' => self::DAYS_MUSIC], 'letzter_lauf' => get_option('tix_retention_last', null)], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                'musikwuensche_tage_nach_event' => self::DAYS_MUSIC, 'event_melden_jahre' => self::YEARS_DSA, 'herkunft_monate_nach_bestellung' => self::MONTHS_ATTRIBUTION], 'letzter_lauf' => get_option('tix_retention_last', null)], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             return;
         }
         if ($cmd === 'run') { WP_CLI::success('Aufgeräumt: ' . wp_json_encode(self::run(false), JSON_UNESCAPED_UNICODE)); return; }

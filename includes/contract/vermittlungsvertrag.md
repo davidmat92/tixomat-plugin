@@ -88,6 +88,41 @@ und
 2. E-Mail-Adressen von Followern bzw. Interessierten erhält der Veranstalter nur, wenn diese ausdrücklich eingewilligt haben.
 3. Beide Parteien halten die Datenschutzgesetze ein. Die Datenschutzerklärung von evendis gilt für die Plattform.
 
+### § 8a Guthaben und bargeldloses Bezahlen (Modul „Guthaben“)
+
+1. Gäste können auf evendis ein Guthaben aufladen. Das Guthaben gibt evendis im eigenen Namen aus; es ist kein Ticketumsatz des Veranstalters.
+2. Bezahlen Gäste Tickets des Veranstalters mit Guthaben, gilt der Betrag als Ticketumsatz und wird nach § 6 abgerechnet.
+3. Hat der Veranstalter das Modul „Guthaben“ für bargeldloses Bezahlen vor Ort aktiviert, nimmt sein Personal Zahlungen per Bezahl-Code der App an. Die Umsätze erscheinen in der Abrechnung; evendis zahlt sie nach § 6 aus. Gebühren dafür richten sich nach der Anlage „Aktuelle Konditionen“; ist dort keine Gebühr genannt, ist die Annahme kostenlos. Der Veranstalter sorgt dafür, dass nur berechtigtes Personal Zahlungen annimmt und Fehlbuchungen innerhalb von zehn Minuten storniert.
+4. Ein Bonus auf Aufladungen wird von evendis getragen, sofern nichts anderes vereinbart ist.
+
+### § 8b Rechnungen an Gäste
+
+1. Sind Rechnungen eingeschaltet, erstellt evendis für Ticketkäufe Rechnungen im Namen und für Rechnung des Veranstalters; die Servicegebühr stellt evendis dem Gast gesondert in eigenem Namen in Rechnung. Im Modell A beauftragt und bevollmächtigt der Veranstalter evendis, Rechnungen in seinem Namen auszustellen; er stellt die dafür nötigen Angaben (Firma, Anschrift, Steuernummer bzw. USt-IdNr., Kleinunternehmer-Status) richtig und aktuell bereit.
+2. Die Kasse vor Ort (Abendkasse, Bar) erzeugt keine Kassenbelege nach der Kassensicherungsverordnung; ist der Veranstalter dazu verpflichtet, nutzt er eigene Kassensysteme.
+
+### § 8c KI-Funktionen und KI-Schutz
+
+1. evendis bietet im Studio KI-gestützte Funktionen an (z. B. Texte formulieren, Flyer oder Event-Seiten einlesen, Vorschläge zum Teilen). Die Vorschläge prüft der Veranstalter vor der Veröffentlichung; er bleibt für die Inhalte verantwortlich.
+2. Neue und geänderte Event-Inhalte prüft evendis automatisiert auf offensichtlich rechtswidrige oder regelwidrige Inhalte („KI-Schutz“). Hält die Prüfung einen Inhalt an, entscheidet ein Mensch; der Veranstalter wird informiert und kann Stellung nehmen.
+3. Für die KI-Funktionen übermittelt evendis Inhalte an einen KI-Dienst (Anthropic). Der Veranstalter gibt dort keine Daten Dritter ein, die dafür nicht bestimmt sind.
+
+### § 8d Awareness (Modul „Awareness“)
+
+1. evendis stellt das Modul „Awareness“ kostenlos bereit: Anzeige der Angaben des Veranstalters zu seinem Awareness-Team und – wenn der Veranstalter es aktiviert – „Hilfe vor Ort“, Meldungen und Rückmeldungen von Gästen.
+2. Für die Richtigkeit der Angaben, für das Awareness-Team, seine Besetzung, Schulung und seinen Einsatz ist allein der Veranstalter verantwortlich. evendis stellt nur die technische Übermittlung bereit.
+3. „Hilfe vor Ort“ ist nur aktiv, solange mindestens eine Person des Teams „im Dienst“ ist. Der Veranstalter sorgt dafür, dass der Schalter nur gesetzt ist, wenn das Team tatsächlich erreichbar ist. Eine Reaktion ist nicht garantiert; die Funktion ersetzt keinen Notruf. Der Veranstalter weist sein Team an, bei Gefahr den Notruf (110/112) zu verständigen.
+4. Hinweise, Meldungen und Rückmeldungen erhält nur der Veranstalter der jeweiligen Veranstaltung; lesen können sie sein Inhaber, seine Team-Administratoren und sein Awareness-Team (evendis-Admins lesen mit), nicht aber sonstiges Personal (z. B. Einlass, Kasse). Der Veranstalter verarbeitet sie nur zur Hilfe bzw. Aufarbeitung und hält die Löschfristen ein (Hinweise und Meldungen 30 Tage nach dem Ende der Veranstaltung; die Software löscht sie dann automatisch). Für diese Verarbeitung ist der Veranstalter Verantwortlicher; evendis verarbeitet die Daten in seinem Auftrag nach § 8e.
+5. Begriffe wie „sicheres Event“ oder „garantiert sicher“ verwendet der Veranstalter im Zusammenhang mit dem Modul nicht.
+
+### § 8e Auftragsverarbeitung
+
+1. Soweit evendis für den Veranstalter personenbezogene Daten im Auftrag verarbeitet (Gästeliste, Einlass, Mitteilungen an Gäste, Awareness-Hinweise und -Meldungen), gilt dieser Paragraf als Vereinbarung nach Art. 28 Abs. 3 DSGVO. Für die Daten aus dem Ticketverkauf bleibt es bei § 8 Abs. 1.
+2. evendis verarbeitet diese Daten nur auf dokumentierte Weisung des Veranstalters; als Weisung gelten dieser Vertrag und die Einstellungen im Veranstalter-Bereich. Personen, die Zugriff haben, sind zur Vertraulichkeit verpflichtet.
+3. evendis trifft angemessene technische und organisatorische Maßnahmen nach Art. 32 DSGVO, unter anderem verschlüsselte Übertragung, Rollen und Rechte, Trennung der Daten je Veranstalter, Protokolle und Datensicherung.
+4. Der Veranstalter genehmigt die in der Datenschutzerklärung von evendis genannten Unterauftragsverarbeiter (u. a. Hosting, E-Mail-Versand, Push-Dienste). Über neue Unterauftragsverarbeiter informiert evendis vorher; der Veranstalter kann aus wichtigem Grund widersprechen.
+5. evendis unterstützt den Veranstalter bei Anfragen betroffener Personen und bei seinen Pflichten nach Art. 32 bis 36 DSGVO und meldet Verletzungen des Schutzes dieser Daten unverzüglich.
+6. Nach Vertragsende löscht evendis die Daten bzw. gibt sie zurück, soweit keine Pflicht zur Aufbewahrung besteht, und weist die Einhaltung dieser Pflichten auf Anfrage nach.
+
 ### § 9 Haftung
 
 1. evendis haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit, bei Verletzung von Leben, Körper oder Gesundheit sowie nach dem Produkthaftungsgesetz.
