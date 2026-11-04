@@ -3689,3 +3689,48 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 - `GET /organizer/stats/audience?event_id=…` liefert zusätzlich `series[{date, views, app_views, orders}]` je Tag (bis 400 Tage), für den Verlauf bis zum Event.
 - `GET /marketing/campaigns?event_id=…`: unsere Zahlen nur für dieses Event, nur Kampagnen mit Aufrufen oder Käufen dort. Die Kosten sind die der ganzen Kampagne im Zeitraum, weil die Netze keine Events kennen.
 - Tests: `tests/test-stats-audience-wp.php` (40/40), `tests/test-ad-accounts-wp.php` (33/30).
+
+## 78. Statistik Stufe 2/4: Kurzlinks, Push-Kampagnen, Matomo je Event, Plattform-Sicht (ab 1.38.635)
+
+**Kurzlinks** (`TIX_Short_Links`, frei, Rechte wie die Statistik: Inhaber, Team-Admin, Admin):
+- Auf der Plattform gilt alles je Veranstalter.
+- `GET /marketing/links?from=&to=` liefert `{links: [{id, code, short_url, qr_url, url, label, event, target, source, medium, campaign, archived, created, clicks, clicks_qr, views, orders, tickets, revenue}], totals, base}`.
+- `POST /marketing/links` erwartet `{event_id | target, label?, source?, medium?, campaign?, code?}`:
+  - Ohne `code` vergibt das Plugin 6 Zeichen. Ein eigener Kurzname hat 3–32 Zeichen aus a–z, 0–9 und `-`; ist er vergeben, kommt 409 `tix_code_taken`.
+  - `target` ist ein Pfad der eigenen Kunden-Website.
+  - Auf der Plattform sind nur eigene Events oder die eigene Veranstalterseite erlaubt; ohne Ziel gilt die Veranstalterseite.
+- `POST /marketing/links/{id}` ändert `{label?, source?, medium?, campaign?, archived?}`, das Ziel bleibt.
+- `DELETE /marketing/links/{id}` löscht den Link samt Klicks.
+- **Weiterleitung:**
+  - Die Next-Seiten bekommen über `GET /public/go/{code}?qr=1&ua=` die Ziel-URL `{url}` zurück, gezählt wird dabei ein Klick.
+  - Bei unbekanntem oder archiviertem Link kommt 404 mit `data.fallback` (Startseite).
+  - Liefert WordPress die Seite selbst aus, leitet `/go/<code>` direkt weiter.
+- An die Ziel-URL hängt das Plugin `utm_source`, `utm_medium`, `utm_campaign`, `utm_id=go-<code>` und `c=<code>`. Fehlt die Quelle, gilt `link`/`shortlink` bzw. `qr`/`qr`.
+- **Zählung:**
+  - Klicks landen als Tageszähler in `tix_short_clicks` (day, link_id, kind link|qr), Bots werden ausgefiltert.
+  - Aufrufe = Event-Seiten-Treffer mit `utm_id=go-<code>`.
+  - Käufe = bezahlte Bestellungen mit `link_code=<code>` oder `utm_id=go-<code>`; Umsatz aus `TIX_Sales_Figures`.
+
+**Push-Kampagnen** (`TIX_Notifications`):
+- Jede Sendung (`POST /notifications/broadcast`, alle Ziele) bekommt `campaign` = `push-` + 8 Zeichen.
+- Die Kennung steht in der Antwort, im Feed (`notifications[].campaign`) und in den Push-Daten (`data.campaign`).
+- **Öffnung:** Die App meldet `POST /public/stats/hit {step: push_open, src: app, campaign}`. Gezählt wird nur in den Dimensionen und nur, wenn die Kennung zu einer echten Sendung gehört (Veranstalter und Event der Sendung).
+- **Kauf aus der Mitteilung:** Die App schickt an der Bestellung `attribution {utm_source: push, utm_medium: push, utm_campaign: <Kennung>}`.
+- `GET /notifications/broadcasts` liefert je Sendung zusätzlich `campaign`, `opens`, `orders` und `revenue`; ältere Sendungen haben dort `null`.
+
+**Wochenmail:** Alle Links tragen `utm_source=newsletter&utm_medium=email&utm_campaign=wochenmail-JJJJ-KW`.
+
+**Matomo je Event:**
+- `GET /marketing/matomo/stats?event_id=` nutzt das Segment `pageUrl=@<Pfad der Event-Seite>`.
+- `ecommerce` ist dann `null`, weil das Kauf-Ziel nicht je Seite trennbar ist. Ein fremdes Event ergibt 404.
+
+**Plattform-Sicht:**
+- `GET /platform/stats?from=&to=` gibt es nur auf evendis und nur für WordPress-Admins; auf Einzel-Seiten kommt 404 `tix_not_multi`. Die Antwort wird 10 min zwischengespeichert.
+- Die Antwort enthält:
+  - `totals` wie `TIX_Sales_Figures`;
+  - `organizers {active, selling, new}`, `events.selling` und `top_organizers` (10);
+  - `funnel` (Website), `app` (event, quote, checkout, push_open);
+  - `channels` je Quelle; Gruppen unter 3 Bestellungen werden zu „sonstige“ zusammengefasst.
+- Es gibt nur Summen, keine Kundendaten und keine Werbekosten der Veranstalter.
+
+Tests: `tests/test-stufe2-wp.php` (Einzel-Seite 28/28, Plattform 32/32).

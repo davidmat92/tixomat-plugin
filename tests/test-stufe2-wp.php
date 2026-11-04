@@ -37,7 +37,7 @@ wp_set_current_user($owner);
 [$st, $r] = s2_rest('POST', '/marketing/links', ['event_id' => $ev, 'source' => 'Instagram', 'medium' => 'Story', 'campaign' => 'Herbst Party']);
 $L = $r['link'] ?? [];
 s2_eq('Link anlegen: frei (ohne Modul), Code 6 Zeichen, Werte normalisiert', [200, true, 'instagram', 'story', 'herbst-party'], [$st, (bool) preg_match('/^[a-z][a-z0-9]{5}$/', (string) ($L['code'] ?? '')), $L['source'] ?? '', $L['medium'] ?? '', $L['campaign'] ?? '']);
-s2_eq('Kurzadresse /go/<code>, QR mit ?qr=1', [true, true], [substr((string) ($L['short_url'] ?? ''), -9) === '/go/' . ($L['code'] ?? ''), ($L['qr_url'] ?? '') === ($L['short_url'] ?? '') . '?qr=1']);
+s2_eq('Kurzadresse /go/<code>, QR mit ?qr=1', [true, true], [substr((string) ($L['short_url'] ?? ''), -(4 + strlen((string) ($L['code'] ?? '')))) === '/go/' . ($L['code'] ?? ''), ($L['qr_url'] ?? '') === ($L['short_url'] ?? '') . '?qr=1']);
 parse_str((string) wp_parse_url((string) ($L['url'] ?? ''), PHP_URL_QUERY), $q);
 s2_eq('Ziel: Event-Seite mit UTM, utm_id go-<code> und c=<code>', ['instagram', 'story', 'herbst-party', 'go-' . $L['code'], $L['code']], [$q['utm_source'] ?? '', $q['utm_medium'] ?? '', $q['utm_campaign'] ?? '', $q['utm_id'] ?? '', $q['c'] ?? '']);
 [$st, $d, $code] = s2_rest('POST', '/marketing/links', ['event_id' => $ev, 'code' => $L['code']]);
@@ -158,7 +158,7 @@ if (!$c || ($c['token'] ?? '') === '') {
     [$st, $ms] = s2_rest('GET', '/marketing/matomo/stats', ['event_id' => $ev]);
     $seg = ''; foreach ($GLOBALS['s2_mat'] as $bd) if (!empty($bd['segment'])) $seg = (string) $bd['segment'];
     $path = rtrim((string) wp_parse_url(TIX_Customer_URL::to(get_permalink($ev)), PHP_URL_PATH), '/');
-    s2_eq('Matomo je Event: Segment auf die Event-Seite, Besuche, kein Kauf-Ziel', [200, 'pageUrl=@' . rawurlencode($path), 12, null, $ev], [$st, $seg, $ms['summary']['visits'] ?? null, $ms['ecommerce'] ?? 'x', $ms['event_id'] ?? null]);
+    s2_eq('Matomo je Event: Segment auf die Event-Seite, Besuche, kein Kauf-Ziel', [200, 'pageUrl=@' . rawurlencode($path), 12, null, $ev], [$st, $seg, $ms['summary']['visits'] ?? null, array_key_exists('ecommerce', (array) $ms) ? $ms['ecommerce'] : 'x', $ms['event_id'] ?? null]);
     [$st] = s2_rest('GET', '/marketing/matomo/stats', ['event_id' => $ev2]);
     s2_eq($multi ? 'Matomo: fremdes Event → 404' : 'Matomo: Event der Seite → 200', $multi ? 404 : 200, $st);
 }
