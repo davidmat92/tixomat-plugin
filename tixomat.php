@@ -759,6 +759,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-consent-log.php'; // Stufe 3a: N
 require_once TIXOMAT_PATH . 'includes/class-tix-matomo.php'; // Stufe 3a: Matomo (stats.evendis.de oder eigenes), Reporting im Studio, Kauf über die Tracking API
 require_once TIXOMAT_PATH . 'includes/class-tix-short-links.php'; // Stufe 2: Kurzlinks /go/<code> mit QR, Klicks und Käufe je Link (frei)
 require_once TIXOMAT_PATH . 'includes/class-tix-platform-stats.php'; // Stufe 4: Plattform-Sicht GET /platform/stats (nur evendis, nur Admins)
+require_once TIXOMAT_PATH . 'includes/class-tix-newsletter.php'; // Modul Marketing: Newsletter über Brevo (Double-Opt-in, Kampagnen, Testversand, Öffnungen/Klicks, Käufe über UTM)
 TIX_Studio_Stats::init();
 // ── Info-Abschnitte (Reihenfolge, Künstler-Info, Barrierefreiheit) + Textfelder im Editor (1.38.455) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-event-texts.php';
