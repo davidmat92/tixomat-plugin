@@ -411,8 +411,10 @@ class TIX_Ad_Accounts {
     // ── Kampagnen mit Kosten ──
 
     /**
-     * GET /marketing/campaigns?from&to → {rows[{key, campaign, platform, campaign_id, name, spend, impressions, clicks, views,
+     * GET /marketing/campaigns?from&to[&event_id] → {rows[{key, campaign, platform, campaign_id, name, spend, impressions, clicks, views,
      * orders, tickets, revenue, cpa, roas, mapped_by: utm_id|map|name|manual|none}], totals}
+     * Mit event_id: unsere Zahlen nur für dieses Event, nur Kampagnen mit Aufrufen oder Käufen dort; die Kosten bleiben die der
+     * ganzen Kampagne im Zeitraum (die Netze kennen keine Events) – CPA/ROAS sind darum eine Obergrenze bzw. Untergrenze.
      */
     public static function rest_campaigns(WP_REST_Request $req) {
         global $wpdb;
@@ -421,6 +423,11 @@ class TIX_Ad_Accounts {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) || $from > $to) return self::bad('from', 'Bitte einen gültigen Zeitraum angeben.');
         $org = self::org($req);
         $ids = TIX_Studio_Stats::scope_ids();
+        $eid = absint($req->get_param('event_id'));
+        if ($eid) {
+            if (!in_array($eid, array_map('intval', $ids), true)) return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+            $ids = [$eid];
+        }
         // Werbekosten je Kampagne
         $ads = (array) $wpdb->get_results($wpdb->prepare("SELECT platform, campaign_id, MAX(campaign_name) name, SUM(spend) spend, SUM(impressions) imp, SUM(clicks) clk, MAX(currency) cur FROM " . self::t('costs') . " WHERE organizer_id = %d AND day BETWEEN %s AND %s GROUP BY platform, campaign_id", $org, $from, $to), ARRAY_A);
         $map = [];
@@ -471,13 +478,14 @@ class TIX_Ad_Accounts {
         }
         // Studio-Kampagnen mit Käufen, aber ohne Kosten (Kampagnen ohne Kosten gehören in die Basis)
         foreach ($by_cmp as $c => $o) if (empty($used_cmp[$c]) && $o['o'] > 0) $rows[] = self::row(['key' => 'utm:' . $c, 'platform' => 'utm', 'campaign_id' => '', 'name' => $c, 'campaign' => $c, 'spend' => null, 'impressions' => null, 'clicks' => null, 'currency' => 'EUR', 'mapped_by' => 'none'], $o);
+        if ($eid) $rows = array_values(array_filter($rows, function ($r) { return $r['views'] > 0 || $r['orders'] > 0; }));
         usort($rows, function ($a, $b) { return ($b['spend'] ?? 0) <=> ($a['spend'] ?? 0) ?: $b['revenue'] <=> $a['revenue']; });
         $tot = ['spend' => 0.0, 'orders' => 0, 'revenue' => 0.0];
         foreach ($rows as $r) { $tot['spend'] += floatval($r['spend']); if ($r['spend'] !== null) { $tot['orders'] += $r['orders']; $tot['revenue'] += $r['revenue']; } }
         $tot['cpa'] = $tot['orders'] ? round($tot['spend'] / $tot['orders'], 2) : null;
         $tot['roas'] = $tot['spend'] > 0 ? round($tot['revenue'] / $tot['spend'], 2) : null;
         $tot['spend'] = round($tot['spend'], 2); $tot['revenue'] = round($tot['revenue'], 2);
-        return rest_ensure_response(['ok' => true, 'range' => ['from' => $from, 'to' => $to], 'rows' => $rows, 'totals' => $tot]);
+        return rest_ensure_response(['ok' => true, 'range' => ['from' => $from, 'to' => $to], 'event_id' => $eid ?: null, 'rows' => $rows, 'totals' => $tot]);
     }
 
     private static function row(array $r, $ours) {

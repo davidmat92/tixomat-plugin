@@ -3680,3 +3680,9 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
   - Matomo gehört zum Modul Marketing.
 - **site-config `tracking`:** `meta_pixel_id`, `tiktok_pixel_id`, `ga4_id`, `google_ads {id, label}`, `matomo`, `visits`. Fund: `TIX_Google_Tag` hängt nur an `wp_head`, das auf den Next-Seiten nie läuft – die alten WP-Einstellungen dienen deshalb nur als Rückfall für site-config.
 - Tests: `tests/test-conversions-wp.php` (Einzel-Seite 38, Plattform 35).
+
+## 77. Statistik je Event (ab 1.38.632)
+- `GET /organizer/stats/events?ids=1,2,…[&days=14]` (Inhaber, Team-Admin, Admin; höchstens 100 Events, nur eigene; fremde und unbekannte IDs fehlen in der Antwort): die Sammelabfrage für die Event-Liste im Studio, damit nicht N Einzelabrufe nötig sind. Je Event `event_views` (Website), `app_views`, `checkout`, `web_orders` (bezahlt, Website/Link), `conversion` (= web_orders ÷ event_views in %), jeweils seit Beginn, dazu `views_days[]` und `orders_days[]` (bezahlte Bestellungen aller Kanäle) für die letzten `days` Tage bis heute. Cache 60 s privat.
+- `GET /organizer/stats/audience?event_id=…` liefert zusätzlich `series[{date, views, app_views, orders}]` je Tag (bis 400 Tage), für den Verlauf bis zum Event.
+- `GET /marketing/campaigns?event_id=…`: unsere Zahlen nur für dieses Event, nur Kampagnen mit Aufrufen oder Käufen dort. Die Kosten sind die der ganzen Kampagne im Zeitraum, weil die Netze keine Events kennen.
+- Tests: `tests/test-stats-audience-wp.php` (40/40), `tests/test-ad-accounts-wp.php` (33/30).

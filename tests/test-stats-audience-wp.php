@@ -99,6 +99,28 @@ sa_eq('Marketing-Modul: Plattform frei, Einzel-Seite aus', $multi, $r['modules']
 sa_eq('Platz für Matomo', ['available' => false, 'connected' => false], $r['matomo'] ?? null);
 sa_eq('Vorperiode vorhanden', true, isset($r['previous']['event_views']));
 
+// ── Je Event: Verlauf und Sammelabfrage für die Liste ──
+$from3 = wp_date('Y-m-d', strtotime($today) - 2 * DAY_IN_SECONDS);
+[$st, $r] = sa_rest('GET', '/organizer/stats/audience', ['event_id' => $ev, 'from' => $from3, 'to' => $today]);
+$last = is_array($r['series'] ?? null) ? end($r['series']) : [];
+sa_eq('Verlauf: 3 Tage, heute 8 Aufrufe, 1 App, 3 bezahlte Bestellungen', [3, $today, 8, 1, 3], [count($r['series'] ?? []), $last['date'] ?? '', $last['views'] ?? null, $last['app_views'] ?? null, $last['orders'] ?? null]);
+[$st, $r] = sa_rest('GET', '/organizer/stats/audience', ['from' => $from3, 'to' => $today]);
+sa_eq('Verlauf nur mit event_id', [true, null], [array_key_exists('series', (array) $r), $r['series'] ?? null]);
+$other = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'SA Fremd', 'meta_input' => ['_tix_organizer_id' => $multi ? 999999 : 0]]); $posts[] = $other;
+[$st, $r] = sa_rest('GET', '/organizer/stats/events', ['ids' => "$ev,$other,123456789"]);
+$byid = []; foreach ($r['events'] ?? [] as $x) $byid[$x['id']] = $x;
+$x = $byid[$ev] ?? [];
+sa_eq('Liste: 200, 14 Tage', [200, 14, 14, 14], [$st, $r['days'] ?? null, count($x['views_days'] ?? []), count($x['orders_days'] ?? [])]);
+sa_eq('Liste: Aufrufe, App, Kasse, Website-Käufe, Conversion', [8, 1, 2, 2, 25.0], [$x['event_views'] ?? null, $x['app_views'] ?? null, $x['checkout'] ?? null, $x['web_orders'] ?? null, $x['conversion'] ?? null]);
+sa_eq('Liste: heute in der Reihe', [8, 3], [end($x['views_days']), end($x['orders_days'])]);
+sa_eq('Liste: fremde und unbekannte Events fehlen', $multi ? [false, false] : [true, false], [isset($byid[$other]), isset($byid[123456789])]);
+[$st] = sa_rest('GET', '/organizer/stats/events', ['ids' => implode(',', range(1, 101))]);
+sa_eq('Liste: höchstens 100 Events', 400, $st);
+wp_set_current_user($staff);
+[$st] = sa_rest('GET', '/organizer/stats/events', ['ids' => (string) $ev]);
+sa_eq('Liste: Mitarbeiter ohne Zugriff', 403, $st);
+wp_set_current_user($owner);
+
 // ── Geschätzte Besuche (Schalter) ──
 $wpdb->query($wpdb->prepare("DELETE FROM " . TIX_Web_Stats::visits_table() . " WHERE day = %s", $today));
 $vt = function () use ($wpdb, $t, $today, $org) { return intval($wpdb->get_var($wpdb->prepare("SELECT SUM(n) FROM $t WHERE day = %s AND step = %s AND ref = %d", $today, $org ? 'ovisit' : 'visit', $org))); };

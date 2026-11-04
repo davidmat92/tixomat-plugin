@@ -6,6 +6,10 @@ if (!defined('ABSPATH')) exit;
  *
  *   GET /organizer/stats/audience?from&to[&event_id][&organizer (nur Admin, evendis)]
  *   → {ok, range, scope, kpis, previous, funnel[], by_source[], by_campaign[], app, visits_enabled, modules, matomo}
+ *     mit event_id zusätzlich series[{date, views, app_views, orders}] (je Tag, höchstens 400 Tage) für den Verlauf bis zum Event
+ *   GET /organizer/stats/events?ids=1,2,…[&days=14] (höchstens 100 Events, nur eigene) – Sammelabfrage für die Event-Liste:
+ *   → {ok, days, events[{id, event_views, app_views, checkout, web_orders, conversion, views_days[], orders_days[]}]}
+ *     Summen seit Verkaufsbeginn (ohne Zeitraum), die Reihen = die letzten `days` Tage (bis heute).
  *
  * Eine Zahl, eine Rechnung: Verkauf aus TIX_Sales_Figures, Besucher aus tix_web_stats (Website) bzw. tix_web_stats_dim
  * (Quelle/Kampagne, App), Herkunft der Bestellungen aus TIX_Order_Attribution. Rechte wie /organizer/stats (Inhaber,
@@ -39,6 +43,7 @@ class TIX_Stats_Audience {
 
     public static function routes() {
         register_rest_route(self::NS, '/organizer/stats/audience', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest'], 'permission_callback' => ['TIX_Studio_Stats', 'perm_manager']]);
+        register_rest_route(self::NS, '/organizer/stats/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_events'], 'permission_callback' => ['TIX_Studio_Stats', 'perm_manager']]);
     }
 
     private static function multi() { return class_exists('TIX_App_Scope') && TIX_App_Scope::multi(); }
@@ -91,11 +96,89 @@ class TIX_Stats_Audience {
             'by_source' => $cur['by_source'],
             'by_campaign' => $cur['by_campaign'],
             'app' => $cur['app'],
+            'series' => $eid && $days <= 400 ? self::series($eid, $from, $to) : null,
             'visits_enabled' => TIX_Web_Stats::visits_on(),
             'modules' => ['marketing' => (bool) $mk],
             // F2: Matomo-Zahlen kommen später hierher (eigene Instanz stats.evendis.de) – Platz für das Studio
             'matomo' => ['available' => false, 'connected' => false],
         ]);
+    }
+
+    /** Bezahlte Bestellungen je Event: [event_id => [order_id, …]] (optional nur ab $since, Ortszeit) */
+    private static function paid_by_event(array $ids, $since = '') {
+        global $wpdb;
+        $out = [];
+        if (!$ids || !class_exists('TIX_Order')) return $out;
+        $t = TIX_Order::table_name(); $ti = TIX_Order::items_table_name();
+        foreach (array_chunk(array_map('intval', $ids), 500) as $chunk) {
+            $w = $since !== '' ? $wpdb->prepare(' AND o.date_created >= %s', $since) : '';
+            foreach ((array) $wpdb->get_results("SELECT DISTINCT i.event_id, o.id, DATE(o.date_created) d FROM $t o INNER JOIN $ti i ON i.order_id = o.id WHERE i.event_id IN (" . implode(',', $chunk) . ") AND o.status IN ('completed','processing')$w") as $r) {
+                $out[intval($r->event_id)][intval($r->id)] = (string) $r->d;
+            }
+        }
+        return $out;
+    }
+
+    /** GET /organizer/stats/events?ids=…&days=14 – kompakte Kennzahlen für die Event-Liste in einer Abfrage */
+    public static function rest_events(WP_REST_Request $req) {
+        global $wpdb;
+        $want = array_values(array_unique(array_filter(array_map('absint', explode(',', (string) $req->get_param('ids'))))));
+        if (!$want) return self::bad('ids', 'Bitte Event-IDs angeben.');
+        if (count($want) > 100) return self::bad('ids', 'Höchstens 100 Events auf einmal.');
+        $days = max(1, min(60, intval($req->get_param('days') ?: 14)));
+        $ids = array_values(array_intersect($want, TIX_Studio_Stats::scope_ids()));
+        $today = current_time('Y-m-d');
+        $from = gmdate('Y-m-d', strtotime($today) - ($days - 1) * DAY_IN_SECONDS);
+        $axis = [];
+        for ($i = 0; $i < $days; $i++) $axis[gmdate('Y-m-d', strtotime($from) + $i * DAY_IN_SECONDS)] = $i;
+        $ev = [];
+        foreach ($ids as $id) $ev[$id] = ['id' => $id, 'event_views' => 0, 'app_views' => 0, 'checkout' => 0, 'web_orders' => 0, 'conversion' => null, 'views_days' => array_fill(0, $days, 0), 'orders_days' => array_fill(0, $days, 0)];
+        if ($ids) {
+            $t = TIX_Web_Stats::table(); $d = TIX_Web_Stats::dim_table();
+            foreach (array_chunk($ids, 500) as $chunk) {
+                $in = implode(',', $chunk);
+                foreach ((array) $wpdb->get_results("SELECT ref, step, SUM(n) n FROM $t WHERE step IN ('event','checkout') AND ref IN ($in) GROUP BY ref, step") as $r) {
+                    $ev[intval($r->ref)][$r->step === 'event' ? 'event_views' : 'checkout'] += intval($r->n);
+                }
+                foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT ref, day, SUM(n) n FROM $t WHERE step = 'event' AND day >= %s AND ref IN ($in) GROUP BY ref, day", $from)) as $r) {
+                    if (isset($axis[(string) $r->day])) $ev[intval($r->ref)]['views_days'][$axis[(string) $r->day]] += intval($r->n);
+                }
+                foreach ((array) $wpdb->get_results("SELECT event_id, SUM(n) n FROM $d WHERE channel = 'app' AND step = 'event' AND event_id IN ($in) GROUP BY event_id") as $r) {
+                    $ev[intval($r->event_id)]['app_views'] += intval($r->n);
+                }
+            }
+            $paid = self::paid_by_event($ids);
+            $all = [];
+            foreach ($paid as $os) foreach ($os as $oid => $_) $all[$oid] = 1;
+            $ch = $all ? TIX_Studio_Stats::channels(array_keys($all)) : [];
+            foreach ($paid as $eid => $os) {
+                foreach ($os as $oid => $day) {
+                    if (isset($axis[$day])) $ev[$eid]['orders_days'][$axis[$day]]++;
+                    if (in_array($ch[$oid] ?? '', ['web', 'link'], true)) $ev[$eid]['web_orders']++;
+                }
+            }
+            foreach ($ev as &$x) $x['conversion'] = $x['event_views'] > 0 ? round($x['web_orders'] / $x['event_views'] * 100, 2) : null;
+            unset($x);
+        }
+        // Reihenfolge wie angefragt; fremde/unbekannte IDs fehlen einfach
+        $out = [];
+        foreach ($want as $id) if (isset($ev[$id])) $out[] = $ev[$id];
+        $res = rest_ensure_response(['ok' => true, 'days' => $days, 'from' => $from, 'to' => $today, 'events' => $out]);
+        $res->header('Cache-Control', 'private, max-age=60');
+        return $res;
+    }
+
+    /** Verlauf eines Events je Tag: Aufrufe der Event-Seite (Website), App-Aufrufe, bezahlte Bestellungen (alle Kanäle) */
+    public static function series($eid, $from, $to) {
+        global $wpdb;
+        $eid = intval($eid);
+        $rows = [];
+        for ($t = strtotime($from); $t <= strtotime($to); $t += DAY_IN_SECONDS) $rows[gmdate('Y-m-d', $t)] = ['date' => gmdate('Y-m-d', $t), 'views' => 0, 'app_views' => 0, 'orders' => 0];
+        $w = TIX_Web_Stats::table(); $d = TIX_Web_Stats::dim_table();
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT day, SUM(n) n FROM $w WHERE step = 'event' AND ref = %d AND day BETWEEN %s AND %s GROUP BY day", $eid, $from, $to)) as $r) if (isset($rows[$r->day])) $rows[$r->day]['views'] += intval($r->n);
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT day, SUM(n) n FROM $d WHERE channel = 'app' AND step = 'event' AND event_id = %d AND day BETWEEN %s AND %s GROUP BY day", $eid, $from, $to)) as $r) if (isset($rows[$r->day])) $rows[$r->day]['app_views'] += intval($r->n);
+        foreach (self::paid_by_event([$eid], $from . ' 00:00:00')[$eid] ?? [] as $day) if (isset($rows[$day])) $rows[$day]['orders']++;
+        return array_values($rows);
     }
 
     /** Alle Zahlen für einen Zeitraum; $detail = Trichter/Quellen mitrechnen */

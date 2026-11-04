@@ -127,6 +127,10 @@ ad_eq('Summe: 100 € Kosten, 4 Käufe', [100.0, 4], [$r['totals']['spend'] ?? n
 [$st, $r] = ad_rest('GET', '/marketing/campaigns', ['from' => wp_date('Y-m-d', time() - 4 * DAY_IN_SECONDS), 'to' => wp_date('Y-m-d')]);
 $by = []; foreach ($r['rows'] ?? [] as $x) $by[$x['key']] = $x;
 ad_eq('Von Hand zugeordnet geht vor dem Namen', 'map', $by['meta:23850002']['mapped_by'] ?? '');
+[$st, $r] = ad_rest('GET', '/marketing/campaigns', ['from' => wp_date('Y-m-d', time() - 4 * DAY_IN_SECONDS), 'to' => wp_date('Y-m-d'), 'event_id' => $ev]);
+ad_eq('Je Event: nur Kampagnen mit Zahlen für das Event', [200, true], [$st, count($r['rows'] ?? []) > 0 && !array_filter($r['rows'], function ($x) { return !$x['views'] && !$x['orders']; })]);
+[$st] = ad_rest('GET', '/marketing/campaigns', ['event_id' => 123456789]);
+ad_eq('Je Event: fremdes Event 404', 404, $st);
 
 // ── Google über den Proxy ──
 $GLOBALS['ad_mock']['claims']['claimid0000000000003'] = ['network' => 'google', 'mode' => 'test', 'ticket' => ['o' => $org, 'u' => $owner], 'token' => ['access_token' => 'ya29.alt', 'refresh_token' => '1//rt', 'expires_in' => 3599]];
