@@ -22,6 +22,7 @@
  *    Kleine Gruppen (< 3) fasst die Auswertung zusammen.
  *  - App-Treffer: `src=app` (Schritte event/quote/checkout, nur in den Dimensionen, nicht in den Website-Zahlen).
  *  - Bots: Kennungen bekannter Bots werden geprüft, nie gespeichert.
+ *  - Stufe 2: `push_open` (App, Mitteilung geöffnet) mit `campaign` = Kennung der Sendung (push-xxxxxxxx), nur Dimension.
  *  - Geschätzte Besuche (F1 B, Schalter tix_web_visits, Vorgabe AUS bis zur Rechtsprüfung): die Website schickt `vh`, einen
  *    Hash, den sie mit einem täglich neuen Salz im Arbeitsspeicher aus IP, Browser und Host bildet. Das Plugin hält nur
  *    md5(vh) für den laufenden Tag in {prefix}tix_web_visits und löscht frühere Tage; gespeichert bleibt die Zahl (`visit`).
@@ -33,7 +34,7 @@ class TIX_Web_Stats {
     const DB_VERSION = '1';
     const STEPS = ['view', 'event', 'checkout', 'purchase'];
     /** Schritte, die eine Website bzw. App melden darf */
-    const HIT_STEPS = ['view', 'event', 'quote', 'checkout', 'purchase'];
+    const HIT_STEPS = ['view', 'event', 'quote', 'checkout', 'purchase', 'push_open'];
     const DIM_VERSION = '2'; // 2 = utm_id (Kampagnen-ID der Werbung) als Dimension
     const OPT_VISITS = 'tix_web_visits';
     const BOT = '/bot|crawl|spider|slurp|preview|headless|lighthouse|pingdom|monitor|curl|wget|python|axios|node-fetch|scrapy|httpclient|java\//i';
@@ -181,6 +182,15 @@ class TIX_Web_Stats {
         if (!in_array($step, self::HIT_STEPS, true) || self::throttled()) return $done;
         if (preg_match(self::BOT, (string) $req->get_header('user-agent'))) return $done;
         $channel = $req->get_param('src') === 'app' ? 'app' : 'web';
+        // Mitteilung in der App geöffnet (Statistik Stufe 2): nur mit Kennung einer echten Sendung, nur in den Dimensionen
+        if ($step === 'push_open') {
+            $cmp = (string) ($req->get_param('campaign') ?? $req->get_param('utm_campaign'));
+            $sc = $channel === 'app' && class_exists('TIX_Notifications') ? TIX_Notifications::campaign_scope($cmp) : null;
+            if (!$sc) return $done;
+            self::maybe_create_dim();
+            self::bump_dim(self::today(), 'push_open', $sc['organizer_id'], $sc['event_id'], 'app', ['push', 'push', TIX_Notifications::campaign_key($cmp), '']);
+            return $done;
+        }
         // Apps melden keine Seitenaufrufe und keine Käufe (die zählen aus den Bestellungen)
         if ($channel === 'app' && !in_array($step, ['event', 'quote', 'checkout'], true)) return $done;
         $event = max(0, intval($req->get_param('event_id')));

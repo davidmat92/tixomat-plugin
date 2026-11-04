@@ -231,19 +231,26 @@ class TIX_Weekly_Mail {
         return is_array($d) ? (array) ($d['events'] ?? $d['items'] ?? []) : [];
     }
 
+    /** Link mit Kampagne (Statistik Stufe 2): utm_source=newsletter, utm_medium=email, utm_campaign=wochenmail-JJJJ-KW */
+    public static function utm($url) {
+        $url = (string) $url;
+        if ($url === '') return $url;
+        return add_query_arg(['utm_source' => 'newsletter', 'utm_medium' => 'email', 'utm_campaign' => 'wochenmail-' . wp_date('o') . '-' . wp_date('W')], $url);
+    }
+
     private static function mail_html($events, $city, $unsub) {
         $title = 'Was geht am Wochenende' . ($city !== '' ? ' in ' . $city : '') . '?';
         $rows = '';
         foreach ($events as $e) {
             $when = trim((!empty($e['date_start']) ? date_i18n('D, d.m.', strtotime($e['date_start'])) : '') . (!empty($e['time_start']) ? ' · ' . $e['time_start'] . ' Uhr' : ''));
             $where = (string) ($e['venue']['name'] ?? $e['location'] ?? '');
-            $rows .= '<tr><td class="tm-line" style="padding:12px 0;border-bottom:1px solid #E5E7EB;"><a href="' . esc_url((string) ($e['url'] ?? '')) . '" style="font-size:16px;font-weight:700;text-decoration:none;">' . esc_html((string) ($e['title'] ?? '')) . '</a>'
+            $rows .= '<tr><td class="tm-line" style="padding:12px 0;border-bottom:1px solid #E5E7EB;"><a href="' . esc_url(self::utm((string) ($e['url'] ?? ''))) . '" style="font-size:16px;font-weight:700;text-decoration:none;">' . esc_html((string) ($e['title'] ?? '')) . '</a>'
                 . '<div class="tm-muted" style="margin-top:2px;color:#6B7280;font-size:14px;">' . esc_html($when . ($where !== '' ? ' · ' . $where : '')) . '</div></td></tr>';
         }
         if (class_exists('TIX_Mail_Layout')) {
             return TIX_Mail_Layout::render(['title' => $title, 'kind' => 'promo', 'blocks' => [
                 ['type' => 'html', 'html' => '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;">' . $rows . '</table>'],
-                ['type' => 'button', 'label' => 'Alle Events ansehen', 'url' => self::customer_base() . '/'],
+                ['type' => 'button', 'label' => 'Alle Events ansehen', 'url' => self::utm(self::customer_base() . '/')],
             ], 'note' => 'Du bekommst diese Mail, weil du die Wochenmail bestellt hast. <a href="' . esc_url($unsub) . '" style="text-decoration:underline;">Abmelden</a>']);
         }
         return '<!doctype html><html><body><h1>' . esc_html($title) . '</h1><table>' . $rows . '</table><p><a href="' . esc_url($unsub) . '">Abmelden</a></p></body></html>';

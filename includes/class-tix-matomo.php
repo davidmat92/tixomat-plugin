@@ -167,10 +167,20 @@ class TIX_Matomo {
         $to = (string) ($req->get_param('to') ?: current_time('Y-m-d'));
         $from = (string) ($req->get_param('from') ?: gmdate('Y-m-d', strtotime($to) - 29 * DAY_IN_SECONDS));
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) || $from > $to) return new WP_Error('tix_invalid_field', 'Bitte einen gültigen Zeitraum angeben.', ['status' => 400, 'field' => 'from']);
-        $k = 'tix_matomo_stats_' . md5($c['url'] . '|' . $c['site_id'] . "|$from|$to");
+        // je Event (Stufe 2): Matomo-Segment auf den Pfad der Event-Seite; Kauf-Ziel lässt sich so nicht trennen → ecommerce null
+        $eid = absint($req->get_param('event_id'));
+        $seg = '';
+        if ($eid) {
+            if (!class_exists('TIX_Studio_Stats') || !in_array($eid, array_map('intval', TIX_Studio_Stats::scope_ids()), true)) return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+            $u = (string) get_permalink($eid);
+            $path = (string) wp_parse_url(class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($u) : $u, PHP_URL_PATH);
+            if ($path === '' || $path === '/') return rest_ensure_response(['ok' => true, 'available' => false, 'reason' => 'no_path']);
+            $seg = 'pageUrl=@' . rawurlencode(rtrim($path, '/'));
+        }
+        $k = 'tix_matomo_stats_' . md5($c['url'] . '|' . $c['site_id'] . "|$from|$to|$seg");
         $cached = get_transient($k);
         if (is_array($cached)) return rest_ensure_response($cached);
-        $q = ['idSite' => $c['site_id'], 'period' => 'range', 'date' => "$from,$to"];
+        $q = ['idSite' => $c['site_id'], 'period' => 'range', 'date' => "$from,$to"] + ($seg !== '' ? ['segment' => $seg] : []);
         $sum = self::api($c, 'VisitsSummary.get', $q);
         if (is_wp_error($sum)) return rest_ensure_response(['ok' => true, 'available' => true, 'error' => $sum->get_error_message()]);
         $top = function ($m, $label) use ($c, $q) {
@@ -178,9 +188,9 @@ class TIX_Matomo {
             if (is_wp_error($r) || !is_array($r)) return [];
             return array_values(array_map(function ($x) use ($label) { return ['label' => (string) ($x['label'] ?? ''), 'visits' => intval($x['nb_visits'] ?? 0)]; }, array_filter($r, 'is_array')));
         };
-        $eco = self::api($c, 'Goals.get', $q + ['idGoal' => 'ecommerceOrder']);
-        $out = ['ok' => true, 'available' => true, 'own' => $c['own'], 'url' => $c['url'] . '/index.php?module=CoreHome&action=index&idSite=' . $c['site_id'] . '&period=range&date=' . rawurlencode("$from,$to"),
-            'range' => ['from' => $from, 'to' => $to],
+        $eco = $seg === '' ? self::api($c, 'Goals.get', $q + ['idGoal' => 'ecommerceOrder']) : null;
+        $out = ['ok' => true, 'available' => true, 'own' => $c['own'], 'url' => $c['url'] . '/index.php?module=CoreHome&action=index&idSite=' . $c['site_id'] . '&period=range&date=' . rawurlencode("$from,$to") . ($seg !== '' ? '&segment=' . rawurlencode($seg) : ''),
+            'range' => ['from' => $from, 'to' => $to], 'event_id' => $eid ?: null,
             'summary' => ['visits' => intval($sum['nb_visits'] ?? 0), 'visitors' => intval($sum['nb_uniq_visitors'] ?? 0) ?: null, 'actions' => intval($sum['nb_actions'] ?? 0),
                 'bounce_rate' => (string) ($sum['bounce_rate'] ?? ''), 'avg_time' => intval($sum['avg_time_on_site'] ?? 0), 'actions_per_visit' => floatval($sum['nb_actions_per_visit'] ?? 0)],
             'referrers' => $top('Referrers.getReferrerType', 'type'), 'devices' => $top('DevicesDetection.getType', 'type'), 'countries' => $top('UserCountry.getCountry', 'country'),

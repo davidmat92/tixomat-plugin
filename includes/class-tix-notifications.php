@@ -77,6 +77,7 @@ class TIX_Notifications {
             'body'     => self::clean($body),
             'event_id' => intval($args['event_id'] ?? 0),
             'action'   => (string) ($args['action'] ?? ''),
+            'campaign' => self::campaign_key($args['campaign'] ?? ''),
             'created'  => time(),
         ];
         $list = self::broadcasts();
@@ -88,6 +89,7 @@ class TIX_Notifications {
                 'notif_id' => $item['id'],
                 'event_id' => (string) $item['event_id'],
                 'action'   => $item['action'],
+                'campaign' => $item['campaign'],
             ]);
         }
         return $item;
@@ -112,6 +114,7 @@ class TIX_Notifications {
             'body'     => self::clean($body),
             'event_id' => intval($args['event_id'] ?? 0),
             'action'   => (string) ($args['action'] ?? ''),
+            'campaign' => self::campaign_key($args['campaign'] ?? ''),
             'created'  => time(),
         ];
         $list = self::user_items($user_id);
@@ -125,6 +128,7 @@ class TIX_Notifications {
                 'notif_id' => $item['id'],
                 'event_id' => (string) $item['event_id'],
                 'action'   => $item['action'],
+                'campaign' => $item['campaign'],
             ]);
         }
         return $item;
@@ -201,6 +205,7 @@ class TIX_Notifications {
                 'body'     => (string) ($it['body'] ?? ''),
                 'event_id' => intval($it['event_id'] ?? 0),
                 'action'   => (string) ($it['action'] ?? ''),
+                'campaign' => (string) ($it['campaign'] ?? ''),
                 'created'  => intval($it['created'] ?? 0),
             ];
         }, $items);
@@ -222,13 +227,58 @@ class TIX_Notifications {
      * des Events mit App-Konto). Ist ein event_id gesetzt, verlinkt die
      * Nachricht automatisch auf das Event.
      */
+    /** Kampagnen-Kennung einer Sendung: „push-“ + 8 Zeichen (a–z, 0–9), sonst '' */
+    public static function campaign_key($v) {
+        $v = strtolower((string) $v);
+        return preg_match('/^push-[a-z0-9]{8}$/', $v) ? $v : '';
+    }
+
+    private static function new_campaign() { return 'push-' . substr(md5(wp_generate_uuid4()), 0, 8); }
+
+    /** Sendung zur Kampagne (für die Zählung der Öffnungen): ['organizer_id', 'event_id'] oder null */
+    public static function campaign_scope($key) {
+        $key = self::campaign_key($key);
+        if ($key === '') return null;
+        foreach ((array) get_option(self::OPT_LOG, []) as $l) {
+            if (is_array($l) && ($l['campaign'] ?? '') === $key) return ['organizer_id' => intval($l['organizer_id'] ?? 0), 'event_id' => intval($l['event_id'] ?? 0)];
+        }
+        return null;
+    }
+
+    /** Öffnungen (App-Treffer push_open) und Käufe (Herkunft campaign = Kennung) je Kampagne */
+    private static function campaign_stats(array $keys) {
+        $keys = array_values(array_filter(array_unique($keys)));
+        $out = array_fill_keys($keys, ['opens' => 0, 'orders' => 0, 'revenue' => 0.0]);
+        if (!$keys) return $out;
+        global $wpdb;
+        $in = implode(',', array_map(function ($k) use ($wpdb) { return $wpdb->prepare('%s', $k); }, $keys));
+        if (class_exists('TIX_Web_Stats')) {
+            foreach ((array) $wpdb->get_results("SELECT campaign, SUM(n) n FROM " . TIX_Web_Stats::dim_table() . " WHERE step = 'push_open' AND campaign IN ($in) GROUP BY campaign") as $r) $out[$r->campaign]['opens'] = intval($r->n);
+        }
+        // Käufe: Bestellungen mit Herkunft campaign = Kennung (setzt die App beim Kauf aus der Mitteilung), Umsatz wie überall aus TIX_Sales_Figures
+        if (class_exists('TIX_Order_Attribution') && class_exists('TIX_Sales_Figures')) {
+            $map = [];
+            foreach ((array) $wpdb->get_results("SELECT order_id, campaign FROM " . TIX_Order_Attribution::table() . " WHERE campaign IN ($in) LIMIT 5000") as $r) $map[intval($r->order_id)] = (string) $r->campaign;
+            if ($map) {
+                $res = TIX_Sales_Figures::for_orders(array_keys($map));
+                foreach ($res['rows'] as $r) {
+                    $c = $map[intval($r->id)] ?? '';
+                    if ($c === '' || empty($r->money['paid'])) continue;
+                    $out[$c]['orders']++;
+                    $out[$c]['revenue'] = round($out[$c]['revenue'] + floatval($r->money['net']), 2);
+                }
+            }
+        }
+        return $out;
+    }
+
     /** Gesendete Mitteilung merken (Verlauf „Zuletzt gesendet“). */
-    private static function log_broadcast($title, $body, $target, $event_id, $recipients, $oid = 0) {
+    private static function log_broadcast($title, $body, $target, $event_id, $recipients, $oid = 0, $campaign = '') {
         $u = wp_get_current_user();
         $log = get_option(self::OPT_LOG, []);
         $log = is_array($log) ? $log : [];
         array_unshift($log, ['id' => 'l_' . wp_generate_uuid4(), 'title' => $title, 'body' => $body, 'target' => $target, 'event_id' => intval($event_id),
-            'recipients' => intval($recipients), 'created' => time(), 'sender_id' => intval($u->ID), 'sender' => (string) ($u->display_name ?: $u->user_login), 'organizer_id' => intval($oid)]);
+            'recipients' => intval($recipients), 'created' => time(), 'sender_id' => intval($u->ID), 'sender' => (string) ($u->display_name ?: $u->user_login), 'organizer_id' => intval($oid), 'campaign' => self::campaign_key($campaign)]);
         update_option(self::OPT_LOG, array_slice($log, 0, self::MAX_LOG), false);
     }
 
@@ -262,13 +312,19 @@ class TIX_Notifications {
         if ($multi && !current_user_can('manage_options')) $log = array_values(array_filter($log, function ($l) use ($oid) { return $oid && intval($l['organizer_id'] ?? 0) === $oid; }));
         usort($log, function ($a, $b) { return intval($b['created']) <=> intval($a['created']); });
         $total = count($log);
-        $rows = array_map(function ($l) {
+        $page_rows = array_slice($log, ($page - 1) * $per, $per);
+        $cst = self::campaign_stats(array_map(function ($l) { return (string) ($l['campaign'] ?? ''); }, $page_rows));
+        $rows = array_map(function ($l) use ($cst) {
             $eid = intval($l['event_id'] ?? 0);
+            $c = (string) ($l['campaign'] ?? '');
             return ['id' => (string) $l['id'], 'title' => (string) $l['title'], 'body' => (string) $l['body'], 'target' => (string) $l['target'],
                 'event' => $eid ? ['id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8')] : null,
                 'recipients' => $l['recipients'] === null ? null : intval($l['recipients']), 'created' => wp_date('c', intval($l['created'])),
-                'sender' => intval($l['sender_id'] ?? 0) || (string) ($l['sender'] ?? '') !== '' ? ['id' => intval($l['sender_id'] ?? 0), 'name' => (string) $l['sender']] : null];
-        }, array_slice($log, ($page - 1) * $per, $per));
+                'sender' => intval($l['sender_id'] ?? 0) || (string) ($l['sender'] ?? '') !== '' ? ['id' => intval($l['sender_id'] ?? 0), 'name' => (string) $l['sender']] : null,
+                // Statistik Stufe 2: Kampagne der Sendung; ältere Sendungen ohne Kennung → null
+                'campaign' => $c !== '' ? $c : null, 'opens' => $c !== '' ? $cst[$c]['opens'] : null,
+                'orders' => $c !== '' ? $cst[$c]['orders'] : null, 'revenue' => $c !== '' ? $cst[$c]['revenue'] : null];
+        }, $page_rows);
         return rest_ensure_response(['ok' => true, 'total' => $total, 'page' => $page, 'per_page' => $per, 'broadcasts' => $rows]);
     }
 
@@ -284,10 +340,12 @@ class TIX_Notifications {
         $event_id = intval($req->get_param('event_id'));
         $target   = sanitize_key((string) $req->get_param('target'));
         $action   = (string) $req->get_param('action');
+        // Kampagne der Sendung (Statistik Stufe 2): Öffnungen in der App und Käufe aus der Mitteilung zählen dazu
+        $cmp      = self::new_campaign();
 
         // Mehr-Veranstalter-Modus: nur eigene Events, nur eigene Follower/Käufer
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {
-            return self::broadcast_scoped($title, $body, $event_id, $target);
+            return self::broadcast_scoped($title, $body, $event_id, $target, $cmp);
         }
 
         if ($title === '') $title = 'KitchenKlub';
@@ -301,14 +359,16 @@ class TIX_Notifications {
                     'type'     => 'message',
                     'event_id' => $event_id,
                     'action'   => $action,
+                    'campaign' => $cmp,
                 ]);
             }
-            self::log_broadcast($title, $body, 'event', $event_id, count($uids));
+            self::log_broadcast($title, $body, 'event', $event_id, count($uids), 0, $cmp);
             return new WP_REST_Response([
                 'ok'         => true,
                 'pushed'     => self::push_configured(),
                 'recipients' => count($uids),
                 'target'     => 'event',
+                'campaign'   => $cmp,
             ], 200);
         }
 
@@ -317,14 +377,16 @@ class TIX_Notifications {
             'type'     => 'message',
             'event_id' => $event_id,
             'action'   => $action,
+            'campaign' => $cmp,
         ]);
-        self::log_broadcast($title, $body, 'all', $event_id, count(self::tokens()));
+        self::log_broadcast($title, $body, 'all', $event_id, count(self::tokens()), 0, $cmp);
         return new WP_REST_Response([
             'ok'         => true,
             'item'       => $item,
             'pushed'     => self::push_configured(),
             'recipients' => count(self::tokens()),
             'target'     => 'all',
+            'campaign'   => $cmp,
         ], 200);
     }
 
@@ -333,7 +395,7 @@ class TIX_Notifications {
      * Käufer dieses (eigenen) Events, sonst Follower des Veranstalters plus
      * Käufer seiner kommenden Events. Nie an alle App-Nutzer der Plattform.
      */
-    private static function broadcast_scoped($title, $body, $event_id, $target) {
+    private static function broadcast_scoped($title, $body, $event_id, $target, $cmp = '') {
         $oid = TIX_App_Scope::organizer_id_for_user();
         if (!$oid) return TIX_App_Scope::deny('Dieses Konto ist keinem Veranstalter zugeordnet.');
         if ($event_id && !TIX_App_Scope::event_allowed($event_id)) {
@@ -378,16 +440,18 @@ class TIX_Notifications {
                 'type'     => 'message',
                 'event_id' => $event_id,
                 'action'   => $action,
+                'campaign' => $cmp,
             ]);
         }
         // Weitere Kanäle (z. B. Folgen per E-Mail, TIX_Mail_Follow) – liefert die Zahl zusätzlicher Empfänger
         $extra = intval(apply_filters('tix_organizer_broadcast', 0, $oid, $title, $body, $event_id, $target));
-        self::log_broadcast($title, $body, $target, $event_id, count($uids) + $extra, $oid);
+        self::log_broadcast($title, $body, $target, $event_id, count($uids) + $extra, $oid, $cmp);
         return new WP_REST_Response([
             'ok'         => true,
             'pushed'     => self::push_configured(),
             'recipients' => count($uids) + $extra,
             'target'     => $target,
+            'campaign'   => $cmp,
         ], 200);
     }
 
