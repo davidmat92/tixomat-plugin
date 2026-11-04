@@ -618,8 +618,11 @@ class TIX_Newsletter {
     public static function tag_links($html, $cid) {
         $hosts = array_filter(array_unique([strtolower((string) wp_parse_url(self::customer_base(), PHP_URL_HOST)), strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST))]));
         $key = 'nl-' . intval($cid);
-        return preg_replace_callback('/href=(["\'])(https?:\/\/[^"\']+)\1/i', function ($m) use ($hosts, $key) {
+        $base = self::customer_base();
+        // relative Links (/events/…) gelten in einer Mail nicht: auf die Kunden-Website umschreiben
+        return preg_replace_callback('/href=(["\'])((?:https?:\/\/|\/(?!\/))[^"\']*)\1/i', function ($m) use ($hosts, $key, $base) {
             $u = html_entity_decode($m[2], ENT_QUOTES, 'UTF-8');
+            if ($u[0] === '/') $u = $base . $u;
             $h = preg_replace('/^www\./', '', strtolower((string) wp_parse_url($u, PHP_URL_HOST)));
             $own = false; foreach ($hosts as $x) if ($h === preg_replace('/^www\./', '', $x)) $own = true;
             if (!$own) return $m[0];

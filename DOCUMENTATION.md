@@ -3740,3 +3740,57 @@ Der Hub verteilt nach dem Slug: Die eigene Seite verarbeitet direkt, andere beko
 - Es gibt nur Summen, keine Kundendaten und keine Werbekosten der Veranstalter.
 
 Tests: `tests/test-stufe2-wp.php` (Einzel-Seite 28/28, Plattform 32/32).
+
+## 79. Newsletter über Brevo (Modul Marketing, ab 1.38.637)
+
+`TIX_Newsletter`:
+- **Bereich:** Einzel-Seite bzw. auf evendis je Veranstalter. Auf evendis bringt der Veranstalter sein eigenes Brevo-Konto mit und ist Verantwortlicher.
+- **Rechte:** Inhaber, Team-Admin und Admin.
+- **Modul:** Marketing nötig, sonst 403 `tix_module_off`.
+
+**Einrichtung**
+- `GET /marketing/newsletter` liefert `{module_on, connected, own_key, account, senders (nur bestätigte), sender, address, webhook, counts {pending, active, unsubscribed}, consent_text}`.
+- `POST /marketing/newsletter/settings` nimmt `{api_key?, sender_id?, address?}` entgegen:
+  - Der Schlüssel (`xkeysib-…`) wird bei Brevo geprüft (`tix_brevo_key`) und verschlüsselt gespeichert.
+  - Auf Einzel-Seiten gilt `tix_settings.brevo_api_key` als Rückfall.
+  - Beim Verbinden legt das Plugin den Brevo-Webhook (marketing: unsubscribed, hardBounce, spam) auf `/public/nl/hook/<geheim>` an.
+- `address` ist die Impressums-Zeile im Fuß der Mail. Vorgabe: Veranstalter-Adresse bzw. `invoice_company_*`.
+
+**Kontakte (Double-Opt-in)**
+- Tabelle `tix_nl_contacts`, je Bereich eindeutig nach E-Mail.
+- **Formular:** `POST /public/nl/subscribe {email, first_name?, organizer_id (evendis), consent: true}`. Die Antwort ist immer gleich, höchstens 5 Anmeldungen je Stunde und IP.
+- **Kasse:** `POST /customer/orders` mit `newsletter_optin: true`. Auf evendis entsteht je Veranstalter der gekauften Events ein Kontakt `pending`.
+- **Einwilligungstext:** `GET /public/nl/consent?organizer_id=` → `{enabled, text, owner}`. Das Häkchen zeigt genau diesen Text, gespeichert werden Text, Zeitpunkt, Quelle und IP-HMAC.
+- **Bestätigen:** `GET /public/nl/confirm?token=` leitet mit 302 auf `?newsletter=bestaetigt|ungueltig` weiter und vergibt einen neuen Schlüssel.
+- **Abmelden:**
+  - `GET /public/nl/unsubscribe?token=` bzw. `POST` (RFC 8058);
+  - der Abmeldelink von Brevo (`{{ unsubscribe }}`) über den Webhook;
+  - täglicher Abgleich der Brevo-Sperrliste.
+- **Liste:** `GET /marketing/newsletter/contacts?status=&q=&page=`, löschen mit `DELETE …/contacts/{id}`.
+- **Aufräumen:** Unbestätigte Kontakte werden nach 7 Tagen gelöscht. Abmeldungen werden nach 30 Tagen auf einen Hash reduziert (`blocked`).
+
+**Kampagnen**
+- Tabelle `tix_nl_campaigns`.
+- **Routen:**
+  - `GET|POST /marketing/newsletter/campaigns` und `GET|POST|DELETE …/campaigns/{id}`. Felder: `name, subject, preheader, content` (HTML, `wp_kses_post`), `audience contacts|event|brevo_list`, `event_id`, `list_id`, `consent_confirmed`.
+  - `GET …/{id}/preview` gibt `{html, subject}` zurück.
+  - `POST …/{id}/test {emails: [1–5]}` schickt einen Testversand.
+  - `POST …/{id}/send {at?}` sendet sofort oder plant (10 min bis 90 Tage im Voraus).
+  - `POST …/{id}/cancel` holt eine geplante Kampagne zurück.
+  - `GET …/audience?audience=&event_id=` liefert die Empfängerzahl bzw. die Brevo-Listen.
+- **Zielgruppen:**
+  - `contacts`: alle aktiven Kontakte;
+  - `event`: aktive Kontakte mit bezahlter Bestellung für das Event;
+  - `brevo_list`: eine vorhandene Liste im Brevo-Konto, nur mit `consent_confirmed`.
+- **Status:** `draft → scheduled → preparing → sent`, bei Fehlern `failed` mit `error`. Nach dem Planen ist nichts mehr änderbar (409 `tix_nl_locked`). Ohne Empfänger kommt 409 `tix_nl_empty`.
+- **Versand** (Cron alle 5 min):
+  - Brevo-Liste „Tixomat · Kampagne #id“ im Ordner „Tixomat“ anlegen, Empfänger importieren, `emailCampaigns` mit Liste anlegen und dann `sendNow` bzw. `scheduledAt`.
+  - Die Liste wird 30 Tage nach dem Versand gelöscht.
+- **Mail:**
+  - `TIX_Mail_Layout` (promo), im Fuß Grund der Mail, Abmeldelink und Adresse.
+  - Eigene Links bekommen `utm_source=newsletter&utm_medium=email&utm_campaign=nl-<id>&c=nl-<id>`, relative Links werden absolut.
+- **Auswertung:**
+  - `stats {sent, delivered, opens, clicks, unsubscribed, bounces, complaints, open_rate, click_rate}` kommen von Brevo, stündlich bis 30 Tage nach dem Versand.
+  - `orders`, `tickets` und `revenue` stammen aus bezahlten Bestellungen mit Herkunft `nl-<id>` (`TIX_Sales_Figures`).
+
+Tests: `tests/test-newsletter-wp.php` (34/34 in beiden Modi).

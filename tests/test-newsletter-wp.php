@@ -120,14 +120,14 @@ nl_eq('Nach Bestätigung des Käufers: 2', 2, $a2['count'] ?? null);
 nl_eq('Brevo-Listen ohne eigene Tixomat-Listen', [[2]], [array_column((array) ($bl['lists'] ?? []), 'id')]);
 
 // ═══ Kampagne ═══
-$site = rtrim(class_exists('TIX_Customer_URL') ? TIX_Customer_URL::base() : home_url(), '/');
-[$st, $r] = nl_rest('POST', '/marketing/newsletter/campaigns', ['subject' => 'Nur noch 20 Tickets', 'preheader' => 'Schnell sein', 'content' => '<p>Hallo! <a href="' . $site . '/events/nl-party/">Tickets</a> · <a href="https://example.com/x">Partner</a></p><script>x</script>', 'audience' => 'event', 'event_id' => $ev]);
+$site = rtrim((class_exists('TIX_Customer_URL') ? TIX_Customer_URL::base() : '') ?: home_url(), '/');
+[$st, $r] = nl_rest('POST', '/marketing/newsletter/campaigns', ['subject' => 'Nur noch 20 Tickets', 'preheader' => 'Schnell sein', 'content' => '<p>Hallo! <a href="' . $site . '/events/nl-party/">Tickets</a> · <a href="/events/">Alle</a> · <a href="https://example.com/x">Partner</a></p><script>x</script>', 'audience' => 'event', 'event_id' => $ev]);
 $C = $r['campaign'] ?? [];
 nl_eq('Kampagne angelegt: Entwurf, Name aus Betreff', [200, 'draft', 'Nur noch 20 Tickets', 'nl-' . ($C['id'] ?? 0)], [$st, $C['status'] ?? '', $C['name'] ?? '', $C['utm_campaign'] ?? '']);
 [$st, $p] = nl_rest('GET', '/marketing/newsletter/campaigns/' . $C['id'] . '/preview');
 $html = (string) ($p['html'] ?? '');
 nl_eq('Vorschau: eigene Links mit UTM + c=, fremde ohne, kein Script, Abmeldelink und Adresse', [true, true, false, true, true], [
-    strpos($html, 'utm_campaign=nl-' . $C['id']) !== false && strpos($html, 'c=nl-' . $C['id']) !== false,
+    substr_count($html, 'utm_campaign=nl-' . $C['id']) === 2 && strpos($html, 'c=nl-' . $C['id']) !== false && strpos($html, 'href="' . $site . '/events/?') !== false,
     strpos($html, 'https://example.com/x"') !== false, strpos($html, '<script') !== false, strpos($html, 'Abmelden') !== false,
     strpos($html, $multi ? 'Hauptstr. 1' : (string) TIX_Newsletter::owner_name(0)) !== false]);
 [$st, $d, $code] = nl_rest('POST', '/marketing/newsletter/campaigns', ['audience' => 'brevo_list', 'list_id' => 2]);
@@ -146,7 +146,7 @@ nl_eq('Versendet: nicht mehr änderbar', [409, 'tix_nl_locked'], [$st, $code]);
 $mk_order("gast_$sfx@example.test", ['source' => 'newsletter', 'medium' => 'email', 'campaign' => 'nl-' . $C['id']]);
 $mk_order("kaeufer_$sfx@example.test", ['source' => 'newsletter', 'link_code' => 'nl-' . $C['id']]);
 [$st, $g] = nl_rest('GET', '/marketing/newsletter/campaigns/' . $C['id']);
-nl_eq('Auswertung: Öffnungen/Klicks von Brevo, 2 Käufe über UTM bzw. c=, 40 €', [1, 1, 50.0, 2, 40.0], [$g['campaign']['stats']['opens'] ?? null, $g['campaign']['stats']['clicks'] ?? null, $g['campaign']['stats']['open_rate'] ?? null, $g['campaign']['orders'] ?? null, $g['campaign']['revenue'] ?? null]);
+nl_eq('Auswertung: Öffnungen/Klicks von Brevo, 2 Käufe über UTM bzw. c=, 40 €', [1, 1, 50.0, 2, 40.0], [$g['campaign']['stats']['opens'] ?? null, $g['campaign']['stats']['clicks'] ?? null, floatval($g['campaign']['stats']['open_rate'] ?? 0), $g['campaign']['orders'] ?? null, $g['campaign']['revenue'] ?? null]);
 // Planen + zurückholen
 [$st, $r] = nl_rest('POST', '/marketing/newsletter/campaigns', ['subject' => 'Später', 'content' => 'Text', 'audience' => 'contacts']);
 $C2 = $r['campaign'];
