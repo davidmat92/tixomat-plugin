@@ -39,6 +39,7 @@ class TIX_Mirror_Reconcile {
             'artist_followers'    => 'artist_follower',
             'organizer_followers' => 'org_follower',
             'artist_follow_proofs' => 'artist_proof',
+            'short_links'         => 'short_link',
         ];
     }
 
@@ -213,6 +214,11 @@ class TIX_Mirror_Reconcile {
                     $a = get_post_meta((int) $r['artist_id'], '_tix_artist', true);
                     $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
                     if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'short_links':
+                foreach ((array) $wpdb->get_results("SELECT id, organizer_id FROM {$wpdb->prefix}tix_short_links WHERE id IN ($in)", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_org($r['organizer_id'])) $drop[] = (int) $r['id'];
                 }
                 break;
             case 'artist_follow_proofs':
@@ -394,6 +400,14 @@ class TIX_Mirror_Reconcile {
                     }
                     $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['status'], self::bool(!empty($r['share_email'])), $conf]);
                 }
+                return $out;
+
+            case 'short_links': // Summe der Tageszähler mit drin: neue Klicks ohne Hook (z. B. Fehler beim Senden) fallen auf
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT l.id, l.organizer_id, l.code, l.archived, (SELECT COALESCE(SUM(c.n), 0) FROM {$wpdb->prefix}tix_short_clicks c WHERE c.link_id = l.id) clicks
+                    FROM {$wpdb->prefix}tix_short_links l WHERE l.id > %d ORDER BY l.id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['code'], self::bool(!empty($r['archived'])), (int) $r['clicks']]);
                 return $out;
 
             case 'artist_follow_proofs':

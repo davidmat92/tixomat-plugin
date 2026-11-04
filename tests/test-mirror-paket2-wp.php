@@ -752,6 +752,49 @@ if (class_exists('TIX_Mail_Follow')) {
     }
 }
 
+// ── 17. Kurzlinks (tix_short_links/tix_short_clicks, 1.38.635): nur Summen je Tag, ohne created_by ──
+if (class_exists('TIX_Short_Links')) {
+    TIX_Short_Links::maybe_create();
+    $lt = TIX_Short_Links::t(); $ct = TIX_Short_Links::tc();
+    $lrow = function ($o, $code) { return ['organizer_id' => $o, 'code' => $code, 'label' => 'Insta', 'event_id' => 0, 'target' => '/events/', 'source' => 'Instagram',
+        'medium' => 'social', 'campaign' => 'herbst', 'archived' => 0, 'created_by' => 4711, 'created' => current_time('mysql', true)]; };
+    $wpdb->insert($lt, $lrow($org, "sp$sfx")); $lid = (int) $wpdb->insert_id;
+    $wpdb->insert($lt, $lrow($demo, "spdemo$sfx")); $lid_sb = (int) $wpdb->insert_id;
+    $sb_on = [$demo]; add_filter('tix_sandbox_organizer', $sb_filter, 10, 2); TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+    // Klicks über den echten Weg (resolve): zwei Link-Klicks, ein QR, ein Bot
+    $ua = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)';
+    TIX_Short_Links::resolve("sp$sfx", false, $ua); TIX_Short_Links::resolve("sp$sfx", false, $ua); TIX_Short_Links::resolve("sp$sfx", true, $ua);
+    TIX_Short_Links::resolve("sp$sfx", false, 'Googlebot/2.1');
+    TIX_Short_Links::resolve("spdemo$sfx", false, $ua);
+    m2_run();
+    $ml = m2_one('short_links', $lid);
+    t2_eq('Kurzlink gespiegelt (Code, Quelle, Veranstalter)', "sp$sfx|Instagram|$org", ($ml['code'] ?? '') . '|' . ($ml['source'] ?? '') . '|' . ($ml['organizer_id'] ?? ''));
+    t2_true('Kurzlink ohne created_by', is_array($ml) && !array_key_exists('created_by', $ml) && strpos(wp_json_encode(m2_rows('change_log', ['entity' => 'eq.short_links'])), '4711') === false);
+    $mc = m2_rows('short_link_clicks', ['link_id' => 'eq.' . $lid]);
+    $by = []; foreach ($mc as $r) $by[$r['kind']] = ($by[$r['kind']] ?? 0) + (int) $r['n'];
+    t2_eq('Klicks als Tageszähler (link 2, qr 1, Bot nicht)', 'link2|qr1', 'link' . ($by['link'] ?? 0) . '|qr' . ($by['qr'] ?? 0));
+    t2_eq('Kurzlink des Demo-Veranstalters nicht gespiegelt', null, m2_one('short_links', $lid_sb));
+    t2_eq('Klicks des Demo-Veranstalters nicht gespiegelt', 0, count(m2_rows('short_link_clicks', ['link_id' => 'eq.' . $lid_sb])));
+    $rep = m2_reconcile();
+    t2_eq('Abgleich: Kurzlinks ohne Abweichung', 0, (int) ($rep['tables']['short_links']['differ'] ?? -1) + (int) ($rep['tables']['short_links']['missing'] ?? -1));
+    // Zähler ohne Hook geändert (z. B. Senden fehlgeschlagen) und alter Tag in WordPress gelöscht → Abgleich zieht nach
+    $wpdb->insert($ct, ['day' => wp_date('Y-m-d', time() - 3 * DAY_IN_SECONDS), 'link_id' => $lid, 'kind' => 'link', 'n' => 5]);
+    $rep = m2_reconcile(); m2_run(2);
+    t2_eq('Abgleich: nachträglicher Zähler kommt an', 8, array_sum(array_map(function ($r) { return (int) $r['n']; }, m2_rows('short_link_clicks', ['link_id' => 'eq.' . $lid]))));
+    $wpdb->query($wpdb->prepare("DELETE FROM $ct WHERE link_id = %d AND day < %s", $lid, wp_date('Y-m-d')));
+    TIX_Mirror::touch('short_link', $lid); m2_run();
+    t2_eq('alter Tag in WordPress gelöscht → im Spiegel weg', 3, array_sum(array_map(function ($r) { return (int) $r['n']; }, m2_rows('short_link_clicks', ['link_id' => 'eq.' . $lid]))));
+    $vout = (function () { ob_start(); include WP_PLUGIN_DIR . '/tixomat/supabase/tools/vergleich-wp.php'; return ob_get_clean(); })();
+    t2_true('Vergleich: Kurzlinks und Klickzeilen gleich', (bool) preg_match('/short_links\s+(\d+)\s+\1\s+gleich/', $vout) && (bool) preg_match('/short_link_clicks\s+(\d+)\s+\1\s+gleich/', $vout));
+    // Veranstalter gelöscht → Links samt Zählern weg (Hook in purge_organizer)
+    TIX_Short_Links::purge_organizer($org); m2_run();
+    t2_true('Löschen: Link und Zähler im Spiegel entfernt', m2_one('short_links', $lid) === null && count(m2_rows('short_link_clicks', ['link_id' => 'eq.' . $lid])) === 0);
+    remove_filter('tix_sandbox_organizer', $sb_filter, 10); $sb_on = []; TIX_Mirror_Map::sandbox_reset(); TIX_Mirror_Reconcile::sandbox_reset();
+    $wpdb->delete($ct, ['link_id' => $lid_sb]); $wpdb->delete($lt, ['id' => $lid_sb]); TIX_Mirror::touch('short_link', $lid_sb);
+} else {
+    echo "      (TIX_Short_Links fehlt – übersprungen)\n";
+}
+
 // ── Aufräumen ──
 if (isset($sid)) { $wpdb->delete(TIX_Settlement::items_table(), ['settlement_id' => $sid]); $wpdb->delete(TIX_Settlement::table(), ['id' => $sid]); }
 if (isset($wid)) { $wpdb->delete($wpdb->prefix . 'tix_wallet_tx', ['wallet_id' => $wid]); $wpdb->delete($wpdb->prefix . 'tix_wallets', ['id' => $wid]); }

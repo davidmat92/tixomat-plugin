@@ -38,6 +38,7 @@ class TIX_Mirror_Extra {
             case 'artist_follower': return self::plan_artist_follower($site, (int) $id);
             case 'org_follower':    return self::plan_org_follower($site, (int) $id);
             case 'artist_proof':    return self::plan_artist_proof($site, (int) $id);
+            case 'short_link':      return self::plan_short_link($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -517,6 +518,40 @@ class TIX_Mirror_Extra {
         ])]]];
     }
 
+    /**
+     * Kurzlink (tix_short_links, 1.38.635) mit seinen Tageszählern (tix_short_clicks): nur Summen je Tag und Art
+     * (link|qr), nie einzelne Aufrufe; created_by bleibt in WordPress. Was WordPress nach KEEP_CLICK_DAYS löscht,
+     * fällt auch im Spiegel weg. Links von Demo-/Vorschau-Veranstaltern bleiben draußen.
+     */
+    private static function plan_short_link($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $l = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_short_links WHERE id = %d", $id), ARRAY_A);
+        $clicks = $l ? (array) $wpdb->get_results($wpdb->prepare("SELECT day, kind, n FROM {$wpdb->prefix}tix_short_clicks WHERE link_id = %d", $id), ARRAY_A) : [];
+        $wpdb->suppress_errors($prev);
+        if ($l && TIX_Mirror_Map::is_sandbox_org($l['organizer_id'])) $l = null;
+        if (!$l) return [self::del('short_links', $site, $id), ['delete', 'short_link_clicks', ['site' => 'eq.' . $site, 'link_id' => 'eq.' . $id]]];
+        $ops = [['upsert', 'short_links', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $l['id'],
+            'organizer_id' => (int) $l['organizer_id'] ?: null,
+            'event_id'     => (int) $l['event_id'] ?: null,
+            'code'         => (string) $l['code'],
+            'label'        => (string) $l['label'],
+            'target'       => (string) $l['target'],
+            'source'       => (string) $l['source'],
+            'medium'       => (string) $l['medium'],
+            'campaign'     => (string) $l['campaign'],
+            'archived'     => !empty($l['archived']),
+            'created_at'   => self::gmt_iso($l['created']),
+        ])]]];
+        $rows = [];
+        foreach ($clicks as $c) $rows[] = ['site' => $site, 'link_id' => (int) $l['id'], 'day' => (string) $c['day'], 'kind' => $c['kind'] === 'qr' ? 'qr' : 'link', 'n' => (int) $c['n']];
+        if ($rows) $ops[] = ['upsert', 'short_link_clicks', $rows, 'site,link_id,day,kind'];
+        $keep = $rows ? min(array_column($rows, 'day')) : '9999-12-31';
+        $ops[] = ['delete', 'short_link_clicks', ['site' => 'eq.' . $site, 'link_id' => 'eq.' . $id, 'day' => 'lt.' . $keep]];
+        return $ops;
+    }
+
     /** E-Mail-Folgen eines Veranstalters (tix_mail_followers) – pseudonymisiert wie bei Künstlern (Entscheid User 2026-10-20). */
     private static function plan_org_follower($site, $id) {
         global $wpdb;
@@ -585,6 +620,7 @@ class TIX_Mirror_Extra {
             ['artist_follower', $wpdb->prefix . 'tix_artist_mail_followers', 'id', 'id',         true],
             ['org_follower',    $wpdb->prefix . 'tix_mail_followers',   'id',      'id',         true],  // E-Mail-Folgen Veranstalter
             ['artist_proof',    $wpdb->prefix . 'tix_artist_follow_proofs', 'id',  'id',         true],  // Einwilligungs-Nachweise (1.38.529)
+            ['short_link',      $wpdb->prefix . 'tix_short_links',      'id',      'id',         true],  // Kurzlinks (1.38.635); Klicks per Hook, Abgleich täglich
         ];
     }
 }

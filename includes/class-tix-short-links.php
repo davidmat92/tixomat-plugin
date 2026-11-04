@@ -207,6 +207,7 @@ class TIX_Short_Links {
         } else $code = self::new_code();
         $row['code'] = $code;
         if (!$wpdb->insert(self::t(), $row)) return self::bad('code', 'Diesen Kurznamen gibt es schon.', 'tix_code_taken', 409);
+        self::mirror($wpdb->insert_id);
         return rest_ensure_response(['ok' => true, 'link' => self::out(self::get($wpdb->insert_id), [])]);
     }
 
@@ -216,7 +217,7 @@ class TIX_Short_Links {
         if (is_wp_error($l)) return $l;
         $set = self::fields($req);
         if ($req->has_param('archived')) $set['archived'] = rest_sanitize_boolean($req->get_param('archived')) ? 1 : 0;
-        if ($set) $wpdb->update(self::t(), $set, ['id' => intval($l['id'])]);
+        if ($set) { $wpdb->update(self::t(), $set, ['id' => intval($l['id'])]); self::mirror($l['id']); }
         return rest_ensure_response(['ok' => true, 'link' => self::out(self::get($l['id']), [])]);
     }
 
@@ -226,6 +227,7 @@ class TIX_Short_Links {
         if (is_wp_error($l)) return $l;
         $wpdb->delete(self::tc(), ['link_id' => intval($l['id'])]);
         $wpdb->delete(self::t(), ['id' => intval($l['id'])]);
+        self::mirror($l['id']);
         return rest_ensure_response(['ok' => true, 'deleted' => intval($l['id'])]);
     }
 
@@ -304,6 +306,7 @@ class TIX_Short_Links {
         if (intval($l['event_id']) && !in_array(get_post_status(intval($l['event_id'])), ['publish', 'future'], true)) return null;
         if (!preg_match(TIX_Web_Stats::BOT, (string) $ua)) {
             $wpdb->query($wpdb->prepare("INSERT INTO " . self::tc() . " (day, link_id, kind, n) VALUES (%s, %d, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1", wp_date('Y-m-d'), intval($l['id']), $qr ? 'qr' : 'link'));
+            self::mirror($l['id']); // Postausgang fasst mehrere Klicks je Link zusammen
             if (mt_rand(1, 500) === 1) $wpdb->query($wpdb->prepare("DELETE FROM " . self::tc() . " WHERE day < %s", wp_date('Y-m-d', time() - self::KEEP_CLICK_DAYS * DAY_IN_SECONDS)));
         }
         return self::landing_url($l, $qr);
@@ -335,6 +338,12 @@ class TIX_Short_Links {
         if (!$ids) return;
         $wpdb->query("DELETE FROM " . self::tc() . " WHERE link_id IN (" . implode(',', $ids) . ")");
         $wpdb->query($wpdb->prepare("DELETE FROM " . self::t() . " WHERE organizer_id = %d", intval($o)));
+        foreach ($ids as $id) self::mirror($id);
+    }
+
+    /** Datenspiegel: Link samt Tageszählern nachziehen (fehlt er in WordPress, löscht der Spiegel beides) */
+    private static function mirror($id) {
+        if (class_exists('TIX_Mirror')) TIX_Mirror::touch('short_link', intval($id));
     }
 }
 
