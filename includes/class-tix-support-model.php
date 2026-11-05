@@ -428,7 +428,7 @@ class TIX_Support_Model {
         $read = get_post_meta($tid, '_tix_sp_read', true);
         $read_at = is_array($read) ? intval($read[get_current_user_id()] ?? 0) : 0;
         return [
-            'event' => $event, 'order' => $order, 'waiting' => $flags['waiting'],
+            'event' => $event, 'order' => $order, 'waiting' => $active ? $flags['waiting'] : '',
             'unread' => $active && $flags['waiting'] === 'team' && $flags['customers'] > $read_at,
             'id' => $tid, 'subject' => (string) $p->post_title, 'status' => self::status_key($p->post_status),
             'category' => (string) get_post_meta($tid, '_tix_sp_category', true), 'name' => (string) get_post_meta($tid, '_tix_sp_name', true),
@@ -479,7 +479,8 @@ class TIX_Support_Model {
         $wt = sanitize_key((string) $req->get_param('waiting'));
         $ids = array_values(array_filter($ids, function ($tid) use ($ev, $wt) {
             if (!self::visible($tid) || (string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return false;
-            if (in_array($wt, ['team', 'customer'], true) && self::waiting_of($tid) !== $wt) return false;
+            // „wartet“ nur für offene + in Arbeit (wie counts(); erledigte/geschlossene fielen sonst nicht heraus, 05.11.)
+            if (in_array($wt, ['team', 'customer'], true) && (!in_array(get_post_status($tid), ['tix_open', 'tix_progress'], true) || self::waiting_of($tid) !== $wt)) return false;
             return !$ev || in_array($ev, self::ticket_events($tid), true);
         }));
         $total = count($ids);
