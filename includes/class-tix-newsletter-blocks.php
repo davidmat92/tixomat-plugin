@@ -113,6 +113,8 @@ class TIX_Newsletter_Blocks {
                     if (!$x['event_id'] || get_post_type($x['event_id']) !== 'event') return self::bad($p . '.event_id', 'Bitte ein Event wählen.');
                     $x['button'] = self::line($b['button'] ?? '', 28);
                     if ($t === 'event') $x['show_image'] = !array_key_exists('show_image', $b) || !empty($b['show_image']);
+                    else $x['with_title'] = !empty($b['with_title']); // Überschrift mit Eventtitel (mehrere Events, 1.38.658)
+                    if ($t === 'lineup') $x['limit'] = max(2, min(16, intval($b['limit'] ?? 8))); // Acts im Raster, danach „und X weitere“
                     break;
                 case 'events':
                     $x['mode'] = ($b['mode'] ?? 'pick') === 'upcoming' ? 'upcoming' : 'pick';
@@ -182,7 +184,7 @@ class TIX_Newsletter_Blocks {
         }
         if ($b['type'] !== 'coupon' && $b['type'] !== 'app' && $b['type'] !== 'social' && !$events) return [];
         if ($b['type'] === 'events' && count($events) < 2) $b['type'] = $events ? 'event' : 'events';
-        $ctx = ['events' => $events, 'coupon' => $coupon, 'brand' => $brand, 'address' => 'du', 'include' => [], 'name' => (string) ($brand['name'] ?? ''), 'goal' => 'event'];
+        $ctx = ['events' => $events, 'coupon' => $coupon, 'brand' => $brand, 'address' => 'du', 'include' => [], 'name' => (string) ($brand['name'] ?? ''), 'goal' => 'event', 'title_heads' => !empty($b['with_title']), 'lineup_limit' => intval($b['limit'] ?? 8)];
         $variant = $b['type'] === 'event' ? (!empty($b['show_image']) ? 'story' : 'flyer') : ($b['type'] === 'events' ? (!empty($b['show_images']) ? 'story' : 'compact') : 'story');
         $blk = ['heading' => '', 'text' => (string) ($b['text'] ?? ''), 'button' => (string) ($b['button'] ?? '')];
         $removed = 0;

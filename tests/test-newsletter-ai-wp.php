@@ -141,7 +141,7 @@ ai_eq('„Anders formulieren“ geht an die KI', true, strpos($m2, 'frecher') !=
 ai_eq('Nur ein Entwurf neu', ['story'], array_column((array) $r3['drafts'], 'key'));
 [$st, $r4] = ai_rest('POST', '/marketing/newsletter/ai', ['goal' => 'overview', 'event_ids' => [$ev, $ev2], 'parts' => ['drafts']]);
 $c4 = (string) ($r4['drafts'][0]['content'] ?? '');
-ai_eq('Übersicht: zwei Entwürfe, beide Events mit Link', [['flyer', 'compact'], true, true], [array_column((array) $r4['drafts'], 'key'), strpos($c4, "KI Herbstball $sfx") !== false, substr_count($c4, 'Tickets &amp; Infos') + substr_count($c4, 'Mehr erfahren') >= 2]);
+ai_eq('Übersicht: drei Entwürfe, beide Events mit eigenem Knopf (1.38.658)', [['flyer', 'compact', 'story'], true, true], [array_column((array) $r4['drafts'], 'key'), strpos($c4, "KI Herbstball $sfx") !== false, substr_count($c4, 'class="tm-btn"') >= 2]);
 
 // ═══ Fehler der KI, Limit, Protokoll ═══
 $GLOBALS['ai_mock']['code'] = 500;

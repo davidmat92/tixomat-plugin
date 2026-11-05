@@ -3856,6 +3856,28 @@ Die Zahl steht in `removed`. An die KI gehen nur Event-Daten, Marke, Gutschein u
 
 Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 44/44 Plattform).
 
+**Mehrere Events und Line-up (1.38.658, Fund KitchenKlub):**
+- **Vorher:** Line-up, Programm, Preise und Galerie hingen nur am ersten Event; das Line-up war eine Namenszeile.
+- **Datumsfolge:** Die Events stehen jetzt in Datumsfolge, egal in welcher Reihenfolge sie kommen.
+- **Je Event** gibt es eine eigene Karte mit Knopf, einen eigenen KI-Teaser (`drafts[].events[{id, teaser}]`) und die angekreuzten Bausteine dieses Events: Line-up, Programm, Preise; in flyer und story zusätzlich Galerie und Anfahrt. Die Überschriften tragen den Eventtitel („Line-up · …“).
+- **Line-up als Raster:**
+  - Foto vom Künstler bzw. Act-Foto, sonst Initiale in Markenfarbe; dazu Name und Uhrzeit bzw. Bühne aus dem Programm.
+  - Top 8 (compact 4), danach „und X weitere: …“.
+- **Varianten:**
+  - flyer: Karte mit Bild, Teaser darunter;
+  - compact: Karte ohne Bild, Teaser ein Satz, nur Line-up und Preise;
+  - story: Zwischenüberschrift, Teaser, Karte mit Bild.
+  - Bei mehreren Events gibt es jetzt auch drei Entwürfe.
+- **Keine Wiederholung:** Teaser, freie Texte und Schluss, die den Text der Einleitung bzw. eines anderen Teasers wiederholen, fallen weg.
+- **Häkchen „Was soll rein?“ gelten streng:** ohne Häkchen kein Line-up, kein Programm usw., auch wenn die KI es vorschlägt.
+- **Bei einem Event** stehen Karte und Gutschein vor den Daten-Bausteinen, und es gibt keine doppelten Standard-Überschriften mehr.
+- **Die KI bekommt:**
+  - je Event `id`, volles Line-up (bis 40), Programm mit Bühne, Preise;
+  - bei mehreren Events zusätzlich `anzahl_events` und `zeitraum` („November 2026“);
+  - die Anweisung, im Betreff den Anlass zu nennen („3 Partys im November“).
+- **Editor-Blöcke (§86)** lineup, program, prices, directions, gallery haben neu `with_title` (Überschrift mit Eventtitel); lineup zusätzlich `limit` (2–16, Vorgabe 8).
+- **Test:** `tests/test-newsletter-ai-multi-wp.php` (Fake-KI für 1, 3 und 8 Events mit Line-up an bzw. aus, 116/116 in beiden Modi).
+
 ## 81. Promoter: Audit und Verwaltung im Studio (ab 1.38.643)
 
 **Behoben (Audit 2026-11-05):**

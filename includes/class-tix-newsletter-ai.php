@@ -173,13 +173,25 @@ class TIX_Newsletter_AI {
         $p = TIX_Public_Events::payload($eid, true);
         if (!$p) return null;
         $lineup = [];
-        foreach ((array) ($p['lineup_links'] ?? []) as $l) if (!empty($l['name'])) $lineup[] = (string) $l['name'];
-        if (!$lineup && !empty($p['lineup'])) $lineup = array_values(array_filter(array_map('trim', explode("\n", self::plain($p['lineup'])))));
+        $items = [];
         $program = [];
         foreach ((array) (($p['timetable'] ?? null)['days'] ?? []) as $d) foreach ((array) ($d['slots'] ?? []) as $s) {
             if (($s['title'] ?? '') === '') continue;
             $program[] = ['date' => (string) $d['date'], 'time' => (string) $s['time'], 'end' => (string) ($s['end'] ?? ''), 'title' => (string) $s['title'], 'stage' => (string) ($s['stage_name'] ?? '')];
         }
+        // Line-up mit Foto (Künstler bzw. Act-Foto), Uhrzeit und Bühne aus dem Programm (1.38.658)
+        $slot = [];
+        foreach ($program as $s) { $k = class_exists('TIX_Artists') ? TIX_Artists::norm($s['title']) : strtolower($s['title']); if (!isset($slot[$k])) $slot[$k] = $s; }
+        foreach ((array) ($p['lineup_links'] ?? []) as $l) {
+            if (empty($l['name'])) continue;
+            $name = (string) $l['name'];
+            $k = class_exists('TIX_Artists') ? TIX_Artists::norm((string) ($l['artist'] ?? $name)) : strtolower($name);
+            $sl = $slot[$k] ?? null;
+            $lineup[] = $name;
+            $items[] = ['name' => $name, 'picture' => (string) ($l['picture_thumb'] ?? ($l['picture'] ?? '')) ?: (string) (($l['portrait'] ?? null)['medium'] ?? ''),
+                'time' => $sl ? (string) $sl['time'] : '', 'stage' => $sl && $sl['stage'] !== 'Programm' ? (string) $sl['stage'] : ''];
+        }
+        if (!$lineup && !empty($p['lineup'])) foreach (array_values(array_filter(array_map('trim', explode("\n", self::plain($p['lineup']))))) as $n) { $lineup[] = $n; $items[] = ['name' => $n, 'picture' => '', 'time' => '', 'stage' => '']; }
         $prices = [];
         foreach ((array) ($p['categories'] ?? []) as $c) if (empty($c['gift_card'])) $prices[] = ['name' => (string) $c['name'], 'price' => self::money($c['price']), 'sold_out' => !empty($c['sold_out']), 'note' => (string) ($c['low_stock_text'] ?? '')];
         $gallery = array_slice(array_values(array_filter(array_map('strval', (array) ($p['gallery'] ?? [])))), 0, 4);
@@ -193,7 +205,7 @@ class TIX_Newsletter_AI {
             'price_from' => $p['price_from'] !== null && !$p['free_entry'] ? 'ab ' . self::money($p['price_from']) : '', 'free_entry' => !empty($p['free_entry']),
             'tickets' => !empty($p['tickets_enabled']), 'status' => (string) $p['status'], 'age' => (string) $p['age_label'], 'is_past' => !empty($p['is_past']),
             'excerpt' => self::plain($p['excerpt'] ?: ($p['description'] ?? ''), 600),
-            'lineup' => array_slice($lineup, 0, 20), 'program' => array_slice($program, 0, 20), 'prices' => array_slice($prices, 0, 8), 'gallery' => $gallery,
+            'lineup' => array_slice($lineup, 0, 40), 'lineup_items' => array_slice($items, 0, 40), 'program' => array_slice($program, 0, 30), 'time_start' => (string) $p['time_start'], 'prices' => array_slice($prices, 0, 8), 'gallery' => $gallery,
         ];
     }
 
@@ -228,7 +240,9 @@ class TIX_Newsletter_AI {
         if (!$parts) return self::bad('parts', 'Teile: subjects, preheaders, drafts.');
         $draft = (string) $req->get_param('draft');
         if ($draft !== '' && !isset(self::DRAFTS[$draft])) return self::bad('draft', 'Entwurf: flyer, compact oder story.');
-        $keys = $draft !== '' ? [$draft] : ($goal === 'overview' || count($events) > 1 ? ['flyer', 'compact'] : array_keys(self::DRAFTS));
+        // mehrere Events: in Datumsfolge (Monatsübersicht), drei Entwürfe mit klar anderem Aufbau (1.38.658)
+        usort($events, function ($a, $b) { return strcmp($a['date'] . ' ' . $a['time_start'], $b['date'] . ' ' . $b['time_start']); });
+        $keys = $draft !== '' ? [$draft] : array_keys(self::DRAFTS);
         $note = mb_substr(trim(wp_strip_all_tags((string) $req->get_param('note'))), 0, 500);
         $rephrase = mb_substr(trim(wp_strip_all_tags((string) $req->get_param('rephrase'))), 0, 300);
         $cid = absint($req->get_param('campaign_id'));
@@ -297,6 +311,10 @@ class TIX_Newsletter_AI {
                     'text' => ['type' => 'string', 'description' => 'kurzer Text zum Baustein, optional; bei type=text der Absatz'],
                     'button' => ['type' => 'string', 'description' => 'Beschriftung des Knopfs, höchstens 28 Zeichen, optional'],
                 ]]],
+                'events' => ['type' => 'array', 'description' => 'nur bei mehreren Events: je Event ein eigener Teaser', 'items' => ['type' => 'object', 'required' => ['id', 'teaser'], 'properties' => [
+                    'id' => ['type' => 'integer', 'description' => 'id des Events aus den Daten'],
+                    'teaser' => ['type' => 'string', 'description' => '1–2 Sätze nur über dieses Event (compact: 1 kurzer Satz)'],
+                ]]],
                 'closing' => ['type' => 'string', 'description' => 'Schlusssatz, optional'],
             ]]],
         ]];
@@ -315,7 +333,11 @@ class TIX_Newsletter_AI {
             . "- Halte die vorgegebene Anrede (du/Sie) und den Ton.\n"
             . "Bausteine: text (Absatz), event (Karte eines Events mit Knopf), events (Liste mehrerer Events), coupon (Gutschein-Code), lineup, program, prices, directions (Anfahrt), gallery, app (App laden), social. "
             . "Nimm nur Bausteine, für die Daten vorhanden sind (siehe „verfügbar“). Je Abschnitt ein klarer Knopf.\n"
-            . "Entwürfe: flyer = großes Bild, kurze Texte, starker Knopf; compact = knapp, Fakten zuerst; story = erzählend mit Zwischenüberschriften.";
+            . "Entwürfe – klar unterschiedlicher Aufbau, kein Satz doppelt zwischen den Entwürfen: flyer = bildstark, kurze Texte, starker Knopf; compact = knapp, Fakten zuerst, höchstens ein Satz je Teaser; story = erzählend mit Zwischenüberschriften.\n"
+            . "Mehrere Events (Monatsübersicht): Das System zeigt jedes Event als eigene Karte in Datumsfolge mit eigenem Knopf und – wenn gewünscht – eigenem Line-up, Programm und Preisen. "
+            . "Schreib je Event unter drafts[].events einen eigenen Teaser (id aus den Daten), der nur dieses Event beschreibt und sich nicht wiederholt – weder mit anderen Teasern noch mit Einleitung oder Schluss. "
+            . "Die Einleitung fasst den Anlass zusammen (z. B. Monat, Anzahl), ohne einzelne Events aufzuzählen. "
+            . "Betreffzeilen und Vorschautexte nennen bei mehreren Events den Anlass (z. B. „3 Partys im November“ mit der Anzahl und dem Zeitraum aus den Daten), nicht nur ein einzelnes Event.";
     }
 
     private static function available(array $ctx) {
@@ -330,17 +352,32 @@ class TIX_Newsletter_AI {
         ]));
     }
 
+    const MONTHS = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+    /** Zeitraum mehrerer Events: „November 2026“ bzw. „November bis Dezember 2026“ */
+    public static function period_label(array $events) {
+        $ds = array_filter(array_column($events, 'date'));
+        if (!$ds) return '';
+        sort($ds);
+        $a = strtotime(reset($ds) . ' 12:00:00'); $b = strtotime(end($ds) . ' 12:00:00');
+        $ma = self::MONTHS[intval(gmdate('n', $a))]; $mb = self::MONTHS[intval(gmdate('n', $b))];
+        if (gmdate('Y-m', $a) === gmdate('Y-m', $b)) return $ma . ' ' . gmdate('Y', $a);
+        return $ma . (gmdate('Y', $a) !== gmdate('Y', $b) ? ' ' . gmdate('Y', $a) : '') . ' bis ' . $mb . ' ' . gmdate('Y', $b);
+    }
+
     private static function call(array $ctx) {
         $data = [
             'absender' => $ctx['name'], 'ziel' => self::GOALS[$ctx['goal']], 'ton' => self::TONES[$ctx['tone']], 'anrede' => $ctx['address'] === 'sie' ? 'Sie' : 'du',
             'gewuenschte_inhalte' => array_map(function ($k) { return self::INCLUDES[$k]; }, $ctx['include']),
             'verfuegbar' => self::available($ctx),
             'events' => array_map(function ($e) {
-                return array_filter(['titel' => $e['title'], 'datum' => $e['date_label'], 'beginn' => $e['time_label'], 'einlass' => $e['doors_label'], 'ort' => $e['location'],
+                return array_filter(['id' => $e['id'], 'titel' => $e['title'], 'datum' => $e['date_label'], 'beginn' => $e['time_label'], 'einlass' => $e['doors_label'], 'ort' => $e['location'],
                     'preis' => $e['free_entry'] ? 'Eintritt frei' : $e['price_from'], 'status' => $e['status'] === 'sold_out' ? 'ausverkauft' : ($e['is_past'] ? 'vorbei' : ''),
-                    'alter' => $e['age'], 'beschreibung' => $e['excerpt'], 'line_up' => $e['lineup'], 'programm' => array_map(function ($s) { return trim($s['time'] . ' ' . $s['title']); }, $e['program']),
+                    'alter' => $e['age'], 'beschreibung' => $e['excerpt'], 'line_up' => $e['lineup'], 'programm' => array_map(function ($s) { return trim($s['time'] . ' ' . $s['title'] . ($s['stage'] !== '' && $s['stage'] !== 'Programm' ? ' (' . $s['stage'] . ')' : '')); }, $e['program']),
                     'kategorien' => array_map(function ($p) { return $p['name'] . ' ' . $p['price'] . ($p['sold_out'] ? ' (ausverkauft)' : ($p['note'] !== '' ? ' (' . $p['note'] . ')' : '')); }, $e['prices'])]);
             }, $ctx['events']),
+            'anzahl_events' => count($ctx['events']) > 1 ? count($ctx['events']) : null,
+            'zeitraum' => count($ctx['events']) > 1 ? self::period_label($ctx['events']) : null,
             'gutschein' => $ctx['coupon'] ? array_filter(['code' => $ctx['coupon']['code'], 'rabatt' => $ctx['coupon']['discount_label'], 'gueltig_bis' => $ctx['coupon']['expires_label'], 'nur_in_der_app' => $ctx['coupon']['app_only'] ? 'ja' : '']) : null,
             'wuensche_des_veranstalters' => $ctx['note'], 'anders_formulieren' => $ctx['rephrase'],
             'liefere' => ['teile' => $ctx['parts'], 'entwuerfe' => $ctx['drafts']],
@@ -490,11 +527,31 @@ class TIX_Newsletter_AI {
                 if ($e && !$c['app_only']) $out[] = ['type' => 'button', 'label' => $btn !== '' ? $btn : 'Code jetzt einlösen', 'url' => $e['url']];
                 return $out;
             case 'lineup':
-                $rows = [];
-                foreach ($ev as $x) foreach ($x['lineup'] as $n) $rows[] = $n;
-                if (!$rows) return [];
-                $html = '<p style="margin:0 0 16px;font-size:17px;line-height:27px;font-weight:700;">' . implode(' <span style="color:' . $acc . ';" class="tm-accent-text">·</span> ', array_map([__CLASS__, 'e'], array_slice(array_unique($rows), 0, 20))) . '</p>';
-                return array_merge($lead ?: [['type' => 'text', 'html' => self::heading('Line-up')]], [['type' => 'text', 'html' => $html]]);
+                // je Event (1.38.658): Raster mit Foto (sonst Initiale), Name, Uhrzeit/Bühne; danach „und X weitere“
+                if (!$e) return [];
+                $items = (array) ($e['lineup_items'] ?? []);
+                if (!$items) $items = array_map(function ($n) { return ['name' => $n, 'picture' => '', 'time' => '', 'stage' => '']; }, (array) $e['lineup']);
+                $seen = []; $items = array_values(array_filter($items, function ($i) use (&$seen) { $k = mb_strtolower($i['name']); if (isset($seen[$k])) return false; $seen[$k] = 1; return true; }));
+                if (!$items) return [];
+                $top = intval($ctx['lineup_limit'] ?? 0) ?: ($variant === 'compact' ? 4 : 8);
+                $show = array_slice($items, 0, $top);
+                $rest = array_slice($items, $top);
+                $cells = '';
+                foreach (array_chunk($show, 4) as $row) {
+                    $cells .= '<tr>';
+                    foreach ($row as $it) {
+                        $pic = $it['picture'] !== '' ? '<img src="' . esc_url($it['picture']) . '" width="64" height="64" alt="' . esc_attr($it['name']) . '" style="display:block;width:64px;height:64px;border-radius:32px;object-fit:cover;border:0;margin:0 auto 6px;">'
+                            : '<div style="width:64px;height:64px;line-height:64px;border-radius:32px;background:' . $acc . ';color:' . (class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::on_color($acc) : '#FFFFFF') . ';font-size:24px;font-weight:800;text-align:center;margin:0 auto 6px;">' . self::e(mb_strtoupper(mb_substr($it['name'], 0, 1))) . '</div>';
+                        $sub = trim(($it['time'] !== '' ? $it['time'] . ' Uhr' : '') . ($it['stage'] !== '' ? ($it['time'] !== '' ? ' · ' : '') . $it['stage'] : ''));
+                        $cells .= '<td width="25%" valign="top" align="center" style="padding:0 4px 14px;text-align:center;">' . $pic . '<div style="font-size:14px;line-height:18px;font-weight:700;">' . self::e($it['name']) . '</div>'
+                            . ($sub !== '' ? '<div class="tm-muted" style="font-size:12px;line-height:16px;color:#6B7280;">' . self::e($sub) . '</div>' : '') . '</td>';
+                    }
+                    for ($i = count($row); $i < 4; $i++) $cells .= '<td width="25%"></td>';
+                    $cells .= '</tr>';
+                }
+                $more = $rest ? '<p style="margin:0 0 16px;text-align:center;font-size:14px;">und ' . count($rest) . ' weitere: ' . self::e(implode(', ', array_slice(array_column($rest, 'name'), 0, 12))) . (count($rest) > 12 ? ' …' : '') . '</p>' : '';
+                $head = $lead ?: [['type' => 'text', 'html' => self::heading(!empty($ctx['title_heads']) ? 'Line-up · ' . $e['title'] : 'Line-up')]];
+                return array_merge($head, [['type' => 'text', 'html' => '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px;">' . $cells . '</table>' . $more]]);
             case 'program':
                 if (!$e || !$e['program']) return [];
                 $multi = count(array_unique(array_column($e['program'], 'date'))) > 1;
@@ -502,7 +559,7 @@ class TIX_Newsletter_AI {
                     $d = $multi && $s['date'] !== '' ? self::WEEKDAYS[intval(gmdate('w', strtotime($s['date'] . ' 12:00:00')))] . ' ' : '';
                     return [$d . $s['time'] . ($s['end'] !== '' ? '–' . $s['end'] : ''), self::e($s['title']) . ($s['stage'] !== '' && $s['stage'] !== 'Programm' ? ' <span style="font-weight:400;">· ' . self::e($s['stage']) . '</span>' : '')];
                 }, $e['program']);
-                return array_merge($lead, [['type' => 'info', 'title' => $lead ? '' : 'Programm', 'rows' => $rows]]);
+                return array_merge($lead, [['type' => 'info', 'title' => $lead ? '' : (!empty($ctx['title_heads']) ? 'Programm · ' . $e['title'] : 'Programm'), 'rows' => $rows]]);
             case 'prices':
                 if (!$e) return [];
                 $rows = [];
@@ -510,7 +567,7 @@ class TIX_Newsletter_AI {
                 foreach ($e['prices'] as $p) $rows[] = [$p['name'], $p['sold_out'] ? 'ausverkauft' : self::e($p['price']) . ($p['note'] !== '' ? '<br><span style="font-weight:400;font-size:12px;">' . self::e($p['note']) . '</span>' : '')];
                 if (!$rows && $e['price_from'] !== '') $rows[] = ['Tickets', self::e($e['price_from'])];
                 if (!$rows) return [];
-                $out = array_merge($lead, [['type' => 'info', 'title' => $lead ? '' : 'Tickets & Preise', 'rows' => $rows]]);
+                $out = array_merge($lead, [['type' => 'info', 'title' => $lead ? '' : (!empty($ctx['title_heads']) ? 'Tickets & Preise · ' . $e['title'] : 'Tickets & Preise'), 'rows' => $rows]]);
                 if ($e['tickets'] && !$e['is_past']) $out[] = ['type' => 'button', 'label' => $btn !== '' ? $btn : 'Tickets sichern', 'url' => $e['url']];
                 return $out;
             case 'directions':
@@ -521,7 +578,7 @@ class TIX_Newsletter_AI {
                 return $out;
             case 'gallery':
                 $imgs = [];
-                foreach ($ev as $x) foreach ($x['gallery'] as $g) $imgs[] = [$g, $x['title']];
+                foreach ($e ? [$e] : [] as $x) foreach ($x['gallery'] as $g) $imgs[] = [$g, $x['title']];
                 $imgs = array_slice($imgs, 0, 4);
                 if (count($imgs) < 2) return [];
                 $cells = '';
@@ -569,14 +626,21 @@ class TIX_Newsletter_AI {
         $intro = self::clean($d['intro'] ?? '', $f, $removed, $variant === 'story' ? 900 : 450);
         $out[] = ['type' => 'text', 'html' => '<p style="margin:0 0 12px;">' . $greet . '</p>' . self::paras($intro)];
 
+        // Mehrere Events (1.38.658): je Event eigene Karte in Datumsfolge, eigener Teaser, eigenes Line-up/Programm/Preise
+        if (count($ev) > 1) return self::build_multi($variant, $d, $ctx, $f, $removed, $out);
+
         // Bausteine in der Reihenfolge der KI; Daten-Bausteine nur mit Daten, jeder höchstens einmal (Text beliebig oft)
         $seen = [];
         $order = [];
         foreach ((array) ($d['blocks'] ?? []) as $blk) {
             $t = is_array($blk) ? (string) ($blk['type'] ?? '') : '';
+            // ein Event: „events“ gibt es nicht (sonst fiel die Event-Karte weg, Fund 1.38.658)
+            if ($t === 'events') $t = 'event';
+            // Daten-Bausteine zu den Häkchen „Was soll rein?“ nur, wenn angekreuzt (Line-up aus = kein Line-up)
+            if (isset(self::INCLUDES[$t]) && !in_array($t, (array) $ctx['include'], true)) continue;
             if (!in_array($t, self::BLOCKS, true) || ($t !== 'text' && isset($seen[$t]))) continue;
             $seen[$t] = true;
-            $order[] = $blk;
+            $order[] = ['type' => $t] + $blk;
         }
         // Pflicht: Gutschein, wenn gewählt; Event-Karte bzw. Liste, wenn Events gewählt; gewünschte Inhalte
         $need = [];
@@ -589,22 +653,30 @@ class TIX_Newsletter_AI {
             $seen[$t] = true;
             if (in_array($t, ['event', 'events', 'coupon'], true)) $front[] = ['type' => $t]; else $order[] = ['type' => $t];
         }
-        $order = array_merge($front, $order);
+        // Event-Karte und Gutschein immer vorn (vor Line-up, Programm, Preisen dieses Events)
+        $lead_types = ['coupon', 'event'];
+        $front = array_merge($front, array_values(array_filter($order, function ($x) use ($lead_types) { return in_array($x['type'], $lead_types, true); })));
+        usort($front, function ($a, $b) { return ($a['type'] === 'event') - ($b['type'] === 'event'); }); // Gutschein vor der Karte wie bisher
+        $order = array_merge($front, array_values(array_filter($order, function ($x) use ($lead_types) { return !in_array($x['type'], $lead_types, true); })));
         if (isset($seen['events'])) $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'event'; }));
         if ($variant === 'compact') $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'gallery'; }));
         $avail = self::available($ctx);
+        $used = [mb_strtolower(trim(wp_strip_all_tags($intro)))];
         foreach ($order as $blk) {
             $t = (string) $blk['type'];
             if ($t !== 'text' && !in_array($t, $avail, true)) continue;
             $heading = self::line($blk['heading'] ?? '', 60);
             if ($heading !== '' && self::violates($heading, $f)) { $removed++; $heading = ''; }
             $text = self::clean($blk['text'] ?? '', $f, $removed, 500);
+            // kein Text doppelt (gleicher Absatz wie Einleitung bzw. ein anderer Baustein)
+            if ($text !== '' && in_array(mb_strtolower(trim($text)), $used, true)) $text = '';
+            if ($text !== '') $used[] = mb_strtolower(trim($text));
             $btn = self::line($blk['button'] ?? '', 28);
             if ($btn !== '' && self::violates($btn, $f)) { $removed++; $btn = ''; }
             if ($heading !== '') $out[] = ['type' => 'heading', 'text' => $heading, 'level' => 2];
             if ($text !== '') $out[] = ['type' => 'text', 'html' => self::paras($text)];
             if ($t === 'text') continue;
-            if ($heading === '' && in_array($t, ['lineup', 'program', 'prices', 'directions'], true)) $out[] = ['type' => 'heading', 'text' => ['lineup' => 'Line-up', 'program' => 'Programm', 'prices' => 'Tickets & Preise', 'directions' => 'Anfahrt'][$t], 'level' => 2];
+            // Standard-Überschrift (Line-up, Programm, Preise, Anfahrt) setzt der Baustein selbst – nicht doppelt
             if ($t === 'events') $out[] = ['type' => 'events', 'mode' => 'pick', 'event_ids' => array_map(function ($x) { return intval($x['id']); }, $ev), 'show_images' => $variant !== 'compact'];
             elseif ($t === 'event') $out[] = ['type' => 'event', 'event_id' => $eid, 'button' => $btn, 'show_image' => $variant !== 'flyer'];
             elseif ($t === 'coupon') $out[] = ['type' => 'coupon', 'code' => $ctx['coupon']['code'], 'event_id' => $eid, 'button' => $btn];
@@ -612,6 +684,67 @@ class TIX_Newsletter_AI {
             elseif ($eid) $out[] = ['type' => $t, 'event_id' => $eid, 'button' => $btn];
         }
         $closing = self::clean($d['closing'] ?? '', $f, $removed, 300);
+        $sig = ($ctx['address'] === 'sie' ? 'Ihr' : 'Dein') . ' Team von ' . $ctx['name'];
+        $out[] = ['type' => 'text', 'html' => self::paras($closing) . '<p style="margin:0 0 4px;"><strong>' . self::e($sig) . '</strong></p>'];
+        $b = class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::sanitize($out) : $out;
+        return is_wp_error($b) ? [] : $b;
+    }
+
+    /**
+     * Mehrere Events: Kopf (aus build_blocks) → Gutschein → je Event (Datumsfolge) Karte + eigener Teaser + gewünschte
+     * Daten-Blöcke dieses Events → freie Texte/App/Social der KI → Schluss. Varianten mit klar anderem Aufbau:
+     * flyer = Karte mit Bild, Teaser darunter; compact = Karte ohne Bild, ein Satz; story = Zwischenüberschrift + Teaser + Karte.
+     */
+    private static function build_multi($variant, array $d, array $ctx, array $f, &$removed, array $out) {
+        $ev = $ctx['events'];
+        if ($ctx['coupon']) $out[] = ['type' => 'coupon', 'code' => $ctx['coupon']['code'], 'event_id' => intval($ev[0]['id'])];
+        // Teaser je Event, ohne Wiederholung (gleicher Text wie ein anderer Teaser bzw. die Einleitung fällt weg)
+        $teasers = []; $used = [mb_strtolower(trim(wp_strip_all_tags((string) ($d['intro'] ?? ''))))];
+        foreach ((array) ($d['events'] ?? []) as $t) {
+            if (!is_array($t)) continue;
+            $txt = self::clean($t['teaser'] ?? '', $f, $removed, $variant === 'compact' ? 160 : 320);
+            if ($variant === 'compact' && preg_match('/^(.+?[.!?…])\s/u', $txt, $m)) $txt = $m[1];
+            $key = mb_strtolower(trim($txt));
+            if ($txt === '' || in_array($key, $used, true)) continue;
+            $used[] = $key;
+            $teasers[intval($t['id'] ?? 0)] = $txt;
+        }
+        $inc = array_values(array_intersect(['lineup', 'program', 'prices', 'gallery', 'directions'], (array) $ctx['include']));
+        if ($variant === 'compact') $inc = array_values(array_diff($inc, ['gallery', 'directions', 'program']));
+        foreach ($ev as $x) {
+            $id = intval($x['id']);
+            $teaser = $teasers[$id] ?? '';
+            if ($variant === 'story') {
+                $out[] = ['type' => 'heading', 'text' => $x['title'], 'level' => 2];
+                if ($teaser !== '') $out[] = ['type' => 'text', 'html' => self::paras($teaser)];
+                $out[] = ['type' => 'event', 'event_id' => $id, 'show_image' => true];
+            } else {
+                $out[] = ['type' => 'event', 'event_id' => $id, 'show_image' => $variant === 'flyer'];
+                if ($teaser !== '') $out[] = ['type' => 'text', 'html' => self::paras($teaser)];
+            }
+            foreach ($inc as $k) {
+                $has = ['lineup' => !empty($x['lineup']), 'program' => !empty($x['program']), 'prices' => !empty($x['prices']) || $x['price_from'] !== '' || $x['free_entry'],
+                    'gallery' => count($x['gallery']) >= 2, 'directions' => $x['location'] !== '' || $x['address'] !== ''][$k];
+                if ($has) $out[] = ['type' => $k, 'event_id' => $id, 'with_title' => true] + ($k === 'lineup' ? ['limit' => $variant === 'compact' ? 4 : 8] : []);
+            }
+            if ($variant !== 'compact') $out[] = ['type' => 'divider'];
+        }
+        if (end($out)['type'] === 'divider') array_pop($out);
+        // freie Texte, App, Social der KI (Event-Bausteine stehen schon je Event oben)
+        foreach ((array) ($d['blocks'] ?? []) as $blk) {
+            $t = is_array($blk) ? (string) ($blk['type'] ?? '') : '';
+            if ($t === 'text') {
+                $h = self::line($blk['heading'] ?? '', 60); if ($h !== '' && self::violates($h, $f)) { $removed++; $h = ''; }
+                $txt = self::clean($blk['text'] ?? '', $f, $removed, 500);
+                $key = mb_strtolower(trim($txt));
+                if ($txt !== '' && in_array($key, $used, true)) $txt = '';
+                if ($h !== '') $out[] = ['type' => 'heading', 'text' => $h, 'level' => 2];
+                if ($txt !== '') { $out[] = ['type' => 'text', 'html' => self::paras($txt)]; $used[] = $key; }
+            } elseif (in_array($t, ['app', 'social'], true) && in_array($t, self::available($ctx), true)) $out[] = ['type' => $t];
+        }
+        foreach (['app', 'social'] as $k) if (in_array($k, (array) $ctx['include'], true) && in_array($k, self::available($ctx), true) && !in_array($k, array_column($out, 'type'), true)) $out[] = ['type' => $k];
+        $closing = self::clean($d['closing'] ?? '', $f, $removed, 300);
+        if (in_array(mb_strtolower(trim($closing)), $used, true)) $closing = '';
         $sig = ($ctx['address'] === 'sie' ? 'Ihr' : 'Dein') . ' Team von ' . $ctx['name'];
         $out[] = ['type' => 'text', 'html' => self::paras($closing) . '<p style="margin:0 0 4px;"><strong>' . self::e($sig) . '</strong></p>'];
         $b = class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::sanitize($out) : $out;
