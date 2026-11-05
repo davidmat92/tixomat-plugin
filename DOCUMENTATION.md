@@ -4342,3 +4342,36 @@ Auftrag `uebergaben/auftrag-promoter-ausbau-2026-11-05.md`, Tests `tests/test-pr
   - Neu ist der Baustein `ref` (`/` mit `?ref=`, Promoter-Link der Startseite). Er hat einen eigenen Schalter `tix_app_links_ios_ref` (Vorgabe aus, `wp tixomat app-links ios-ref on|off`).
   - Die Zentrale schaltet ihn ein, sobald die Apps `ref` und `coupon` auswerten.
 - Tests: `tests/test-promoter-p4-wp.php` (9/9 Einzel-Seite, 11/11 Plattform).
+
+### Paket 2 – Mitteilungen und Werbematerial (1.38.662)
+
+**Mitteilungen an Promoter** (`TIX_Promoter_Notify`): Sie gehen per Mail im Layout der Seite raus, mit Knopf in den Promoter-Bereich, nur an aktive Promoter mit E-Mail und nur bei eingeschaltetem Programm.
+- **Arten** (je Promoter abschaltbar, Vorgabe an): `GET /promoter/me` → `promoter.notify {sale, payout, event, weekly}`, ändern mit `POST /promoter/me {notify{…}}` (Name dann optional). Gespeichert in der neuen Spalte `notify`.
+  - `sale` – Verkauf über Link oder Code, gesammelt alle 15 min (`tix_promoter_notify_flush`). Die Mail nennt Event, Tickets und Provision, nie Käuferdaten.
+  - `payout` – Auszahlung vorbereitet (`tix_promoter_payout_created`) bzw. überwiesen (`tix_promoter_payout_paid`).
+  - `event` – neues Event (je Promoter und Event einmal), mit Link inkl. Rabatt-Code und Provision.
+    - Auslöser: Zuteilung zu einem veröffentlichten Event (`tix_promoter_event_assigned`) oder erstes Veröffentlichen.
+    - Beim Veröffentlichen gehen Mails an Promoter mit „Alle Events“ bzw. ausdrücklicher Zuteilung, auf der Plattform zusätzlich an alle des Veranstalters (Merker `_tix_promoter_announced`).
+  - `weekly` – Wochenbericht montags 9 Uhr (Klicks, Tickets, Provision der letzten 7 Tage, auszahlbar). Er geht nur bei Aktivität oder Guthaben raus, ohne Verkauf mit Tipp.
+- Push in der App gibt es für Promoter nicht (kein App-Konto).
+
+**Werbematerial** (`TIX_Promoter_Material`):
+
+| Route | Zweck |
+|---|---|
+| `GET /promoter/material?event_id=` | Event (Titel, Datum, Ort, Bild-URL, Link), `code`, `coupon`, `links`, `brand {name, logo, accent}`, `texts {whatsapp, instagram, story, telegram}` mit eingesetztem Link/Code, `texts_source template\|ai\|edited`, `texts_ai_available`, `share {whatsapp: wa.me-Link, telegram}`, `uploads[]` |
+| `POST /promoter/material/texts {event_id}` | KI-Texte erzeugen, wenn noch keine da sind; sonst Cache für alle Promoter. 10 je Promoter und Tag |
+| `GET /promoter/material/image?event_id=&size=large\|medium_large\|full` | Event-Bild als `data_url` (für den Renderer: Story, Feed, Quadrat, Flyer). Nur eigene Events, höchstens 6 MB |
+| `GET /organizer/events/{id}/promoter-material` | Texte, Quelle, Zeitpunkt, `ai_available`, Platzhalter, Uploads |
+| `POST /organizer/events/{id}/promoter-material` | Datei hochladen (multipart `file` oder `data` als Data-URL + `name`). JPG/PNG/WebP/GIF, PDF, MP4; höchstens 25 MB und 50 je Event. Typ am Inhalt geprüft → 201 |
+| `DELETE /organizer/events/{id}/promoter-material/{aid}` | Upload löschen |
+| `POST /organizer/events/{id}/promoter-texts` | `{texts{…}}` ändern (Quelle `edited`), `{refresh:true}` neu erzeugen (10 je Event und Tag) oder `{reset:true}` zurück auf Vorlagen |
+
+- **Texte:**
+  - Sie liegen als Event-Meta `_tix_promoter_texts` mit Platzhaltern `{link}` (persönlicher Link) und `{code}` (Rabatt-Code, sonst Promoter-Code).
+  - Fehlt `{link}`, wird er angehängt (außer bei der Story).
+  - Die KI läuft über `TIX_AI_Provider` im Bereich des Veranstalters (Tool `werbetexte`, du-Form, keine erfundenen Fakten).
+  - Texte mit dem geschützten Begriff ersetzt der Server durch die Vorlage.
+  - Ohne KI gelten feste Vorlagen.
+- **Rechte:** Promoter sehen nur Events, für die sie werben dürfen (sonst 404), wartende Promoter bekommen 403. Veranstalter sehen nur eigene Events.
+- Tests: `tests/test-promoter-p2-wp.php` (24/24 Einzel-Seite, 26/26 Plattform).

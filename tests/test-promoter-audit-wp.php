@@ -16,7 +16,7 @@ $sfx = wp_rand(1000, 9999); $users = []; $posts = []; $orders = []; $proms = [];
 $tc = TIX_Promoter_DB::table_commissions(); $tp = TIX_Promoter_DB::table_promoters();
 $GLOBALS['pa_mails'] = [];
 add_filter('pre_wp_mail', function ($n, $a) { $GLOBALS['pa_mails'][] = $a; return true; }, 10, 2);
-$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_promoter\\_signup\\_%' OR option_name LIKE '\\_transient\\_%tix\\_promoter\\_auth\\_rl\\_%'");
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_promoter\\_signup\\_%' OR option_name LIKE '\\_transient\\_%tix\\_promoter\\_auth\\_rl\\_%' OR option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_pp\\_signup\\_%'");
 $coupons_before = get_option('tix_coupons', null);
 
 $owner = wp_insert_user(['user_login' => "pa_owner_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "pa_owner_$sfx@example.test", 'role' => $multi ? 'tix_organizer' : 'administrator']); $users[] = $owner;
@@ -45,7 +45,9 @@ wp_set_current_user($owner);
 [$st, $r, $code] = pa_rest('POST', '/organizer/promoters', ['name' => 'Lisa Promo', 'email' => "lisa_$sfx@example.test", 'commission' => ['type' => 'percent', 'value' => 10], 'send_access' => true]);
 $P = $r['promoter'] ?? []; $pid = intval($P['id'] ?? 0); $proms[] = $pid;
 pa_eq('Anlegen: 201, Code erzeugt, Links mit ?ref=, Zugang verschickt', [201, true, true, true, true], [$st, (bool) preg_match('/^lisapromo\d+$/', $P['code'] ?? ''), strpos($P['links']['link'] ?? '', 'ref=' . ($P['code'] ?? 'x')) !== false, strpos($P['links']['qr_link'] ?? '', 'utm_medium=qr') !== false, $r['access_sent'] ?? false]);
-pa_eq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [($GLOBALS['pa_mails'][0]['to'] ?? '') === "lisa_$sfx@example.test", strpos(html_entity_decode((string) ($GLOBALS['pa_mails'][0]['message'] ?? '')), '/promoter/anmelden/?t=') !== false]);
+// seit 1.38.662 können vorher „Neues Event“-Mails an vorhandene Promoter rausgehen → Lisas Mail suchen
+$lisa = []; foreach ($GLOBALS['pa_mails'] as $mm) if ((array) $mm['to'] === ["lisa_$sfx@example.test"] || ($mm['to'] ?? '') === "lisa_$sfx@example.test") { $lisa = $mm; break; }
+pa_eq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [!empty($lisa), strpos(html_entity_decode((string) ($lisa['message'] ?? '')), '/promoter/anmelden/?t=') !== false]);
 pa_eq('Promoter gehört dem Bereich', $org, intval($wpdb->get_var($wpdb->prepare("SELECT organizer_id FROM $tp WHERE id = %d", $pid))));
 [$st, $d, $code] = pa_rest('POST', '/organizer/promoters', ['name' => 'Doppelt', 'email' => "lisa_$sfx@example.test"]);
 pa_eq('Gleiche E-Mail zweimal → 409', [409, 'tix_promoter_exists'], [$st, $code]);

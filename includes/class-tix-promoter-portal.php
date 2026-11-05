@@ -25,6 +25,9 @@ class TIX_Promoter_Portal {
 
     private static $current = null;
 
+    /** Angemeldeter Promoter der laufenden Anfrage (nach perm()) */
+    public static function current() { return self::$current; }
+
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('init', [__CLASS__, 'maybe_create'], 26);
@@ -263,7 +266,8 @@ class TIX_Promoter_Portal {
         $org = intval($p->organizer_id ?? 0);
         return ['id' => intval($p->id), 'name' => (string) $p->display_name, 'email' => self::email_of($p), 'code' => (string) $p->promoter_code, 'status' => (string) $p->status,
             'organizer' => $org ? ['id' => $org, 'name' => html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8')] : null,
-            'links' => TIX_Promoter_REST::links((string) $p->promoter_code, self::site_base()), 'brand' => self::brand(), 'payout_details' => self::payout_public($p->id)];
+            'links' => TIX_Promoter_REST::links((string) $p->promoter_code, self::site_base()), 'brand' => self::brand(), 'payout_details' => self::payout_public($p->id),
+            'notify' => class_exists('TIX_Promoter_Notify') ? TIX_Promoter_Notify::prefs(intval($p->id)) : null];
     }
 
     private static function site_base() {
@@ -273,11 +277,14 @@ class TIX_Promoter_Portal {
 
     public static function rest_me(WP_REST_Request $req) { return rest_ensure_response(['ok' => true, 'promoter' => self::me_payload(self::$current)]); }
 
-    /** POST /promoter/me {name} – E-Mail ändert nur der Veranstalter (sie ist der Login) */
+    /** POST /promoter/me {name?, notify?{sale, payout, event, weekly}} – E-Mail ändert nur der Veranstalter (sie ist der Login) */
     public static function rest_me_save(WP_REST_Request $req) {
-        $n = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 120);
-        if ($n === '') return self::bad('name', 'Bitte einen Namen angeben.');
-        TIX_Promoter_DB::update_promoter(intval(self::$current->id), ['display_name' => $n]);
+        if ($req->has_param('notify') && class_exists('TIX_Promoter_Notify')) TIX_Promoter_Notify::save_prefs(intval(self::$current->id), (array) $req->get_param('notify'));
+        if ($req->has_param('name') || !$req->has_param('notify')) {
+            $n = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 120);
+            if ($n === '') return self::bad('name', 'Bitte einen Namen angeben.');
+            TIX_Promoter_DB::update_promoter(intval(self::$current->id), ['display_name' => $n]);
+        }
         return rest_ensure_response(['ok' => true, 'promoter' => self::me_payload(TIX_Promoter_DB::get_promoter(intval(self::$current->id)))]);
     }
 

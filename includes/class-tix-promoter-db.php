@@ -474,12 +474,16 @@ class TIX_Promoter_DB {
             $row['promoter_id'], $row['event_id']
         ));
         if ($existing_id) {
+            $was = (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM $table WHERE id = %d", intval($existing_id)));
             $wpdb->update($table, $row, ['id' => intval($existing_id)]);
+            if ($was !== 'active' && $row['status'] === 'active' && $row['event_id'] > 0) do_action('tix_promoter_event_assigned', $row['promoter_id'], $row['event_id']);
             return intval($existing_id);
         }
 
         $wpdb->insert($table, $row);
-        return $wpdb->insert_id;
+        $id = intval($wpdb->insert_id);
+        if ($id && $row['status'] === 'active' && $row['event_id'] > 0) do_action('tix_promoter_event_assigned', $row['promoter_id'], $row['event_id']);
+        return $id;
     }
 
     public static function update_assignment(int $id, array $data) {
@@ -619,7 +623,10 @@ class TIX_Promoter_DB {
             'status'            => 'pending',
         ];
         $wpdb->insert(self::table_commissions(), $row);
-        return $wpdb->insert_id;
+        $id = intval($wpdb->insert_id);
+        // Mitteilung an den Promoter (Verkauf, gesammelt; TIX_Promoter_Notify, 1.38.662)
+        if ($id && $row['commission_amount'] > 0) do_action('tix_promoter_commission', $id, $row);
+        return $id;
     }
 
     public static function get_commissions($filters = []) {
@@ -803,6 +810,7 @@ class TIX_Promoter_DB {
                  WHERE id IN ($placeholders)",
                 array_merge([$payout_id], $ids)
             ));
+            do_action('tix_promoter_payout_created', intval($payout_id));
         }
 
         return $payout_id;
@@ -851,6 +859,7 @@ class TIX_Promoter_DB {
             ['status' => 'paid'],
             ['payout_id' => $id]
         );
+        do_action('tix_promoter_payout_paid', $id);
 
         return true;
     }
