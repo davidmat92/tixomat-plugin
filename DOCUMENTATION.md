@@ -4412,7 +4412,7 @@ Auftrag `uebergaben/auftrag-promoter-ausbau-2026-11-05.md`, Tests `tests/test-pr
 - Die Promoter-Liste und das Detail im Studio tragen zusätzlich `leader`, `leader_share`, `cookie_days` und `team_size`. `GET /promoter/me` trägt `rules {min_payout, leaderboard, attribution, tiers, cap_tickets}`.
 - Tests: `tests/test-promoter-p3-wp.php` (22/22 Einzel-Seite, 25/25 Plattform).
 
-## 91. Demo-Studio: Zugänge, Anmelde-Link, Demo-Zahlung (ab 1.38.664)
+## 91. Demo-Studio: Zugänge, Anmelde-Link, Demo-Zahlung (ab 1.38.666)
 Nur Mehr-Veranstalter-Modus (evendis), sonst 404. Vertrag: `uebergaben/vertrag-demo-studio.md` (tixomat-apps). Klasse `TIX_Demo_Access`.
 - **Ein gemeinsamer Beispiel-Club** (Demo Club) für alle Zugänge. Interessent = Rolle `tix_demo` (+ `tix_organizer`, Team-Admin des Beispiel-Clubs wie `tix_sales`). Ablauf 14 Tage, einmal +14, sperrbar; abgelaufen/gesperrt → Token und Passwort wirken nicht (`determine_current_user`), 7 Tage nach Ablauf löscht der Cron `tix_demo_access_cleanup` das Konto.
 - **Verwaltung** (Admin: alle; Vertriebler: eigene Interessenten, höchstens 20 aktive; Vertriebler legt nur der Admin an):
