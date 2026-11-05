@@ -4110,3 +4110,23 @@ Tests: `tests/test-newsletter-blocks-wp.php` (27/27 Einzel-Seite, 28/28 Plattfor
 - **`POST /studio/prefs {menu_mode}`:** für jedes angemeldete Konto (auch Team, Einlass), ohne Modul. `null` bzw. leer setzt auf die Vorgabe zurück. Antwort `{ok, studio_prefs}` mit `Cache-Control: no-store`; ungültig → 400 `tix_invalid_field`, ohne Anmeldung 401.
 
 Tests: `tests/test-studio-prefs-wp.php` (9/9 in beiden Modi).
+
+## 88. Künstler aus dem Line-up übernehmen (ab 1.38.656)
+
+`POST /artists/import-lineup {event_id?, dry_run?}` (`TIX_Artists::import_lineup`, Rechte wie `POST /artists`: Einzel-Seite Admin bzw. Inhaber, evendis Inhaber bzw. Team-Admin eines freigegebenen Veranstalters).
+
+**Ablauf:**
+- **Events:** eins (mit Zugriff, sonst 403) bzw. alle Events des Bereichs (veröffentlicht, geplant, Entwurf; evendis nur eigene).
+- **Acts:** aus `TIX_Lineup_Links::for_event` (Programm und Line-up-Zeilen), je normalisiertem Namen gebündelt. Übernommen werden Spotify- bzw. Apple-Link der Zeile (auch manuell gesetzte) und das Act-Foto (`photo_id`).
+- **Finden** wie `TIX_Artists::find` (Spotify-/Apple-Kennung, sonst normalisierter Name, ohne Teiltreffer):
+  - eigener Künstler (Einzel-Seite: jeder der Seite) zuerst;
+  - auf evendis sonst ein **öffentlicher** Künstler eines anderen Verwalters, der nur verknüpft und nicht verändert wird;
+  - gesperrte bzw. zusammengeführte nie.
+- **Anlegen:** wenn nichts gefunden wird, mit `managed_by` Seite bzw. eigenem Veranstalter. Name, Links, Kennungen und Porträt kommen aus dem Act-Foto (`credit` leer).
+- **Eigene, vorhandene Künstler:** Fehlende Links, Kennungen und Porträt werden ergänzt, nichts wird überschrieben (`updated`).
+- **Verknüpfen:** Der Künstler kommt in die Liste des Events (`_tix_artists`, Rolle headliner, Index `_tix_artist_ref`). Das Line-up zeigt danach Foto und Seite des Künstlers (`link_lineup`), Foto-Updates am Künstler erscheinen dort automatisch. Höchstens 20 je Event.
+- **Wiederholbar, ohne Dubletten;** Sperre je Name gegen gleichzeitiges Anlegen.
+
+**Antwort:** `{ok, dry_run, events, acts, new[], linked[], updated[], unchanged[], skipped[]}`. Ein Eintrag: `{name, events[], spotify, apple_music, photo, id, linked_events[], own}`, bei `skipped` zusätzlich `reason`. `dry_run: true` legt nichts an und verknüpft nichts; in der Vorschau ist bei neuen Acts `id` = null.
+
+Tests: `tests/test-artists-import-wp.php` (9/9 Einzel-Seite, 11/11 Plattform).

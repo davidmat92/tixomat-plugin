@@ -614,6 +614,7 @@ class TIX_Artists {
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_update']] + $mgr,
             ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete']] + $mgr, // 1.38.609
         ]);
+        register_rest_route(self::NS, '/artists/import-lineup', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_import_lineup']] + $mgr); // 1.38.656
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/merge', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_merge_own']] + $mgr); // 1.38.609
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image']] + $mgr);
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_events']] + $mgr);
@@ -853,6 +854,124 @@ class TIX_Artists {
         $r = rest_ensure_response(['ok' => true, 'artist' => self::payload($id, true), 'duplicates' => $dups]);
         $r->set_status(201);
         return $r;
+    }
+
+    // ═══════════════ Künstler aus dem Line-up übernehmen (1.38.656) ═══════════════
+
+    /** Events, deren Line-up übernommen wird: eins (mit Zugriff) bzw. alle des Bereichs (veröffentlicht, geplant, Entwurf) */
+    private static function import_events($event_id) {
+        if ($event_id) {
+            if (get_post_type($event_id) !== 'event') return self::bad('event_id', 'Event nicht gefunden.', 404);
+            if (self::multi() && !self::is_admin() && class_exists('TIX_REST_API') && !TIX_REST_API::can_access_event($event_id)) return self::bad('event_id', 'Kein Zugriff auf dieses Event.', 403);
+            return [intval($event_id)];
+        }
+        $args = ['post_type' => 'event', 'post_status' => ['publish', 'future', 'draft'], 'posts_per_page' => 500, 'fields' => 'ids', 'orderby' => 'date', 'order' => 'DESC', 'suppress_filters' => true];
+        if (self::multi() && !self::is_admin()) {
+            $org = self::my_org();
+            $args['meta_query'] = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org], ['key' => '_tix_co_organizer_id', 'value' => $org]];
+        }
+        return array_map('intval', get_posts($args));
+    }
+
+    /**
+     * Acts aus den Line-up-Zeilen finden bzw. anlegen und mit den Events verknüpfen. Wiederholbar, ohne Dubletten:
+     * gefunden wird über Spotify-/Apple-Kennung, sonst den normalisierten Namen (wie TIX_Artists::find).
+     * → {new[], linked[], updated[], unchanged[], skipped[], events}
+     */
+    public static function import_lineup($event_id = 0, $dry = false) {
+        if (!class_exists('TIX_Lineup_Links')) return self::bad('lineup', 'Das Line-up ist hier nicht verfügbar.', 503);
+        $events = self::import_events(intval($event_id));
+        if (is_wp_error($events)) return $events;
+        $org = self::multi() ? self::my_org() : 0;
+        // Acts je normalisiertem Namen sammeln (erste Angaben gewinnen, Foto bzw. Links aus jedem Event ergänzen)
+        $acts = [];
+        foreach ($events as $eid) {
+            foreach (TIX_Lineup_Links::for_event($eid, true) as $row) {
+                $name = trim((string) ($row['artist'] ?? ''));
+                $k = self::norm($name);
+                if ($k === '' || mb_strlen($name) > 120) continue;
+                $a = $acts[$k] ?? ['name' => $name, 'events' => [], 'spotify' => '', 'apple_music' => '', 'photo_id' => 0];
+                $a['events'][] = $eid;
+                if ($a['spotify'] === '' && !empty($row['spotify'])) $a['spotify'] = (string) $row['spotify'];
+                if ($a['apple_music'] === '' && !empty($row['apple_music'])) $a['apple_music'] = (string) $row['apple_music'];
+                if (!$a['photo_id'] && !empty($row['photo_id'])) $a['photo_id'] = intval($row['photo_id']);
+                $acts[$k] = $a;
+            }
+        }
+        $res = ['new' => [], 'linked' => [], 'updated' => [], 'unchanged' => [], 'skipped' => [], 'events' => count($events), 'acts' => count($acts), 'dry_run' => (bool) $dry];
+        $lists = [];
+        foreach ($events as $eid) $lists[$eid] = self::event_list($eid);
+        foreach ($acts as $k => $a) {
+            $a['events'] = array_values(array_unique($a['events']));
+            $item = ['name' => $a['name'], 'events' => $a['events'], 'spotify' => $a['spotify'] ?: null, 'apple_music' => $a['apple_music'] ?: null, 'photo' => $a['photo_id'] ? (string) (wp_get_attachment_image_url($a['photo_id'], 'medium') ?: '') : null];
+            // vorhandener Künstler: eigener (bzw. Seite) vor öffentlichem fremden; gesperrte/zusammengeführte nie
+            $hit = 0; $own = false;
+            foreach (self::find(['name' => $a['name'], 'spotify' => $a['spotify'], 'apple' => $a['apple_music']], 10, false) as $f) {
+                $d = self::raw($f['id']);
+                if (!$d || ($d['status'] ?? '') === 'blocked') continue;
+                $mine = !self::multi() || (($d['managed_by']['type'] ?? '') === 'organizer' && intval($d['managed_by']['id'] ?? 0) === $org) || (self::is_admin() && !$org);
+                if ($mine) { $hit = intval($f['id']); $own = true; break; }
+                if (!$hit && ($d['status'] ?? '') === 'public') $hit = intval($f['id']);
+            }
+            $created = false;
+            if (!$hit) {
+                if (self::multi() && !self::is_admin() && (!$org || self::sandbox_org($org) || (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::is_public($org)))) {
+                    $res['skipped'][] = $item + ['reason' => 'Künstler kannst du anlegen, sobald dein Veranstalter-Konto freigegeben ist.'];
+                    continue;
+                }
+                if (!$dry) {
+                    $lock = '_tix_artist_lock_' . md5($k);
+                    if (!add_option($lock, time(), '', 'no') && time() - intval(get_option($lock)) < 30) { $res['skipped'][] = $item + ['reason' => 'Wird gerade angelegt.']; continue; }
+                    $d = ['kind' => 'solo', 'genres' => [], 'origin' => '', 'short_bio' => '', 'bio' => '', 'images' => [], 'links' => [], 'ids' => [], 'tours' => [], 'status' => 'public', 'verified' => false,
+                        'managed_by' => self::multi() ? ($org ? ['type' => 'organizer', 'id' => $org] : ['type' => 'evendis', 'id' => 0]) : ['type' => 'site', 'id' => 0], 'duplicate_of' => 0];
+                    if ($a['spotify'] !== '') $d['links']['spotify'] = esc_url_raw($a['spotify']);
+                    if ($a['apple_music'] !== '') $d['links']['apple_music'] = esc_url_raw($a['apple_music']);
+                    $d['ids'] = ['spotify' => self::spotify_id($a['spotify']), 'apple' => self::apple_id($a['apple_music'])];
+                    if ($a['photo_id'] && get_post_type($a['photo_id']) === 'attachment') $d['images']['portrait'] = ['id' => $a['photo_id'], 'credit' => ''];
+                    $id = wp_insert_post(['post_type' => self::CPT, 'post_status' => 'publish', 'post_title' => $a['name'], 'post_name' => self::unique_slug($a['name'])], true);
+                    delete_option($lock);
+                    if (is_wp_error($id) || !$id) { $res['skipped'][] = $item + ['reason' => 'Konnte nicht angelegt werden.']; continue; }
+                    self::save_raw($id, $d);
+                    self::log($id, 'created', ['from' => 'lineup']);
+                    $hit = intval($id);
+                }
+                $created = true;
+                $own = true;
+            } elseif ($own && !$dry) {
+                // Fehlende Angaben am eigenen Künstler ergänzen (nichts überschreiben)
+                $d = self::raw($hit);
+                $ch = false;
+                if ($a['spotify'] !== '' && empty($d['links']['spotify'])) { $d['links']['spotify'] = esc_url_raw($a['spotify']); $d['ids']['spotify'] = $d['ids']['spotify'] ?? '' ?: self::spotify_id($a['spotify']); $ch = true; }
+                if ($a['apple_music'] !== '' && empty($d['links']['apple_music'])) { $d['links']['apple_music'] = esc_url_raw($a['apple_music']); $d['ids']['apple'] = $d['ids']['apple'] ?? '' ?: self::apple_id($a['apple_music']); $ch = true; }
+                if ($a['photo_id'] && empty($d['images']['portrait']['id']) && get_post_type($a['photo_id']) === 'attachment') { $d['images']['portrait'] = ['id' => $a['photo_id'], 'credit' => '']; $ch = true; }
+                if ($ch) { self::save_raw($hit, $d); self::log($hit, 'updated', ['from' => 'lineup']); $res['updated'][] = $item + ['id' => $hit]; }
+            }
+            // Mit den Events verknüpfen (höchstens MAX_PER_EVENT je Event)
+            $newly = [];
+            foreach ($a['events'] as $eid) {
+                $ids = array_map('intval', array_column($lists[$eid], 'artist_id'));
+                if ($hit && in_array($hit, $ids, true)) continue;
+                if (count($lists[$eid]) >= self::MAX_PER_EVENT) { $res['skipped'][] = $item + ['reason' => 'Event ' . $eid . ': schon ' . self::MAX_PER_EVENT . ' Künstler.']; continue; }
+                $lists[$eid][] = ['artist_id' => $hit, 'role' => 'headliner', 'tour' => null, 'by_organizer' => $org, 'at' => current_time('c'), 'notified' => false];
+                $newly[] = $eid;
+            }
+            $item += ['id' => $hit ?: null, 'linked_events' => $newly, 'own' => $own];
+            if ($created) $res['new'][] = $item;
+            elseif ($newly) $res['linked'][] = $item;
+            else $res['unchanged'][] = $item;
+        }
+        if (!$dry) foreach ($lists as $eid => $list) if ($list !== self::event_list($eid)) self::apply($eid, array_values(array_filter($list, function ($r) { return intval($r['artist_id']) > 0; })));
+        return $res;
+    }
+
+    /** POST /artists/import-lineup {event_id?, dry_run?} */
+    public static function rest_import_lineup(WP_REST_Request $req) {
+        $b = self::body($req);
+        $r = self::import_lineup(absint($b['event_id'] ?? $req->get_param('event_id')), filter_var($b['dry_run'] ?? $req->get_param('dry_run'), FILTER_VALIDATE_BOOLEAN));
+        if (is_wp_error($r)) return $r;
+        $out = rest_ensure_response(['ok' => true] + $r);
+        $out->header('Cache-Control', 'no-store');
+        return $out;
     }
 
     public static function rest_mine(WP_REST_Request $req) {
