@@ -345,12 +345,13 @@ class TIX_Newsletter_AI {
             'liefere' => ['teile' => $ctx['parts'], 'entwuerfe' => $ctx['drafts']],
         ];
         $model = self::model();
-        $payload = ['model' => $model, 'max_tokens' => 4000, 'system' => self::system_prompt(),
+        // Claude 5.5 erlaubt kein erzwungenes Werkzeug (tool_choice tool/any) – daher auto + klare Anweisung; kein Nachdenken vor der Antwort (schneller, Studio wartet höchstens 90 s)
+        $payload = ['model' => $model, 'max_tokens' => 8000, 'thinking' => ['type' => 'between_tools'], 'system' => self::system_prompt() . "\nAntworte ausschließlich, indem du das Werkzeug „newsletter“ genau einmal aufrufst – ohne Text davor oder danach.",
             'tools' => [['name' => 'newsletter', 'description' => 'Texte und Bausteine des Newsletters zurückgeben', 'input_schema' => self::schema()]],
-            'tool_choice' => ['type' => 'tool', 'name' => 'newsletter'],
+            'tool_choice' => ['type' => 'auto'],
             'messages' => [['role' => 'user', 'content' => "Daten (JSON):\n" . wp_json_encode(array_filter($data, function ($v) { return $v !== null && $v !== '' && $v !== []; }), JSON_UNESCAPED_UNICODE)]]];
-        $r = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_post($payload, self::api_key(), 60)
-            : wp_remote_post('https://api.anthropic.com/v1/messages', ['timeout' => 60, 'headers' => ['x-api-key' => self::api_key(), 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'], 'body' => wp_json_encode($payload)]);
+        $r = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::anthropic_post($payload, self::api_key(), 85)
+            : wp_remote_post('https://api.anthropic.com/v1/messages', ['timeout' => 85, 'headers' => ['x-api-key' => self::api_key(), 'content-type' => 'application/json', 'anthropic-version' => '2023-06-01'], 'body' => wp_json_encode($payload)]);
         if (is_wp_error($r)) return new WP_Error('ai_unavailable', 'Die KI ist gerade nicht erreichbar.', ['status' => 503]);
         $code = intval(wp_remote_retrieve_response_code($r));
         $body = json_decode((string) wp_remote_retrieve_body($r), true);
