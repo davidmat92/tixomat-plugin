@@ -147,6 +147,9 @@ class TIX_Promoter_Portal {
      * Höchstens 3 je 15 Minuten und Promoter. → true | WP_Error
      */
     public static function send_login($p, $reason = 'login') {
+        // invite = Einladung beim Anlegen im Studio: nur der Knopf (kein Code), Link 7 Tage gültig – Einladungen werden oft später geöffnet
+        $invite = $reason === 'invite';
+        $ttl = $invite ? 7 * DAY_IN_SECONDS : self::LOGIN_TTL;
         $email = self::email_of($p);
         if (!is_email($email)) return self::bad('email', 'Der Promoter hat keine E-Mail-Adresse.');
         $k = 'tix_pp_sent_' . intval($p->id);
@@ -155,17 +158,18 @@ class TIX_Promoter_Portal {
         set_transient($k, $n + 1, self::LOGIN_TTL);
         $magic = wp_generate_password(32, false, false);
         $code = str_pad((string) wp_rand(0, 999999), 6, '0', STR_PAD_LEFT);
-        set_transient('tix_pp_login_' . md5($email), ['pid' => intval($p->id), 'code' => wp_hash_password($code), 'magic' => hash('sha256', $magic), 'tries' => 0], self::LOGIN_TTL);
+        set_transient('tix_pp_login_' . md5($email), ['pid' => intval($p->id), 'code' => wp_hash_password($code), 'magic' => hash('sha256', $magic), 'tries' => 0], $ttl);
         $url = add_query_arg('t', $magic . '.' . intval($p->id), self::url('anmelden/'));
         $site = class_exists('TIX_Mail_Layout') ? (string) TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
-        $title = $reason === 'signup' ? 'Willkommen im Promoter-Bereich' : 'Dein Login für den Promoter-Bereich';
+        $title = $reason === 'signup' ? 'Willkommen im Promoter-Bereich' : ($invite ? 'Du bist Promoter – dein Zugang' : 'Dein Login für den Promoter-Bereich');
         $blocks = [
             ['type' => 'text', 'html' => '<p>Hallo' . ($p->display_name ? ' ' . esc_html($p->display_name) : '') . ',</p><p>' . ($reason === 'signup' ? 'danke für deine Anmeldung als Promoter. Mit dem Knopf meldest du dich an' . ($p->status === 'pending' ? ' – sobald der Veranstalter dich freigibt, siehst du dort deine Links.' : '.') : 'mit dem Knopf meldest du dich im Promoter-Bereich an.') . '</p>'],
             ['type' => 'button', 'label' => 'Zum Promoter-Bereich', 'url' => $url],
-            ['type' => 'code', 'value' => $code, 'hint' => 'Oder diesen Code auf der Anmeldeseite eingeben'],
-            ['type' => 'text', 'html' => '<p style="font-size:13px;">Link und Code gelten 15 Minuten und nur einmal. Hast du das nicht angefordert, kannst du die Mail ignorieren.</p>'],
         ];
-        $html = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::render(['title' => $title, 'preheader' => 'Code ' . $code . ' · gilt 15 Minuten', 'kind' => 'account', 'blocks' => $blocks])
+        if ($invite) $blocks[] = ['type' => 'text', 'html' => '<p style="font-size:13px;">Der Knopf gilt 7 Tage und nur einmal. Später meldest du dich auf der Seite des Promoter-Bereichs mit deiner E-Mail-Adresse an.</p>'];
+        else array_push($blocks, ['type' => 'code', 'value' => $code, 'hint' => 'Oder diesen Code auf der Anmeldeseite eingeben'],
+            ['type' => 'text', 'html' => '<p style="font-size:13px;">Link und Code gelten 15 Minuten und nur einmal. Hast du das nicht angefordert, kannst du die Mail ignorieren.</p>']);
+        $html = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::render(['title' => $title, 'preheader' => $invite ? 'Mit einem Klick in deinen Promoter-Bereich' : 'Code ' . $code . ' · gilt 15 Minuten', 'kind' => 'account', 'blocks' => $blocks])
             : '<p><a href="' . esc_url($url) . '">Zum Promoter-Bereich</a></p><p>Code: ' . $code . '</p>';
         wp_mail($email, $title . ' – ' . $site, $html, ['Content-Type: text/html; charset=UTF-8']);
         return true;

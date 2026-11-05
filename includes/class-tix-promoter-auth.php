@@ -162,9 +162,9 @@ class TIX_Promoter_Auth {
      * Login-Link an die E-Mail des Promoters (Studio „Zugang schicken“, Selbst-Anmeldung). Höchstens 3 je 15 Minuten
      * und Promoter. → true | WP_Error
      */
-    public static function send_login_link($promoter) {
+    public static function send_login_link($promoter, $reason = 'login') {
         // Login-Link und Code auf die Studio-Domain (1.38.651), nie mehr auf die WordPress-Seite
-        if (class_exists('TIX_Promoter_Portal')) return TIX_Promoter_Portal::send_login($promoter);
+        if (class_exists('TIX_Promoter_Portal')) return TIX_Promoter_Portal::send_login($promoter, $reason);
         $email = sanitize_email((string) ($promoter->email ?? ''));
         if (!$email && !empty($promoter->user_id) && ($u = get_userdata(intval($promoter->user_id)))) $email = $u->user_email;
         if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Der Promoter hat keine E-Mail-Adresse.', ['status' => 400, 'field' => 'email']);

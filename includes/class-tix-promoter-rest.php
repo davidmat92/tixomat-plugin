@@ -203,7 +203,7 @@ class TIX_Promoter_REST {
             if (is_wp_error($res)) return $res;
         }
         $sent = false;
-        if (rest_sanitize_boolean($req->get_param('send_access')) && $email !== '' && class_exists('TIX_Promoter_Auth')) $sent = TIX_Promoter_Auth::send_login_link(TIX_Promoter_DB::get_promoter($id)) === true;
+        if (rest_sanitize_boolean($req->get_param('send_access')) && $email !== '' && class_exists('TIX_Promoter_Auth')) $sent = TIX_Promoter_Auth::send_login_link(TIX_Promoter_DB::get_promoter($id), 'invite') === true;
         return new WP_REST_Response(['ok' => true, 'promoter' => self::item(TIX_Promoter_DB::get_promoter($id)), 'access_sent' => $sent], 201);
     }
 
