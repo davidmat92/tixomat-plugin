@@ -50,6 +50,11 @@ ap_eq('Abgelehnter Schlüssel → tix_ai_key am Feld', ['tix_ai_key', 'api_key']
 ap_eq('Claude verbunden: gekürzt angezeigt, Modell, Limit, wirksam', [200, true, 'sk-ant-…K3f9', 'claude-haiku-5-5', 5.0, $multi ? 'organizer' : 'site'], [$st, $g['connected'] ?? null, $g['key_hint'] ?? '', $g['model'] ?? '', $g['daily_limit_eur'] ?? null, $g['effective']['source'] ?? '']);
 $raw = $multi ? get_post_meta($org, TIX_AI_Provider::META, true) : get_option(TIX_AI_Provider::OPT);
 ap_eq('Schlüssel verschlüsselt gespeichert, nie in der Antwort', [false, false], [strpos(wp_json_encode($raw), $CK) !== false, strpos(wp_json_encode($g), $CK) !== false]);
+if (!$multi) {
+    ap_eq('Einzel-Seite: allow_platform ist null', [true, null], [array_key_exists('allow_platform', (array) $g), $g['allow_platform'] ?? null]);
+    [$st] = ap_rest('POST', '/ai/settings', ['model' => 'claude-haiku-5-5', 'allow_platform' => true]);
+    ap_eq('Einzel-Seite: zurückgeschicktes allow_platform wird ignoriert (Speichern klappt)', 200, $st);
+}
 [$st, $d] = ap_rest('POST', '/ai/settings', ['model' => 'gpt-4o']);
 ap_eq('Fremdes Modell → 400', [400, 'model'], [$st, $d['data']['field'] ?? '']);
 

@@ -154,6 +154,7 @@ class TIX_Promoter_Auth {
     }
 
     public static function revoke_sessions(int $promoter_id) {
+        if (class_exists('TIX_Promoter_Portal')) TIX_Promoter_Portal::revoke_all($promoter_id);
         update_option('tix_promoter_epoch_' . $promoter_id, intval(get_option('tix_promoter_epoch_' . $promoter_id, 0)) + 1, false);
     }
 
@@ -162,6 +163,8 @@ class TIX_Promoter_Auth {
      * und Promoter. → true | WP_Error
      */
     public static function send_login_link($promoter) {
+        // Login-Link und Code auf die Studio-Domain (1.38.651), nie mehr auf die WordPress-Seite
+        if (class_exists('TIX_Promoter_Portal')) return TIX_Promoter_Portal::send_login($promoter);
         $email = sanitize_email((string) ($promoter->email ?? ''));
         if (!$email && !empty($promoter->user_id) && ($u = get_userdata(intval($promoter->user_id)))) $email = $u->user_email;
         if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Der Promoter hat keine E-Mail-Adresse.', ['status' => 400, 'field' => 'email']);
@@ -270,9 +273,9 @@ class TIX_Promoter_Auth {
             ]);
         }
 
-        // Magic-Link bauen + senden
-        $magic_url = self::build_magic_url(intval($promoter->id));
-        self::send_magic_link_email($email, $magic_url, $promoter);
+        // Magic-Link bauen + senden (seit 1.38.651 auf den Promoter-Bereich im Studio)
+        if (class_exists('TIX_Promoter_Portal')) TIX_Promoter_Portal::send_login($promoter);
+        else self::send_magic_link_email($email, self::build_magic_url(intval($promoter->id)), $promoter);
 
         wp_send_json_success([
             'message' => 'Wenn diese E-Mail in unserem System registriert ist, haben wir dir einen Login-Link geschickt.',
@@ -283,6 +286,11 @@ class TIX_Promoter_Auth {
 
     public static function detect_magic_link() {
         if (empty($_GET['tix_pauth'])) return;
+        // Promoter-Bereich im Studio (1.38.651): alte Links aus Mails weiterleiten, dort anmelden (Token statt WP-Cookie)
+        if (class_exists('TIX_Promoter_Portal')) {
+            wp_redirect(add_query_arg('legacy', rawurlencode(sanitize_text_field((string) $_GET['tix_pauth'])), TIX_Promoter_Portal::url('anmelden/')), 302, 'Tixomat');
+            exit;
+        }
 
         $token = sanitize_text_field((string) $_GET['tix_pauth']);
         $pid   = self::verify_magic_token($token);
@@ -335,6 +343,7 @@ class TIX_Promoter_Auth {
      * Priorisiert die Settings-Seite, fällt auf /promoter/-Slug zurück.
      */
     public static function get_promoter_page_url(): string {
+        if (class_exists('TIX_Promoter_Portal')) return TIX_Promoter_Portal::url(); // Studio-Domain (1.38.651)
         $s = function_exists('tix_get_settings') ? tix_get_settings() : get_option('tix_settings', []);
         $page_id = intval($s['promoter_page_id'] ?? 0);
         if ($page_id > 0) {

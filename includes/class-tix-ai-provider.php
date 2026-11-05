@@ -309,7 +309,8 @@ class TIX_AI_Provider {
             'daily_limit_eur' => $s['daily_limit_eur'],
             'effective' => $eff ? ['source' => $eff['source'], 'provider' => $eff['provider'], 'model' => $eff['model']] : null,
             'platform' => self::multi() ? ['available' => $site['key'] !== '', 'allowed' => $site['allow_platform'], 'provider' => $site['provider']] : null,
-            'allow_platform' => $org ? null : $site['allow_platform'], 'can_edit' => $org ? true : self::can_site(),
+            // nur auf der Plattform (evendis) – Einzel-Seiten null (Fund KK/Mallorca 2026-11-05: Studio schickte true zurück)
+            'allow_platform' => ($org || !self::multi()) ? null : $site['allow_platform'], 'can_edit' => $org ? true : self::can_site(),
             'providers' => $models, 'today' => ['requests' => $u['n'], 'cost_eur' => round($u['cost_eur'], 2)]]);
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -346,8 +347,8 @@ class TIX_AI_Provider {
             if ($l < 0 || $l > 1000) return new WP_Error('tix_invalid_field', 'Tageslimit: 0–1000 € (0 = ohne Limit).', ['status' => 400, 'field' => 'daily_limit_eur']);
             $set['daily_limit_eur'] = $l;
         }
-        if ($req->has_param('allow_platform')) {
-            if ($org || !current_user_can('manage_options') || !self::multi()) return new WP_Error('tix_invalid_field', 'Die Freigabe des Plattform-Schlüssels setzt nur der Admin der Plattform.', ['status' => 400, 'field' => 'allow_platform']);
+        if ($req->has_param('allow_platform') && $req->get_param('allow_platform') !== null && self::multi()) {
+            if ($org || !current_user_can('manage_options')) return new WP_Error('tix_invalid_field', 'Die Freigabe des Plattform-Schlüssels setzt nur der Admin der Plattform.', ['status' => 400, 'field' => 'allow_platform']);
             $set['allow_platform'] = rest_sanitize_boolean($req->get_param('allow_platform')) ? 1 : 0;
         }
         self::save($org, $set);

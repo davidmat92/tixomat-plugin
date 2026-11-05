@@ -4015,3 +4015,40 @@ Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anb
 - Inhaber-Namen folgen der Aufbewahrung der Bestellung.
 
 Tests: `tests/test-ticket-fields-wp.php` (36/36 Einzel-Seite, 38/38 Plattform).
+
+## 85. Promoter-Bereich im Studio ohne WordPress (ab 1.38.651)
+
+`TIX_Promoter_Portal` (`includes/class-tix-promoter-portal.php`). Der Bereich liegt immer unter der Studio-Domain der Seite: `TIX_Studio::base()` + `/promoter/`, ohne Option `studio.<Kunden-Host>`.
+
+**Anmeldung und Sitzung:**
+- Login-Link `…/promoter/anmelden/?t=<32 Zeichen>.<id>` und ein 6-stelliger Code per Mail (Layout `account`). Beide gelten 15 Minuten, nur einmal, höchstens 5 Code-Versuche.
+- Grenzen: höchstens 3 Mails je 15 Minuten und Promoter, Link-Anfragen 5 je IP und 3 je Adresse in 15 Minuten.
+- Danach ein eigenes Token `tp_…` (Kopfzeile `X-Tix-Promoter-Token` oder `Authorization: Bearer`), 90 Tage gültig. Es liegt nur als Hash in `{prefix}tix_promoter_tokens` und ist getrennt von Veranstalter-Konten.
+- Anmelden dürfen Promoter mit Status `active` oder `pending`.
+- **Umgeleitet werden:**
+  - „Zugang schicken“ im Studio, die alte Selbst-Anmeldung und das alte Login-Formular verschicken diese Mail.
+  - `get_promoter_page_url` zeigt auf das Studio.
+  - Alte Magic-Links (`?tix_pauth=`) gehen auf `…/promoter/anmelden/?legacy=…` und gelten dort, solange sie gültig sind.
+  - Die Seite mit `[tix_promoter_dashboard]` leitet auf `…/promoter/` um.
+- Deaktivieren, neue E-Mail und „Überall abmelden“ löschen alle Token.
+
+**Routen** (`/promoter/…`; 404 `tix_promoter_off`, wenn das Promoter-System aus ist):
+| Route | |
+|---|---|
+| `GET /promoter/site` (öffentlich) | `{enabled, self_signup, brand{name, logo, accent, site_url}, studio_url, multi, organizers[{id, name}]\|null (nur evendis mit Selbst-Anmeldung), cookie_days}` |
+| `POST /promoter/auth/link {email}` | immer `{sent: true, message}` (verrät nicht, ob es die Adresse gibt); 429 `tix_rate_limit` |
+| `POST /promoter/auth/confirm` | `{t}` \| `{email, code}` \| `{legacy}` → `{token, expires_at, promoter}`; 400 `tix_login_invalid` |
+| `POST /promoter/auth/logout` · `/logout-all` | dieses Token · alle Token (auch alte WP-Sitzungen) |
+| `GET /promoter/me` · `POST {name}` | `{id, name, email, code, status active\|pending, organizer{id, name}\|null, links{link, qr_link}, brand, payout_details}`; die E-Mail ändert nur der Veranstalter |
+| `GET /promoter/stats?from&to` | `{earnings{payable, waiting, in_payout, paid, total}, sales{orders, tickets, revenue}, clicks{total, visitors}, conversion (%), last_sale, upcoming[{id, title, date, image}]}` |
+| `GET /promoter/links` | `{pending, general{link, qr_link}, events[{event{id, title, date, time, location, image, url}, commission{type, value}, promo_code, discount{type, value}\|null, links{link, qr_link}}]}`, nur erlaubte kommende Events |
+| `GET /promoter/sales?from&to` | `{sales[{date, event_id, event_title, type sale\|refund\|chargeback, via link\|promo_code, tickets, revenue, commission, status, payable}], by_event[]}`, **ohne Käuferdaten und Bestellnummern** |
+| `GET /promoter/payouts` | wie `/organizer/promoter-payouts`, ohne Promoter-Namen |
+| `GET/POST /promoter/payout-details` | `{holder, iban, bic?}`, IBAN-Prüfung wie `TIX_Payout_Details`, verschlüsselt (Option `tix_promoter_payout_<id>`), dem Promoter nur gekürzt gezeigt; der Veranstalter sieht sie voll in `GET /organizer/promoters/{id}` (`payout_details`) |
+| `POST /promoter/signup {name, email, organizer_id (evendis)}` | nur mit Schalter `promoter_self_signup`; legt den Promoter mit Status **`pending`** an (Mail mit Login), gleiche Antwort für bekannte Adressen; 404 `tix_signup_off`, 5 je Stunde und IP. Freigabe im Studio: `POST /organizer/promoters/{id} {status: active}` schickt den Zugang (`access_sent`), die Liste filtert `status=pending` |
+
+Promoter mit `pending` haben keine Links (`links.pending = true`) und ordnen nicht zu: `get_promoter_by_code` zählt nur `active`.
+
+Tests: `tests/test-promoter-portal-wp.php` (28/28 Einzel-Seite, 30/30 Plattform).
+
+**KI (§83, 1.38.651):** `allow_platform` ist auf Einzel-Seiten `null`; ein zurückgeschickter Wert wird dort ignoriert (Fund KK/Mallorca).

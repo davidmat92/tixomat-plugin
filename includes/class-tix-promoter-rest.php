@@ -90,7 +90,7 @@ class TIX_Promoter_REST {
     private static function money($v) { return round(floatval($v), 2); }
 
     /** Kennzahlen je Promoter im Zeitraum (Provisionen ohne Stornos, Klicks) → [id => {...}] */
-    private static function stats(array $ids, $from, $to) {
+    public static function stats(array $ids, $from, $to) {
         global $wpdb;
         $out = [];
         if (!$ids) return $out;
@@ -146,7 +146,7 @@ class TIX_Promoter_REST {
         $org = self::org($req);
         $status = (string) ($req->get_param('status') ?: 'active');
         $sql = $wpdb->prepare("SELECT * FROM " . TIX_Promoter_DB::table_promoters() . " WHERE organizer_id = %d", $org);
-        if (in_array($status, ['active', 'inactive'], true)) $sql .= $wpdb->prepare(' AND status = %s', $status);
+        if (in_array($status, ['active', 'inactive', 'pending'], true)) $sql .= $wpdb->prepare(' AND status = %s', $status);
         $rows = (array) $wpdb->get_results($sql . ' ORDER BY display_name ASC, id ASC');
         list($from, $to) = self::period($req);
         $st = self::stats(array_map(function ($p) { return intval($p->id); }, $rows), $from, $to);
@@ -231,6 +231,8 @@ class TIX_Promoter_REST {
         $clicks = TIX_Promoter_DB::get_click_stats(intval($p->id));
         $out['clicks_by_day'] = array_map(function ($d) { return ['date' => (string) $d->click_date, 'clicks' => intval($d->clicks), 'visitors' => intval($d->uniques)]; }, (array) ($clicks['timeseries'] ?? []));
         $out['payouts'] = array_map([__CLASS__, 'payout_item'], (array) TIX_Promoter_DB::get_payouts(['promoter_id' => intval($p->id)]));
+        // Auszahlungsdaten des Promoters (aus seinem Bereich) – voll, weil der Veranstalter überweist
+        $out['payout_details'] = class_exists('TIX_Promoter_Portal') ? TIX_Promoter_Portal::payout_details(intval($p->id)) : null;
         $r = rest_ensure_response(['ok' => true, 'promoter' => $out]);
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -245,6 +247,7 @@ class TIX_Promoter_REST {
         if ($req->has_param('email')) { $e = strtolower(sanitize_email((string) $req->get_param('email'))); if ($req->get_param('email') !== '' && !is_email($e)) return self::bad('email', 'Bitte eine gültige E-Mail-Adresse angeben.'); $set['email'] = $e; }
         if ($req->has_param('notes')) $set['notes'] = mb_substr(sanitize_textarea_field((string) $req->get_param('notes')), 0, 1000);
         if ($req->has_param('status')) { $s = (string) $req->get_param('status'); if (!in_array($s, ['active', 'inactive'], true)) return self::bad('status', 'Status: active oder inactive.'); $set['status'] = $s; }
+        $approve = isset($set['status']) && $set['status'] === 'active' && $p->status === 'pending'; // Selbst-Anmeldung freigegeben
         if ($req->has_param('code')) {
             $c = strtolower(trim((string) $req->get_param('code')));
             if ($c !== $p->promoter_code) {
@@ -253,7 +256,9 @@ class TIX_Promoter_REST {
             }
         }
         if ($set) TIX_Promoter_DB::update_promoter(intval($p->id), $set);
-        return rest_ensure_response(['ok' => true, 'promoter' => self::item(TIX_Promoter_DB::get_promoter(intval($p->id)))]);
+        // Nach der Freigabe bekommt der Promoter seinen Zugang per Mail (Studio-Domain)
+        $sent = $approve && class_exists('TIX_Promoter_Portal') && TIX_Promoter_Portal::send_login(TIX_Promoter_DB::get_promoter(intval($p->id))) === true;
+        return rest_ensure_response(['ok' => true, 'promoter' => self::item(TIX_Promoter_DB::get_promoter(intval($p->id))), 'access_sent' => $sent]);
     }
 
     public static function rest_delete(WP_REST_Request $req) {
@@ -267,7 +272,7 @@ class TIX_Promoter_REST {
     public static function rest_access(WP_REST_Request $req) {
         $p = self::ready() ? self::own($req['id'], self::org($req)) : null;
         if (!$p) return self::nf();
-        if ($p->status !== 'active') return self::bad('status', 'Der Promoter ist deaktiviert.', 'tix_promoter_inactive', 409);
+        if (!in_array($p->status, ['active', 'pending'], true)) return self::bad('status', 'Der Promoter ist deaktiviert.', 'tix_promoter_inactive', 409);
         $r = TIX_Promoter_Auth::send_login_link($p);
         return is_wp_error($r) ? $r : rest_ensure_response(['ok' => true, 'sent' => true]);
     }

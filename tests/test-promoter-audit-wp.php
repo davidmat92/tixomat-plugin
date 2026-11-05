@@ -45,7 +45,7 @@ wp_set_current_user($owner);
 [$st, $r, $code] = pa_rest('POST', '/organizer/promoters', ['name' => 'Lisa Promo', 'email' => "lisa_$sfx@example.test", 'commission' => ['type' => 'percent', 'value' => 10], 'send_access' => true]);
 $P = $r['promoter'] ?? []; $pid = intval($P['id'] ?? 0); $proms[] = $pid;
 pa_eq('Anlegen: 201, Code erzeugt, Links mit ?ref=, Zugang verschickt', [201, true, true, true, true], [$st, (bool) preg_match('/^lisapromo\d+$/', $P['code'] ?? ''), strpos($P['links']['link'] ?? '', 'ref=' . ($P['code'] ?? 'x')) !== false, strpos($P['links']['qr_link'] ?? '', 'utm_medium=qr') !== false, $r['access_sent'] ?? false]);
-pa_eq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [($GLOBALS['pa_mails'][0]['to'] ?? '') === "lisa_$sfx@example.test", strpos((string) ($GLOBALS['pa_mails'][0]['message'] ?? ''), 'tix_pauth=') !== false]);
+pa_eq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [($GLOBALS['pa_mails'][0]['to'] ?? '') === "lisa_$sfx@example.test", strpos(html_entity_decode((string) ($GLOBALS['pa_mails'][0]['message'] ?? '')), '/promoter/anmelden/?t=') !== false]);
 pa_eq('Promoter gehört dem Bereich', $org, intval($wpdb->get_var($wpdb->prepare("SELECT organizer_id FROM $tp WHERE id = %d", $pid))));
 [$st, $d, $code] = pa_rest('POST', '/organizer/promoters', ['name' => 'Doppelt', 'email' => "lisa_$sfx@example.test"]);
 pa_eq('Gleiche E-Mail zweimal → 409', [409, 'tix_promoter_exists'], [$st, $code]);
