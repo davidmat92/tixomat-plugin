@@ -25,6 +25,55 @@ class TIX_Promoter_REST {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        // Selbst-Anmeldung: Veranstalter per Mail und Push informieren (1.38.660, vorher erfuhr er nichts)
+        add_action('tix_promoter_signup', [__CLASS__, 'notify_signup'], 10, 2);
+    }
+
+    /** Empfänger einer Veranstalter-Mitteilung: Inhaber (Plattform) bzw. Admin-Adresse der Seite */
+    private static function org_mail($org) {
+        if ($org && ($uid = intval(get_post_meta(intval($org), '_tix_org_user_id', true))) && ($u = get_userdata($uid)) && is_email($u->user_email)) return $u->user_email;
+        $s = function_exists('tix_get_settings') ? (array) tix_get_settings() : [];
+        $m = (string) ($s['promoter_notify_email'] ?? '');
+        return is_email($m) ? $m : (string) get_option('admin_email');
+    }
+
+    /** Neue Selbst-Anmeldung → Mail an den Veranstalter mit Knopf zur Freigabe, Push „Neue Promoter-Anmeldung“ */
+    public static function notify_signup($pid, $org = 0) {
+        $p = class_exists('TIX_Promoter_DB') ? TIX_Promoter_DB::get_promoter(intval($pid)) : null;
+        if (!$p || $p->status !== 'pending') return;
+        $org = intval($org);
+        $n = self::pending_count($org);
+        $url = class_exists('TIX_Studio') && TIX_Studio::active() ? TIX_Studio::url('/promoter-verwaltung/?status=pending') : admin_url('admin.php?page=tix-promoters');
+        if (class_exists('TIX_Mail_Layout')) {
+            $to = self::org_mail($org);
+            if (is_email($to)) TIX_Mail_Layout::send($to, 'Neue Promoter-Anmeldung: ' . $p->display_name, [
+                'title' => 'Neue Promoter-Anmeldung',
+                'blocks' => [['type' => 'html', 'html' => '<p><strong>' . esc_html($p->display_name) . '</strong> (' . esc_html((string) $p->email) . ') möchte als Promoter für dich werben.</p>'
+                    . '<p>Bis du freigibst, sieht die Person keine Links und verdient nichts.' . ($n > 1 ? ' Insgesamt warten ' . $n . ' Anmeldungen.' : '') . '</p>'
+                    . (class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::button('Anmeldung prüfen', $url) : '')]],
+                'kind' => 'admin',
+            ], ['customer' => false]);
+        }
+        if (class_exists('TIX_Staff_Push') && isset(TIX_Staff_Push::EVENTS['promoter_signup'])) {
+            TIX_Staff_Push::enqueue('promoter_signup', 0, ['name' => (string) $p->display_name] + ($org ? ['org' => $org] : []));
+        }
+    }
+
+    /** Anzahl wartender Selbst-Anmeldungen im Bereich */
+    public static function pending_count($org) {
+        global $wpdb;
+        if (!class_exists('TIX_Promoter_DB')) return 0;
+        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Promoter_DB::table_promoters() . " WHERE organizer_id = %d AND status = 'pending'", intval($org))));
+    }
+
+    /** GET /organizer/promoters/pending → {count, promoters[{id, name, email, created, notes}]} (Menü-Zähler „Wartet auf Freigabe“) */
+    public static function rest_pending(WP_REST_Request $req) {
+        if (!self::ready()) return new WP_Error('tix_unavailable', 'Promoter sind hier nicht verfügbar.', ['status' => 503]);
+        global $wpdb;
+        $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . TIX_Promoter_DB::table_promoters() . " WHERE organizer_id = %d AND status = 'pending' ORDER BY created_at ASC, id ASC LIMIT 200", self::org($req)));
+        $items = array_map(function ($p) { return ['id' => intval($p->id), 'name' => (string) $p->display_name, 'email' => (string) $p->email, 'code' => (string) $p->promoter_code,
+            'created' => $p->created_at ? mysql_to_rfc3339($p->created_at) : null, 'notes' => (string) ($p->notes ?? '')]; }, $rows);
+        return rest_ensure_response(['ok' => true, 'count' => count($items), 'promoters' => $items]);
     }
 
     public static function routes() {
@@ -32,6 +81,7 @@ class TIX_Promoter_REST {
         $r = function ($path, $methods, $cb) use ($p) { register_rest_route(self::NS, $path, ['methods' => $methods, 'callback' => [__CLASS__, $cb], 'permission_callback' => $p]); };
         $r('/organizer/promoters', 'GET', 'rest_list');
         $r('/organizer/promoters', 'POST', 'rest_create');
+        $r('/organizer/promoters/pending', 'GET', 'rest_pending');
         $r('/organizer/promoters/(?P<id>\d+)', 'GET', 'rest_get');
         $r('/organizer/promoters/(?P<id>\d+)', 'POST', 'rest_update');
         $r('/organizer/promoters/(?P<id>\d+)', 'DELETE', 'rest_delete');
@@ -81,10 +131,21 @@ class TIX_Promoter_REST {
         return class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to($u) : $u;
     }
 
-    /** Werbe-Links: link (Teilen), qr_link (für QR-Codes, Quelle „qr“ in der Statistik) */
-    public static function links($code, $url) {
-        return ['link' => add_query_arg('ref', $code, $url),
-            'qr_link' => add_query_arg(['ref' => $code, 'utm_source' => 'promoter', 'utm_medium' => 'qr', 'utm_campaign' => 'promoter-' . $code], $url)];
+    /**
+     * Werbe-Links: link (Teilen), qr_link (für QR-Codes, Quelle „qr“ in der Statistik).
+     * Mit Rabatt-Code (Promoter-Rabatt am Event) zusätzlich &coupon=, damit der Rabatt auch in der nativen Kasse,
+     * der App und auf den Marken-Websites ohne Eintippen greift (1.38.660).
+     */
+    public static function links($code, $url, $coupon = '') {
+        $q = ['ref' => $code] + ($coupon !== '' ? ['coupon' => $coupon] : []);
+        return ['link' => add_query_arg($q, $url),
+            'qr_link' => add_query_arg($q + ['utm_source' => 'promoter', 'utm_medium' => 'qr', 'utm_campaign' => 'promoter-' . $code], $url),
+            'coupon' => $coupon !== '' ? $coupon : null];
+    }
+
+    /** Rabatt-Code einer Zuordnung, wenn dort ein Rabatt gesetzt ist, sonst '' */
+    public static function link_coupon($a) {
+        return ($a && (string) ($a->promo_code ?? '') !== '' && (string) ($a->discount_type ?? '') !== '' && floatval($a->discount_value ?? 0) > 0) ? (string) $a->promo_code : '';
     }
 
     private static function money($v) { return round(floatval($v), 2); }
@@ -156,7 +217,7 @@ class TIX_Promoter_REST {
             $tot['commission_open'] += $i['commission']['open'] + $i['commission']['approved']; $tot['commission_paid'] += $i['commission']['paid']; $tot['balance'] += $i['balance']; $tot['balance_waiting'] += $i['balance_waiting']; }
         $tot = array_map(function ($v) { return is_float($v) ? round($v, 2) : $v; }, $tot);
         $s = function_exists('tix_get_settings') ? (array) tix_get_settings() : [];
-        $r = rest_ensure_response(['ok' => true, 'promoters' => $items, 'totals' => $tot, 'from' => $from ?: null, 'to' => $to ?: null,
+        $r = rest_ensure_response(['ok' => true, 'promoters' => $items, 'totals' => $tot, 'pending_count' => self::pending_count($org), 'from' => $from ?: null, 'to' => $to ?: null,
             'settings' => ['enabled' => !empty($s['promoter_enabled']), 'can_edit' => self::can_settings(), 'cookie_days' => intval($s['promoter_cookie_days'] ?? 30) ?: 30, 'consent_category' => 'marketing', 'self_signup' => !empty($s['promoter_self_signup']),
                 'dashboard_url' => class_exists('TIX_Promoter_Auth') ? TIX_Promoter_Auth::get_promoter_page_url() : '',
                 'default_commission' => ['type' => (string) ($s['promoter_default_commission_type'] ?? 'percent'), 'value' => floatval($s['promoter_default_commission_value'] ?? 0)],
@@ -221,7 +282,7 @@ class TIX_Promoter_REST {
             $url = $eid ? self::event_url($eid) : self::base();
             $out['assignments'][] = ['event_id' => $eid, 'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : 'Alle Events', 'event_date' => $eid ? (string) get_post_meta($eid, '_tix_date_start', true) : '',
                 'commission_type' => (string) $a->commission_type, 'commission_value' => floatval($a->commission_value), 'discount_type' => (string) $a->discount_type, 'discount_value' => floatval($a->discount_value),
-                'promo_code' => (string) $a->promo_code, 'links' => self::links($p->promoter_code, $url)];
+                'promo_code' => (string) $a->promo_code, 'links' => self::links($p->promoter_code, $url, $eid ? self::link_coupon($a) : '')];
         }
         $out['sales'] = array_map(function ($c) {
             return ['date' => mysql_to_rfc3339($c->created_at), 'event_id' => intval($c->event_id), 'event_title' => html_entity_decode((string) ($c->event_title ?: ''), ENT_QUOTES, 'UTF-8'), 'order_id' => intval($c->order_id),

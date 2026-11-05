@@ -117,8 +117,10 @@ pp_eq('… auch das über den alten Link', 401, $st);
 [$st, $d, $c] = pp_rest('POST', '/promoter/signup', ['name' => 'Neo Neu', 'email' => "neo_$sfx@example.test"] + ($multi ? [] : []));
 if ($multi) { pp_eq('Plattform: Veranstalter Pflicht', [400, 'organizer_id'], [$st, $d['data']['field'] ?? '']); [$st, $d] = pp_rest('POST', '/promoter/signup', ['name' => 'Neo Neu', 'email' => "neo_$sfx@example.test", 'organizer_id' => $org]); }
 $neo = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . TIX_Promoter_DB::table_promoters() . " WHERE email = %s", "neo_$sfx@example.test")); if ($neo) $proms[] = intval($neo->id);
-pp_eq('Selbst-Anmeldung: wartet auf Freigabe, Mail mit Studio-Link', [200, 'pending', $org, true], [$st, $neo->status ?? '', intval($neo->organizer_id ?? -1), strpos(html_entity_decode((string) (end($GLOBALS['pp_mails'])['message'] ?? '')), 'studio.seite.test/promoter/anmelden/') !== false]);
-preg_match('#letter-spacing:6px;[^>]*>(\d{6})<#', (string) (end($GLOBALS['pp_mails'])['message'] ?? ''), $nc);
+// an den Promoter (seit 1.38.660 geht danach noch die Mitteilung an den Veranstalter raus)
+$neo_mail = []; foreach ($GLOBALS['pp_mails'] as $mm) if (in_array("neo_$sfx@example.test", (array) $mm['to'], true)) $neo_mail = $mm;
+pp_eq('Selbst-Anmeldung: wartet auf Freigabe, Mail mit Studio-Link', [200, 'pending', $org, true], [$st, $neo->status ?? '', intval($neo->organizer_id ?? -1), strpos(html_entity_decode((string) ($neo_mail['message'] ?? '')), 'studio.seite.test/promoter/anmelden/') !== false]);
+preg_match('#letter-spacing:6px;[^>]*>(\d{6})<#', (string) ($neo_mail['message'] ?? ''), $nc);
 [$st, $nd] = pp_rest('POST', '/promoter/auth/confirm', ['email' => "neo_$sfx@example.test", 'code' => $nc[1] ?? '']);
 [$st, $nl] = pp_rest('GET', '/promoter/links', [], (string) ($nd['token'] ?? ''));
 pp_eq('Wartender Promoter kann sich anmelden, sieht aber keine Links', [200, true, []], [$st, $nl['pending'] ?? null, $nl['events'] ?? null]);

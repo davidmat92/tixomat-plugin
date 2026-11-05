@@ -318,6 +318,7 @@ class TIX_Promoter_Portal {
         if ($p->status !== 'active') return rest_ensure_response(['ok' => true, 'pending' => true, 'general' => null, 'events' => []]);
         $out = [];
         foreach (self::events($p) as $eid) {
+            if (TIX_Promoter::excluded_event($eid)) continue; // Gutschein-/Guthaben-System-Event
             $eff = TIX_Promoter::get_effective_commission(intval($p->id), $eid);
             if ($eff['source'] === 'none' && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) continue;
             $a = TIX_Promoter_DB::get_assignment_by_promoter_event(intval($p->id), $eid, true);
@@ -328,7 +329,7 @@ class TIX_Promoter_Portal {
                 'commission' => ['type' => $eff['type'], 'value' => floatval($eff['value'])],
                 'promo_code' => $a && $a->promo_code !== '' ? (string) $a->promo_code : null,
                 'discount' => $a && $a->discount_type !== '' ? ['type' => (string) $a->discount_type, 'value' => floatval($a->discount_value)] : null,
-                'links' => TIX_Promoter_REST::links((string) $p->promoter_code, $url)];
+                'links' => TIX_Promoter_REST::links((string) $p->promoter_code, $url, TIX_Promoter_REST::link_coupon($a))];
         }
         return rest_ensure_response(['ok' => true, 'pending' => false, 'general' => TIX_Promoter_REST::links((string) $p->promoter_code, self::site_base()), 'events' => $out]);
     }

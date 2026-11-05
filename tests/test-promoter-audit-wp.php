@@ -175,22 +175,26 @@ pa_eq('Login-Links: höchstens 3 je 15 Minuten → 429', [429, 'tix_rate_limit']
 if (!class_exists('TIX_Promoter_Signup')) require_once TIXOMAT_PATH . 'includes/class-tix-promoter-signup.php';
 add_filter('wp_doing_ajax', '__return_true');
 add_filter('wp_die_ajax_handler', function () { return function () { throw new Exception('die'); }; });
-$signup = function ($name, $email) {
-    $_POST = ['display_name' => $name, 'email' => $email]; $_REQUEST = $_POST + ['tix_ps_nonce' => wp_create_nonce('tix_promoter_signup')]; $_POST['tix_ps_nonce'] = $_REQUEST['tix_ps_nonce'];
+// seit 1.38.660 läuft der Formular-Weg über die Portal-Anmeldung: nur mit Selbst-Anmeldung, Status pending
+$pa_set = get_option('tix_settings', []); update_option('tix_settings', array_merge((array) $pa_set, ['promoter_enabled' => 1, 'promoter_self_signup' => 1]));
+$signup = function ($name, $email) use ($multi, $org) {
+    $_POST = ['display_name' => $name, 'email' => $email] + ($multi ? ['organizer_id' => $org] : []); $_REQUEST = $_POST + ['tix_ps_nonce' => wp_create_nonce('tix_promoter_signup')]; $_POST['tix_ps_nonce'] = $_REQUEST['tix_ps_nonce'];
     ob_start(); try { TIX_Promoter_Signup::handle_signup(); } catch (Exception $e) {} $o = ob_get_clean();
     return json_decode($o, true);
 };
 wp_set_current_user(0);
 $n0 = count($GLOBALS['pa_mails']);
 $res = $signup('Fremder', "pa_owner_$sfx@example.test");
-$row = TIX_Promoter_DB::get_promoter_by_email("pa_owner_$sfx@example.test");
+$row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $tp WHERE email = %s ORDER BY id DESC LIMIT 1", "pa_owner_$sfx@example.test")); // wartet (pending), get_promoter_by_email liefert nur aktive
 pa_eq('Anmeldung mit fremder Konto-E-Mail: kein Code in der Antwort, kein Konto-Link, Mail an die Adresse', [true, true, false, 0, true],
     [$res['success'] ?? false, !empty($res['data']['sent']), isset($res['data']['code']), intval($row->user_id ?? -1), count($GLOBALS['pa_mails']) > $n0]);
 if ($row) $proms[] = intval($row->id);
 $res2 = $signup('Neu', "neu_$sfx@example.test");
-$row2 = TIX_Promoter_DB::get_promoter_by_email("neu_$sfx@example.test");
+$row2 = $wpdb->get_row($wpdb->prepare("SELECT * FROM $tp WHERE email = %s ORDER BY id DESC LIMIT 1", "neu_$sfx@example.test"));
 pa_eq('Neue E-Mail: Promoter ohne WordPress-Konto angelegt (vorher Absturz: create_promoter fehlte)', [true, true, false], [$res2['success'] ?? false, (bool) $row2, (bool) get_user_by('email', "neu_$sfx@example.test")]);
 if ($row2) $proms[] = intval($row2->id);
+pa_eq('Formular-Weg legt nur wartende Promoter an', ['pending', 'pending'], [(string) ($row->status ?? ''), (string) ($row2->status ?? '')]);
+update_option('tix_settings', $pa_set);
 remove_all_filters('wp_doing_ajax');
 
 // ═══ Klicks: Bots zählen nicht ═══

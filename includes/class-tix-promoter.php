@@ -91,6 +91,17 @@ class TIX_Promoter {
         return (bool) $explicit;
     }
 
+    /**
+     * Kein Promoter-Event (1.38.660): System-Events für Geschenkgutscheine und Guthaben-Aufladungen. Dort gibt es nie
+     * Provision (sonst Provision beim Gutscheinkauf und noch einmal beim Einlösen; ohne Datum galt das Event als vorbei
+     * und die Provision sofort als auszahlbar).
+     */
+    public static function excluded_event($event_id) {
+        $event_id = intval($event_id);
+        if ($event_id <= 0) return false;
+        return get_post_meta($event_id, '_tix_system_giftcard_event', true) === '1' || get_post_meta($event_id, '_tix_system_wallet_event', true) === '1';
+    }
+
     /** Events, die der Promoter im Dashboard sieht (null = alle, Einzel-Seite) */
     public static function scope_event_ids($promoter) {
         if (!self::multi()) return null;
@@ -102,7 +113,7 @@ class TIX_Promoter {
                 ['key' => '_tix_organizer_id', 'value' => $org], ['key' => '_tix_co_organizer_id', 'value' => $org]]]);
             $ids = array_merge($ids, array_map('intval', $own));
         }
-        $ids = array_values(array_unique(array_filter($ids, function ($e) use ($promoter) { return self::event_allowed($promoter, $e, true); })));
+        $ids = array_values(array_unique(array_filter($ids, function ($e) use ($promoter) { return !self::excluded_event($e) && self::event_allowed($promoter, $e, true); })));
         return $ids ?: [0];
     }
 
@@ -426,6 +437,7 @@ class TIX_Promoter {
      *   source: 'event' | 'global' | 'settings' | 'none'
      */
     public static function get_effective_commission($promoter_id, $event_id) {
+        if (self::excluded_event($event_id)) return ['type' => 'percent', 'value' => 0, 'source' => 'none'];
         // Mehr-Veranstalter: nur bei erlaubten Events (sonst verdient ein Promoter an fremden Veranstaltern)
         if (self::multi() && class_exists('TIX_Promoter_DB') && $event_id > 0) {
             $p = TIX_Promoter_DB::get_promoter(intval($promoter_id));

@@ -4298,3 +4298,33 @@ Tests: `tests/test-artists-import-wp.php` (9/9 Einzel-Seite, 11/11 Plattform).
 Fehler am Feld: `send_at`, `relative_hours`, `event_id`; fremdes Event → 403.
 
 Tests: `tests/test-notif-schedule-wp.php` (19/19 Einzel-Seite, 21/21 Plattform).
+
+---
+
+## 90. Promoter-Ausbau (ab 1.38.660)
+
+Auftrag `uebergaben/auftrag-promoter-ausbau-2026-11-05.md`, Tests `tests/test-promoter-p1-wp.php` (Paket 1).
+
+### Paket 1 – Fehler (1.38.660)
+
+- **Rabatt per Link:** `TIX_Promoter_REST::links($code, $url, $coupon)` hängt bei einer Event-Zuordnung mit Rabatt (`promo_code` + `discount_type` + `discount_value` > 0) zusätzlich `&coupon=<promo_code>` an.
+  - Betroffen sind Link und QR-Link, die Antwort enthält `links.coupon` (sonst `null`).
+  - Gilt im Studio (`GET /organizer/promoters/{id}` → `assignments[].links`) und im Promoter-Bereich (`GET /promoter/links` → `events[].links`). Der allgemeine Link und „Alle Events“ tragen keinen Code.
+  - Die native Kasse kennt `?coupon=` schon (`TIX_Coupons::get_pending_coupon_code`, `resolve_coupon` → Promoter-Code). Websites und Apps tragen den Code ins Gutscheinfeld ein.
+- **Keine Provision auf System-Events:** `TIX_Promoter::excluded_event()` erfasst Events mit `_tix_system_giftcard_event` bzw. `_tix_system_wallet_event` = 1.
+  - `get_effective_commission()` liefert dort `none`, auch mit Zuordnung oder Vorgabe. In einer gemischten Bestellung gibt es Provision nur für die Tickets.
+  - Diese Events fehlen in den Event-Listen des Promoters und in der automatischen Zuordnung.
+  - Vorher entstand Provision beim Gutscheinkauf und noch einmal beim Einlösen. Ohne Datum galt das Event als vorbei, die Provision war sofort auszahlbar.
+- **Alter Formular-Weg geschlossen:** AJAX `tix_promoter_self_signup` (Shortcode, Danke-Seite) läuft jetzt über `TIX_Promoter_Portal::rest_signup`.
+  - Er braucht `promoter_enabled` und `promoter_self_signup`, auf der Plattform zusätzlich `organizer_id`.
+  - Der Promoter wartet auf Freigabe (`pending`), es gibt keine Event-Zuordnung und keinen Code in der Antwort.
+  - Ein angemeldeter, schon aktiver Promoter bekommt weiter seinen eigenen Link.
+- **Veranstalter erfährt von Anmeldungen:** Aktion `tix_promoter_signup` löst eine Mail an den Inhaber aus (Plattform) bzw. an `promoter_notify_email` oder die Admin-Adresse.
+  - Die Mail hat einen Knopf „Anmeldung prüfen“, der auf Studio `/promoter-verwaltung/?status=pending` führt.
+  - Dazu kommt das Team-Push-Ereignis `promoter_signup` („Neue Promoter-Anmeldung“, Gruppe Konto und Team).
+- **Wartet auf Freigabe:** `GET /organizer/promoters/pending` → `{count, promoters[{id, name, email, code, created, notes}]}` (Menü-Zähler). `GET /organizer/promoters` trägt zusätzlich `pending_count`.
+  - Freigeben: `POST /organizer/promoters/{id} {status: active}`, der Zugang geht per Mail raus.
+  - Ablehnen: `{status: inactive}`.
+- **Zuordnung aus der Kasse ohne Einwilligung:** `attribution.promoter_code` an `POST /customer/orders` ordnet nur diese eine Bestellung zu (Order-Meta `_tix_promoter_id`, `referral`).
+  - Es setzt kein Cookie und merkt sich nichts. Unbekannte bzw. inaktive Codes ordnen nichts zu, ein Promo-Code als Gutschein hat Vorrang.
+  - Websites schicken den Code ohne Einwilligung nur aus dem Speicher des Besuchs, mit Einwilligung aus dem Cookie (`cookie_days`).

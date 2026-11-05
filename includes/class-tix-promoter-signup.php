@@ -124,55 +124,29 @@ class TIX_Promoter_Signup {
     }
 
     /**
-     * AJAX: Self-Signup verarbeiten.
+     * AJAX: Self-Signup – seit 1.38.660 nur noch über den Portal-Weg (TIX_Promoter_Portal::rest_signup):
+     * Anmeldung nur mit Promoter-System und Selbst-Anmeldung, Status „wartet auf Freigabe“, keine Event-Zuordnung,
+     * Veranstalter wird benachrichtigt. Vorher legte dieser Weg Promoter ohne Prüfung direkt aktiv an.
+     * Angemeldete, schon aktive Promoter bekommen wie bisher ihren eigenen Link.
      */
     public static function handle_signup() {
         check_ajax_referer('tix_promoter_signup', 'tix_ps_nonce');
-
         $name  = sanitize_text_field($_POST['display_name'] ?? '');
         $email = strtolower(sanitize_email($_POST['email'] ?? ''));
-        if (is_user_logged_in()) $email = strtolower(wp_get_current_user()->user_email);
-
-        if (empty($name) || !is_email($email)) {
-            wp_send_json_error('Name und E-Mail sind erforderlich.');
-        }
-        if (!class_exists('TIX_Promoter_DB')) {
-            wp_send_json_error('Promoter-System nicht verfügbar.');
-        }
-        // Höchstens 5 Anmeldungen je Stunde und IP (1.38.643)
-        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('promoter_signup', 5, HOUR_IN_SECONDS)) {
-            wp_send_json_error('Zu viele Versuche – bitte später noch einmal.');
-        }
-
-        $sent = ['sent' => true, 'message' => 'Fast geschafft: Wir haben dir eine Mail mit dem Zugang zu deinem Promoter-Bereich geschickt. Dort findest du deinen Link und Code.'];
-
-        // Angemeldet: eigenes Konto (Code direkt anzeigen)
         if (is_user_logged_in()) {
-            $uid = get_current_user_id();
-            $existing = TIX_Promoter_DB::get_promoter_by_user($uid);
-            if ($existing) wp_send_json_success(['code' => $existing->promoter_code, 'link' => home_url('?ref=' . $existing->promoter_code)]);
-            $code = self::generate_code($name);
-            $pid = TIX_Promoter_DB::insert_promoter(['user_id' => $uid, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'active', 'notes' => 'Self-Signup']);
-            if (!$pid) wp_send_json_error('Promoter konnte nicht erstellt werden.');
-            self::auto_assign_events($pid, tix_get_settings());
-            wp_send_json_success(['code' => $code, 'link' => home_url('?ref=' . $code)]);
+            $email = strtolower(wp_get_current_user()->user_email);
+            $existing = class_exists('TIX_Promoter_DB') ? TIX_Promoter_DB::get_promoter_by_user(get_current_user_id()) : null;
+            if ($existing && $existing->status === 'active') wp_send_json_success(['code' => $existing->promoter_code, 'link' => home_url('?ref=' . $existing->promoter_code)]);
         }
-
-        // Nicht angemeldet: nie einen Code für eine fremde Adresse zeigen und kein WordPress-Konto anlegen (vorher: jede
-        // E-Mail wurde mit einem bestehenden Konto verknüpft, ein bestehender Code ausgegeben). Den Zugang bekommt nur,
-        // wer das Postfach hat (Login-Link).
-        $existing = TIX_Promoter_DB::get_promoter_by_email($email);
-        if (!$existing && ($u = get_user_by('email', $email))) $existing = TIX_Promoter_DB::get_promoter_by_user($u->ID);
-        if ($existing) {
-            if ($existing->status === 'active' && class_exists('TIX_Promoter_Auth')) TIX_Promoter_Auth::send_login_link($existing);
-            wp_send_json_success($sent);
-        }
-        $code = self::generate_code($name);
-        $pid = TIX_Promoter_DB::insert_promoter(['user_id' => 0, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'active', 'notes' => 'Self-Signup']);
-        if (!$pid) wp_send_json_error('Promoter konnte nicht erstellt werden.');
-        self::auto_assign_events($pid, tix_get_settings());
-        if (class_exists('TIX_Promoter_Auth')) TIX_Promoter_Auth::send_login_link(TIX_Promoter_DB::get_promoter($pid));
-        wp_send_json_success($sent);
+        if (!class_exists('TIX_Promoter_Portal')) wp_send_json_error('Promoter-System nicht verfügbar.');
+        $req = new WP_REST_Request('POST', '/tixomat/v1/promoter/signup');
+        $req->set_param('name', $name);
+        $req->set_param('email', $email);
+        if (isset($_POST['organizer_id'])) $req->set_param('organizer_id', absint($_POST['organizer_id']));
+        $r = TIX_Promoter_Portal::rest_signup($req);
+        if (is_wp_error($r)) wp_send_json_error($r->get_error_message());
+        $d = $r instanceof WP_REST_Response ? $r->get_data() : (array) $r;
+        wp_send_json_success(['sent' => true, 'message' => (string) ($d['message'] ?? '')]);
     }
 
     /**
@@ -225,7 +199,12 @@ class TIX_Promoter_Signup {
             .then(function(res) {
                 var el = document.getElementById('tix-ps-quick-result');
                 el.style.display = 'block';
-                if (res.success) {
+                if (res.success && !res.data.link) {
+                    var box = document.createElement('div');
+                    box.style.cssText = 'padding:16px;background:rgba(76,175,80,.08);border-radius:8px;border:1px solid rgba(76,175,80,.2)';
+                    box.textContent = res.data.message || 'Danke! Wir haben dir eine Mail geschickt.';
+                    btn.parentNode.replaceChildren(box);
+                } else if (res.success) {
                     btn.parentNode.innerHTML = '<div style="padding:16px;background:rgba(76,175,80,.08);border-radius:8px;border:1px solid rgba(76,175,80,.2)"><p style="margin:0 0 8px;font-weight:700;color:#2e7d32">✓ Dein Empfehlungslink:</p><input type="text" value="' + res.data.link + '" readonly onclick="this.select();document.execCommand(\'copy\')" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:6px;text-align:center;font-size:.85rem;cursor:pointer" title="Klicken zum Kopieren"></div>';
                 } else {
                     el.textContent = res.data || 'Fehler.';
@@ -351,6 +330,7 @@ class TIX_Promoter_Signup {
         $commission_value = floatval($s['promoter_signup_commission_value'] ?? 2);
 
         foreach ($events as $event_id) {
+            if (class_exists('TIX_Promoter') && TIX_Promoter::excluded_event($event_id)) continue;
             TIX_Promoter_DB::assign_event([
                 'promoter_id'      => $promoter_id,
                 'event_id'         => $event_id,

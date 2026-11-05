@@ -62,6 +62,7 @@ class TIX_Staff_Push {
         'settlement'    => ['Abrechnung und Auszahlung', 'account', true, 'platform'],
         'approval'      => ['Konto-Prüfung', 'account', true, 'platform'],
         'team'          => ['Team-Einladung angenommen', 'account', true, null],
+        'promoter_signup' => ['Neue Promoter-Anmeldung', 'account', true, null],
     ];
     const GROUPS = ['sales' => 'Weitere Verkäufe', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team'];
     /** Bezeichnungen (Bestand: Schlüssel → Text) */
@@ -71,6 +72,7 @@ class TIX_Staff_Push {
         'guestlist' => 'Tischanfragen', 'waitlist' => 'Warteliste', 'raffle' => 'Gewinnspiel-Teilnahmen (gesammelt)',
         'music' => 'Musikwünsche (am Eventtag)', 'support' => 'Neue Kundenanfrage', 'awareness' => 'Awareness-Meldung',
         'settlement' => 'Abrechnung und Auszahlung', 'approval' => 'Konto-Prüfung', 'team' => 'Team-Einladung angenommen',
+        'promoter_signup' => 'Neue Promoter-Anmeldung',
     ];
     /** Gesammelt (stündlich), nicht sofort */
     const BATCH = ['raffle', 'wallet_topup'];
@@ -573,6 +575,12 @@ class TIX_Staff_Push {
                 $title = $site . ' · Team';
                 $names = array_values(array_filter(array_map(function ($e) { return (string) ($e['x']['name'] ?? ''); }, $list)));
                 $body = ($names ? implode(', ', array_slice($names, 0, 3)) : 'Ein Teammitglied') . ($n === 1 ? ' hat die Einladung angenommen.' : ' haben die Einladung angenommen.');
+                $action = 'staff:start';
+                break;
+            case 'promoter_signup':
+                $title = $site . ' · Promoter';
+                $names = array_values(array_filter(array_map(function ($e) { return (string) ($e['x']['name'] ?? ''); }, $list)));
+                $body = ($names ? implode(', ', array_slice($names, 0, 3)) : 'Jemand') . ($n === 1 ? ' möchte als Promoter werben – bitte freigeben.' : ' möchten als Promoter werben – bitte freigeben.');
                 $action = 'staff:start';
                 break;
             default:
