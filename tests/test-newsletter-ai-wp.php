@@ -102,6 +102,8 @@ ai_eq('Betreff: erfundener Preis und „Ballermann“ entfernt', ['Die Sommerpar
 ai_eq('Betreff: Zeichenzahl und Hinweis „zu lang“', [false, true, 60], [$r['subjects'][0]['too_long'], $r['subjects'][1]['too_long'], $r['subjects'][0]['max']]);
 ai_eq('Vorschautexte: Link entfernt, richtige Uhrzeiten bleiben', ['Zwei DJs, eine Bühne, eine Nacht – sichere dir dein Ticket.', 'Einlass ab 21 Uhr, los geht es um 22 Uhr.'], array_column((array) $r['preheaders'], 'text'));
 $fly = $r['drafts'][0]; $cmp = $r['drafts'][1]; $sto = $r['drafts'][2];
+$bt = array_column((array) ($fly['blocks'] ?? []), 'type');
+ai_eq('Entwürfe liefern Blöcke des Baukastens (gültig, Überschrift, Event, Gutschein)', [false, 'heading', true, true], [is_wp_error(TIX_Newsletter_Blocks::sanitize((array) ($fly['blocks'] ?? []))), $bt[0] ?? '', in_array('event', $bt, true), in_array('coupon', $bt, true)]);
 $c = (string) $fly['content'];
 $url = get_permalink($ev);
 ai_eq('Fakten aus den Daten: Datum, Uhrzeit, Ort, Code, Rabatt, Preise', [true, true, true, true, true, true, true],

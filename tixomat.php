@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.653
+ * Version: 1.38.654
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.653');
+define('TIXOMAT_VERSION', '1.38.654');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -762,6 +762,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-short-links.php'; // Stufe 2: Ku
 require_once TIXOMAT_PATH . 'includes/class-tix-platform-stats.php'; // Stufe 4: Plattform-Sicht GET /platform/stats (nur evendis, nur Admins)
 require_once TIXOMAT_PATH . 'includes/class-tix-newsletter.php'; // Modul Marketing: Newsletter über Brevo (Double-Opt-in, Kampagnen, Testversand, Öffnungen/Klicks, Käufe über UTM)
 require_once TIXOMAT_PATH . 'includes/class-tix-newsletter-ai.php'; // Newsletter mit KI: Texte von der KI, HTML aus festen Bausteinen, Fakten nur aus echten Daten, Tageslimit je Veranstalter
+require_once TIXOMAT_PATH . 'includes/class-tix-newsletter-blocks.php'; // Baukasten für Newsletter (Blöcke als JSON, Rendern aus TIX_Mail_Layout, Mediathek, Vorlagen, Prüfhinweise)
 require_once TIXOMAT_PATH . 'includes/class-tix-ticket-fields.php'; // Personalisierte Tickets und Zusatzfragen (Inhaber je Ticket, Fragen, Altersbestätigung, Antworten verschlüsselt mit Löschfrist)
 TIX_Studio_Stats::init();
 // ── Info-Abschnitte (Reihenfolge, Künstler-Info, Barrierefreiheit) + Textfelder im Editor (1.38.455) ──

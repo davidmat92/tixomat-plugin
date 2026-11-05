@@ -4052,3 +4052,49 @@ Promoter mit `pending` haben keine Links (`links.pending = true`) und ordnen nic
 Tests: `tests/test-promoter-portal-wp.php` (28/28 Einzel-Seite, 30/30 Plattform).
 
 **KI (§83, 1.38.651):** `allow_platform` ist auf Einzel-Seiten `null`; ein zurückgeschickter Wert wird dort ignoriert (Fund KK/Mallorca).
+
+## 86. Newsletter-Baukasten (ab 1.38.654)
+
+`TIX_Newsletter_Blocks` (`includes/class-tix-newsletter-blocks.php`).
+- **Kampagnen:** speichern Blöcke als JSON in der Spalte `blocks` (DB-Version 2). Das HTML rendert der Server beim Versand frisch aus `TIX_Mail_Layout`: Marke, Dark Mode, Tabellen, kein freies CSS.
+- **`content`:** hält zusätzlich das gerenderte HTML für Prüfung und Altbestand.
+- **Alte Kampagnen:** Ohne `blocks` liefern sie `editor: "html"` und einen HTML-Block.
+- **Personalisierung:** `{Vorname|Ersatz}` wird zu `{{ contact.FIRSTNAME | default: "Ersatz" }}`.
+- **KI-Entwürfe:** Der Generator (§80) liefert `drafts[].blocks` mit denselben Blöcken; `content` und `html` entstehen daraus.
+
+**Blöcke** (jeder mit `id` und `style {bg #RRGGBB, padding none|s|m|l, align left|center|right}`):
+| Typ | Felder |
+|---|---|
+| `heading` | `text` (Pflicht), `level 1\|2`, `badge`, `hero` |
+| `text` | `html`: nur p, br, strong, b, em, i, u, a[href], ul, ol, li, span[style] |
+| `image` | `src`, `alt`, `link`, `width full\|half` |
+| `image_text` | `src`, `alt`, `link`, `html`, `image_side left\|right` |
+| `button` | `label`, `url` (http(s), mailto, tel, /), `color` |
+| `divider` · `spacer` | – · `height 8–96` |
+| `video` | `url` (YouTube → Vorschaubild automatisch), `src`, `alt` |
+| `quote` | `text`, `author` |
+| `columns` | `left[]`, `right[]` (nur heading, text, image, button, divider, spacer) |
+| `html` | `html` (`wp_kses_post`, Altbestand) |
+| `event` | `event_id`, `button`, `show_image` |
+| `events` | `mode pick\|upcoming`, `event_ids[]`, `limit 1–12`, `show_images` |
+| `coupon` | `code` (echter Gutschein des Bereichs, abgelaufen bzw. aufgebraucht → entfällt), `event_id`, `button` |
+| `lineup` · `program` · `prices` · `directions` · `gallery` | `event_id`, `button`; Fakten aus der Event-API |
+| `app` · `social` | aus der Marke (App-Store-Links, Social) |
+
+Bis zu 80 Blöcke. Prüffehler kommen als 400 `tix_invalid_field` mit `data.field` = `blocks.<n>.<feld>`.
+
+**Routen** (Modul Marketing):
+| Route | |
+|---|---|
+| `POST /marketing/newsletter/campaigns[/{id}] {…, blocks}` | speichert Blöcke. `GET …/{id}` liefert `editor`, `blocks`, `content` |
+| `POST /marketing/newsletter/campaigns/{id}/duplicate` | Entwurf „Kopie von …“ → 201 |
+| `POST /marketing/newsletter/render {blocks, subject?, preheader?, campaign_id?}` | Live-Vorschau `{blocks (bereinigt), content, html (Vorname als Ersatztext, Abmeldelink #), size_kb, warnings[{code, message, block?}]}` |
+| `GET /marketing/newsletter/media?source=library\|flyers\|gallery&q&page` | `{items[{id, url, thumb, width, height, alt, source, event_id?, event_title?}], has_more, max_width}` |
+| `POST /marketing/newsletter/media` | multipart `file` oder `{data (Base64/data-URL), filename}`, optional `crop{x,y,w,h}` (px), `alt`. Verkleinert auf 1200 px, JPEG (Qualität 82; WebP wird zu JPEG, weil Outlook es nicht zeigt), PNG/GIF bleiben PNG. Ablage `uploads/tix-newsletter/<Bereich>/`, Anhang mit Meta `_tix_nl_media`; höchstens 10 MB; 201 `{item}` |
+| `POST /marketing/newsletter/media/{id} {alt}` · `DELETE …/{id}` | nur eigene Mediathek |
+| `GET /marketing/newsletter/templates` | `{builtin[{key event\|overview\|voucher\|thanks\|app, name, blocks}], own[]}` |
+| `POST /marketing/newsletter/templates {name, blocks \| campaign_id}` · `DELETE …/{key}` | eigene Vorlagen, höchstens 30 je Bereich (409 `tix_tpl_full`) |
+
+**Prüfhinweise** (`warnings[].code`): `subject_missing`, `subject_long` (> 60), `preheader_long` (> 110), `alt_missing`, `link_test`, `link_broken`, `spam_word`, `spam_style`, `too_big` (> 100 KB, Gmail kürzt), `empty`.
+
+Tests: `tests/test-newsletter-blocks-wp.php` (27/27 Einzel-Seite, 28/28 Plattform), Newsletter-KI 43/45.

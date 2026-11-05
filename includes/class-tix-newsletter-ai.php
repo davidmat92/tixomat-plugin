@@ -265,8 +265,9 @@ class TIX_Newsletter_AI {
             $subject = $out['subjects'][0]['text'] ?? ($events[0]['title'] ?? $ctx['name']);
             $pre = $out['preheaders'][0]['text'] ?? '';
             foreach ($keys as $k) {
-                $content = self::build($k, (array) ($by[$k] ?? []), $ctx, $facts, $removed);
-                $out['drafts'][] = ['key' => $k, 'name' => self::DRAFTS[$k], 'content' => $content, 'html' => self::preview($content, $subject, $pre, $org, $cid), 'text' => self::text($content)];
+                $blocks = self::build_blocks($k, (array) ($by[$k] ?? []), $ctx, $facts, $removed);
+                $content = class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::render($blocks, $org) : '';
+                $out['drafts'][] = ['key' => $k, 'name' => self::DRAFTS[$k], 'blocks' => $blocks, 'content' => $content, 'html' => self::preview($content, $subject, $pre, $org, $cid, $blocks), 'text' => self::text($content)];
             }
         }
         $u = self::usage($org);
@@ -454,7 +455,7 @@ class TIX_Newsletter_AI {
     }
 
     /** Daten-Baustein → Layout-Bausteine; leer, wenn die Daten fehlen */
-    private static function data_block($type, array $blk, array $ctx, array $f, &$removed, $variant) {
+    public static function data_block($type, array $blk, array $ctx, array $f, &$removed, $variant) {
         $ev = $ctx['events'];
         $e = $ev[0] ?? null;
         $acc = (string) ($ctx['brand']['accent'] ?? '#FC2F55');
@@ -549,25 +550,24 @@ class TIX_Newsletter_AI {
     }
 
     /** Ein Entwurf → Inhalt (HTML ohne Gerüst, für das Feld content der Kampagne) */
-    public static function build($variant, array $d, array $ctx, array $f, &$removed) {
+    /**
+     * Ein Entwurf → Blöcke des Baukastens (1.38.654): dieselben Blöcke wie im Editor, damit der Entwurf voll bearbeitbar ist.
+     * Texte sind geprüft (Fakten, Begriffe); Daten-Blöcke tragen nur Verweise (Event, Gutschein), die Fakten kommen beim Rendern.
+     */
+    public static function build_blocks($variant, array $d, array $ctx, array $f, &$removed) {
         $ev = $ctx['events'];
         $e = $ev[0] ?? null;
-        $b = $ctx['brand'];
-        $acc = (string) ($b['accent'] ?? '#FC2F55');
-        $on = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::on_color($acc) : '#FFFFFF';
-        $blocks = [];
+        $eid = $e ? intval($e['id']) : 0;
+        $out = [];
         $badge = self::line($d['badge'] ?? '', 30);
         if ($badge !== '' && self::violates($badge, $f)) { $removed++; $badge = ''; }
         $head = self::line($d['headline'] ?? '', 80);
         if ($head === '' || self::violates($head, $f)) { if ($head !== '') $removed++; $head = $e ? $e['title'] : self::GOALS[$ctx['goal']]; }
-        $hero = '';
-        if ($variant === 'flyer' && $e && $e['image'] !== '') $hero .= '<img src="' . esc_url($e['image']) . '" width="568" alt="' . esc_attr($e['title']) . '" class="tm-img" style="display:block;width:100%;max-width:568px;height:auto;border:0;border-radius:12px;margin:0 0 18px;">';
-        if ($badge !== '') $hero .= '<div style="margin:0 0 10px;"><span style="display:inline-block;background:' . $acc . ';color:' . $on . ';font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 12px;border-radius:999px;">' . self::e($badge) . '</span></div>';
-        $size = $variant === 'compact' ? 24 : 28;
-        $hero .= '<h1 class="tm-title tm-nl-hero" style="margin:0 0 14px;font-size:' . $size . 'px;line-height:' . intval($size * 1.2) . 'px;font-weight:800;">' . self::e($head) . '</h1>';
-        $greet = $ctx['address'] === 'sie' ? 'Guten Tag,' : 'Hallo {{ contact.FIRSTNAME | default: "du" }},';
+        if ($variant === 'flyer' && $e && $e['image'] !== '') $out[] = ['type' => 'image', 'src' => $e['image'], 'alt' => $e['title'], 'link' => $e['url']];
+        $out[] = ['type' => 'heading', 'text' => $head, 'level' => 1, 'badge' => $badge, 'hero' => true];
+        $greet = $ctx['address'] === 'sie' ? 'Guten Tag,' : 'Hallo {Vorname|du},';
         $intro = self::clean($d['intro'] ?? '', $f, $removed, $variant === 'story' ? 900 : 450);
-        $blocks[] = ['type' => 'text', 'html' => $hero . '<p style="margin:0 0 12px;">' . $greet . '</p>' . self::paras($intro)];
+        $out[] = ['type' => 'text', 'html' => '<p style="margin:0 0 12px;">' . $greet . '</p>' . self::paras($intro)];
 
         // Bausteine in der Reihenfolge der KI; Daten-Bausteine nur mit Daten, jeder höchstens einmal (Text beliebig oft)
         $seen = [];
@@ -583,7 +583,6 @@ class TIX_Newsletter_AI {
         if ($ctx['coupon']) $need[] = 'coupon';
         if (count($ev) > 1) $need[] = 'events'; elseif ($e) $need[] = 'event';
         foreach ($ctx['include'] as $k) $need[] = $k;
-        // Fehlende Pflicht-Bausteine: Event-Karte bzw. Liste und Gutschein vorn (nach der Einleitung), Wunsch-Inhalte hinten
         $front = [];
         foreach ($need as $t) {
             if (isset($seen[$t])) continue;
@@ -592,22 +591,44 @@ class TIX_Newsletter_AI {
         }
         $order = array_merge($front, $order);
         if (isset($seen['events'])) $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'event'; }));
-        // Kompakt: keine Galerie, keine langen Texte
         if ($variant === 'compact') $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'gallery'; }));
-        foreach ($order as $blk) foreach (self::data_block($blk['type'], $blk, $ctx, $f, $removed, $variant) as $x) $blocks[] = $x;
-
+        $avail = self::available($ctx);
+        foreach ($order as $blk) {
+            $t = (string) $blk['type'];
+            if ($t !== 'text' && !in_array($t, $avail, true)) continue;
+            $heading = self::line($blk['heading'] ?? '', 60);
+            if ($heading !== '' && self::violates($heading, $f)) { $removed++; $heading = ''; }
+            $text = self::clean($blk['text'] ?? '', $f, $removed, 500);
+            $btn = self::line($blk['button'] ?? '', 28);
+            if ($btn !== '' && self::violates($btn, $f)) { $removed++; $btn = ''; }
+            if ($heading !== '') $out[] = ['type' => 'heading', 'text' => $heading, 'level' => 2];
+            if ($text !== '') $out[] = ['type' => 'text', 'html' => self::paras($text)];
+            if ($t === 'text') continue;
+            if ($heading === '' && in_array($t, ['lineup', 'program', 'prices', 'directions'], true)) $out[] = ['type' => 'heading', 'text' => ['lineup' => 'Line-up', 'program' => 'Programm', 'prices' => 'Tickets & Preise', 'directions' => 'Anfahrt'][$t], 'level' => 2];
+            if ($t === 'events') $out[] = ['type' => 'events', 'mode' => 'pick', 'event_ids' => array_map(function ($x) { return intval($x['id']); }, $ev), 'show_images' => $variant !== 'compact'];
+            elseif ($t === 'event') $out[] = ['type' => 'event', 'event_id' => $eid, 'button' => $btn, 'show_image' => $variant !== 'flyer'];
+            elseif ($t === 'coupon') $out[] = ['type' => 'coupon', 'code' => $ctx['coupon']['code'], 'event_id' => $eid, 'button' => $btn];
+            elseif ($t === 'app' || $t === 'social') $out[] = ['type' => $t];
+            elseif ($eid) $out[] = ['type' => $t, 'event_id' => $eid, 'button' => $btn];
+        }
         $closing = self::clean($d['closing'] ?? '', $f, $removed, 300);
         $sig = ($ctx['address'] === 'sie' ? 'Ihr' : 'Dein') . ' Team von ' . $ctx['name'];
-        $blocks[] = ['type' => 'text', 'html' => self::paras($closing) . '<p style="margin:0 0 4px;font-weight:700;">' . self::e($sig) . '</p>'];
-        $html = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::blocks_html($blocks) : implode('', array_map(function ($x) { return (string) ($x['html'] ?? ''); }, $blocks));
-        return str_replace(["\r", "\n"], '', $html);
+        $out[] = ['type' => 'text', 'html' => self::paras($closing) . '<p style="margin:0 0 4px;"><strong>' . self::e($sig) . '</strong></p>'];
+        $b = class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::sanitize($out) : $out;
+        return is_wp_error($b) ? [] : $b;
+    }
+
+    /** Ein Entwurf → Inhalt (HTML ohne Gerüst), gerendert aus den Blöcken */
+    public static function build($variant, array $d, array $ctx, array $f, &$removed) {
+        $blocks = self::build_blocks($variant, $d, $ctx, $f, $removed);
+        return class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::render($blocks, intval($ctx['org'] ?? 0)) : '';
     }
 
     /** Vorschau wie im Postfach (Gerüst, Fuß mit Abmeldelink und Impressum, Links mit UTM) */
-    private static function preview($content, $subject, $pre, $org, $cid) {
+    private static function preview($content, $subject, $pre, $org, $cid, array $blocks = []) {
         if (!class_exists('TIX_Newsletter')) return $content;
-        $html = TIX_Newsletter::html(['id' => $cid, 'organizer_id' => $org, 'subject' => $subject, 'preheader' => $pre, 'content' => $content]);
-        return str_replace(['{{ unsubscribe }}', '{{ contact.FIRSTNAME | default: "du" }}'], ['#', 'du'], $html);
+        $html = TIX_Newsletter::html(['id' => $cid, 'organizer_id' => $org, 'subject' => $subject, 'preheader' => $pre, 'content' => $content, 'blocks' => $blocks ? wp_json_encode($blocks) : null]);
+        return TIX_Newsletter::preview_html($html);
     }
 
     /** Text-Fassung (für Studio und Prüfung) */

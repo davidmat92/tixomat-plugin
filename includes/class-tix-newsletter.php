@@ -25,7 +25,7 @@ class TIX_Newsletter {
 
     const NS = 'tixomat/v1';
     const API = 'https://api.brevo.com/v3';
-    const DB_VERSION = '1';
+    const DB_VERSION = '2'; // 2 = Spalte blocks (Baukasten, 1.38.654)
     const OPT = 'tix_nl_settings';
     const META = '_tix_nl_settings';
     const CRON = 'tix_nl_cron';
@@ -80,6 +80,7 @@ class TIX_Newsletter {
             subject VARCHAR(200) NOT NULL DEFAULT '',
             preheader VARCHAR(200) NOT NULL DEFAULT '',
             content LONGTEXT NOT NULL,
+            blocks LONGTEXT NULL,
             audience VARCHAR(16) NOT NULL DEFAULT 'contacts',
             event_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             brevo_list_src BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -172,6 +173,7 @@ class TIX_Newsletter {
         $r('/marketing/newsletter/campaigns/(?P<id>\d+)/test', 'POST', 'rest_test', $mod);
         $r('/marketing/newsletter/campaigns/(?P<id>\d+)/send', 'POST', 'rest_send', $mod);
         $r('/marketing/newsletter/campaigns/(?P<id>\d+)/cancel', 'POST', 'rest_cancel', $mod);
+        $r('/marketing/newsletter/campaigns/(?P<id>\d+)/duplicate', 'POST', 'rest_duplicate', $mod);
         $pub = '__return_true';
         $r('/public/nl/consent', 'GET', 'rest_public_consent', $pub);
         $r('/public/nl/subscribe', 'POST', 'rest_subscribe', $pub);
@@ -507,7 +509,14 @@ class TIX_Newsletter {
     private static function fields(WP_REST_Request $req, $org) {
         $set = [];
         foreach (['name' => 120, 'subject' => 200, 'preheader' => 200] as $f => $len) if ($req->has_param($f)) $set[$f] = mb_substr(trim(wp_strip_all_tags((string) $req->get_param($f))), 0, $len);
-        if ($req->has_param('content')) $set['content'] = wp_kses_post((string) $req->get_param('content'));
+        if ($req->has_param('content')) { $set['content'] = wp_kses_post((string) $req->get_param('content')); if (!$req->has_param('blocks')) $set['blocks'] = null; }
+        // Baukasten (1.38.654): Blöcke als JSON; content = gerendertes HTML (für Prüfung und Altbestand), beim Versand frisch gerendert
+        if ($req->has_param('blocks') && class_exists('TIX_Newsletter_Blocks')) {
+            $b = TIX_Newsletter_Blocks::sanitize($req->get_param('blocks'));
+            if (is_wp_error($b)) return [null, $b];
+            $set['blocks'] = wp_json_encode($b);
+            $set['content'] = TIX_Newsletter_Blocks::render($b, $org);
+        }
         if ($req->has_param('audience')) {
             $a = (string) $req->get_param('audience');
             if (!in_array($a, ['contacts', 'event', 'brevo_list'], true)) return [null, self::bad('audience', 'Bitte eine Zielgruppe wählen.')];
@@ -583,11 +592,37 @@ class TIX_Newsletter {
     }
 
     /** GET …/preview → {html, subject} – so, wie die Mail bei Brevo ankommt (Abmeldelink als Platzhalter) */
+    /** Vorschau: Abmeldelink als #, Vorname-Platzhalter als Ersatztext */
+    public static function preview_html($html) {
+        $html = str_replace('{{ unsubscribe }}', '#', (string) $html);
+        return preg_replace('/\{\{\s*contact\.FIRSTNAME\s*\|\s*default:\s*"([^"]*)"\s*\}\}/', '$1', $html);
+    }
+
+    /** Blöcke einer Kampagne (für „als Vorlage speichern“) */
+    public static function campaign_blocks($id, $org) {
+        $c = self::get($id, $org);
+        if (!$c) return null;
+        $bl = !empty($c['blocks']) ? json_decode((string) $c['blocks'], true) : null;
+        return is_array($bl) ? $bl : (class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::from_legacy($c['content']) : []);
+    }
+
+    /** POST …/campaigns/{id}/duplicate → neuer Entwurf mit gleichem Inhalt und gleicher Zielgruppe */
+    public static function rest_duplicate(WP_REST_Request $req) {
+        global $wpdb;
+        $org = self::org($req);
+        $c = self::get($req['id'], $org);
+        if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
+        $row = ['organizer_id' => $org, 'name' => mb_substr('Kopie von ' . $c['name'], 0, 120), 'subject' => $c['subject'], 'preheader' => $c['preheader'], 'content' => $c['content'], 'blocks' => $c['blocks'],
+            'audience' => $c['audience'], 'event_id' => $c['event_id'], 'brevo_list_src' => $c['brevo_list_src'], 'status' => 'draft', 'created_by' => get_current_user_id(), 'created' => self::now(), 'updated' => self::now()];
+        $wpdb->insert(self::tk(), $row);
+        return new WP_REST_Response(['ok' => true, 'campaign' => self::out(self::get($wpdb->insert_id, $org), true)], 201);
+    }
+
     public static function rest_preview(WP_REST_Request $req) {
         $org = self::org($req);
         $c = self::get($req['id'], $org);
         if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
-        return rest_ensure_response(['ok' => true, 'subject' => $c['subject'], 'html' => str_replace('{{ unsubscribe }}', '#', self::html($c))]);
+        return rest_ensure_response(['ok' => true, 'subject' => $c['subject'], 'html' => self::preview_html(self::html($c))]);
     }
 
     private static function out(array $c, $full, $sales = null) {
@@ -600,7 +635,13 @@ class TIX_Newsletter {
             'utm_campaign' => 'nl-' . intval($c['id']), 'stats' => is_array($st) ? $st : null, 'stats_at' => $c['stats_at'] ? mysql_to_rfc3339($c['stats_at']) : null,
             'orders' => $sales ? $sales['orders'] : ($c['status'] === 'sent' ? 0 : null), 'tickets' => $sales ? $sales['tickets'] : ($c['status'] === 'sent' ? 0 : null),
             'revenue' => $sales ? $sales['revenue'] : ($c['status'] === 'sent' ? 0.0 : null), 'updated' => mysql_to_rfc3339($c['updated'])];
-        if ($full) $o['content'] = $c['content'];
+        if ($full) {
+            $o['content'] = $c['content'];
+            // Baukasten: Blöcke; alte Kampagnen erscheinen als ein HTML-Block (editor = html)
+            $bl = !empty($c['blocks']) ? json_decode((string) $c['blocks'], true) : null;
+            $o['editor'] = is_array($bl) ? 'blocks' : 'html';
+            $o['blocks'] = is_array($bl) ? $bl : (class_exists('TIX_Newsletter_Blocks') ? TIX_Newsletter_Blocks::from_legacy($c['content']) : []);
+        }
         return $o;
     }
 
@@ -654,9 +695,11 @@ class TIX_Newsletter {
         $org = intval($c['organizer_id']);
         $s = self::settings($org);
         $addr = $s['address'] !== '' ? $s['address'] : self::default_address($org);
-        $content = self::tag_links(wpautop((string) $c['content']), $c['id']);
+        $bl = !empty($c['blocks']) && class_exists('TIX_Newsletter_Blocks') ? json_decode((string) $c['blocks'], true) : null;
+        // Baukasten: frisch aus den Blöcken (Event-Daten, Gutschein aktuell), ohne wpautop
+        $content = self::tag_links(is_array($bl) ? TIX_Newsletter_Blocks::render($bl, $org) : wpautop((string) $c['content']), $c['id']);
         $note = 'Du bekommst diese Mail, weil du dich für den Newsletter von ' . esc_html(self::owner_name($org)) . ' angemeldet hast. <a href="{{ unsubscribe }}" style="text-decoration:underline;">Abmelden</a><br>' . esc_html($addr);
-        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render(['title' => (string) $c['subject'], 'hide_title' => strpos($content, 'tm-nl-hero') !== false, 'preheader' => (string) $c['preheader'], 'kind' => 'promo', 'blocks' => [['type' => 'html', 'html' => $content]], 'note' => $note]);
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render(['title' => (string) $c['subject'], 'hide_title' => is_array($bl) || strpos($content, 'tm-nl-hero') !== false, 'preheader' => (string) $c['preheader'], 'kind' => 'promo', 'blocks' => [['type' => 'html', 'html' => $content]], 'note' => $note]);
         return '<!doctype html><html><body>' . $content . '<p>' . $note . '</p></body></html>';
     }
 
