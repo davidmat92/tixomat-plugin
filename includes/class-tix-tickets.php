@@ -6934,6 +6934,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                 if (!empty($meta['group_member'])) {
                     update_post_meta($ticket_id, '_tix_group_member', sanitize_text_field($meta['group_member']));
                 }
+                // Personalisierte Tickets (1.38.647): Inhaber und Antworten aus der Kasse (TIX_Ticket_Fields)
+                do_action('tix_native_ticket_created', $ticket_id, $order_id, $event_id, $cat_index, $i);
 
                 // Ticket-DB (denormalisierte Tabelle)
                 if (class_exists('TIX_Ticket_DB')) {

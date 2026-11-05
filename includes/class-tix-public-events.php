@@ -265,6 +265,8 @@ class TIX_Public_Events {
             $out['specials']    = self::html($id, '_tix_info_specials');
             $out['extra_info']  = self::html($id, '_tix_info_extra_info');
             $out['gallery']     = self::gallery($id);
+            // Personalisierte Tickets und Zusatzfragen (1.38.647): null = keine Abfrage in der Kasse
+            $out['ticket_fields'] = class_exists('TIX_Ticket_Fields') ? TIX_Ticket_Fields::public_config($id) : null;
             // Optionale Inhalte (1.38.351, App-Vertrag: nur ergänzt) – leer/null, wenn nicht gepflegt
             if (class_exists('TIX_Event_Extras')) {
                 $notes = TIX_Event_Extras::notes($id);

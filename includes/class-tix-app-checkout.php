@@ -892,6 +892,8 @@ class TIX_App_Checkout {
             'price'          => floatval($m('_tix_ticket_price')),
             'purchased'      => (string) $post->post_date,
             'owner_name'     => (string) $m('_tix_ticket_owner_name'),
+            // Personalisierte Tickets (1.38.647): Inhaber und ob ein Pflicht-Name noch fehlt (Knopf „Name eintragen“)
+            'holder'         => class_exists('TIX_Ticket_Fields') ? TIX_Ticket_Fields::customer_holder($id) : null,
             // Sponsor-Logo auf dem Ticket und ob die App „Ticket umschreiben“ anbieten darf
             'sponsor'        => ($event_id && class_exists('TIX_Event_Extras')) ? TIX_Event_Extras::ticket_sponsor($event_id) : null,
             'can_transfer'   => class_exists('TIX_Ticket_Transfer') && TIX_Ticket_Transfer::can_transfer($id),
@@ -1471,6 +1473,12 @@ class TIX_App_Checkout {
         if ($seat_holder !== '' && ($serr = TIX_Seatmap::secure_cart($cart['items'], $seat_holder))) {
             return self::error('tix_seat_taken', $serr, 409);
         }
+        // Personalisierte Tickets und Zusatzfragen (1.38.647): Pflichtangaben prüfen
+        $ticket_plan = null;
+        if (class_exists('TIX_Ticket_Fields')) {
+            list($ticket_plan, $tf_err) = TIX_Ticket_Fields::validate_request($cart['items'], $req);
+            if ($tf_err) return $tf_err;
+        }
 
         // Gast: optional gleich ein Konto anlegen (wie „Konto anlegen“ im Web-Checkout,
         // aber mit eigenem Passwort → sofort angemeldet, Tickets in der App)
@@ -1522,6 +1530,7 @@ class TIX_App_Checkout {
             }
         }
         if ($seat_holder !== '') TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
+        if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
         if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
         if (!self::$partner) self::apply_attribution($order_id, $req->get_param('attribution'), $cart);

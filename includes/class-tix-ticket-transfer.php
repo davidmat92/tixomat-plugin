@@ -396,6 +396,8 @@ class TIX_Ticket_Transfer {
         $status = (string) (get_post_meta($ticket_id, '_tix_ticket_status', true) ?: 'valid');
         if (!in_array($status, ['valid', 'transferred'], true)) return false;
         if ((string) get_post_meta($ticket_id, '_tix_ticket_checked_in', true) === '1') return false;
+        // Personalisierte Tickets (1.38.647): Regel des Events (erlaubt, bis X Stunden vorher, nie)
+        if (class_exists('TIX_Ticket_Fields') && TIX_Ticket_Fields::transfer_allowed($ticket_id) !== true) return false;
         return true;
     }
 

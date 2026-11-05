@@ -3958,3 +3958,57 @@ Den Bereich der Anfrage bestimmt das angemeldete Konto, beim Assistenten der Ver
 Die bisherige Route `/studio/ai` (Modell der Plugin-Einstellungen, nur Admin) bleibt.
 
 Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anbieter nachgebildet).
+## 84. Personalisierte Tickets und Zusatzfragen (ab 1.38.647)
+
+`TIX_Ticket_Fields` (`includes/class-tix-ticket-fields.php`). Plan und Entscheidungen des Users: `uebergaben/plan-personalisierte-tickets-2026-11-05.md`.
+
+**Einstellung** (eigene am Event `_tix_ticket_fields`, sonst Vorgabe je Veranstalter `_tix_ticket_fields_default` bzw. auf der Einzel-Seite die Option `tix_ticket_fields_default`):
+```json
+{ "personalize": "off|optional|required", "categories": [1], "ask_email": true, "age_confirm": 0|16|18,
+  "questions": [{"key": "q1", "label": "…", "type": "text|textarea|select|radio|checkbox|date|phone|accessibility", "options": [],
+                 "required": true, "scope": "ticket|order", "categories": [], "help": "", "max": 200, "at_checkin": false}],
+  "transfer": "allowed|until_hours|never", "transfer_hours": 24, "retention_days": 30 }
+```
+- `categories` leer bedeutet alle Kategorien.
+- Höchstens 10 Fragen; select und radio brauchen 2–20 Antworten.
+- `accessibility` hat den festen Text „Ich brauche einen barrierefreien Platz“.
+- Fragen nach besonders geschützten Daten erzeugen `warnings` (gespeichert wird trotzdem).
+- **`required` gilt überall ohne Ausnahme**, auch an Studio- und App-Kasse.
+
+**Routen:**
+| Route | |
+|---|---|
+| `GET/POST /events/{id}/ticket-fields` | `{inherit, config, default, warnings, types}`; POST `{config}` oder `{inherit: true}` (Vorgabe übernehmen); ändern dürfen nur Inhaber und Team-Admin |
+| `GET/POST /organizer/ticket-fields-default` | `{config, set, warnings}`; POST `{config}` oder `{clear: true}` |
+| `GET /events/{id}/attendees[?format=csv]` | Teilnehmerliste `{attendees[]{ticket_id, code, category, first_name, last_name, name, email (nur Inhaber/Team-Admin), personalized, checked_in, order_id, answers{}, order_answers{}}}`; CSV als Base64 `{filename, mime, data}` (Fragen als Spalten, Formel-Zeichen entschärft) |
+| `POST /tickets/{id}/holder` | Team korrigiert `{first_name, last_name, email?, answers{}}` |
+| `POST /customer/tickets/{id}/holder` | Käufer trägt nach bzw. ändert (angemeldet als Käufer oder `key` = Bestell-Schlüssel), bis zum Einlass. Ein anderer Name unterliegt der Umschreibe-Regel; 409 `tix_holder_locked`, 403 `tix_transfer`, 20 Anfragen je 10 min |
+
+**Kasse** (`POST /customer/orders`, `POST /pos/orders`):
+- Neue Felder:
+  - `holders[]` `{event_id?, index (Kategorie), first_name, last_name, email?, answers{}}` in Reihenfolge je Event und Kategorie;
+  - `answers{}` für Bestellfragen (flach oder `{"e<event_id>": {…}}`);
+  - `age_confirmed`.
+- Fehler 400 mit `data {event_id, index, seq, field}`: `tix_holder_missing`, `tix_answer_invalid`, `tix_age_confirm`.
+- Gutschein-, Guthaben- und Tisch-Zeilen sind keine Tickets.
+
+**Ablage und Anzeige:**
+- **Daten:**
+  - Der Inhaber steht in `_tix_ticket_owner_first_name`, `_last_name` und `_name` sowie `_tix_ticket_personalized`.
+  - Die Inhaber-E-Mail liegt in `_tix_ticket_holder_email`; `_tix_ticket_owner_email` bleibt der Käufer, damit „Meine Tickets“ und das Konto unverändert funktionieren.
+  - Die Antworten stehen **verschlüsselt** (`TIX_Ad_Accounts::enc`) in `{prefix}tix_answers` mit `expires_at` = Event-Ende + `retention_days`.
+  - Bis zur Ticket-Erzeugung liegt der Plan verschlüsselt in der Option `_tix_order_holders_<id>`, die Altersbestätigung in `_tix_order_age_<id>`.
+- **Wo es erscheint:**
+  - Ticket-Erzeugung über den Hook `tix_native_ticket_created` (neu in `TIX_Tickets::on_native_order_completed`).
+  - `GET /public/events/{id}` liefert `ticket_fields` (null ohne Abfrage).
+  - „Meine Tickets“ liefert `holder {name, first_name, last_name, personalized, mode, missing, editable}`.
+  - `POST /checkin/scan` liefert `holder {name, personalized, check_id, age_confirmed, answers[] (nur at_checkin)}`.
+
+**Umschreiben:** `TIX_Ticket_Transfer::can_transfer` beachtet `transfer`. Beim Umschreiben werden die alten Antworten gelöscht.
+
+**Löschen:**
+- Der Cron `tix_ticket_fields_daily` löscht abgelaufene Antworten und die Zwischenablage.
+- Bei Konto-Löschung werden die Antworten der Bestellungen sofort gelöscht.
+- Inhaber-Namen folgen der Aufbewahrung der Bestellung.
+
+Tests: `tests/test-ticket-fields-wp.php` (33/33 Einzel-Seite, 35/35 Plattform).

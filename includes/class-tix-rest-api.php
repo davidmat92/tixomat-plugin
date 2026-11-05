@@ -2228,6 +2228,13 @@ class TIX_REST_API {
         $name_parts = preg_split('/\s+/', trim($customer_name !== '' ? $customer_name : 'Kasse'), 2);
         $staff      = wp_get_current_user();
 
+        // Personalisierte Tickets (1.38.647): auch an der Kasse Pflicht, ohne Ausnahme (User 2026-11-05)
+        $ticket_plan = null;
+        if (class_exists('TIX_Ticket_Fields')) {
+            list($ticket_plan, $tf_err) = TIX_Ticket_Fields::validate($cart['items'], $body['holders'] ?? null, $body['answers'] ?? null, $body['age_confirmed'] ?? false);
+            if ($tf_err) return $tf_err;
+        }
+
         // Kassenbon mit TSE über eine angebundene Kasse (Degaso, 1.38.557): Fehler = kein Verkauf, nie still ohne Bon
         $receipt = apply_filters('tix_pos_sign_sale', null, ['event_id' => $event_id, 'event_title' => $event_title, 'items' => $cart['items'],
             'subtotal' => round($subtotal, 2), 'discount' => $discount, 'total' => $total, 'payment' => $payment, 'coupon' => $coupon_info]);
@@ -2257,6 +2264,7 @@ class TIX_REST_API {
             return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);
+        if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
         if ($receipt) do_action('tix_pos_signed', $order_id, $receipt);
         self::pos_meta($order_id, array_filter([
             'payment'    => $payment,
