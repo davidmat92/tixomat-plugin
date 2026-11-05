@@ -575,12 +575,13 @@ class TIX_App_Checkout {
             $holder = class_exists('TIX_Seatmap') ? TIX_Seatmap::app_holder($hold_token) : '';
             if ($holder === '') return self::error('tix_hold_token', 'Sitzplätze bitte zuerst über /customer/seats/hold reservieren (hold_token fehlt).');
             $sm   = TIX_Seatmap::event_seatmap($event_id);
-            $data = $sm ? TIX_Seatmap::data($sm) : null;
+            $data = $sm ? TIX_Seatmap::event_data($event_id) : null;
             if (!$data) return self::error('tix_no_seatmap', 'Für dieses Event gibt es keinen Saalplan.');
+            if (!TIX_Seatmap::module_on($event_id)) return self::error('tix_module_disabled', 'Die Platzwahl ist für dieses Event nicht verfügbar.', 403);
             $by_section = [];
             foreach (array_unique($seats) as $sid) {
                 $sec = TIX_Seatmap::section_of($data, $sid);
-                if (!$sec) return self::error('tix_seat', 'Platz ' . TIX_Seatmap::seat_label($sid) . ' ist nicht buchbar.');
+                if (!$sec) return self::error('tix_seat', 'Platz ' . TIX_Seatmap::seat_label($sid, $data) . ' ist nicht buchbar.');
                 $by_section[$sec['id']][] = $sid;
             }
             foreach ($by_section as $sec_seats) {
@@ -1241,7 +1242,7 @@ class TIX_App_Checkout {
             // Mengenrabatt-Staffeln {tiers[{min_qty, percent}], combine_bundle, combine_combo, combine_phase} oder null
             'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
             // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen, items[] {seats: [...]} + hold_token
-            'seatmap'         => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0,
+            'seatmap'         => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0 && TIX_Seatmap::module_on($event_id),
             // Kombi-Tickets: Bestellung mit items[] {combo_id, qty}
             'combos'          => self::combos($event_id),
             // Extras (Specials): Bestellung mit items[] {special_id, qty}

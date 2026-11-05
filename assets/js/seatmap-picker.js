@@ -70,6 +70,18 @@
             }
             state.seatmap = res.data.seatmap;
             state.taken   = res.data.taken || [];
+            if (res.data.max_seats) maxSeats = Math.min(maxSeats, parseInt(res.data.max_seats) || maxSeats);
+            // eigene, noch gültige Haltungen wieder als gewählt zeigen
+            (res.data.held || []).forEach(function(id) { if (state.selected.indexOf(id) === -1) state.selected.push(id); });
+            // Lesbare Bezeichnungen aus dem Plan (Reihe/Platz)
+            state.labels = {};
+            (state.seatmap.sections || []).forEach(function(sec) {
+                (sec.rows || []).forEach(function(row) {
+                    (row.seats || []).forEach(function(seat) {
+                        state.labels[seat.id] = (row.label || ('Reihe ' + row.id)) + ', Platz ' + (seat.label || String(seat.id).replace(/^.*?(\d+)$/, '$1'));
+                    });
+                });
+            });
 
             // Preis-Daten aus Seatmap-Sektionen befüllen (falls nicht via data-sections übergeben)
             if (sectionsData.length === 0 && state.seatmap.sections) {
@@ -96,110 +108,28 @@
             var stageText = state.seatmap.stage_label || 'BÜHNE';
             var isLayoutMode = (layout !== 'theater');
 
-            // Overview Map (nur bei nicht-Theater-Layout)
-            if (isLayoutMode) {
-                html += renderOverviewMap(stageText);
-            } else {
-                // Theater: Stage oben
-                html += '<div class="tix-sp-stage">' + esc(stageText) + '</div>';
-            }
-
-            // Legend mit Preisen
+            // Legende mit Preisen
             html += '<div class="tix-sp-legend">';
             var shownSections = {};
             (state.seatmap.sections || []).forEach(function(section) {
                 if (sectionId && section.id !== sectionId) return;
                 if (shownSections[section.id]) return;
                 shownSections[section.id] = true;
-
                 var info = sectionLookup[section.id] || {};
                 var price = info.price || section.price || 0;
                 var color = section.color || '#FF5500';
                 var label = info.label || section.category_name || section.label || section.id;
-
                 html += '<span class="tix-sp-legend-item">' +
-                    '<span class="tix-sp-legend-dot" style="background:' + color + '"></span> ' +
-                    esc(label);
-                if (price > 0) {
-                    html += ' <span class="tix-sp-legend-price">' + formatPrice(price) + '</span>';
-                }
+                    '<span class="tix-sp-legend-dot" style="background:' + color + '"></span> ' + esc(label);
+                if (price > 0) html += ' <span class="tix-sp-legend-price">' + formatPrice(price) + '</span>';
                 html += '</span>';
             });
             html += '<span class="tix-sp-legend-item"><span class="tix-sp-legend-dot taken"></span> Belegt</span>';
             html += '<span class="tix-sp-legend-item"><span class="tix-sp-legend-dot selected"></span> Gewählt</span>';
             html += '</div>';
 
-            // Sections
-            html += '<div class="tix-sp-sections">';
-            (state.seatmap.sections || []).forEach(function(section) {
-                // Filter: nur gewünschte Sektion zeigen (wenn angegeben)
-                if (sectionId && section.id !== sectionId) return;
-
-                var color = section.color || '#FF5500';
-                var info  = sectionLookup[section.id] || {};
-                var label = info.label || section.category_name || section.label || section.id;
-                var price = info.price || section.price || 0;
-                var avail = 0;
-                (section.rows || []).forEach(function(r) {
-                    (r.seats || []).forEach(function(s) {
-                        if (s.type !== 'blocked' && state.taken.indexOf(s.id) === -1) avail++;
-                    });
-                });
-
-                html += '<div class="tix-sp-section" id="tix-sp-sec-' + section.id + '" style="--section-color:' + color + '">';
-                html += '<div class="tix-sp-section-header">' +
-                    '<span class="tix-sp-section-dot" style="background:' + color + '"></span>' +
-                    '<span class="tix-sp-section-name">' + esc(label) + '</span>';
-                if (price > 0) {
-                    html += '<span class="tix-sp-section-price">' + formatPrice(price) + '</span>';
-                }
-                html += '<span class="tix-sp-section-avail">' + avail + ' frei</span>';
-                html += '</div>';
-
-                (section.rows || []).forEach(function(row) {
-                    html += '<div class="tix-sp-row">';
-                    html += '<span class="tix-sp-row-label">' + esc(row.id) + '</span>';
-                    html += '<div class="tix-sp-row-seats">';
-
-                    (row.seats || []).forEach(function(seat) {
-                        var isTaken    = state.taken.indexOf(seat.id) !== -1;
-                        var isSelected = state.selected.indexOf(seat.id) !== -1;
-                        var isBlocked  = seat.type === 'blocked';
-                        var cls = 'tix-sp-seat';
-
-                        if (seat.type === 'vip') cls += ' vip';
-                        if (seat.type === 'wheelchair') cls += ' wheelchair';
-
-                        if (isBlocked) {
-                            cls += ' blocked';
-                        } else if (isTaken) {
-                            cls += ' taken';
-                        } else if (isSelected) {
-                            cls += ' selected';
-                        } else {
-                            cls += ' available';
-                        }
-
-                        var seatNum = seat.id.replace(/^.*?(\d+)$/, '$1');
-                        var tooltip = esc(formatSeatId(seat.id));
-                        if (price > 0 && !isTaken && !isBlocked) {
-                            tooltip += ' · ' + formatPrice(price);
-                        }
-
-                        html += '<button type="button" class="' + cls + '" ' +
-                            'data-seat-id="' + esc(seat.id) + '" ' +
-                            'data-section-id="' + esc(section.id) + '" ' +
-                            (isTaken || isBlocked ? 'disabled ' : '') +
-                            'title="' + tooltip + '">' +
-                            seatNum + '</button>';
-                    });
-
-                    html += '</div></div>'; // row-seats, row
-                });
-
-                html += '</div>'; // section
-            });
-            html += '</div>'; // sections
+            // Plan als SVG nach den echten Koordinaten (1.38.659)
+            html += renderSvg(stageText);
 
             // Selection Info
             if (state.selected.length > 0) {
@@ -224,7 +154,10 @@
             // Bind Seat Events
             container.querySelectorAll('.tix-sp-seat.available, .tix-sp-seat.selected').forEach(function(btn) {
                 btn.addEventListener('click', function() {
-                    toggleSeat(btn.dataset.seatId);
+                    toggleSeat(btn.dataset.seatId || btn.getAttribute('data-seat-id'));
+                });
+                btn.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSeat(btn.getAttribute('data-seat-id')); }
                 });
             });
 
@@ -259,6 +192,70 @@
 
             // Modal-Footer aktualisieren
             updateModalFooter();
+        }
+
+        // ── SVG-Plan ──
+        function renderSvg(stageText) {
+            var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+            var secs = (state.seatmap.sections || []).filter(function(s) { return !sectionId || s.id === sectionId; });
+            secs.forEach(function(sec) {
+                (sec.rows || []).forEach(function(r) {
+                    (r.seats || []).forEach(function(seat) {
+                        minx = Math.min(minx, seat.x); maxx = Math.max(maxx, seat.x);
+                        miny = Math.min(miny, seat.y); maxy = Math.max(maxy, seat.y);
+                    });
+                });
+            });
+            var objs = sectionId ? [] : (state.seatmap.objects || []);
+            objs.forEach(function(o) {
+                var w = (o.w || 0) / 2, h = (o.h || 0) / 2;
+                minx = Math.min(minx, o.x - w); maxx = Math.max(maxx, o.x + w);
+                miny = Math.min(miny, o.y - h); maxy = Math.max(maxy, o.y + h);
+            });
+            if (!isFinite(minx)) return '<div class="tix-sp-loading">Keine Plätze.</div>';
+            var pad = 24, r = 10;
+            var vb = (minx - pad) + ' ' + (miny - pad) + ' ' + (maxx - minx + 2 * pad) + ' ' + (maxy - miny + 2 * pad);
+            var out = '<div class="tix-sp-svg-wrap"><svg class="tix-sp-svg" viewBox="' + vb + '" role="group" aria-label="Saalplan">';
+            objs.forEach(function(o) {
+                var cls = 'tix-sp-obj tix-sp-obj-' + (o.type || 'area');
+                out += '<g class="' + cls + '"' + (o.angle ? ' transform="rotate(' + o.angle + ' ' + o.x + ' ' + o.y + ')"' : '') + '>';
+                if (o.w && o.h) out += '<rect x="' + (o.x - o.w / 2) + '" y="' + (o.y - o.h / 2) + '" width="' + o.w + '" height="' + o.h + '" rx="8"' + (o.color ? ' style="fill:' + o.color + '"' : '') + '></rect>';
+                var lbl = o.label || (o.type === 'stage' ? stageText : '');
+                if (o.type === 'standing' && o.capacity) lbl += ' · ' + o.capacity;
+                if (lbl) out += '<text x="' + o.x + '" y="' + o.y + '" text-anchor="middle" dominant-baseline="central">' + esc(lbl) + '</text>';
+                out += '</g>';
+            });
+            secs.forEach(function(sec) {
+                var color = sec.color || '#FF5500';
+                var info  = sectionLookup[sec.id] || {};
+                var price = info.price || sec.price || 0;
+                (sec.tables || []).forEach(function(t) {
+                    out += t.shape === 'rect'
+                        ? '<rect class="tix-sp-table" x="' + (t.x - t.w / 2) + '" y="' + (t.y - t.h / 2) + '" width="' + t.w + '" height="' + t.h + '" rx="6"' + (t.angle ? ' transform="rotate(' + t.angle + ' ' + t.x + ' ' + t.y + ')"' : '') + '></rect>'
+                        : '<circle class="tix-sp-table" cx="' + t.x + '" cy="' + t.y + '" r="' + t.r + '"></circle>';
+                    out += '<text class="tix-sp-table-label" x="' + t.x + '" y="' + t.y + '" text-anchor="middle" dominant-baseline="central">' + esc(t.label || '') + '</text>';
+                });
+                (sec.rows || []).forEach(function(row) {
+                    (row.seats || []).forEach(function(seat) {
+                        var isTaken    = state.taken.indexOf(seat.id) !== -1;
+                        var isSelected = state.selected.indexOf(seat.id) !== -1;
+                        var isBlocked  = seat.type === 'blocked';
+                        var st = isBlocked ? 'blocked' : (isTaken ? 'taken' : (isSelected ? 'selected' : 'available'));
+                        var tip = formatSeatId(seat.id);
+                        if (price > 0 && st === 'available') tip += ' · ' + formatPrice(price);
+                        out += '<g class="tix-sp-seat ' + st + (seat.type === 'vip' ? ' vip' : '') + (seat.type === 'wheelchair' ? ' wheelchair' : '') + '"' +
+                            ' data-seat-id="' + esc(seat.id) + '" data-section-id="' + esc(sec.id) + '"' +
+                            (st === 'available' || st === 'selected' ? ' role="button" tabindex="0" aria-pressed="' + (isSelected ? 'true' : 'false') + '"' : ' aria-disabled="true"') +
+                            ' aria-label="' + esc(tip) + '" style="--section-color:' + color + '">' +
+                            '<title>' + esc(tip) + '</title>' +
+                            '<circle cx="' + seat.x + '" cy="' + seat.y + '" r="' + r + '"></circle>' +
+                            (seat.type === 'wheelchair' ? '<text x="' + seat.x + '" y="' + seat.y + '" text-anchor="middle" dominant-baseline="central">♿</text>' : '') +
+                            '</g>';
+                    });
+                });
+            });
+            out += '</svg></div>';
+            return out;
         }
 
         // ── Overview Map ──
@@ -419,6 +416,20 @@
                     } else {
                         render();
                     }
+                } else {
+                    // abgelehnt (belegt oder Obergrenze erreicht): Auswahl zurücknehmen, Hinweis zeigen
+                    var i = state.selected.indexOf(seatId);
+                    if (i !== -1) state.selected.splice(i, 1);
+                    var d = res.data || {};
+                    if (!d.code && state.taken.indexOf(seatId) === -1) state.taken.push(seatId);
+                    render();
+                    var msg = (d && d.message) ? d.message : 'Dieser Platz ist leider nicht mehr frei.';
+                    var note = document.createElement('div');
+                    note.className = 'tix-sp-notice';
+                    note.setAttribute('role', 'alert');
+                    note.textContent = msg;
+                    container.insertBefore(note, container.firstChild);
+                    setTimeout(function() { if (note.parentNode) note.parentNode.removeChild(note); }, 5000);
                 }
             });
         }
@@ -531,8 +542,8 @@
 
         // ── Helpers ──
         function formatSeatId(id) {
-            // section_1_A3 → A3
-            var parts = id.split('_');
+            if (state.labels && state.labels[id]) return state.labels[id];
+            var parts = String(id).split('_');
             return parts[parts.length - 1] || id;
         }
 

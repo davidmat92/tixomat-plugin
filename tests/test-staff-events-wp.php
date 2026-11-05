@@ -31,7 +31,7 @@ if ($multi) {
     update_post_meta($org, '_tix_org_user_id', $uid);
     update_post_meta($e1, '_tix_organizer_id', $org);
     // gebuchte Module des Veranstalters (sonst erscheinen Musikwunsch/Guthaben/Gewinnspiel nicht)
-    if (class_exists('TIX_Plan')) TIX_Plan::save_org($org, ['music' => true, 'wallet' => true, 'raffles' => true]);
+    if (class_exists('TIX_Plan')) TIX_Plan::save_org($org, ['music' => true, 'wallet' => true, 'raffles' => true, 'seating' => true]);
 }
 $sent = [];
 add_filter('tix_staff_push_pre_send', function ($pre, $uids, $title, $body, $data) use (&$sent, $uid) {

@@ -30,7 +30,7 @@ class TIX_Plan {
     const ORG_DEFAULTS = [
         'website'     => false,
         'app'         => false,
-        'seating'     => true,  // bisher ohne Veranstalter-Schalter verfügbar
+        'seating'     => false, // 1.38.659: Modul wie Marketing (Test 30 Tage, Buchung); Bestandsschutz über TIX_Seating::org_access
         'wallet'      => false,
         'giftcards'   => false,
         'loyalty'     => false,
@@ -187,6 +187,8 @@ class TIX_Plan {
         $entitled = !class_exists('TIX_Modules') || TIX_Modules::allowed($key);
         if (!$entitled) return false;
         if (self::multi()) return true; // Plattform: Schalter je Veranstalter
+        // Saalplan & Tische (1.38.659): gebucht, im Test oder Bestand
+        if ($key === 'seating' && class_exists('TIX_Seating')) return TIX_Seating::site_access();
         if ($key === 'website') return class_exists('TIX_Website') ? TIX_Website::package_enabled() : false;
         if ($key === 'app') return class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? !empty(TIX_Studio::app_info()['has_app']) : false;
         return !self::site_switched_off($key);
@@ -274,6 +276,7 @@ class TIX_Plan {
         if (!$oid || !self::multi()) return true;
         // Partner mit eigener Seite: Pakete kommen von dort (nie Weiterleitung, nie Sperre über die Plattform)
         if (in_array($key, self::PACKAGES, true) && ($pp = self::partner_packages($oid)) !== null) return !empty($pp[$key]);
+        if ($key === 'seating' && class_exists('TIX_Seating')) return TIX_Seating::org_access($oid);
         $m = self::org_raw($oid);
         return !empty($m[$key]);
     }
@@ -379,7 +382,7 @@ class TIX_Plan {
         if (!$key) return $result;
         // Einzelseite: nur sperren, was der Admin im Studio ausdrücklich ausgeschaltet hat (Bestand unverändert)
         if (!self::multi()) {
-            if ($key === 'website' || $key === 'app' || !self::site_switched_off($key)) return $result;
+            if ($key === 'website' || $key === 'app' || ($key === 'seating' ? self::site_on('seating') : !self::site_switched_off($key))) return $result;
             return new WP_Error('tix_module_disabled', 'Diese Funktion ist auf dieser Seite ausgeschaltet.', ['status' => 403, 'module' => $key]);
         }
         $oid = self::request_org($request, $rel);

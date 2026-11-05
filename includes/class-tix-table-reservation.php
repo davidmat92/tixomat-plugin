@@ -547,6 +547,12 @@ class TIX_Table_Reservation {
             self::create_table();
         }
 
+        // Sperre je Event und Kategorie bis zum Speichern (1.38.659: vorher Zählen und Einfügen ohne Sperre → Wettlauf)
+        $lock = 'tix_table_' . intval($event_id) . '_' . intval($cat_index);
+        if (!intval($wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 10)', $lock)))) {
+            return new WP_Error('tix_table', 'Gerade ist viel los. Bitte versuche es gleich noch einmal.', ['status' => 409]);
+        }
+        try {
         $quantity = intval($cat['quantity'] ?? 0);
         $reserved = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table WHERE event_id = %d AND category_index = %d AND " . self::active_sql(),
@@ -630,6 +636,9 @@ class TIX_Table_Reservation {
         }
 
         $reservation_id = $wpdb->insert_id;
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+        }
         do_action('tix_table_requested', intval($event_id), intval($reservation_id)); // Team-Mitteilung (1.38.595)
 
         // Bei Zahlung: WC Order erstellen

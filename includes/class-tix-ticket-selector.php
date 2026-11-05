@@ -190,7 +190,7 @@ class TIX_Ticket_Selector {
         // ── Saalplan-Modus prüfen ──
         $seatmap_id   = intval(get_post_meta($post_id, '_tix_seatmap_id', true));
         $seatmap_mode = get_post_meta($post_id, '_tix_seatmap_mode', true) ?: 'manual';
-        $has_seatmap  = $seatmap_id > 0 && class_exists('TIX_Seatmap');
+        $has_seatmap  = $seatmap_id > 0 && class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($post_id) === $seatmap_id && TIX_Seatmap::module_on($post_id);
 
         if ($has_seatmap) {
             $section_data = TIX_Seatmap::get_section_data($seatmap_id, $post_id);
@@ -533,7 +533,7 @@ class TIX_Ticket_Selector {
                     <?php
                     // ── Saalplan-Picker (wenn Kategorie einen Saalplan hat) ──
                     $cat_seatmap_id = intval($cat['seatmap_id'] ?? 0);
-                    if ($cat_seatmap_id && $in_stock && !$is_offline):
+                    if ($cat_seatmap_id && $in_stock && !$is_offline && class_exists('TIX_Seatmap') && $cat_seatmap_id === TIX_Seatmap::event_seatmap($post_id) && TIX_Seatmap::module_on($post_id)):
                         $cat_seatmap_section = $cat['seatmap_section'] ?? '';
                         self::enqueue_seatmap();
                     ?>

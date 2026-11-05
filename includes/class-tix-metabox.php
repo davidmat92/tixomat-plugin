@@ -3960,9 +3960,13 @@ class TIX_Metabox {
         }
 
         // ── Saalplan ──
-        $all_seatmaps = class_exists('TIX_Seatmap') ? TIX_Seatmap::get_all_seatmaps() : [];
+        // Saalplan (1.38.659): nur mit Modul „Saalplan & Tische“ bzw. Bestand; Plattform: nur Pläne des Veranstalters
+        $sm_cur = intval(get_post_meta($post->ID, '_tix_seatmap_id', true));
+        $sm_org = (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) ? intval(get_post_meta($post->ID, '_tix_organizer_id', true)) : null;
+        $all_seatmaps = class_exists('TIX_Seatmap') && ($sm_cur || TIX_Seatmap::module_on($post->ID)) ? TIX_Seatmap::get_all_seatmaps($sm_org ?: null) : [];
+        if ($sm_cur && !isset($all_seatmaps[$sm_cur]) && get_post_type($sm_cur) === 'tix_seatmap') $all_seatmaps[$sm_cur] = get_the_title($sm_cur);
         if (!empty($all_seatmaps)):
-            $sm_id   = intval(get_post_meta($post->ID, '_tix_seatmap_id', true));
+            $sm_id   = $sm_cur;
             $sm_mode = get_post_meta($post->ID, '_tix_seatmap_mode', true) ?: 'manual';
         ?>
         <div class="tix-card">

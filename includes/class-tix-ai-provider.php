@@ -34,7 +34,7 @@ class TIX_AI_Provider {
         'gpt-4o' => [2.5, 10.0], 'gpt-4o-mini' => [0.15, 0.6], 'o3-mini' => [1.1, 4.4]];
     const USD_EUR = 0.92;
     const PURPOSES = ['TIX_Newsletter_AI' => 'newsletter', 'TIX_Assistant' => 'assistant', 'TIX_Support_AI' => 'support', 'TIX_Content_Guard' => 'guard',
-        'TIX_Meta_Ads' => 'social', 'TIX_Bulk_Editor' => 'import', 'TIX_AI_REST' => 'texte', 'TIX_AI_Writer' => 'texte'];
+        'TIX_Meta_Ads' => 'social', 'TIX_Bulk_Editor' => 'import', 'TIX_AI_REST' => 'texte', 'TIX_AI_Writer' => 'texte', 'TIX_Seating' => 'saalplan'];
 
     /** Veranstalter für die laufende Anfrage (null = aus dem angemeldeten Konto) */
     private static $org = null;

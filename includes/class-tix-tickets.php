@@ -1091,7 +1091,15 @@ class TIX_Tickets {
 
                 // Sitzplatz-Reservierungen auf "sold" setzen
                 if ($has_seats && class_exists('TIX_Seatmap')) {
-                    TIX_Seatmap::confirm_seats($event_id, $seat_ids, $order_id, $created_ticket_ids);
+                    $sm_conf = TIX_Seatmap::confirm_seats($event_id, $seat_ids, $order_id, $created_ticket_ids);
+                    // Doppelt vergebene Plätze: Ticket ohne Platz (Veranstalter wird informiert, 1.38.659)
+                    foreach ((array) $sm_conf as $cf) {
+                        $ix = array_search($cf[1], $seat_ids, true);
+                        if ($ix !== false && !empty($created_ticket_ids[$ix])) {
+                            delete_post_meta($created_ticket_ids[$ix], '_tix_ticket_seat_id');
+                            update_post_meta($created_ticket_ids[$ix], '_tix_ticket_seat_conflict', $cf[1]);
+                        }
+                    }
                 }
             }
         } catch (\Throwable $e) {
@@ -6815,7 +6823,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             update_post_meta($ticket->ID, '_tix_ticket_status', 'cancelled');
 
             // Release seatmap reservation if applicable
-            $seat = get_post_meta($ticket->ID, '_tix_ticket_seat', true);
+            $seat = get_post_meta($ticket->ID, '_tix_ticket_seat_id', true); // 1.38.659: vorher _tix_ticket_seat (gab es nie)
             $seatmap_id = get_post_meta($ticket->ID, '_tix_ticket_seatmap_id', true);
             if ($seat && $seatmap_id) {
                 do_action('tix_release_seat', $seatmap_id, $seat, $ticket->ID);
@@ -6925,10 +6933,15 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
                     if ($sp_template) update_post_meta($ticket_id, '_tix_ticket_template', intval($sp_template));
                 }
 
-                // Sitzplatz zuweisen
+                // Sitzplatz zuweisen (doppelt vergebene Plätze nicht – TIX_Seatmap::sell meldet sie vorher, 1.38.659)
                 if ($has_seats && isset($seat_ids[$i])) {
-                    update_post_meta($ticket_id, '_tix_ticket_seat_id', $seat_ids[$i]);
-                    update_post_meta($ticket_id, '_tix_ticket_seatmap_id', $seatmap_id);
+                    $sm_conflicts = class_exists('TIX_Seatmap') ? TIX_Seatmap::conflicts_of($order_id) : [];
+                    if (isset($sm_conflicts[$event_id . '|' . $seat_ids[$i]])) {
+                        update_post_meta($ticket_id, '_tix_ticket_seat_conflict', $seat_ids[$i]);
+                    } else {
+                        update_post_meta($ticket_id, '_tix_ticket_seat_id', $seat_ids[$i]);
+                        update_post_meta($ticket_id, '_tix_ticket_seatmap_id', $seatmap_id);
+                    }
                 }
                 // Gemeinsam buchen: Name des Gruppenmitglieds am Ticket
                 if (!empty($meta['group_member'])) {

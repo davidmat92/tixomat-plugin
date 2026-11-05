@@ -619,3 +619,28 @@
     .tix-sp-row-seats { gap: 2px; }
     .tix-sp-row { padding: 2px 4px; }
 }
+
+/* ── SVG-Plan nach echten Koordinaten (1.38.659) ── */
+.tix-sp-svg-wrap, .tix-sp-notice {
+    --sp-bg: var(--tix-bg, #111); --sp-surface: var(--tix-surface, #1a1a1a); --sp-border: var(--tix-border, #333);
+    --sp-text: var(--tix-text, #fff); --sp-muted: var(--tix-muted, #888); --sp-accent: var(--tix-accent, var(--tix-primary, #FF5500));
+}
+.tix-sp-svg-wrap { width: 100%; overflow: auto; -webkit-overflow-scrolling: touch; margin: 8px 0 12px; }
+.tix-sp-svg { display: block; width: 100%; min-width: 320px; height: auto; max-height: 70vh; }
+.tix-sp-svg .tix-sp-seat { cursor: pointer; outline: none; }
+.tix-sp-svg .tix-sp-seat circle { fill: var(--section-color, var(--sp-accent)); stroke: transparent; stroke-width: 2; transition: opacity .15s; }
+.tix-sp-svg .tix-sp-seat.available:hover circle,
+.tix-sp-svg .tix-sp-seat.available:focus-visible circle { stroke: var(--sp-text); }
+.tix-sp-svg .tix-sp-seat.selected circle { fill: var(--sp-text); stroke: var(--section-color, var(--sp-accent)); stroke-width: 3; }
+.tix-sp-svg .tix-sp-seat.taken,
+.tix-sp-svg .tix-sp-seat.blocked { cursor: not-allowed; }
+.tix-sp-svg .tix-sp-seat.taken circle { fill: var(--sp-border); }
+.tix-sp-svg .tix-sp-seat.blocked circle { fill: transparent; stroke: var(--sp-border); stroke-dasharray: 3 2; }
+.tix-sp-svg .tix-sp-seat.vip circle { stroke: #E8B931; stroke-width: 2; }
+.tix-sp-svg .tix-sp-seat text { font-size: 11px; fill: var(--sp-bg); pointer-events: none; }
+.tix-sp-svg .tix-sp-obj rect { fill: var(--sp-surface); stroke: var(--sp-border); }
+.tix-sp-svg .tix-sp-obj-stage rect { fill: var(--sp-border); }
+.tix-sp-svg .tix-sp-obj-standing rect { fill: transparent; stroke-dasharray: 6 4; }
+.tix-sp-svg .tix-sp-obj text, .tix-sp-svg .tix-sp-table-label { font-size: 13px; font-weight: 600; fill: var(--sp-muted); letter-spacing: .04em; pointer-events: none; }
+.tix-sp-svg .tix-sp-table { fill: var(--sp-surface); stroke: var(--sp-border); }
+.tix-sp-notice { margin: 0 0 8px; padding: 8px 12px; border-radius: var(--tix-radius, 8px); background: var(--sp-surface); border: 1px solid var(--sp-accent); color: var(--sp-text); font-size: 13px; }

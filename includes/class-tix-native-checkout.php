@@ -579,20 +579,22 @@ class TIX_Native_Checkout {
      */
     public static function seat_line($event_id, array $seats, $holder = '') {
         $sm   = TIX_Seatmap::event_seatmap($event_id);
-        $data = $sm ? TIX_Seatmap::data($sm) : null;
+        $data = $sm ? TIX_Seatmap::event_data($event_id) : null;
         if (!$data) return 'Für dieses Event gibt es keinen Saalplan.';
+        if (!TIX_Seatmap::module_on($event_id)) return 'Die Platzwahl ist für dieses Event nicht verfügbar.';
         $seats = array_values(array_unique(array_map('sanitize_text_field', $seats)));
         $sec = null;
         foreach ($seats as $sid) {
             $s2 = TIX_Seatmap::section_of($data, $sid);
-            if (!$s2) return 'Platz ' . TIX_Seatmap::seat_label($sid) . ' ist nicht buchbar.';
+            if (!$s2) return 'Platz ' . TIX_Seatmap::seat_label($sid, $data) . ' ist nicht buchbar.';
             if ($sec && $s2['id'] !== $sec['id']) return 'Bitte Plätze je Bereich einzeln in den Warenkorb legen.';
             $sec = $s2;
         }
         if (!$sec || floatval($sec['price'] ?? 0) <= 0) return 'Für diesen Bereich gibt es keine Online-Tickets.';
         $r = TIX_Seatmap::hold($event_id, $sm, $seats, $holder !== '' ? $holder : self::session_key());
         if ($r['failed']) {
-            return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map(['TIX_Seatmap', 'seat_label'], $r['failed'])) . '.';
+            if (!empty($r['message'])) return $r['message'];
+            return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map(function ($s) use ($data) { return TIX_Seatmap::seat_label($s, $data); }, $r['failed'])) . '.';
         }
         // Verknüpfte Ticket-Kategorie (seatmap_section), sonst -1 (Ticket heißt wie der Bereich)
         $cat_index = -1;

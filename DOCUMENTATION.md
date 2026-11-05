@@ -2519,13 +2519,134 @@ Steuerbar ueber `ep_show_timetable` Setting.
 
 ---
 
-## 54. Saalplan (Seatmap)
+## 54. Saalplan & Tische (ab 1.38.659 neu)
 
-`TIX_Seatmap` ermoeglicht die Erstellung und Verwaltung von Saalplaenen mit Sektionen, Plaetzen und Preiskategorien.
+Klassen: `TIX_Seatmap` (Plan, Haltungen, Verkauf, Gast-Routen), `TIX_Seatmap_Geometry` (Generator, Prüfung), `TIX_Seating` (Modul, Studio-Routen, Bild → Saalplan). Tests: `tests/test-seatmap-phase1-wp.php` (beide Modi).
 
-### DB-Tabelle
+### Datenmodell
 
-Eigene Tabelle fuer Saalplan-Daten (Sektionen, Reihen, Plaetze).
+- **Plan** = CPT `tix_seatmap`, Daten in `_tix_seatmap_data` (JSON, Version 2):
+  `{v: 2, version, width, height, layout, stage_label, sections[], objects[]}`.
+  - Sektion: `{id, label, color, price, category_name, position, category_index?, block?, rows[{id, label, seats[{id, x, y, type, label}]}], tables?[]}`.
+  - Sitztypen: `standard | vip | wheelchair | blocked` (blocked = im Plan nicht buchbar).
+  - Objekte ohne Sitze: `{type: stage|standing|label|area, x, y, w, h, angle, label, capacity?}` (Stehbereich mit Kapazität).
+- **Parametrische Blöcke** (`section.block`, `TIX_Seatmap_Geometry`): `shape rows|tables`, `origin {x,y}` (Mitte der bühnennächsten Reihe), `rows`, `seats` (Zahl oder Liste je Reihe), `seat_spacing` (26), `row_spacing` (30), `curve` 0…1 (Bogen um die Bühne, bis 120°), `angle` (Grad), `gaps [{after, width}]`, `stagger`, `row_labels alpha|numeric`, `row_start`, `seat_start`, `numbering ltr|rtl`, `types {Sitz-ID: Typ}` (Pinsel), Tische `tables`, `seats_per_table`, `table_shape round|rect`, `cols`, `table_spacing`.
+  - Der Generator ist deterministisch. Er erzeugt alle Sitze mit echten x/y und IDs `Sektion_Reihe_Platz` (Tische `Sektion_T1_3`).
+  - Ohne `origin` legt er Sektionen untereinander unter die Bühne. Fehlt eine Bühne, ergänzt er sie.
+  - Danach wird alles normalisiert: Rand 40, `width`/`height` aus den Grenzen.
+- **Alte Pläne** (WP-Editor speicherte `x:0,y:0`) rechnet `ensure_coords()` beim Speichern bzw. Aufbauen nach. Lage nach `position` um die Bühne (Theater: untereinander), IDs bleiben.
+- **Prüfung** `TIX_Seatmap_Geometry::check()`: doppelte IDs entfernt, Überlappungen (< 12 Punkte) gezählt, Summen `seats`/`bookable`. Höchstens 20 000 Plätze je Plan.
+- **Versionen:** Jedes Speichern (`TIX_Seatmap::store`) erhöht `_tix_seatmap_version`. Die letzten 10 Fassungen liegen in `_tix_seatmap_revs`, die Zahl der Plätze in `_tix_seatmap_seats`.
+- **Schnappschuss je Event** (`_tix_seatmap_snapshot` {seatmap_id, version, at, data}): Er wird beim ersten Verkauf festgehalten. `event_data()` liefert ab dann den Schnappschuss.
+  - Beim Speichern prüft `store()` die Zuordnung: Alle verkauften Sitze müssen im neuen Plan buchbar sein, dann wechselt das Event auf die neue Version.
+  - Sonst antwortet es mit 409 `tix_seatmap_conflict` {events[{event_id, title, missing[], missing_count}]}. Mit `keep_old_for_sold` wird trotzdem gespeichert, und die betroffenen Events bleiben auf ihrer alten Fassung.
+- **Zuweisung** `_tix_seatmap_id` (+ `_tix_seatmap_mode manual|best`) ist durch Meta-Filter geschützt (Metabox, REST, Kopie):
+  - Nach dem ersten Verkauf ist kein Wechsel mehr möglich (`tix_seatmap_sold`).
+  - Ohne Modul ist keine neue Zuweisung möglich (`tix_module_off`).
+  - Auf der Plattform nur eigene Pläne.
+- **Mandanten (Plattform):** `_tix_seatmap_org` = Veranstalter des Plans. Bei alten Plänen ohne Merker gilt der Veranstalter des Autors.
+  - Im WP-Admin braucht Bearbeiten `edit_post` und den eigenen Veranstalter (`map_meta_cap`). Die Liste zeigt nur eigene Pläne, `get_all_seatmaps()` ist gefiltert.
+  - Die Rolle `tix_organizer` hat standardmäßig keine Beitragsrechte. Veranstalter bearbeiten Pläne deshalb im Studio.
+
+### Tabelle `tix_seat_reservations`
+
+Spalten: `event_id, seatmap_id, seat_id, status reserved|sold|blocked, session_id (Halter), ip_hash, order_id, ticket_id, reserved_at, expires_at`, UNIQUE (event_id, seat_id, status). DB-Version `tix_seat_db` = 2 (Spalte `ip_hash`).
+
+- **Halten** (`hold()`): Ein Sitz gilt nur, wenn er weder verkauft, gesperrt noch fremd gehalten ist (atomares INSERT … WHERE NOT EXISTS). Haltezeit 15 min, in der Kasse 30 min (`secure_cart`).
+  - Verlängert wird nur durch einen neuen Halte-Aufruf (Aktivität), höchstens bis 60 min nach der ersten Wahl.
+- **Grenzen gegen Blockade** (Filter `tix_seat_hold_limits`):
+  - 10 Plätze je Halter und Event (`limit_holder`).
+  - 20 je IP und Event (`limit_ip`).
+  - Höchstens 30 % eines Events gleichzeitig gehalten, mindestens 20 Plätze (`limit_event`; Plätze in der Kasse mit Bestellung zählen nicht).
+  - Rate-Limits je IP über alle Tokens: Halten/Bestplatz 30/min, neue `hold_token` 10 je 10 min. AJAX 30/min.
+- **Verkaufen** (`sell()`, je Event unter `GET_LOCK('tix_seat_<event>')`):
+  - Native Kasse (`on_native_status`, streng): Verkauft wird nur die Haltung der eigenen Bestellung (`order_id`) oder ein freier Platz. Eine gültige fremde Haltung bleibt bestehen.
+  - WooCommerce-Altweg (`on_order_paid`, `confirm_seats`): Haltungen ohne Bestellung gelten als eigene. Auch nach abgelaufener Haltung wird der Platz vergeben, wenn er frei ist.
+  - Ein fehlgeschlagenes INSERT ist ein Konflikt (`db`).
+- **Doppelverkauf / Konflikt** (`sold|held|blocked|db`):
+  - Der Konflikt wird in `tix_seat_conflicts_<order>` gemerkt. Die Tickets entstehen ohne Platz (`_tix_ticket_seat_conflict`).
+  - An der Bestellung steht eine Notiz mit „Erstattung empfohlen“.
+  - Kunde und Veranstalter bekommen eine Mail (Veranstalter-Inhaber, sonst Admin-Mail).
+  - Aktion `tix_seat_conflict` (order_id, conflicts, mode).
+- **Freigeben:** Storno der Bestellung (`tix_order_cancelled`) und Einzelticket-Storno (`tix_release_seat`, liest `_tix_ticket_seat_id`).
+- **Sperren je Event:** Zeilen mit `status = blocked` (Studio „Belegung“). `taken()` zählt sie als belegt.
+
+### Modul „Saalplan & Tische“ (`seating`, wie Marketing)
+
+- **Einzel-Seite:** gebucht (`tix_seating_booked` = 1 bzw. Lizenz nennt `seating`), 30-Tage-Test (`tix_seating_trial_until`, einmal) oder Bestandsschutz.
+  - Bestandsschutz: `tix_seating_legacy` wird beim ersten Prüfen gesetzt, wenn schon ein Event einen Plan bzw. Tische hatte.
+  - Admin-Abschalten beendet den Bestandsschutz.
+- **Plattform:** je Veranstalter. `_tix_org_modules.seating` ist im Plattform-Studio ausdrücklich an oder aus (aus = aus trotz Bestand).
+  - Dazu kommen der Test `_tix_seating_trial_until` und der Bestandsschutz `_tix_seating_legacy`.
+  - Vorgabe für neue Veranstalter: aus (`TIX_Plan::ORG_DEFAULTS`).
+- Immer zusätzlich: Lizenz (`TIX_Modules`) und Aus-Schalter der Seite (`TIX_Plan::site_switched_off`).
+- **Wirksam in allen Pfaden:**
+  - REST-Gast-Routen (`TIX_Plan::guard_rest`, `rest_event`) → 403 `tix_module_disabled`.
+  - AJAX des Web-Pickers, `TIX_Native_Checkout::seat_line`, `secure_cart` und App-Kasse.
+  - Ticket-Selector, Shortcode, Event-Editor (Metabox) und Zuweisung.
+  - `/public/events/{id}` liefert `seatmap`/`tables` dann `false`.
+
+### Gast-Routen
+
+- `GET /public/events/{id}/seatmap[?hold_token=]` → `{seatmap_id, version, mode, hold_minutes, hold_seconds, max_seats, layout, sections[], map[], objects[], taken[], held[]}`. Die Apps nehmen die Haltezeit von hier statt fest 10 min.
+- `POST /customer/seats/hold {event_id, seat_ids[], hold_token?}` und `POST /customer/seats/best {event_id, section_id, qty, hold_token?}`:
+  - Antwort `{hold_token, expires_at, hold_seconds, max_seats, reserved[], failed[], error, message}`.
+  - Bei einer Grenze 429 `tix_seat_limit_holder|limit_ip|limit_event`.
+- `POST /customer/seats/release {event_id, seat_ids[], hold_token}`.
+- **Web-Picker** (`assets/js/seatmap-picker.js`): Er zeichnet als SVG nach den echten Koordinaten.
+  - Bühne, Stehbereiche und Tische werden mitgezeichnet.
+  - Plätze sind per Tastatur wählbar (Enter/Leertaste, `aria-pressed`).
+  - Eigene Haltungen erscheinen nach dem Neuladen wieder.
+  - Meldungen (Obergrenze) erscheinen als Hinweis.
+- Shortcode `[tix_seatmap event="<id>"]` (optional `id` = Plan, muss zum Event passen).
+
+### Studio-Routen (Inhaber/Team-Admin; Plattform nur eigene Pläne, Admin mit `?organizer=`)
+
+| Route | Zweck |
+|---|---|
+| `GET /studio/seating` | Modul-Stand `{on, booked, legacy, trial, trial_until, trial_available, entitled, hold{minutes, checkout_minutes, max_total_minutes}, limits}` |
+| `POST /studio/seating/trial` | 30-Tage-Test (einmal; 409 `tix_trial_used`) |
+| `POST /studio/seating/module {on}` | nur Admin: buchen/abschalten (Plattform mit `?organizer=`) |
+| `GET /studio/seatmaps` | Liste `[{id, title, version, seats, sections, layout, updated, events_count, events[{id,title,date,status,sold,version}], preview{w,h,colors[],dots[[x,y,section]],objects[]}}]` |
+| `POST /studio/seatmaps {title, data \| template}` | anlegen → 201 + Detail |
+| `GET /studio/seatmaps/templates` | `theater`, `club`, `banquet`, `arena` mit fertigem Plan |
+| `POST /studio/seatmaps/generate {data}` | Vorschau aus Blöcken + Prüfung, nichts gespeichert |
+| `GET /studio/seatmaps/{id}` | Detail + `data`, `stats`, `revisions[{v,at,user}]` |
+| `POST /studio/seatmaps/{id} {title?, data?, keep_old_for_sold?}` | speichern = neue Version (`kept[]`, `upgraded[]`; 409 `tix_seatmap_conflict`) |
+| `DELETE /studio/seatmaps/{id}` | löschen (409 `tix_seatmap_in_use`, solange zugewiesen) |
+| `POST /studio/seatmaps/{id}/copy {title?}` | Plan kopieren |
+| `GET /studio/seatmaps/{id}/revisions/{v}` | ältere Fassung (zum Zurückholen per Speichern) |
+| `GET /studio/events/{id}/seatmap` | Zuweisung + Belegung: `{module_on, seatmap_id, mode, plans[], title, version, plan_version, outdated, can_change, counts{total,free,held,sold,blocked,unavailable}, sections[], seats{id:{status, order_id?, order_number?, expires_at?, in_checkout?}}, data}` |
+| `POST /studio/events/{id}/seatmap {seatmap_id (0 = entfernen), mode}` | zuweisen (409 `tix_seatmap_sold`) |
+| `POST /studio/events/{id}/seatmap/block {seat_ids[], blocked}` | Plätze sperren/freigeben (nur freie; `changed[]`, `skipped[]`) |
+| `POST /studio/seatmaps/from-image` | Bild → Saalplan, siehe unten |
+
+Ohne Modul antworten die Plan-Routen mit 403 `tix_module_off`. Die Event-Belegung lässt sich trotzdem lesen.
+
+### Bild → Saalplan (KI)
+
+- **Eingabe:** `POST /studio/seatmaps/from-image` mit `image` (Datei-Upload, Data-URL oder Base64 mit `media_type`) oder `attachment_id`. Optional `total_seats`, `hint`, `title`.
+  - Erlaubt sind JPG, PNG, WebP, GIF und PDF. Der Typ wird am Inhalt erkannt, höchstens 8 MB.
+  - Ein PDF rendert der Server mit Imagick zu PNG. Ohne Imagick geht es als Dokument an Claude, bei OpenAI kommt 415.
+  - Bilder werden auf 1568 px verkleinert.
+- **Ablauf:**
+  - Die Anfrage läuft über `TIX_AI_Provider` (Bereich des Veranstalters, Zweck `saalplan`) mit erzwungenem Werkzeug `saalplan` (`TIX_Seating::tool()`).
+  - Das Werkzeug enthält parametrische Blöcke im Bildrahmen (Breite 1000), dazu `objects`, `total_seats_estimate`, `confidence` und `notes`.
+  - Der Generator erzeugt die Sitze, `sanitize_seatmap` und `check()` prüfen sie.
+- **Antwort:** `{draft{title, data}, stats, check{expected, estimate, got, diff, diff_pct}, overlay{frame{width,height}, shift{x,y}}, ai{confidence, notes}, accuracy_note, usage{today, limit}}`.
+  - Überlagerung: Planpunkt minus `shift` = Punkt im Bildrahmen.
+  - Gespeichert wird nichts. Das Studio speichert per `POST /studio/seatmaps`.
+- **Grenzen:** 20 Auswertungen je Tag und Bereich (429). Dazu gilt das Tageslimit des KI-Schlüssels.
+- **Ehrlicher Hinweis** (`accuracy_note`): Die Struktur stimmt meist zu 80–90 %, die genaue Platzzahl zu 60–80 %.
+
+### Altlasten (entfernt bzw. abgeschaltet)
+
+- Die WooCommerce-Produkt-Synchronisierung je Sektion ist entfernt. `product_id` ist immer 0.
+- Der WP-Admin-Editor bleibt für Bestandspläne erhalten. Seine Sitze ohne Koordinaten rechnet der Server nach. Führend ist der Studio-Editor (Phase 2).
+
+### Tische (`TIX_Table_Reservation`)
+
+`submit()` zählt und speichert seit 1.38.659 unter `GET_LOCK('tix_table_<event>_<kategorie>')`. Damit gibt es keinen Wettlauf mehr um den letzten Tisch. Gehört zum Modul „Saalplan & Tische“.
 
 ---
 
