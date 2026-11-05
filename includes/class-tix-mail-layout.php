@@ -234,6 +234,16 @@ class TIX_Mail_Layout {
         return '';
     }
 
+    /** Nur die Bausteine ohne Gerüst (Inhalt eines Newsletters, der beim Versand ins Gerüst kommt; 1.38.641). */
+    public static function blocks_html(array $blocks, array $brand = []) {
+        $prev = self::$c;
+        self::$c = self::colors(self::brand($brand));
+        $h = '';
+        foreach ($blocks as $b) $h .= self::block((array) $b);
+        self::$c = $prev;
+        return $h;
+    }
+
     // ═══════════════ Fremdes HTML angleichen ═══════════════
 
     /**
