@@ -849,6 +849,8 @@ class TIX_REST_API {
             $out['is_admin']        = $user->has_cap('manage_options');
             $out['sales']           = class_exists('TIX_Sales') && TIX_Sales::is_sales_user($user); // Vertrieb (1.38.508)
         }
+        // Studio: Menü-Ansicht je Konto (1.38.655)
+        if (class_exists('TIX_Studio_Prefs')) $out['studio_prefs'] = TIX_Studio_Prefs::payload($user);
         return rest_ensure_response($out);
     }
 

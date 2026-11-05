@@ -4098,3 +4098,15 @@ Bis zu 80 Blöcke. Prüffehler kommen als 400 `tix_invalid_field` mit `data.fiel
 **Prüfhinweise** (`warnings[].code`): `subject_missing`, `subject_long` (> 60), `preheader_long` (> 110), `alt_missing`, `link_test`, `link_broken`, `spam_word`, `spam_style`, `too_big` (> 100 KB, Gmail kürzt), `empty`.
 
 Tests: `tests/test-newsletter-blocks-wp.php` (27/27 Einzel-Seite, 28/28 Plattform), Newsletter-KI 43/45.
+
+## 87. Studio: Menü-Ansicht je Konto (ab 1.38.655)
+
+`TIX_Studio_Prefs` (`includes/class-tix-studio-prefs.php`). Die Wahl steht im User-Meta `_tix_studio_menu_mode` (`compact` oder `full`; fehlt = Vorgabe).
+- **`GET /me`** liefert `studio_prefs {menu_mode: compact|full|null, menu_mode_default: compact|full}`.
+- **Vorgabe** (User 2026-11-05):
+  - `full` für Admins (`manage_options`), Vertrieb (`tix_sales`) und Plattform-Betreiber.
+  - Sonst `full` für Konten, die beim Ausrollen schon bestanden, und `compact` für Konten, die danach angelegt werden.
+  - Stichtag ist `user_registered` gegen die Option `tix_studio_menu_cutoff` (UTC), gesetzt beim ersten Laden von 1.38.655.
+- **`POST /studio/prefs {menu_mode}`:** für jedes angemeldete Konto (auch Team, Einlass), ohne Modul. `null` bzw. leer setzt auf die Vorgabe zurück. Antwort `{ok, studio_prefs}` mit `Cache-Control: no-store`; ungültig → 400 `tix_invalid_field`, ohne Anmeldung 401.
+
+Tests: `tests/test-studio-prefs-wp.php` (9/9 in beiden Modi).
