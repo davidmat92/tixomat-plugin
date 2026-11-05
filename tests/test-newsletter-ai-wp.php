@@ -94,7 +94,7 @@ ai_eq('Fehlerhafte Eingaben rufen die KI nicht auf', 0, count($GLOBALS['ai_mock'
 [$st, $r] = ai_rest('POST', '/marketing/newsletter/ai', ['goal' => 'event', 'event_ids' => [$ev], 'coupon' => strtolower($CODE), 'include' => ['lineup', 'prices', 'directions', 'gallery'], 'tone' => 'festive', 'note' => 'Bitte Sommer-Stimmung']);
 ai_eq('Erzeugt: 200, drei Entwürfe', [200, ['flyer', 'compact', 'story']], [$st, array_column((array) ($r['drafts'] ?? []), 'key')]);
 $call = $GLOBALS['ai_mock']['calls'][0] ?? [];
-ai_eq('KI-Aufruf: Claude-Modell, Werkzeug erzwungen, Schlüssel', [TIX_Newsletter_AI::model(), 0, 'newsletter', 'sk-ant-test'], [$call['model'] ?? '', strpos((string) ($call['model'] ?? ''), 'claude'), $call['tool_choice']['name'] ?? '', $GLOBALS['ai_mock']['key'] ?? '']);
+ai_eq('KI-Aufruf: Claude-Modell, Werkzeug newsletter mit tool_choice auto (Claude 5.5 erzwingt nicht), Schlüssel', [TIX_Newsletter_AI::model(), 0, 'newsletter', 'auto', 'sk-ant-test'], [$call['model'] ?? '', strpos((string) ($call['model'] ?? ''), 'claude'), $call['tools'][0]['name'] ?? '', $call['tool_choice']['type'] ?? '', $GLOBALS['ai_mock']['key'] ?? '']);
 $msg = (string) ($call['messages'][0]['content'] ?? '');
 ai_eq('An die KI gehen Event-Daten und Wünsche, keine Kundendaten', [true, true, true, false], [strpos($msg, "KI Sommerparty $sfx") !== false, strpos($msg, 'Sommer-Stimmung') !== false, strpos($msg, $CODE) !== false, strpos($msg, '@example.test') !== false]);
 $subs = array_column((array) $r['subjects'], 'text');

@@ -3797,6 +3797,8 @@ Tests: `tests/test-newsletter-wp.php` (34/34 in beiden Modi).
 
 **Kanal der App-Bestellung (1.38.639):** `attribution.channel` (`web`|`app`) setzt `_tix_order_channel`. Ohne Angabe gilt `web` (Websites), bei `utm_medium=push` gilt `app`. Apps schicken bei einem Kauf aus einer Mitteilung `attribution {channel: 'app', utm_source: 'push', utm_medium: 'push', utm_campaign: <Kennung>}`; die Statistik zählt den Kauf dann unter „App“.
 
+**Tempo (1.38.650):** `GET /marketing/newsletter` speichert Brevo-Konto und Absender 10 Minuten zwischen (Transient je Bereich und Schlüssel; Antwort `cached: true`). `?fresh=1` fragt neu; Speichern der Einstellungen verwirft den Zwischenspeicher. Vorher 345 ms je Aufruf.
+
 ## 80. Newsletter mit KI (Modul Marketing, ab 1.38.641)
 
 `TIX_Newsletter_AI` (`includes/class-tix-newsletter-ai.php`). Der Klick-Assistent im Studio schickt die Antworten des Veranstalters. Die KI (Claude, Modell der Seite aus „Einstellungen → KI“, bei OpenAI-Einstellung die Claude-Vorgabe, Schlüssel `anthropic_api_key`) liefert über einen erzwungenen Werkzeug-Aufruf **nur Texte und die Reihenfolge der Bausteine**. Das HTML baut das Plugin aus festen Bausteinen von `TIX_Mail_Layout` (Marke, Logo, Akzentfarbe, Dark Mode, 600 px): neu ist `TIX_Mail_Layout::blocks_html()` (Bausteine ohne Gerüst).

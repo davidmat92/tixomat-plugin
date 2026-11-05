@@ -78,6 +78,12 @@ $hooks = array_values(array_filter($GLOBALS['nl_mock']['calls'], function ($c) {
 nl_eq('Webhook: unsubscribed, hardBounce, spam an /public/nl/hook/<geheim>', [['unsubscribed', 'hardBounce', 'spam'], true], [$hook[2]['events'] ?? null, (bool) preg_match('#/public/nl/hook/[A-Za-z0-9]{32}$#', (string) ($hook[2]['url'] ?? ''))]);
 $stored = $multi ? get_post_meta($org, TIX_Newsletter::META, true) : get_option(TIX_Newsletter::OPT);
 nl_eq('Schlüssel verschlüsselt gespeichert', [false, $KEY], [strpos(wp_json_encode($stored), 'xkeysib') !== false, TIX_Newsletter::settings($org)['api_key']]);
+$nb = count($GLOBALS['nl_mock']['calls']);
+[$st, $r1] = nl_rest('GET', '/marketing/newsletter');
+[$st, $r2] = nl_rest('GET', '/marketing/newsletter');
+nl_eq('Tempo: Brevo-Konto und Absender zwischengespeichert (Abrufe ohne Brevo)', [0, true, 'NL GmbH', [7]], [count($GLOBALS['nl_mock']['calls']) - $nb, $r2['cached'] ?? false, $r2['account']['company'] ?? '', array_column((array) ($r2['senders'] ?? []), 'id')]);
+[$st, $r3] = nl_rest('GET', '/marketing/newsletter', ['fresh' => 1]);
+nl_eq('… ?fresh=1 fragt neu', 2, count($GLOBALS['nl_mock']['calls']) - $nb);
 [$st, $d, $code] = nl_rest('POST', '/marketing/newsletter/settings', ['sender_id' => 8]);
 nl_eq('Unbestätigter Absender → 400', 400, $st);
 [$st, $r] = nl_rest('POST', '/marketing/newsletter/settings', ['sender_id' => 7]);

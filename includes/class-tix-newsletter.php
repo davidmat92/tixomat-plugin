@@ -198,14 +198,32 @@ class TIX_Newsletter {
             'address' => $s['address'] !== '' ? $s['address'] : self::default_address($org), 'webhook' => $s['webhook_id'] > 0,
             'counts' => $counts, 'consent_text' => self::consent_text($org), 'account' => null, 'senders' => []];
         if ($s['api_key'] !== '' && $out['module_on'] && $req->get_param('check') !== '0') {
-            $a = self::brevo($s['api_key'], 'GET', '/account');
-            if (!is_wp_error($a) && $a[0] === 200) {
-                $out['account'] = ['company' => (string) ($a[1]['companyName'] ?? ''), 'email' => (string) ($a[1]['email'] ?? '')];
-                $sn = self::brevo($s['api_key'], 'GET', '/senders');
-                if (!is_wp_error($sn) && $sn[0] === 200) foreach ((array) ($sn[1]['senders'] ?? []) as $x) if (!empty($x['active'])) $out['senders'][] = ['id' => intval($x['id']), 'name' => (string) $x['name'], 'email' => (string) $x['email']];
-            } else $out['error'] = is_wp_error($a) ? $a->get_error_message() : 'Der Brevo-Schlüssel wird nicht angenommen.';
+            // Konto und Absender 10 Minuten zwischenspeichern (Studio-Tempo 1.38.650: vorher 345 ms je Aufruf); ?fresh=1 fragt neu
+            $ck = self::brevo_cache_key($org, $s['api_key']);
+            $c = $req->get_param('fresh') ? false : get_transient($ck);
+            if (is_array($c)) {
+                $out['account'] = $c['account'];
+                $out['senders'] = $c['senders'];
+                $out['cached'] = true;
+            } else {
+                $a = self::brevo($s['api_key'], 'GET', '/account');
+                if (!is_wp_error($a) && $a[0] === 200) {
+                    $out['account'] = ['company' => (string) ($a[1]['companyName'] ?? ''), 'email' => (string) ($a[1]['email'] ?? '')];
+                    $sn = self::brevo($s['api_key'], 'GET', '/senders');
+                    if (!is_wp_error($sn) && $sn[0] === 200) foreach ((array) ($sn[1]['senders'] ?? []) as $x) if (!empty($x['active'])) $out['senders'][] = ['id' => intval($x['id']), 'name' => (string) $x['name'], 'email' => (string) $x['email']];
+                    if (!is_wp_error($sn) && $sn[0] === 200) set_transient($ck, ['account' => $out['account'], 'senders' => $out['senders']], 10 * MINUTE_IN_SECONDS);
+                } else $out['error'] = is_wp_error($a) ? $a->get_error_message() : 'Der Brevo-Schlüssel wird nicht angenommen.';
+            }
         }
         return rest_ensure_response($out);
+    }
+
+    private static function brevo_cache_key($org, $key) { return 'tix_nl_brevo_' . md5(intval($org) . '|' . $key); }
+
+    /** Zwischenspeicher von Konto und Absender verwerfen (nach dem Speichern der Einstellungen) */
+    public static function flush_brevo_cache($org) {
+        $s = self::settings($org);
+        if ($s['api_key'] !== '') delete_transient(self::brevo_cache_key($org, $s['api_key']));
     }
 
     /** Impressums-Adresse für den Fuß der Mail (Pflichtangabe): Veranstalter-Adresse bzw. Rechnungsadresse der Seite */
@@ -223,6 +241,7 @@ class TIX_Newsletter {
     /** POST /marketing/newsletter/settings {api_key?, sender_id?, address?} – Schlüssel prüfen, Absender wählen, Webhook anlegen */
     public static function rest_settings(WP_REST_Request $req) {
         $org = self::org($req);
+        self::flush_brevo_cache($org); // neuer Schlüssel bzw. Absender: Konto/Absender frisch holen
         if ($req->has_param('api_key')) {
             $key = trim((string) $req->get_param('api_key'));
             if ($key !== '') {
