@@ -2156,6 +2156,8 @@ class TIX_REST_API {
         $customer_name  = sanitize_text_field($body['customer_name'] ?? '');
         $customer_email = sanitize_email($body['customer_email'] ?? '');
         $coupon_code    = sanitize_text_field($body['coupon_code'] ?? '');
+        // Promoter an der Abendkasse (1.38.661): Promoter-Code oder Rabatt-Code, Provision wie online
+        $promoter_code  = sanitize_text_field($body['promoter_code'] ?? '');
         // Entweder–oder (App-Kasse): Gast geht sofort rein → Tickets direkt einchecken, dann keine
         // Ticket-E-Mail; oder Tickets per E-Mail schicken → kein Check-in jetzt.
         $checkin        = filter_var($body['checkin'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -2170,6 +2172,8 @@ class TIX_REST_API {
         if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {
             return $e;
         }
+        $pos_promoter = ($promoter_code !== '' && class_exists('TIX_Promoter')) ? TIX_Promoter::resolve_code($promoter_code, $event_id) : null;
+        if (is_wp_error($pos_promoter)) return $pos_promoter;
         if (!class_exists('TIX_Native_Checkout')) {
             return new WP_Error('no_native', 'Nativer Checkout nicht aktiv.', ['status' => 500]);
         }
@@ -2279,6 +2283,7 @@ class TIX_REST_API {
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, '🧾 Kassenverkauf (App) – ' . self::pos_payment_label($payment) . ' durch ' . $staff->display_name, 'pos');
         }
+        if (class_exists('TIX_Promoter')) TIX_Promoter::pos_attribute($order_id, $pos_promoter);
         // Bezahlt → Tickets erzeugen (+ E-Mail, falls Adresse angegeben)
         TIX_Native_Checkout::update_order_status($order_id, 'completed', 'pos');
         // Web-Warenkorb des Mitarbeiters unangetastet lassen
@@ -2314,6 +2319,7 @@ class TIX_REST_API {
             'coupon'       => $coupon_info,
             'payment'      => $payment,
             'checked_in'   => (bool) $checkin,
+            'promoter'     => $pos_promoter ? ['id' => intval($pos_promoter->id), 'name' => (string) $pos_promoter->display_name, 'code' => (string) $pos_promoter->promoter_code] : null,
             'tickets'      => $tickets,
         ] + (is_array($receipt) ? ['receipt' => ['provider' => (string) $receipt['provider'], 'cash' => (string) $receipt['cash'], 'order_id' => (string) $receipt['order_id']]] : []));
     }

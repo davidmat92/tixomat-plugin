@@ -4328,3 +4328,17 @@ Auftrag `uebergaben/auftrag-promoter-ausbau-2026-11-05.md`, Tests `tests/test-pr
 - **Zuordnung aus der Kasse ohne Einwilligung:** `attribution.promoter_code` an `POST /customer/orders` ordnet nur diese eine Bestellung zu (Order-Meta `_tix_promoter_id`, `referral`).
   - Es setzt kein Cookie und merkt sich nichts. Unbekannte bzw. inaktive Codes ordnen nichts zu, ein Promo-Code als Gutschein hat Vorrang.
   - Websites schicken den Code ohne Einwilligung nur aus dem Speicher des Besuchs, mit Einwilligung aus dem Cookie (`cookie_days`).
+
+### Paket 4 – Abendkasse und App-Links (1.38.661)
+
+- **`POST /pos/orders` mit `promoter_code`** (optional): Das Feld nimmt einen Promoter-Code oder den Rabatt-Code einer Zuordnung.
+  - Erlaubt sind nur aktive Promoter, auf der Plattform nur für das Event erlaubte. System-Events sind ausgeschlossen.
+  - Ungültig → 409 `tix_promoter_unknown` bzw. `tix_promoter_not_allowed` am Feld `promoter_code`, kein Verkauf.
+  - Der Verkauf wird vor dem Abschluss zugeordnet (`_tix_promoter_attribution` = `pos`), die Provision entsteht beim Abschluss wie online. Antwort: `promoter {id, name, code}` bzw. `null`.
+  - Ohne Feld ordnet ein Promoter-Cookie bzw. die Besuchs-Zuordnung des Kassengeräts nichts zu. Ein Rabatt-Code im Gutscheinfeld ordnet weiter zu.
+- **`GET /pos/promoters?event_id=&q=`** (Rechte wie die Kasse) → `{promoters[{id, name, code}]}`: aktive, für das Event erlaubte Promoter mit Suche nach Name oder Code, höchstens 20.
+- **AASA:**
+  - Event-Links mit `?ref`/`&coupon` öffnen die App schon über den Baustein `events` (`/events/*`).
+  - Neu ist der Baustein `ref` (`/` mit `?ref=`, Promoter-Link der Startseite). Er hat einen eigenen Schalter `tix_app_links_ios_ref` (Vorgabe aus, `wp tixomat app-links ios-ref on|off`).
+  - Die Zentrale schaltet ihn ein, sobald die Apps `ref` und `coupon` auswerten.
+- Tests: `tests/test-promoter-p4-wp.php` (9/9 Einzel-Seite, 11/11 Plattform).

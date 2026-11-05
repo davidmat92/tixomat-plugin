@@ -20,6 +20,9 @@
  *                  /kontakt/*, /support/*; seit 1.38.531 nur mit dem Schalter `tix_app_links_ios_marke` (Vorgabe aus – die
  *                  Store-Apps bis KK 1.0.2/Mallorca 1.0.1 werten nur ?tix_sp_ticket aus), Tixomat → App-Push bzw.
  *                  `wp tixomat app-links ios-marke on|off`
+ *   ref          → / mit ?ref=… (Promoter-Link der Startseite, seit 1.38.661) – eigener Schalter `tix_app_links_ios_ref`
+ *                  (Vorgabe aus, `wp tixomat app-links ios-ref on|off`), erst wenn die Apps ref/coupon auswerten.
+ *                  Event-Links mit ?ref/&coupon laufen über den Baustein events.
  * Kasse, Konto und Rechtstexte werden nie aufgenommen (bleiben im Browser). Seit 1.38.530 stehen davor feste Ausschlüsse
  * (EXCLUDES: WordPress-Pfade, Kasse/Zahlung, Konto, DJ-/Kassen-/Einlass-Seiten, Abmelden, Downloads/PDFs, QR, Passwort-
  * Reset, Vorschau ?draft=) – sie gelten für alle Freigaben außer dem Support-Link ?tix_sp_ticket (steht davor).
@@ -40,6 +43,7 @@ class TIX_App_Links {
     const OPTION_PATHS = 'tix_app_link_paths';
     const OPTION_ANDROID = 'tix_android_app_links';
     const OPTION_MARKE = 'tix_app_links_ios_marke'; // '1' = Homepage-Pfade in der AASA (1.38.531)
+    const OPTION_REF = 'tix_app_links_ios_ref';     // '1' = Promoter-Link /?ref= in der AASA (1.38.661)
 
     /** Immer zuerst (exclude): bleibt im Browser, auch wenn eine Freigabe passen würde (1.38.530). */
     const EXCLUDES = [
@@ -86,6 +90,8 @@ class TIX_App_Links {
         'kasse'        => ['/' => '/app/kasse/*',    'comment' => 'App-Kasse eines Events (Gutscheine nur in der App, seit 1.38.431)'],
         'kuenstler'    => ['/' => '/kuenstler/*',    'comment' => 'Künstler-Seiten'],
         'marke'        => ['list' => self::MARKE_PATHS, 'comment' => 'Marken-Homepage (1.38.530)'],
+        // Promoter-Link der Startseite (1.38.661): Event-Links mit ?ref/&coupon laufen schon über /events/*
+        'ref'          => ['/' => '/', '?' => ['ref' => '?*'], 'comment' => 'Promoter-Link (Startseite mit ?ref)'],
     ];
 
     /** Eingestellte Pfad-Bausteine (nur bekannte). */
@@ -100,8 +106,10 @@ class TIX_App_Links {
         // Künstler-Seiten (1.38.518, nur evendis): automatisch mit den Veranstalter-Seiten
         if (in_array('veranstalter', $out, true) && class_exists('TIX_Artists') && TIX_Artists::multi()) $out[] = 'kuenstler';
         // Marken-Homepage: nur mit eigenem Schalter (1.38.531, Vorgabe aus), nicht mehr über die Pfad-Liste
-        $out = array_values(array_diff($out, ['marke']));
+        $out = array_values(array_diff($out, ['marke', 'ref']));
         if (self::marke_on()) $out[] = 'marke';
+        // Promoter-Link: eigener Schalter (Vorgabe aus), erst wenn die Apps ref/coupon auswerten (Paket 4)
+        if (get_option(self::OPTION_REF, '0') === '1') $out[] = 'ref';
         return array_values(array_unique($out));
     }
 
@@ -242,7 +250,7 @@ class TIX_App_Links {
         <?php
     }
 
-    /** wp tixomat app-links status | ios-marke on|off | android-set <package> <fp>[,<fp>…] | android-clear */
+    /** wp tixomat app-links status | ios-marke on|off | ios-ref on|off | android-set <package> <fp>[,<fp>…] | android-clear */
     public static function cli($args, $assoc) {
         $cmd = (string) ($args[0] ?? 'status');
         if ($cmd === 'status') {
@@ -263,8 +271,15 @@ class TIX_App_Links {
             WP_CLI::success('iPhone-Homepage-Links: ' . $v . ' (Freigaben: ' . (implode(', ', self::paths()) ?: 'nur Support') . ')');
             return;
         }
+        if ($cmd === 'ios-ref') {
+            $v = strtolower((string) ($args[1] ?? ''));
+            if (!in_array($v, ['on', 'off'], true)) WP_CLI::error('Aufruf: wp tixomat app-links ios-ref on|off (jetzt: ' . (get_option(self::OPTION_REF, '0') === '1' ? 'on' : 'off') . ')');
+            update_option(self::OPTION_REF, $v === 'on' ? '1' : '0', false);
+            WP_CLI::success('iPhone-Promoter-Links (/?ref=): ' . $v . ' (Freigaben: ' . (implode(', ', self::paths()) ?: 'nur Support') . ')');
+            return;
+        }
         if ($cmd === 'android-clear') { delete_option(self::OPTION_ANDROID); WP_CLI::success('Android App Links entfernt (assetlinks.json → 404).'); return; }
-        WP_CLI::error('Aufruf: wp tixomat app-links status | ios-marke on|off | android-set <package> <fp>[,<fp>…] | android-clear');
+        WP_CLI::error('Aufruf: wp tixomat app-links status | ios-marke on|off | ios-ref on|off | android-set <package> <fp>[,<fp>…] | android-clear');
     }
 
     /** Antwort ohne Zwischenspeicher, JSON, ohne Weiterleitung. */

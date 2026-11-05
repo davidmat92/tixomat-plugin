@@ -59,6 +59,15 @@ class TIX_Promoter_REST {
         }
     }
 
+    /** GET /pos/promoters?event_id=&q= → {promoters[{id, name, code}]} – nur aktive, für das Event erlaubte */
+    public static function rest_pos_search(WP_REST_Request $req) {
+        $eid = absint($req->get_param('event_id'));
+        if (!$eid || get_post_type($eid) !== 'event') return self::bad('event_id', 'Bitte ein Event wählen.');
+        if (!TIX_REST_API::can_access_event($eid)) return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);
+        if (!self::ready()) return rest_ensure_response(['ok' => true, 'promoters' => []]);
+        return rest_ensure_response(['ok' => true, 'promoters' => TIX_Promoter::pos_search($eid, mb_substr(sanitize_text_field((string) $req->get_param('q')), 0, 60))]);
+    }
+
     /** Anzahl wartender Selbst-Anmeldungen im Bereich */
     public static function pending_count($org) {
         global $wpdb;
@@ -90,6 +99,8 @@ class TIX_Promoter_REST {
         $r('/organizer/promoters/(?P<id>\d+)/events', 'POST', 'rest_assign');
         $r('/organizer/promoters/(?P<id>\d+)/events/(?P<event_id>\d+)', 'DELETE', 'rest_unassign');
         $r('/organizer/promoter-settings', 'POST', 'rest_settings');
+        // Abendkasse: Promoter suchen (Rechte wie die Kasse)
+        register_rest_route(self::NS, '/pos/promoters', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_pos_search'], 'permission_callback' => ['TIX_REST_API', 'check_pos']]);
         $r('/organizer/promoter-payouts', 'GET', 'rest_payouts');
         $r('/organizer/promoter-payouts', 'POST', 'rest_payout_create');
         $r('/organizer/promoter-payouts/(?P<id>\d+)', 'GET', 'rest_payout');

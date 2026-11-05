@@ -117,6 +117,74 @@ class TIX_Promoter {
         return $ids ?: [0];
     }
 
+    // ──────────────────────────────────────────
+    // Abendkasse (Paket 4, 1.38.661)
+    // ──────────────────────────────────────────
+
+    /**
+     * Promoter zu einem eingegebenen Code: Promoter-Code oder Rabatt-Code einer Zuordnung, nur aktive und (Plattform)
+     * für das Event erlaubte. → Promoter-Zeile | null (leer) | WP_Error (unbekannt bzw. nicht erlaubt)
+     */
+    public static function resolve_code($code, $event_id) {
+        $code = trim(sanitize_text_field((string) $code));
+        if ($code === '' || !class_exists('TIX_Promoter_DB')) return null;
+        $p = TIX_Promoter_DB::get_promoter_by_code(strtolower($code)) ?: TIX_Promoter_DB::get_promoter_by_code($code);
+        $explicit = false;
+        if (!$p) {
+            $a = TIX_Promoter_DB::get_assignment_by_promo_code($code);
+            if ($a && (!intval($a->event_id) || intval($a->event_id) === intval($event_id))) { $p = TIX_Promoter_DB::get_promoter(intval($a->promoter_id)); $explicit = true; }
+            if ($p && $p->status !== 'active') $p = null;
+        }
+        if (!$p) return new WP_Error('tix_promoter_unknown', 'Diesen Promoter-Code gibt es nicht (oder er ist nicht aktiv).', ['status' => 409, 'field' => 'promoter_code']);
+        if (!$explicit) $explicit = (bool) TIX_Promoter_DB::get_assignment_by_promoter_event(intval($p->id), intval($event_id), true);
+        if (self::excluded_event($event_id) || !self::event_allowed($p, $event_id, $explicit)) {
+            return new WP_Error('tix_promoter_not_allowed', 'Dieser Promoter wirbt nicht für dieses Event.', ['status' => 409, 'field' => 'promoter_code']);
+        }
+        return $p;
+    }
+
+    /** Kassenverkauf zuordnen (vor dem Abschluss, damit die Provision beim Abschluss entsteht). Ohne Code: keine Zuordnung über das Gerät. */
+    public static function pos_attribute($order_id, $promoter) {
+        if (!class_exists('TIX_Order_Attribution')) return;
+        if ($promoter) {
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_id', intval($promoter->id));
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_code', (string) $promoter->promoter_code);
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_attribution', 'pos');
+            return;
+        }
+        // Ein Promoter-Cookie bzw. die Besuchs-Zuordnung am Kassengerät darf keinen Kassenverkauf zuordnen (nur Rabatt-Code bleibt)
+        if ((string) TIX_Order_Attribution::meta($order_id, '_tix_promoter_attribution') === 'referral') {
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_id', '');
+            TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_attribution', '');
+        }
+    }
+
+    /** Suche für das Kassenfeld: aktive, für das Event erlaubte Promoter (Name oder Code) */
+    public static function pos_search($event_id, $q = '', $limit = 20) {
+        global $wpdb;
+        if (!class_exists('TIX_Promoter_DB') || self::excluded_event($event_id)) return [];
+        $t = TIX_Promoter_DB::table_promoters();
+        $sql = "SELECT * FROM $t WHERE status = 'active'";
+        $q = trim((string) $q);
+        if ($q !== '') { $like = '%' . $wpdb->esc_like($q) . '%'; $sql .= $wpdb->prepare(' AND (display_name LIKE %s OR promoter_code LIKE %s)', $like, $like); }
+        if (self::multi()) {
+            $orgs = array_map('intval', TIX_App_Scope::event_org_ids(intval($event_id)));
+            $ex = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT promoter_id FROM " . TIX_Promoter_DB::table_events() . " WHERE event_id = %d AND status = 'active'", intval($event_id))));
+            $conds = [];
+            if ($orgs) $conds[] = 'organizer_id IN (' . implode(',', $orgs) . ')';
+            if ($ex) $conds[] = 'id IN (' . implode(',', $ex) . ')';
+            if (!$conds) return [];
+            $sql .= ' AND (' . implode(' OR ', $conds) . ')';
+        }
+        $rows = (array) $wpdb->get_results($sql . ' ORDER BY display_name ASC LIMIT ' . max(1, min(50, intval($limit))));
+        $out = [];
+        foreach ($rows as $p) {
+            if (!self::event_allowed($p, $event_id, true)) continue;
+            $out[] = ['id' => intval($p->id), 'name' => (string) $p->display_name, 'code' => (string) $p->promoter_code];
+        }
+        return $out;
+    }
+
     /** Selbstkauf: Käufer ist der Promoter selbst (gleiche E-Mail bzw. gleiches Konto) */
     public static function is_self_purchase($promoter, $order) {
         $mail = strtolower(trim((string) (method_exists($order, 'get_billing_email') ? $order->get_billing_email() : '')));
