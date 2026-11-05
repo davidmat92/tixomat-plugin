@@ -3853,3 +3853,53 @@ Die Zahl steht in `removed`. An die KI gehen nur Event-Daten, Marke, Gutschein u
 **Limit und Kosten:** 30 Erzeugungen je Bereich und Tag (Filter `tix_nl_ai_daily_limit`), jede erfolgreiche Antwort zählt, abgelehnte Eingaben nicht. Das Protokoll steht in der Option `tix_nl_ai_usage` (`[Tag][Bereich] = {n, cost_eur, in, out}`, 60 Tage). Die Kosten sind eine Schätzung aus `usage` mit den Preisen `PRICES` (Filter `tix_nl_ai_prices`, USD je 1 Mio. Token, Umrechnung 0,92).
 
 Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 44/44 Plattform).
+
+## 81. Promoter: Audit und Verwaltung im Studio (ab 1.38.643)
+
+**Behoben (Audit 2026-11-05):**
+- **Mandanten (evendis):** Promoter tragen `organizer_id`. Sie verdienen nur bei Events ihres Veranstalters, Promoter ohne Veranstalter nur bei ausdrücklich zugeordneten Events. Vorher galten Standard- und „Alle Events“-Provision bei allen Veranstaltern. Dashboard, Link-Suche und CSV zeigen nur erlaubte Events (`TIX_Promoter::event_allowed`, `scope_event_ids`). Die Selbst-Anmeldung ordnet auf evendis nicht mehr automatisch alle Events zu.
+- **Selbstkauf:** Ist der Käufer der Promoter selbst (gleiche E-Mail oder gleiches Konto), gibt es keine Provision. Die Option `_tix_promoter_self_<order>` hält den Fall fest, der Filter `tix_promoter_block_self_purchase` schaltet die Sperre ab.
+- **Basis:** Die Provision rechnet auf den bezahlten Preis, Gutschein- und Promo-Rabatte werden anteilig abgezogen. Geschenkgutscheine sind Guthaben (Teilzahlung) und mindern nicht.
+- **Erstattung, Storno, Rückbuchung** (`TIX_Promoter_DB::reverse_order`):
+  - Hooks: `tix_order_refund_recorded`, `tix_order_chargeback` und Status `refunded`.
+  - Teil-Erstattung: Gegenbuchung über den Anteil.
+  - Ganz: Offene Zeilen werden storniert, schon abgerechnete oder bezahlte bekommen eine negative Zeile (Status `pending`, `attribution` `refund`/`chargeback`). Die nächste Auszahlung wird um diese Zeile gemindert.
+  - Vorher blieb die Provision bei Teil-Erstattungen, bei Erstattung ohne Ticket-Storno, bei Rückbuchungen und nach einer Auszahlung stehen.
+  - Eine Auszahlung entsteht nur bei positivem Saldo.
+- **Selbst-Anmeldung:**
+  - `create_promoter` fehlte, neue Anmeldungen brachen deshalb ab.
+  - Früher wurde eine fremde E-Mail mit einem bestehenden Konto verknüpft und ein vorhandener Code angezeigt. Ohne Login gibt es jetzt nur noch einen Login-Link per Mail und kein WordPress-Konto.
+  - Höchstens 5 Anmeldungen je Stunde und IP.
+- **Login:**
+  - Login-Links höchstens 3 je 15 Minuten und E-Mail bzw. Promoter (zusätzlich je IP).
+  - `revoke_sessions` meldet überall ab: bei Deaktivieren, neuer E-Mail und „Überall abmelden“.
+- **Klicks:**
+  - Bots und Link-Vorschauen zählen nicht und ordnen nicht zu.
+  - Klicks werden nach 400 Tagen gelöscht (Cron `tix_promoter_daily`).
+- **Dashboard:**
+  - Die Event-Liste war wegen eines SQL-Fehlers leer (`p.title`).
+  - Die Umwandlungsrate zählte seit 1.38.616 immer 0 (Postmeta statt `TIX_Order_Attribution`).
+
+**Weiterhin so:** Zuordnung per `?ref=` mit dem letzten Klick. Das Cookie `tix_promoter_ref` wird nur mit Einwilligung „Marketing“ gesetzt (Laufzeit `promoter_cookie_days`, Standard 30); ohne Einwilligung gilt die Zuordnung nur für die laufende Warenkorb-Sitzung (2 h). Ein Promo-Code als Gutschein hat Vorrang vor dem Link.
+
+**REST für das Studio** (`TIX_Promoter_REST`, Rechte `TIX_Ad_Accounts::perm`, Bereich wie dort; Admin auf evendis mit `?organizer=`):
+
+| Route | |
+|---|---|
+| `GET /organizer/promoters?status=active\|inactive\|all&from&to` | `{promoters[], totals, settings}`. Ein Eintrag: `{id, name, email, code, status, notes, has_account, self_signup, created, clicks, visitors, orders, tickets, revenue, commission{open, approved, paid, total}, balance, last_sale, links{link, qr_link}}`. `settings`: `{enabled, can_edit, cookie_days, consent_category, self_signup, dashboard_url, default_commission{type, value}, multi}` |
+| `POST /organizer/promoters` | `{name, email?, code?, notes?, commission?{type, value}, send_access?}` → 201 `{promoter, access_sent}`. `commission` = Provision für alle eigenen Events (Zuordnung Event 0). Fehler: 409 `tix_promoter_exists`, 409 `tix_code_taken` |
+| `GET /organizer/promoters/{id}?from&to` | Eintrag + `assignments[]{event_id, event_title, event_date, commission_type, commission_value, discount_type, discount_value, promo_code, links}`, `sales[]{date, event_id, event_title, order_id, type sale\|refund\|chargeback, tickets, revenue, commission, status, payout_id}`, `clicks_by_day[]`, `payouts[]` |
+| `POST /organizer/promoters/{id}` | `{name, email, notes, status active\|inactive, code}` (ein neuer Code macht alte Links unwirksam) |
+| `DELETE /organizer/promoters/{id}` | deaktivieren, Provisionen und Auszahlungen bleiben |
+| `POST /organizer/promoters/{id}/access` · `/logout-all` | Login-Link schicken (429 `tix_rate_limit`) · überall abmelden |
+| `POST /organizer/promoters/{id}/events` | `{event_id (0 = alle eigenen), commission_type percent\|fixed, commission_value (≤ 50 % bzw. ≤ 100 € je Ticket), discount_type?, discount_value?, promo_code?}`. Ein Rabatt braucht einen Promo-Code (nur je Event, A–Z0–9_-, nicht als Gutschein oder bei einem anderen Promoter vergeben). → Detail |
+| `DELETE /organizer/promoters/{id}/events/{event_id}` | Zuordnung beenden |
+| `POST /organizer/promoter-settings` | `{enabled, self_signup, cookie_days 1–90, default_commission}`. Einzel-Seite Inhaber/Admin, evendis nur Admin (sonst 403) |
+| `GET /organizer/promoter-payouts?promoter_id&status` | `{payouts[]{id, promoter_id, promoter_name, from, to, revenue, commission, count, status pending\|paid\|cancelled, paid_at, note, created}}` |
+| `POST /organizer/promoter-payouts` | `{promoter_id, from?, to?, note?}` → 201; 409 `tix_payout_empty` ohne positiven Saldo |
+| `GET /organizer/promoter-payouts/{id}` | + `lines[]` |
+| `POST /organizer/promoter-payouts/{id}/paid {note}` · `/cancel` | nur offene (409 `tix_payout_locked`) |
+
+Die REST-Routen laufen auch bei ausgeschaltetem Promoter-System. Provisionen entstehen aber nur, wenn `enabled` an ist.
+
+Tests: `tests/test-promoter-audit-wp.php` (32/32 Einzel-Seite, 41/41 Plattform).

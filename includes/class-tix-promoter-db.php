@@ -55,6 +55,7 @@ class TIX_Promoter_DB {
         dbDelta("CREATE TABLE $t1 (
             id                   BIGINT UNSIGNED AUTO_INCREMENT,
             user_id              BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            organizer_id         BIGINT UNSIGNED NOT NULL DEFAULT 0,
             email                VARCHAR(190) NOT NULL DEFAULT '',
             promoter_code        VARCHAR(30) NOT NULL,
             status               VARCHAR(20) DEFAULT 'active',
@@ -66,6 +67,7 @@ class TIX_Promoter_DB {
             PRIMARY KEY (id),
             UNIQUE KEY promoter_code (promoter_code),
             KEY user_id (user_id),
+            KEY organizer_id (organizer_id),
             KEY email (email),
             KEY status (status)
         ) $charset;");
@@ -222,6 +224,22 @@ class TIX_Promoter_DB {
     }
 
     /**
+     * Spalte `organizer_id` (Mehr-Veranstalter-Modus, 1.38.643): Promoter gehört einem Veranstalter (0 = Seite/Plattform).
+     * Lazy wie die übrigen Migrationen, einmal je Anfrage geprüft.
+     */
+    public static function ensure_org_column() {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        global $wpdb;
+        $t = self::table_promoters();
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") !== $t) return;
+        if ($wpdb->get_row($wpdb->prepare("SHOW COLUMNS FROM $t LIKE %s", 'organizer_id'))) return;
+        $wpdb->query("ALTER TABLE $t ADD COLUMN organizer_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER user_id");
+        $wpdb->query("ALTER TABLE $t ADD INDEX organizer_id (organizer_id)");
+    }
+
+    /**
      * Stellt sicher dass die Click-Tabelle existiert (für Bestandsinstallationen
      * die vor dieser Migration laufen).
      */
@@ -323,6 +341,7 @@ class TIX_Promoter_DB {
         global $wpdb;
         self::ensure_default_coupon_column();
         self::ensure_email_column();
+        self::ensure_org_column();
 
         // Email-Resolution: explizit gegeben → nehmen. Sonst aus WP-User ableiten.
         $email = sanitize_email($data['email'] ?? '');
@@ -334,6 +353,7 @@ class TIX_Promoter_DB {
 
         $row = [
             'user_id'             => $user_id,
+            'organizer_id'        => max(0, intval($data['organizer_id'] ?? 0)),
             'email'               => $email,
             'promoter_code'       => sanitize_text_field($data['promoter_code'] ?? ''),
             'status'              => sanitize_text_field($data['status'] ?? 'active'),
@@ -364,7 +384,12 @@ class TIX_Promoter_DB {
             }
         }
         if (empty($update)) return false;
-        return $wpdb->update(self::table_promoters(), $update, ['id' => $id]);
+        // Deaktivieren oder neue E-Mail: alle Sitzungen beenden (1.38.643)
+        $old = self::get_promoter($id);
+        $r = $wpdb->update(self::table_promoters(), $update, ['id' => $id]);
+        if ($old && class_exists('TIX_Promoter_Auth') && ((isset($update['status']) && $update['status'] !== 'active' && $old->status === 'active')
+            || (isset($update['email']) && strtolower($update['email']) !== strtolower((string) $old->email)))) TIX_Promoter_Auth::revoke_sessions($id);
+        return $r;
     }
 
     /**
@@ -419,6 +444,7 @@ class TIX_Promoter_DB {
 
     public static function delete_promoter(int $id) {
         global $wpdb;
+        if (class_exists('TIX_Promoter_Auth')) TIX_Promoter_Auth::revoke_sessions($id);
         return $wpdb->update(self::table_promoters(), ['status' => 'inactive'], ['id' => $id]);
     }
 
@@ -481,7 +507,7 @@ class TIX_Promoter_DB {
      * (event_id=0) wenn keine event-spezifische existiert. Damit kann ein Promoter
      * eine "Für alle Events"-Konfiguration haben statt für jedes Event einzeln.
      */
-    public static function get_assignment_by_promoter_event(int $promoter_id, int $event_id) {
+    public static function get_assignment_by_promoter_event(int $promoter_id, int $event_id, bool $specific_only = false) {
         global $wpdb;
         $table = self::table_events();
 
@@ -493,6 +519,7 @@ class TIX_Promoter_DB {
             ));
             if ($specific) return $specific;
         }
+        if ($specific_only) return null;
 
         // 2. Fallback: globale Assignment (event_id=0 = "Für alle Events")
         return $wpdb->get_row($wpdb->prepare(
@@ -525,7 +552,7 @@ class TIX_Promoter_DB {
     public static function get_promoter_events(int $promoter_id) {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT pe.*, p.title AS event_title FROM " . self::table_events() . " pe
+            "SELECT pe.*, p.post_title AS event_title FROM " . self::table_events() . " pe
              LEFT JOIN {$wpdb->posts} p ON p.ID = pe.event_id
              WHERE pe.promoter_id = %d AND pe.status = 'active'
              ORDER BY pe.created_at DESC",
@@ -630,6 +657,44 @@ class TIX_Promoter_DB {
         return $wpdb->get_results($sql);
     }
 
+    /**
+     * Provision einer Bestellung zurücknehmen (1.38.643): Storno, Erstattung, Rückbuchung.
+     * $ratio 1 = ganz: offene Zeilen werden storniert; schon abgerechnete (approved/paid) bleiben und bekommen eine
+     * Gegenbuchung (negative Zeile, Status pending), die die nächste Auszahlung mindert. $ratio < 1 = Teil-Erstattung:
+     * Gegenbuchung über den Anteil. Eine ganze Rücknahme läuft je Bestellung nur einmal.
+     * → Summe der Rücknahme (positiv)
+     */
+    public static function reverse_order(int $order_id, float $ratio = 1.0, string $reason = 'refund') {
+        global $wpdb;
+        $t = self::table_commissions();
+        $ratio = max(0.0, min(1.0, $ratio));
+        if ($ratio <= 0 || $order_id <= 0) return 0.0;
+        $flag = '_tix_promoter_reversed_' . $order_id;
+        if (get_option($flag)) return 0.0;
+        $sum = 0.0;
+        if ($ratio >= 0.999) {
+            // offene Zeilen samt offener Gegenbuchungen früherer Teil-Erstattungen stornieren
+            $sum += floatval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(commission_amount),0) FROM $t WHERE order_id = %d AND status = 'pending'", $order_id)));
+            $wpdb->query($wpdb->prepare("UPDATE $t SET status = 'cancelled' WHERE order_id = %d AND status = 'pending'", $order_id));
+        }
+        // Restbetrag je Promoter und Event (abgerechnete Zeilen minus bisherige Gegenbuchungen)
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT promoter_id, event_id, SUM(commission_amount) AS net, SUM(GREATEST(commission_amount,0)) AS gross, SUM(CASE WHEN commission_amount > 0 THEN order_total ELSE 0 END) AS sales
+             FROM $t WHERE order_id = %d AND status != 'cancelled' GROUP BY promoter_id, event_id", $order_id));
+        foreach ((array) $rows as $r) {
+            $net = floatval($r->net);
+            $amount = $ratio >= 0.999 ? $net : round(floatval($r->gross) * $ratio, 2);
+            $amount = min($amount, $net);
+            if ($amount < 0.005) continue;
+            $wpdb->insert($t, ['promoter_id' => intval($r->promoter_id), 'event_id' => intval($r->event_id), 'order_id' => $order_id, 'order_item_id' => null,
+                'attribution' => $reason === 'chargeback' ? 'chargeback' : 'refund', 'tickets_qty' => 0, 'order_total' => -round(floatval($r->sales) * $ratio, 2),
+                'commission_amount' => -round($amount, 2), 'discount_amount' => 0, 'status' => 'pending']);
+            $sum += $amount;
+        }
+        if ($ratio >= 0.999) update_option($flag, 1, false);
+        return round($sum, 2);
+    }
+
     public static function cancel_commissions_by_order(int $order_id) {
         global $wpdb;
         return $wpdb->update(
@@ -664,6 +729,8 @@ class TIX_Promoter_DB {
         // Offene Provisionen für den Zeitraum holen
         $commissions = self::get_commissions_for_payout($promoter_id, $from, $to);
         if (empty($commissions)) return false;
+        // Rücknahmen (negative Zeilen) mitrechnen; ohne Guthaben keine Auszahlung (1.38.643)
+        if (round(array_sum(wp_list_pluck($commissions, 'commission_amount')), 2) <= 0) return false;
 
         $total_sales      = 0;
         $total_commission  = 0;

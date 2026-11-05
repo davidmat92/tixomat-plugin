@@ -59,6 +59,83 @@ class TIX_Promoter {
         // Provision auf Native + WC einheitlich berechnen
         add_action('tix_order_completed', [__CLASS__, 'calculate_commissions']);
         add_action('tix_order_cancelled', [__CLASS__, 'cancel_commissions']);
+        // Erstattung und Rückbuchung (1.38.643): vorher blieb die Provision bei Teil-Erstattungen, bei voller Erstattung
+        // ohne Ticket-Storno und bei Rückbuchungen stehen, nach einer Auszahlung auch bei Storno
+        add_action('tix_order_refund_recorded', [__CLASS__, 'on_refund'], 10, 3);
+        add_action('tix_order_chargeback', [__CLASS__, 'on_chargeback'], 10, 2);
+        add_action('tix_order_status_changed', function ($order_id, $new) { if ($new === 'refunded') self::cancel_commissions($order_id); }, 10, 2);
+        // Klicks nach 13 Monaten löschen (Datenschutz, Auswertung reicht ein Jahr zurück)
+        add_action('init', function () { if (!wp_next_scheduled('tix_promoter_daily')) wp_schedule_event(time() + 3600, 'daily', 'tix_promoter_daily'); }, 52);
+        add_action('tix_promoter_daily', [__CLASS__, 'daily']);
+    }
+
+    public static function daily() {
+        global $wpdb;
+        if (!class_exists('TIX_Promoter_DB')) return;
+        $t = TIX_Promoter_DB::table_clicks();
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") !== $t) return;
+        $wpdb->query($wpdb->prepare("DELETE FROM $t WHERE click_date < %s LIMIT 20000", gmdate('Y-m-d', time() - 400 * DAY_IN_SECONDS)));
+    }
+
+    private static function multi() { return class_exists('TIX_App_Scope') && TIX_App_Scope::multi(); }
+
+    /**
+     * Mandantentrennung (evendis, 1.38.643): Darf der Promoter an diesem Event verdienen bzw. dafür werben?
+     * Einzel-Seite: immer. Mehr-Veranstalter: Promoter eines Veranstalters nur bei dessen Events (auch Mit-Veranstalter),
+     * Promoter ohne Veranstalter (vom Admin angelegt) nur bei ausdrücklich zugeordneten Events.
+     */
+    public static function event_allowed($promoter, $event_id, $explicit = false) {
+        if (!self::multi()) return true;
+        $org = intval(is_object($promoter) ? ($promoter->organizer_id ?? 0) : 0);
+        if ($org > 0) return in_array($org, array_map('intval', TIX_App_Scope::event_org_ids(intval($event_id))), true);
+        return (bool) $explicit;
+    }
+
+    /** Events, die der Promoter im Dashboard sieht (null = alle, Einzel-Seite) */
+    public static function scope_event_ids($promoter) {
+        if (!self::multi()) return null;
+        $ids = [];
+        foreach ((array) TIX_Promoter_DB::get_promoter_events(intval($promoter->id)) as $a) if (intval($a->event_id) > 0) $ids[] = intval($a->event_id);
+        $org = intval($promoter->organizer_id ?? 0);
+        if ($org > 0) {
+            $own = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 500, 'fields' => 'ids', 'meta_query' => ['relation' => 'OR',
+                ['key' => '_tix_organizer_id', 'value' => $org], ['key' => '_tix_co_organizer_id', 'value' => $org]]]);
+            $ids = array_merge($ids, array_map('intval', $own));
+        }
+        $ids = array_values(array_unique(array_filter($ids, function ($e) use ($promoter) { return self::event_allowed($promoter, $e, true); })));
+        return $ids ?: [0];
+    }
+
+    /** Selbstkauf: Käufer ist der Promoter selbst (gleiche E-Mail bzw. gleiches Konto) */
+    public static function is_self_purchase($promoter, $order) {
+        $mail = strtolower(trim((string) (method_exists($order, 'get_billing_email') ? $order->get_billing_email() : '')));
+        $cid = method_exists($order, 'get_customer_id') ? intval($order->get_customer_id()) : 0;
+        $uid = intval($promoter->user_id ?? 0);
+        if ($uid > 0 && $cid === $uid) return true;
+        $mails = array_filter([strtolower(trim((string) ($promoter->email ?? '')))]);
+        if ($uid > 0 && ($u = get_userdata($uid))) $mails[] = strtolower($u->user_email);
+        return $mail !== '' && in_array($mail, $mails, true);
+    }
+
+    /** Teil-Erstattung: Provision anteilig zurücknehmen; volle Erstattung: ganz */
+    public static function on_refund($order_id, $amount, $full) {
+        if (!class_exists('TIX_Promoter_DB')) return;
+        if ($full) { TIX_Promoter_DB::reverse_order(intval($order_id), 1.0, 'refund'); return; }
+        $total = self::order_paid_total($order_id);
+        if ($total > 0) TIX_Promoter_DB::reverse_order(intval($order_id), floatval($amount) / $total, 'refund');
+    }
+
+    public static function on_chargeback($order_id, $amount = 0) {
+        if (!class_exists('TIX_Promoter_DB')) return;
+        $total = self::order_paid_total($order_id);
+        $ratio = ($amount > 0 && $total > 0) ? floatval($amount) / $total : 1.0;
+        TIX_Promoter_DB::reverse_order(intval($order_id), $ratio, 'chargeback');
+    }
+
+    private static function order_paid_total($order_id) {
+        $o = function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        if (!$o && class_exists('TIX_Order')) $o = TIX_Order::get($order_id);
+        return $o ? floatval($o->get_total()) : 0.0;
     }
 
     /**
@@ -149,6 +226,8 @@ class TIX_Promoter {
 
         $code = sanitize_text_field($_GET['ref']);
         if (!class_exists('TIX_Promoter_DB')) return;
+        // Bots und Vorschau-Abrufe (Messenger, Crawler) ordnen nichts zu und zählen keinen Klick
+        if (preg_match(class_exists('TIX_Web_Stats') ? TIX_Web_Stats::BOT : '/bot|crawl|spider|preview/i', (string) ($_SERVER['HTTP_USER_AGENT'] ?? '')) || empty($_SERVER['HTTP_USER_AGENT'])) return;
 
         $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
         if (!$promoter) return;
@@ -347,6 +426,12 @@ class TIX_Promoter {
      *   source: 'event' | 'global' | 'settings' | 'none'
      */
     public static function get_effective_commission($promoter_id, $event_id) {
+        // Mehr-Veranstalter: nur bei erlaubten Events (sonst verdient ein Promoter an fremden Veranstaltern)
+        if (self::multi() && class_exists('TIX_Promoter_DB') && $event_id > 0) {
+            $p = TIX_Promoter_DB::get_promoter(intval($promoter_id));
+            $explicit = (bool) TIX_Promoter_DB::get_assignment_by_promoter_event(intval($promoter_id), intval($event_id), true);
+            if (!$p || !self::event_allowed($p, $event_id, $explicit)) return ['type' => 'percent', 'value' => 0, 'source' => 'none'];
+        }
         if (class_exists('TIX_Promoter_DB')) {
             // 1. Event-spezifisch (nur wenn event_id > 0)
             if ($event_id > 0) {
@@ -418,6 +503,30 @@ class TIX_Promoter {
 
         $attribution = ($is_wc ? $order->get_meta('_tix_promoter_attribution') : TIX_Order_Attribution::meta($order_id, '_tix_promoter_attribution')) ?: 'referral';
 
+        // Selbstkauf: keine Provision (Bestellung bleibt markiert, damit es nachvollziehbar ist)
+        $promoter = TIX_Promoter_DB::get_promoter($promoter_id);
+        if (!$promoter) return;
+        if (apply_filters('tix_promoter_block_self_purchase', true) && self::is_self_purchase($promoter, $order)) {
+            update_option('_tix_promoter_self_' . $order_id, $promoter_id, false);
+            if ($is_wc) { $order->update_meta_data('_tix_promoter_commissions_calculated', 1); $order->save(); }
+            else TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_commissions_calculated', 1);
+            return;
+        }
+
+        // Rabatt der Bestellung (Gutschein, Promo-Code) anteilig von den Positionen abziehen: Provision auf den bezahlten Preis.
+        // Geschenkgutscheine sind Guthaben, kein Rabatt → zählen nicht.
+        $share = 1.0;
+        if (!$is_wc) {
+            $disc = floatval($order->get_total_discount());
+            $cp = get_option('_tix_order_coupon_' . $order_id);
+            $code = is_array($cp) ? (string) ($cp['code'] ?? '') : '';
+            $gift = false;
+            if ($code !== '') foreach ((array) get_option('tix_coupons', []) as $k => $c) if (strcasecmp((string) $k, $code) === 0 && is_array($c) && ($c['discount_type'] ?? '') === 'giftcard') $gift = true;
+            $items_sum = 0.0;
+            foreach ($order->get_items() as $it) $items_sum += floatval(method_exists($it, 'get_total') ? $it->get_total() : 0);
+            if ($disc > 0 && !$gift && $items_sum > 0) $share = max(0.0, ($items_sum - min($disc, $items_sum)) / $items_sum);
+        }
+
         foreach ($order->get_items() as $item_id => $item) {
             // Event-ID aus Item ermitteln — WC vs. native
             $event_id = 0;
@@ -437,6 +546,7 @@ class TIX_Promoter {
             }
 
             if (!$event_id) continue;
+            $line_total = round($line_total * $share, 2);
 
             // Effektive Provision ermitteln (3-Stufen-Hierarchie)
             $eff = self::get_effective_commission($promoter_id, $event_id);
@@ -492,7 +602,8 @@ class TIX_Promoter {
 
     public static function cancel_commissions($order_id) {
         if (!class_exists('TIX_Promoter_DB')) return;
-        TIX_Promoter_DB::cancel_commissions_by_order($order_id);
+        // offene Provision stornieren, schon abgerechnete gegenbuchen (1.38.643; vorher blieb sie nach der Auszahlung stehen)
+        TIX_Promoter_DB::reverse_order(intval($order_id), 1.0, 'cancel');
     }
 
     // ──────────────────────────────────────────

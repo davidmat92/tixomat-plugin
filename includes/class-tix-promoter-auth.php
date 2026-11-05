@@ -110,7 +110,7 @@ class TIX_Promoter_Auth {
     public static function set_session_cookie(int $promoter_id) {
         $expiry  = time() + self::COOKIE_TTL;
         $payload = $promoter_id . '.' . $expiry;
-        $sig     = hash_hmac('sha256', 'tix-promoter-session|' . $payload, wp_salt('auth'));
+        $sig     = hash_hmac('sha256', self::session_msg($promoter_id, $payload), wp_salt('auth'));
         $token   = $payload . '.' . substr($sig, 0, 32);
 
         if (!headers_sent()) {
@@ -121,8 +121,8 @@ class TIX_Promoter_Auth {
                 'secure'   => is_ssl(),
                 'httponly' => true,
             ]);
-            $_COOKIE[self::COOKIE_NAME] = $token;
         }
+        $_COOKIE[self::COOKIE_NAME] = $token;
     }
 
     /**
@@ -138,9 +138,39 @@ class TIX_Promoter_Auth {
         $expiry = intval($expiry);
         if ($pid <= 0 || $expiry < time()) return 0;
         $payload  = $pid . '.' . $expiry;
-        $expected = substr(hash_hmac('sha256', 'tix-promoter-session|' . $payload, wp_salt('auth')), 0, 32);
+        $expected = substr(hash_hmac('sha256', self::session_msg($pid, $payload), wp_salt('auth')), 0, 32);
         if (!hash_equals($expected, $sig)) return 0;
         return $pid;
+    }
+
+    /**
+     * Abmelden auf allen Geräten (1.38.643): Die Sitzungs-Signatur enthält einen Zähler je Promoter. Er steigt bei
+     * Deaktivieren, E-Mail-Wechsel oder „überall abmelden“ – alte Sitzungen gelten dann nicht mehr.
+     * Zähler 0 = altes Format (bestehende Sitzungen bleiben gültig).
+     */
+    private static function session_msg($pid, $payload) {
+        $e = intval(get_option('tix_promoter_epoch_' . intval($pid), 0));
+        return 'tix-promoter-session|' . $payload . ($e > 0 ? '|' . $e : '');
+    }
+
+    public static function revoke_sessions(int $promoter_id) {
+        update_option('tix_promoter_epoch_' . $promoter_id, intval(get_option('tix_promoter_epoch_' . $promoter_id, 0)) + 1, false);
+    }
+
+    /**
+     * Login-Link an die E-Mail des Promoters (Studio „Zugang schicken“, Selbst-Anmeldung). Höchstens 3 je 15 Minuten
+     * und Promoter. → true | WP_Error
+     */
+    public static function send_login_link($promoter) {
+        $email = sanitize_email((string) ($promoter->email ?? ''));
+        if (!$email && !empty($promoter->user_id) && ($u = get_userdata(intval($promoter->user_id)))) $email = $u->user_email;
+        if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Der Promoter hat keine E-Mail-Adresse.', ['status' => 400, 'field' => 'email']);
+        $k = self::RATE_LIMIT_KEY . 'p' . intval($promoter->id);
+        $n = (int) get_transient($k);
+        if ($n >= 3) return new WP_Error('tix_rate_limit', 'Es wurden gerade schon Login-Links verschickt – bitte 15 Minuten warten.', ['status' => 429]);
+        set_transient($k, $n + 1, self::RATE_LIMIT_WINDOW);
+        self::send_magic_link_email($email, self::build_magic_url(intval($promoter->id)), $promoter);
+        return true;
     }
 
     public static function clear_session_cookie() {
@@ -210,6 +240,13 @@ class TIX_Promoter_Auth {
             wp_send_json_error(['message' => 'Zu viele Anfragen. Bitte warte 15 Minuten und versuche es erneut.']);
         }
         set_transient($rl_key, $count + 1, self::RATE_LIMIT_WINDOW);
+        // zusätzlich je E-Mail (sonst Mail-Flut an eine Adresse über wechselnde IPs)
+        $em_key = self::RATE_LIMIT_KEY . 'e' . md5(strtolower($email));
+        $em_count = (int) get_transient($em_key);
+        if ($em_count >= 3) {
+            wp_send_json_success(['message' => 'Wenn diese E-Mail in unserem System registriert ist, haben wir dir einen Login-Link geschickt.']);
+        }
+        set_transient($em_key, $em_count + 1, self::RATE_LIMIT_WINDOW);
 
         // Promoter suchen — über tix_promoters.email ODER über WP-User-Mail (für WP-User-Promoter)
         if (!class_exists('TIX_Promoter_DB')) {

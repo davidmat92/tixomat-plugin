@@ -972,7 +972,8 @@ class TIX_Promoter_Dashboard {
         ];
 
         // 2) Alle bookable Events durchgehen — pro Event die effektive Provision berechnen
-        $bookable = get_posts([
+        $scope = class_exists('TIX_Promoter') ? TIX_Promoter::scope_event_ids($promoter) : null;
+        $bookable = get_posts(array_merge($scope !== null ? ['post__in' => $scope] : [], [
             'post_type'      => 'event',
             'post_status'    => 'publish',
             'posts_per_page' => 100,
@@ -984,7 +985,7 @@ class TIX_Promoter_Dashboard {
             'orderby'        => 'meta_value',
             'meta_key'       => '_tix_date_start',
             'order'          => 'ASC',
-        ]);
+        ]));
 
         foreach ($bookable as $ev) {
             $eid = $ev->ID;
@@ -1065,11 +1066,10 @@ class TIX_Promoter_Dashboard {
 
         // Conversion: total_clicks vs. distinct orders mit promoter_id
         global $wpdb;
-        $orders_with_promoter = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta}
-             WHERE meta_key = '_tix_promoter_id' AND meta_value = %s",
-            (string) $promoter->id
-        ));
+        // Bestellungen mit diesem Promoter (seit 1.38.616 in TIX_Order_Attribution, vorher Postmeta – zählte zuletzt 0)
+        $orders_with_promoter = class_exists('TIX_Order_Attribution')
+            ? (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Order_Attribution::table() . " WHERE promoter_id = %d", intval($promoter->id)))
+            : 0;
         $conversion_rate = ($stats['unique'] ?? 0) > 0
             ? round(($orders_with_promoter / $stats['unique']) * 100, 2)
             : 0;
@@ -1216,6 +1216,9 @@ class TIX_Promoter_Dashboard {
             ],
         ];
         if (strlen($term) >= 2) $args['s'] = $term;
+        // Mehr-Veranstalter: nur Events, für die der Promoter werben darf
+        $scope = class_exists('TIX_Promoter') ? TIX_Promoter::scope_event_ids($promoter) : null;
+        if ($scope !== null) $args['post__in'] = $scope;
 
         $events = get_posts($args);
         $results = [];
@@ -1246,8 +1249,9 @@ class TIX_Promoter_Dashboard {
         if (!$promoter || $promoter->status !== 'active') wp_die('Kein Promoter-Zugang.');
 
         $code = $promoter->promoter_code;
+        $scope = class_exists('TIX_Promoter') ? TIX_Promoter::scope_event_ids($promoter) : null;
 
-        $events = get_posts([
+        $events = get_posts(array_merge($scope !== null ? ['post__in' => $scope] : [], [
             'post_type'      => 'event',
             'post_status'    => 'publish',
             'posts_per_page' => -1,
@@ -1259,7 +1263,7 @@ class TIX_Promoter_Dashboard {
                 ['key' => '_tix_date_start', 'value' => date('Y-m-d'), 'compare' => '>=', 'type' => 'DATE'],
                 ['key' => '_tix_date_start', 'compare' => 'NOT EXISTS'],
             ],
-        ]);
+        ]));
 
         $filename = 'meine-promoter-links-' . sanitize_file_name($code) . '-' . date('Y-m-d') . '.csv';
         header('Content-Type: text/csv; charset=UTF-8');

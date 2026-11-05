@@ -94,7 +94,11 @@ class TIX_Promoter_Signup {
                 .then(function(r) { return r.json(); })
                 .then(function(res) {
                     msg.style.display = 'block';
-                    if (res.success) {
+                    if (res.success && res.data && res.data.sent) {
+                        form.innerHTML = '';
+                        msg.className = 'tix-ps-msg tix-ps-msg--ok';
+                        msg.textContent = res.data.message;
+                    } else if (res.success) {
                         msg.className = 'tix-ps-msg tix-ps-msg--ok';
                         msg.innerHTML = 'Dein Empfehlungslink: <strong>' + res.data.link + '</strong>';
                         form.innerHTML = '<p class="tix-ps-msg tix-ps-msg--ok">Registrierung erfolgreich! Dein Code: <strong>' + res.data.code + '</strong></p>';
@@ -126,70 +130,49 @@ class TIX_Promoter_Signup {
         check_ajax_referer('tix_promoter_signup', 'tix_ps_nonce');
 
         $name  = sanitize_text_field($_POST['display_name'] ?? '');
-        $email = sanitize_email($_POST['email'] ?? '');
+        $email = strtolower(sanitize_email($_POST['email'] ?? ''));
+        if (is_user_logged_in()) $email = strtolower(wp_get_current_user()->user_email);
 
-        if (empty($name) || empty($email)) {
+        if (empty($name) || !is_email($email)) {
             wp_send_json_error('Name und E-Mail sind erforderlich.');
         }
-
         if (!class_exists('TIX_Promoter_DB')) {
             wp_send_json_error('Promoter-System nicht verfügbar.');
         }
-
-        // User finden oder erstellen
-        $user = get_user_by('email', $email);
-        if (!$user) {
-            // WP-User erstellen
-            $username = sanitize_user(strtolower(str_replace(' ', '.', $name)));
-            if (username_exists($username)) {
-                $username .= '_' . wp_rand(100, 999);
-            }
-            $password = wp_generate_password(16);
-            $user_id  = wp_create_user($username, $password, $email);
-            if (is_wp_error($user_id)) {
-                wp_send_json_error('Benutzer konnte nicht erstellt werden.');
-            }
-            wp_update_user(['ID' => $user_id, 'display_name' => $name, 'first_name' => explode(' ', $name)[0]]);
-        } else {
-            $user_id = $user->ID;
+        // Höchstens 5 Anmeldungen je Stunde und IP (1.38.643)
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('promoter_signup', 5, HOUR_IN_SECONDS)) {
+            wp_send_json_error('Zu viele Versuche – bitte später noch einmal.');
         }
 
-        // Prüfen ob bereits Promoter
-        $existing = TIX_Promoter_DB::get_promoter_by_user($user_id);
+        $sent = ['sent' => true, 'message' => 'Fast geschafft: Wir haben dir eine Mail mit dem Zugang zu deinem Promoter-Bereich geschickt. Dort findest du deinen Link und Code.'];
+
+        // Angemeldet: eigenes Konto (Code direkt anzeigen)
+        if (is_user_logged_in()) {
+            $uid = get_current_user_id();
+            $existing = TIX_Promoter_DB::get_promoter_by_user($uid);
+            if ($existing) wp_send_json_success(['code' => $existing->promoter_code, 'link' => home_url('?ref=' . $existing->promoter_code)]);
+            $code = self::generate_code($name);
+            $pid = TIX_Promoter_DB::insert_promoter(['user_id' => $uid, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'active', 'notes' => 'Self-Signup']);
+            if (!$pid) wp_send_json_error('Promoter konnte nicht erstellt werden.');
+            self::auto_assign_events($pid, tix_get_settings());
+            wp_send_json_success(['code' => $code, 'link' => home_url('?ref=' . $code)]);
+        }
+
+        // Nicht angemeldet: nie einen Code für eine fremde Adresse zeigen und kein WordPress-Konto anlegen (vorher: jede
+        // E-Mail wurde mit einem bestehenden Konto verknüpft, ein bestehender Code ausgegeben). Den Zugang bekommt nur,
+        // wer das Postfach hat (Login-Link).
+        $existing = TIX_Promoter_DB::get_promoter_by_email($email);
+        if (!$existing && ($u = get_user_by('email', $email))) $existing = TIX_Promoter_DB::get_promoter_by_user($u->ID);
         if ($existing) {
-            wp_send_json_success([
-                'code' => $existing->promoter_code,
-                'link' => home_url('?ref=' . $existing->promoter_code),
-            ]);
-            return;
+            if ($existing->status === 'active' && class_exists('TIX_Promoter_Auth')) TIX_Promoter_Auth::send_login_link($existing);
+            wp_send_json_success($sent);
         }
-
-        // Promoter-Code generieren
         $code = self::generate_code($name);
-
-        // In DB einfügen
-        $s = tix_get_settings();
-        $promoter_id = TIX_Promoter_DB::create_promoter([
-            'user_id'       => $user_id,
-            'promoter_code' => $code,
-            'display_name'  => $name,
-            'status'        => 'active',
-            'notes'         => 'Self-Signup',
-        ]);
-
-        if (!$promoter_id) {
-            wp_send_json_error('Promoter konnte nicht erstellt werden.');
-        }
-
-        // Auto-Assign Events
-        if (!empty($s['promoter_signup_auto_events'])) {
-            self::auto_assign_events($promoter_id, $s);
-        }
-
-        wp_send_json_success([
-            'code' => $code,
-            'link' => home_url('?ref=' . $code),
-        ]);
+        $pid = TIX_Promoter_DB::insert_promoter(['user_id' => 0, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'active', 'notes' => 'Self-Signup']);
+        if (!$pid) wp_send_json_error('Promoter konnte nicht erstellt werden.');
+        self::auto_assign_events($pid, tix_get_settings());
+        if (class_exists('TIX_Promoter_Auth')) TIX_Promoter_Auth::send_login_link(TIX_Promoter_DB::get_promoter($pid));
+        wp_send_json_success($sent);
     }
 
     /**
@@ -354,6 +337,9 @@ class TIX_Promoter_Signup {
      * Alle aktiven Events dem neuen Promoter zuweisen.
      */
     private static function auto_assign_events($promoter_id, $s) {
+        if (empty($s['promoter_signup_auto_events'])) return;
+        // Mehr-Veranstalter: keine automatische Zuordnung zu allen Events aller Veranstalter
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return;
         $events = get_posts([
             'post_type'      => 'event',
             'post_status'    => 'publish',
@@ -365,7 +351,9 @@ class TIX_Promoter_Signup {
         $commission_value = floatval($s['promoter_signup_commission_value'] ?? 2);
 
         foreach ($events as $event_id) {
-            TIX_Promoter_DB::assign_event($promoter_id, $event_id, [
+            TIX_Promoter_DB::assign_event([
+                'promoter_id'      => $promoter_id,
+                'event_id'         => $event_id,
                 'commission_type'  => $commission_type,
                 'commission_value' => $commission_value,
                 'status'           => 'active',
