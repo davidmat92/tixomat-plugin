@@ -143,6 +143,8 @@ class TIX_Demo_Access {
             'can_manage' => !$prospect,
             'home'       => self::home_url(self::code($user->ID)),
             'reset_at'   => class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null,
+            // eigene Testkäufe seit dem letzten Zurücksetzen (Karte „Testkauf ausprobieren“ im Studio)
+            'test_orders' => self::test_orders($user->ID, $user->user_email),
         ];
     }
 
@@ -437,8 +439,9 @@ class TIX_Demo_Access {
         if (!self::usable($u->ID)) return new WP_Error('tix_demo_expired', 'Dieser Demo-Zugang ist abgelaufen oder gesperrt.', ['status' => 403]);
         $token = TIX_REST_API::issue_app_token($u->ID, (string) ($req->get_param('device') ?: 'Demo-Studio'));
         update_user_meta($u->ID, '_tix_demo_last_seen', time());
-        if (!get_user_meta($u->ID, '_tix_demo_first_login', true)) update_user_meta($u->ID, '_tix_demo_first_login', time());
-        return self::out(['ok' => true, 'token' => $token, 'user' => ['id' => intval($u->ID), 'name' => (string) $u->display_name, 'email' => (string) $u->user_email], 'demo_access' => self::me_payload($u)]);
+        $first = !get_user_meta($u->ID, '_tix_demo_first_login', true);
+        if ($first) update_user_meta($u->ID, '_tix_demo_first_login', time());
+        return self::out(['ok' => true, 'first' => $first, 'token' => $token, 'user' => ['id' => intval($u->ID), 'name' => (string) $u->display_name, 'email' => (string) $u->user_email], 'demo_access' => self::me_payload($u)]);
     }
 
     /** Täglich: Interessenten 7 Tage nach Ablauf löschen */
@@ -538,6 +541,9 @@ class TIX_Demo_Access {
             '%.invalid', (string) $viewer->user_email
         ));
         $map = [];
+        // eigene Angaben (Konto + eigene Testkäufe) nie verkürzen – auch wenn ein fremder Käufer gleich heißt
+        $mine = [mb_strtolower(trim((string) $viewer->display_name)), mb_strtolower((string) $viewer->user_email)];
+        foreach ($rows as $r) if (in_array(intval($r->id), $own, true)) { $mine[] = mb_strtolower(trim($r->f . ' ' . $r->l)); $mine[] = mb_strtolower((string) $r->e); $mine[] = '@l:' . mb_strtolower((string) $r->l); }
         foreach ($rows as $r) {
             if (in_array(intval($r->id), $own, true)) continue;
             $full = trim($r->f . ' ' . $r->l);
@@ -548,6 +554,7 @@ class TIX_Demo_Access {
             if (mb_strlen((string) $r->a) >= 5) $map[(string) $r->a] = '•••';
             if (mb_strlen((string) $r->c) >= 3) $map['@C:' . $r->c] = '•••';
         }
+        foreach (array_keys($map) as $k) if (in_array(mb_strtolower($k), $mine, true)) unset($map[$k]);
         uksort($map, function ($a, $b) { return mb_strlen($b) <=> mb_strlen($a); });
         self::$foreign = [intval($viewer->ID), $map];
         return $map;
@@ -558,7 +565,8 @@ class TIX_Demo_Access {
         if (!($response instanceof WP_REST_Response) || !($request instanceof WP_REST_Request) || !self::multi()) return $response;
         $route = (string) $request->get_route();
         if (strpos($route, '/' . self::NS . '/') !== 0) return $response;
-        foreach (['/public/', '/customer/', '/auth/', '/me'] as $skip) if (strpos($route, '/' . self::NS . $skip) === 0) return $response;
+        // Zugangs-Verwaltung zeigt Name und E-Mail der Zugänge immer voll (Vertriebler/Admin verwalten sie)
+        foreach (['/public/', '/customer/', '/auth/', '/me', '/demo-access'] as $skip) if (strpos($route, '/' . self::NS . $skip) === 0) return $response;
         $viewer = wp_get_current_user();
         if (!$viewer || !$viewer->ID || $viewer->has_cap('manage_options') || !self::is_demo_user($viewer)) return $response;
         $map = self::foreign_map($viewer);

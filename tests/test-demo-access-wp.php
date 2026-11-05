@@ -36,6 +36,7 @@ function t_link_token($to) {
 update_option('tix_multi_organizer', '1');
 $admin = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
 $sfx = wp_rand(10000, 99999);
+delete_transient('tix_demo_reset_rl'); // Grenze für Zurücksetzen
 $_SERVER['REMOTE_ADDR'] = '10.8.' . wp_rand(1, 250) . '.' . wp_rand(1, 250); // Grenzen je IP
 $cleanup_users = [];
 if (!TIX_Sales::demo_id()) TIX_Demo::ensure_organizer();
@@ -70,7 +71,7 @@ list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 
 t_eq('gleiche E-Mail → 409', 409, $st);
 
 wp_set_current_user($sales2);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 'Max Mustermann', 'email' => "max$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"]);
 $pb = intval($d['access']['id'] ?? 0); $cleanup_users[] = $pb;
 list($st, $d) = t_rest('GET', '/demo-access');
 t_eq('Vertriebler 2 sieht nur eigene Zugänge', [$pb], array_column($d['accesses'] ?? [], 'id'));
@@ -178,7 +179,7 @@ $_SERVER['REMOTE_ADDR'] = '10.9.' . wp_rand(1, 250) . '.' . wp_rand(1, 250);
 list($st, $q) = t_rest('POST', '/customer/cart/quote', ['event_id' => $ev, 'items' => [['index' => $ci, 'qty' => 2]]]);
 t_eq('Angebot: demo=true', true, !empty($q['demo']));
 t_eq('Angebot: nur Demo-Zahlung', ['demo'], array_column((array) ($q['payment_methods'] ?? []), 'id'));
-$billing = ['first_name' => 'Lena', 'last_name' => 'Brandt', 'email' => "lena$sfx@beispiel.test", 'address_1' => 'Teststraße 1', 'postcode' => '50667', 'city' => 'Köln', 'country' => 'DE', 'phone' => '0221 123456'];
+$billing = ['first_name' => 'Lena', 'last_name' => "Brandt$sfx", 'email' => "lena$sfx@beispiel.test", 'address_1' => 'Teststraße 1', 'postcode' => '50667', 'city' => 'Köln', 'country' => 'DE', 'phone' => '0221 123456'];
 $base = ['event_id' => $ev, 'items' => [['index' => $ci, 'qty' => 2]], 'billing' => $billing, 'accept_terms' => true];
 list($st, $d) = t_rest('POST', '/customer/orders', $base + ['idempotency_token' => "t1-$sfx-abc", 'payment_method' => 'mollie:creditcard']);
 t_eq('echte Zahlart im Beispiel-Club → 400 tix_demo_payment', [400, 'tix_demo_payment'], [$st, t_code($d)]);
@@ -196,7 +197,7 @@ t_eq('Testkauf zählt als Sandbox', true, TIX_Sales::is_sandbox_order($oid));
 t_eq('Tickets angelegt', 2, count(TIX_Tickets::get_all_tickets_for_order($oid)));
 t_eq('Bestellmail an den Käufer', true, t_mail_to("lena$sfx@beispiel.test") !== null);
 // zweiter Testkauf von B
-list($st, $d2) = t_rest('POST', '/customer/orders', array_merge($base, ['billing' => ['first_name' => 'Max', 'last_name' => 'Mustermann', 'email' => "max$sfx@beispiel.test"] + $billing]) + ['idempotency_token' => "t3-$sfx-abc", 'payment_method' => 'demo', 'demo_access' => TIX_Demo_Access::code($pb)]);
+list($st, $d2) = t_rest('POST', '/customer/orders', array_merge($base, ['billing' => ['first_name' => 'Max', 'last_name' => "Mustermann$sfx", 'email' => "max$sfx@beispiel.test"] + $billing]) + ['idempotency_token' => "t3-$sfx-abc", 'payment_method' => 'demo', 'demo_access' => TIX_Demo_Access::code($pb)]);
 $oid2 = intval($d2['order']['id'] ?? ($d2['id'] ?? ($d2['order_id'] ?? 0)));
 // echtes Event: demo nie erlaubt
 if ($real) {
@@ -207,27 +208,42 @@ if ($real) {
 }
 
 // ── 8. Fremde Testkäufe verkürzt ──
-$probe = ['orders' => [['id' => $oid, 'name' => 'Lena Brandt', 'email' => "lena$sfx@beispiel.test", 'billing_first_name' => 'Lena', 'billing_last_name' => 'Brandt', 'billing_phone' => '0221 123456', 'billing_email' => "lena$sfx@beispiel.test"],
-    ['id' => $oid2, 'name' => 'Max Mustermann', 'email' => "max$sfx@beispiel.test"], ['id' => 1, 'name' => 'Sophie Wagner', 'email' => 'sophie@demo.invalid']], 'text' => "Bestellung von Max Mustermann <max$sfx@beispiel.test>"];
+$probe = ['orders' => [['id' => $oid, 'name' => "Lena Brandt$sfx", 'email' => "lena$sfx@beispiel.test", 'billing_first_name' => 'Lena', 'billing_last_name' => "Brandt$sfx", 'billing_phone' => '0221 123456', 'billing_email' => "lena$sfx@beispiel.test"],
+    ['id' => $oid2, 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"], ['id' => 1, 'name' => 'Sophie Wagner', 'email' => 'sophie@demo.invalid']], 'text' => "Bestellung von Max Mustermann$sfx <max$sfx@beispiel.test>"];
 wp_set_current_user($pb);
 $vb = TIX_Demo_Access::mask_value($probe, TIX_Demo_Access::foreign_map(get_userdata($pb)));
 t_eq('B sieht A verkürzt (Name)', 'L. B***', $vb['orders'][0]['name']);
 t_eq('B sieht A verkürzt (E-Mail)', 'l***@b***.test', $vb['orders'][0]['email']);
 t_eq('B sieht A verkürzt (Vorname)', 'L.', $vb['orders'][0]['billing_first_name']);
 t_eq('B sieht A verkürzt (Telefon)', '•••', $vb['orders'][0]['billing_phone']);
-t_eq('B sieht eigenen Kauf voll', 'Max Mustermann', $vb['orders'][1]['name']);
+t_eq('B sieht eigenen Kauf voll', "Max Mustermann$sfx", $vb['orders'][1]['name']);
 t_eq('Beispieldaten bleiben voll', 'Sophie Wagner', $vb['orders'][2]['name']);
 wp_set_current_user($pa);
 $va = TIX_Demo_Access::mask_value($probe, TIX_Demo_Access::foreign_map(get_userdata($pa)));
-t_eq('A sieht eigenen Kauf voll', 'Lena Brandt', $va['orders'][0]['name']);
+t_eq('A sieht eigenen Kauf voll', "Lena Brandt$sfx", $va['orders'][0]['name']);
+// gleicher Name wie ein fremder Käufer: eigene Angaben bleiben voll
+$twin = TIX_Demo_Access::mask_value(['n' => 'Lena Brandt'], ['Lena Brandt' => 'L. B***']);
+t_eq('Hilfsfunktion verkürzt exakte Treffer', 'L. B***', $twin['n']);
 t_eq('A sieht B verkürzt (Text)', 'Bestellung von M. M*** <m***@b***.test>', $va['text']);
 // über echte Route
 list($st, $d) = t_rest('GET', "/orders/$oid2/detail");
 $flat = wp_json_encode($d);
 t_eq('Route /orders/{id}/detail: B für A verkürzt', true, $st === 200 ? (strpos($flat, "max$sfx@beispiel.test") === false) : true);
+list($st, $d) = t_rest('GET', '/orders', ['per_page' => 500]);
+t_eq('Demo-Zugang darf /orders (Mehr-Veranstalter-Modus)', 200, $st);
+$foreign_items = 0;
+foreach ((array) ($d['orders'] ?? []) as $o) foreach ((array) ($o['items'] ?? []) as $it) if (!in_array($demo, TIX_App_Scope::event_org_ids($it['event_id']), true)) $foreign_items++;
+t_eq('/orders: nur Beispiel-Club', 0, $foreign_items);
+$row_b = current(array_filter((array) ($d['orders'] ?? []), function ($o) use ($oid2) { return intval($o['id']) === $oid2; }));
+t_eq('/orders: Testkauf von B für A verkürzt', 'M. M***', $row_b['billing_name'] ?? null);
 wp_set_current_user($admin);
 list($st, $d) = t_rest('GET', "/orders/$oid2/detail");
 t_eq('Admin sieht alles voll', true, $st !== 200 || strpos(wp_json_encode($d), "max$sfx") !== false);
+
+wp_set_current_user($sales2);
+list($st, $d) = t_rest('GET', '/demo-access');
+$row = current(array_filter((array) ($d['accesses'] ?? []), function ($a) use ($pb) { return intval($a['id']) === $pb; }));
+t_eq('Zugangs-Verwaltung nie verkürzt', "Max Mustermann$sfx", $row['name'] ?? null);
 
 // ── 9. Mitteilungen ──
 $out = apply_filters('tix_staff_push_recipients', [$pa, $pb, $sales, $admin], [$demo], 'sales_digest');

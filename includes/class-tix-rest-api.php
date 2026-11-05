@@ -534,7 +534,11 @@ class TIX_REST_API {
         register_rest_route($ns, '/orders', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_orders'],
-            'permission_callback' => function() { return current_user_can('edit_posts'); },
+            // Mehr-Veranstalter-Modus (1.38.664): auch Veranstalter/Team ohne edit_posts – get_orders schottet dort selbst auf den eigenen Veranstalter ab
+            'permission_callback' => function(WP_REST_Request $req) {
+                if (current_user_can('edit_posts')) return true;
+                return class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? self::check_organizer($req) : false;
+            },
         ]);
 
         register_rest_route($ns, '/orders/(?P<id>\d+)', [
