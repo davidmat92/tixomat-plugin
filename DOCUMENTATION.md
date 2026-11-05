@@ -3796,3 +3796,60 @@ Tests: `tests/test-stufe2-wp.php` (Einzel-Seite 28/28, Plattform 32/32).
 Tests: `tests/test-newsletter-wp.php` (34/34 in beiden Modi).
 
 **Kanal der App-Bestellung (1.38.639):** `attribution.channel` (`web`|`app`) setzt `_tix_order_channel`. Ohne Angabe gilt `web` (Websites), bei `utm_medium=push` gilt `app`. Apps schicken bei einem Kauf aus einer Mitteilung `attribution {channel: 'app', utm_source: 'push', utm_medium: 'push', utm_campaign: <Kennung>}`; die Statistik zählt den Kauf dann unter „App“.
+
+## 80. Newsletter mit KI (Modul Marketing, ab 1.38.641)
+
+`TIX_Newsletter_AI` (`includes/class-tix-newsletter-ai.php`). Der Klick-Assistent im Studio schickt die Antworten des Veranstalters. Die KI (Claude, Modell der Seite aus „Einstellungen → KI“, bei OpenAI-Einstellung die Claude-Vorgabe, Schlüssel `anthropic_api_key`) liefert über einen erzwungenen Werkzeug-Aufruf **nur Texte und die Reihenfolge der Bausteine**. Das HTML baut das Plugin aus festen Bausteinen von `TIX_Mail_Layout` (Marke, Logo, Akzentfarbe, Dark Mode, 600 px): neu ist `TIX_Mail_Layout::blocks_html()` (Bausteine ohne Gerüst).
+
+**Fakten nur aus echten Daten:** Datum, Uhrzeit, Einlass, Ort, Adresse, Preise, Line-up, Programm, Galerie, Gutschein-Code, Rabatt, Gültigkeit, Event-Links (Kunden-Adresse), App- und Social-Links kommen aus Event-API, Gutscheinen und Marke. Fehlt etwas, entfällt der Baustein. Eine Prüfung entfernt Sätze bzw. Betreffzeilen mit:
+- Beträgen, Prozenten, Daten (T.M.), Uhrzeiten oder Codes, die nicht in den Daten stehen;
+- Links bzw. Domains;
+- „Ballermann“;
+- Alkohol-Werbung (saufen, Flatrate …).
+
+Die Zahl steht in `removed`. An die KI gehen nur Event-Daten, Marke, Gutschein und die Antworten, **keine Kundendaten**. Abmeldelink und Impressum setzt der Versand (`TIX_Newsletter::html`) immer in den Fuß. Inhalte mit eigener Überschrift (`tm-nl-hero`) zeigen den Betreff nur als `<title>` (`hide_title`).
+
+**GET `/marketing/newsletter/ai`** (Rechte wie `/marketing/newsletter`) → `{available, module_on, model, limit, used_today, remaining, cost_today_eur, cost_30d_eur, subject_max: 60, preheader_max: 110, max_events: 8, options: {goals, includes, tones, drafts}}`.
+
+**POST `/marketing/newsletter/ai`** (Modul Marketing):
+
+| Feld | Werte |
+|---|---|
+| `goal` | `event` · `overview` · `last_minute` · `news` · `app` · `thanks` · `voucher` · `custom` (Standard `event`) |
+| `event_ids[]` | `event`/`last_minute`/`news`/`thanks` genau 1, `overview` 1–8, sonst 0–8; nur Events des Bereichs (`event_id` geht auch) |
+| `coupon` | Code eines vorhandenen Gutscheins des Bereichs (Pflicht bei `voucher`). **Neuer Gutschein:** das Studio legt ihn vorher über `POST /organizer/coupons` an und schickt dann den Code |
+| `include[]` | `lineup` · `program` · `prices` · `directions` · `gallery` · `app` · `social` |
+| `tone` | `casual` (Standard) · `festive` · `short` · `info` |
+| `address` | `du` (Standard) · `sie` |
+| `note` | Freitext ≤ 500 („Worum geht's“ frei, Wünsche) |
+| `rephrase` | „Anders formulieren: …“ ≤ 300 |
+| `parts[]` | Teilmenge von `subjects`, `preheaders`, `drafts` (Standard alle) – für „Neu erzeugen“ je Teil |
+| `draft` | `flyer` · `compact` · `story` – nur diesen Entwurf neu |
+| `campaign_id` | optional, nur für die UTM in der Vorschau (`nl-<id>`) |
+
+**Antwort:**
+```json
+{ "ok": true,
+  "subjects":   [{"text": "…", "length": 23, "max": 60, "too_long": false}],
+  "preheaders": [{"text": "…", "length": 59, "max": 110, "too_long": false}],
+  "drafts": [{"key": "flyer", "name": "Flyer groß", "content": "<div …>…", "html": "<!doctype html>…", "text": "…"}],
+  "facts": {"events": [{"id", "title", "date_label", "url"}], "coupon": {"code", "discount_label", "expires"} | null},
+  "removed": 3, "model": "claude-sonnet-5-5", "cost_eur": 0.0193, "used_today": 1, "remaining": 29, "limit": 30 }
+```
+- Es gibt 3–5 Betreffzeilen und 3–5 Vorschautexte. Entwürfe: drei bei einem Event, bei `overview` oder mehreren Events zwei (`flyer`, `compact`).
+- **`content`** ist der Inhalt für den Kampagnen-Editor. Übernehmen geht per `POST /marketing/newsletter/campaigns` bzw. `/{id}` mit `{subject, preheader, content, audience…}`. `wp_kses_post` behält Knöpfe, Code und Links. Die Anrede steht als `{{ contact.FIRSTNAME | default: "du" }}`, Brevo setzt den Vornamen ein.
+- **`html`** ist die Vorschau wie im Postfach: Gerüst, Fuß, UTM, Abmeldelink als `#`, Vorname als „du“. Sie gehört ins iframe (sandbox), Desktop, Handy und Dunkel lassen sich dort umschalten.
+- **`text`** ist die Text-Fassung, Links stehen in Klammern.
+
+**Fehler:**
+- `tix_invalid_field` (400, `data.field`)
+- `not_found` (404): Event oder Gutschein fremd bzw. unbekannt
+- `tix_coupon_invalid` (409): abgelaufen bzw. aufgebraucht
+- `ai_unavailable` (503): kein Schlüssel oder KI-Fehler
+- `tix_nl_ai_limit` (429, `data.limit`)
+- `tix_rate_limit` (429): mehr als 6 Anfragen in der Minute je Nutzer
+- `rest_forbidden` (403): ohne Modul
+
+**Limit und Kosten:** 30 Erzeugungen je Bereich und Tag (Filter `tix_nl_ai_daily_limit`), jede erfolgreiche Antwort zählt, abgelehnte Eingaben nicht. Das Protokoll steht in der Option `tix_nl_ai_usage` (`[Tag][Bereich] = {n, cost_eur, in, out}`, 60 Tage). Die Kosten sind eine Schätzung aus `usage` mit den Preisen `PRICES` (Filter `tix_nl_ai_prices`, USD je 1 Mio. Token, Umrechnung 0,92).
+
+Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 44/44 Plattform).

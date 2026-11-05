@@ -12,14 +12,12 @@ TIX_Newsletter::maybe_create();
 $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
 echo $multi ? "── Mehr-Veranstalter-Modus\n" : "── Einzel-Seite\n";
 $sfx = wp_rand(1000, 9999); $users = []; $posts = [];
-$opt_before = ['u' => get_option(TIX_Newsletter_AI::OPT_USAGE, null), 't' => get_option('tix_marketing_trial_until', null), 'ts' => get_option('tix_settings', null), 'c' => get_option('tix_coupons', null)];
-delete_option(TIX_Newsletter_AI::OPT_USAGE);
+$opt_before = ['u' => get_option(TIX_Newsletter_AI::OPT_USAGE, null), 't' => get_option('tix_marketing_trial_until', null), 'c' => get_option('tix_coupons', null)];
+delete_option(TIX_Newsletter_AI::OPT_USAGE); delete_option('tix_marketing_trial_until');
 $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_nl\\_ai\\_%'");
 wp_cache_flush();
-$ts = is_array($opt_before['ts']) ? $opt_before['ts'] : [];
-$ts['anthropic_api_key'] = 'sk-ant-test'; $ts['ai_model'] = 'claude-sonnet-5-5';
-update_option('tix_settings', $ts);
-if (function_exists('tix_flush_settings')) tix_flush_settings();
+$GLOBALS['ai_key'] = 'sk-ant-test';
+add_filter('tix_nl_ai_api_key', function () { return $GLOBALS['ai_key']; });
 
 $owner = wp_insert_user(['user_login' => "ai_owner_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "ai_owner_$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $owner;
 $other = wp_insert_user(['user_login' => "ai_other_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "ai_other_$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $other;
@@ -49,6 +47,7 @@ add_filter('pre_http_request', function ($pre, $args, $url) {
     if (strpos($url, 'https://api.anthropic.com/') !== 0) return $pre;
     $b = json_decode((string) ($args['body'] ?? ''), true) ?: [];
     $GLOBALS['ai_mock']['calls'][] = $b;
+    $GLOBALS['ai_mock']['key'] = (string) ($args['headers']['x-api-key'] ?? '');
     $J = function ($code, $body) { return ['headers' => [], 'body' => wp_json_encode($body), 'response' => ['code' => $code, 'message' => 'x'], 'cookies' => [], 'filename' => null]; };
     if ($GLOBALS['ai_mock']['code'] !== 200) return $J($GLOBALS['ai_mock']['code'], ['error' => ['message' => 'kaputt']]);
     $drafts = [];
@@ -95,7 +94,7 @@ ai_eq('Fehlerhafte Eingaben rufen die KI nicht auf', 0, count($GLOBALS['ai_mock'
 [$st, $r] = ai_rest('POST', '/marketing/newsletter/ai', ['goal' => 'event', 'event_ids' => [$ev], 'coupon' => strtolower($CODE), 'include' => ['lineup', 'prices', 'directions', 'gallery'], 'tone' => 'festive', 'note' => 'Bitte Sommer-Stimmung']);
 ai_eq('Erzeugt: 200, drei Entwürfe', [200, ['flyer', 'compact', 'story']], [$st, array_column((array) ($r['drafts'] ?? []), 'key')]);
 $call = $GLOBALS['ai_mock']['calls'][0] ?? [];
-ai_eq('KI-Aufruf: Claude-Modell, Werkzeug erzwungen', ['claude-sonnet-5-5', 'newsletter'], [$call['model'] ?? '', $call['tool_choice']['name'] ?? '']);
+ai_eq('KI-Aufruf: Claude-Modell, Werkzeug erzwungen, Schlüssel', [TIX_Newsletter_AI::model(), 0, 'newsletter', 'sk-ant-test'], [$call['model'] ?? '', strpos((string) ($call['model'] ?? ''), 'claude'), $call['tool_choice']['name'] ?? '', $GLOBALS['ai_mock']['key'] ?? '']);
 $msg = (string) ($call['messages'][0]['content'] ?? '');
 ai_eq('An die KI gehen Event-Daten und Wünsche, keine Kundendaten', [true, true, true, false], [strpos($msg, "KI Sommerparty $sfx") !== false, strpos($msg, 'Sommer-Stimmung') !== false, strpos($msg, $CODE) !== false, strpos($msg, '@example.test') !== false]);
 $subs = array_column((array) $r['subjects'], 'text');
@@ -119,12 +118,17 @@ ai_eq('Kompakt ohne Galerie, Story mit Zwischenüberschrift', [false, true], [st
 $p = (string) $fly['html'];
 ai_eq('Vorschau: Gerüst, Abmeldelink-Platz, Impressum-Hinweis, UTM, Name statt Platzhalter', [true, true, true, false],
     [strpos($p, '<!doctype html') !== false || stripos($p, '<html') !== false, strpos($p, 'Abmelden') !== false, strpos($p, 'utm_campaign=nl-0') !== false, strpos($p, 'contact.FIRSTNAME') !== false]);
+$man = TIX_Newsletter::html(['id' => 6, 'organizer_id' => $org, 'subject' => 'Handbetreff', 'preheader' => '', 'content' => '<p>Hallo</p>']);
+ai_eq('Nur eine Überschrift im KI-Entwurf, Handkampagne behält den Betreff als Titel', [1, 1, true], [substr_count($p, '<h1'), substr_count($man, '<h1'), strpos($man, 'Handbetreff</h1>') !== false]);
+$pos = function ($x) use ($c) { $i = strpos($c, $x); return $i === false ? PHP_INT_MAX : $i; };
+ai_eq('Event-Karte und Gutschein vor den übrigen Bausteinen', [true, true], [$pos('Jetzt Tickets sichern') < $pos('Line-up'), $pos($CODE) < $pos('Line-up')]);
 $real = TIX_Newsletter::html(['id' => 5, 'organizer_id' => $org, 'subject' => 'x', 'preheader' => '', 'content' => wp_kses_post($c)]);
 ai_eq('Übernahme in den Editor: wp_kses_post behält Knopf, Code und Abmeldelink im Versand', [true, true, true, true],
     [strpos($real, 'tm-btn') !== false, strpos($real, $CODE) !== false, strpos($real, '{{ unsubscribe }}') !== false, strpos($real, 'utm_campaign=nl-5') !== false]);
 ai_eq('Text-Fassung mit Link in Klammern', [true, true], [strpos((string) $fly['text'], 'Stadthalle Testdorf') !== false, (bool) preg_match('/\(https?:\/\/[^)]+\)/', (string) $fly['text'])]);
-ai_eq('Antwort: Fakten, Modell, Kosten, Zähler', [$ev, $CODE, 'claude-sonnet-5-5', 1, 29], [$r['facts']['events'][0]['id'] ?? 0, $r['facts']['coupon']['code'] ?? '', $r['model'] ?? '', $r['used_today'] ?? 0, $r['remaining'] ?? 0]);
-ai_eq('Kosten geschätzt (2000 ein, 1000 aus, Sonnet)', round((2000 * 3 + 1000 * 15) / 1e6 * 0.92, 4), $r['cost_eur'] ?? 0);
+ai_eq('Antwort: Fakten, Modell, Kosten, Zähler', [$ev, $CODE, TIX_Newsletter_AI::model(), 1, 29], [$r['facts']['events'][0]['id'] ?? 0, $r['facts']['coupon']['code'] ?? '', $r['model'] ?? '', $r['used_today'] ?? 0, $r['remaining'] ?? 0]);
+ai_eq('Kosten geschätzt (2000 ein, 1000 aus)', round(TIX_Newsletter_AI::cost_eur(TIX_Newsletter_AI::model(), ['input_tokens' => 2000, 'output_tokens' => 1000]), 4), $r['cost_eur'] ?? 0);
+ai_eq('Preis Sonnet: 2000/1000 Token ≈ 0,0193 €', 0.0193, round(TIX_Newsletter_AI::cost_eur('claude-sonnet-5-5', ['input_tokens' => 2000, 'output_tokens' => 1000]), 4));
 
 // ═══ Teile neu erzeugen, Übersicht ═══
 [$st, $r2] = ai_rest('POST', '/marketing/newsletter/ai', ['goal' => 'event', 'event_ids' => [$ev], 'parts' => ['subjects'], 'rephrase' => 'frecher']);
@@ -158,7 +162,7 @@ if ($multi) {
     ai_eq('Limit gilt je Veranstalter (anderer hat noch 30)', 30, $s2['remaining'] ?? null);
     wp_set_current_user($owner);
 }
-$ts2 = get_option('tix_settings'); $ts2['anthropic_api_key'] = ''; update_option('tix_settings', $ts2); if (function_exists('tix_flush_settings')) tix_flush_settings();
+$GLOBALS['ai_key'] = '';
 $all[current_time('Y-m-d')][intval($org)]['n'] = 0; update_option(TIX_Newsletter_AI::OPT_USAGE, $all, false);
 [$st, $d, $code] = ai_rest('POST', '/marketing/newsletter/ai', ['goal' => 'event', 'event_ids' => [$ev]]);
 ai_eq('Ohne KI-Schlüssel → 503 ai_unavailable', [503, 'ai_unavailable'], [$st, $code]);
@@ -168,7 +172,7 @@ ai_eq('Ohne Anmeldung → 401', 401, $st);
 
 // Aufräumen
 wp_set_current_user(1);
-foreach ($opt_before as $k => $v) { $name = ['u' => TIX_Newsletter_AI::OPT_USAGE, 't' => 'tix_marketing_trial_until', 'ts' => 'tix_settings', 'c' => 'tix_coupons'][$k]; if ($v === null) delete_option($name); else update_option($name, $v); }
+foreach ($opt_before as $k => $v) { $name = ['u' => TIX_Newsletter_AI::OPT_USAGE, 't' => 'tix_marketing_trial_until', 'c' => 'tix_coupons'][$k]; if ($v === null) delete_option($name); else update_option($name, $v); }
 foreach ($posts as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);

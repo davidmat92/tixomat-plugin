@@ -637,7 +637,7 @@ class TIX_Newsletter {
         $addr = $s['address'] !== '' ? $s['address'] : self::default_address($org);
         $content = self::tag_links(wpautop((string) $c['content']), $c['id']);
         $note = 'Du bekommst diese Mail, weil du dich für den Newsletter von ' . esc_html(self::owner_name($org)) . ' angemeldet hast. <a href="{{ unsubscribe }}" style="text-decoration:underline;">Abmelden</a><br>' . esc_html($addr);
-        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render(['title' => (string) $c['subject'], 'preheader' => (string) $c['preheader'], 'kind' => 'promo', 'blocks' => [['type' => 'html', 'html' => $content]], 'note' => $note]);
+        if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render(['title' => (string) $c['subject'], 'hide_title' => strpos($content, 'tm-nl-hero') !== false, 'preheader' => (string) $c['preheader'], 'kind' => 'promo', 'blocks' => [['type' => 'html', 'html' => $content]], 'note' => $note]);
         return '<!doctype html><html><body>' . $content . '<p>' . $note . '</p></body></html>';
     }
 

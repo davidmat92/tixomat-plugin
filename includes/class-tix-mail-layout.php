@@ -290,7 +290,7 @@ class TIX_Mail_Layout {
 
     // ═══════════════ Gerüst ═══════════════
 
-    /** Komplette HTML-Mail. $m: title, subtitle, preheader, blocks, note, kind, brand (Override). */
+    /** Komplette HTML-Mail. $m: title, subtitle, preheader, blocks, note, kind, brand (Override), hide_title (Titel nur als <title>, Inhalt bringt eigene Überschrift). */
     public static function render(array $m) {
         $b = self::brand((array) ($m['brand'] ?? []));
         $prev_c = self::$c;
@@ -369,7 +369,7 @@ class TIX_Mail_Layout {
             . '<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="tm-card" style="background:' . $c['card'] . ';border-radius:16px;border-collapse:separate;">'
             . $head
             . '<tr><td class="tm-pad" style="padding:28px 32px 12px;font-family:' . $font . ';">'
-            . ($title !== '' ? '<h1 class="tm-title" style="margin:0 0 ' . ($sub !== '' ? '6px' : '16px') . ';font-size:26px;line-height:32px;font-weight:800;color:' . $c['text'] . ';">' . self::e($title) . '</h1>' : '')
+            . ($title !== '' && empty($m['hide_title']) ? '<h1 class="tm-title" style="margin:0 0 ' . ($sub !== '' ? '6px' : '16px') . ';font-size:26px;line-height:32px;font-weight:800;color:' . $c['text'] . ';">' . self::e($title) . '</h1>' : '')
             . ($sub !== '' ? '<div class="tm-muted" style="margin:0 0 20px;font-size:14px;line-height:20px;color:' . $c['muted'] . ';">' . self::e($sub) . '</div>' : '')
             . $body
             . '</td></tr>'

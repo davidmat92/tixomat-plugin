@@ -61,7 +61,8 @@ class TIX_Newsletter_AI {
 
     // ═══════════════ Schlüssel, Modell, Limit, Kosten ═══════════════
 
-    private static function api_key() { return trim((string) (function_exists('tix_get_settings') ? tix_get_settings('anthropic_api_key') : '')); }
+    /** Anthropic-Schlüssel der Seite (wie KI-Texte und Assistent; Filter tix_nl_ai_api_key) */
+    private static function api_key() { return trim((string) apply_filters('tix_nl_ai_api_key', function_exists('tix_get_settings') ? (string) tix_get_settings('anthropic_api_key') : '')); }
 
     /** Claude-Modell der Seite; steht die Seite auf OpenAI, gilt die Claude-Vorgabe (der Generator nutzt Werkzeug-Aufrufe von Claude). */
     public static function model() {
@@ -559,7 +560,7 @@ class TIX_Newsletter_AI {
         if ($variant === 'flyer' && $e && $e['image'] !== '') $hero .= '<img src="' . esc_url($e['image']) . '" width="568" alt="' . esc_attr($e['title']) . '" class="tm-img" style="display:block;width:100%;max-width:568px;height:auto;border:0;border-radius:12px;margin:0 0 18px;">';
         if ($badge !== '') $hero .= '<div style="margin:0 0 10px;"><span style="display:inline-block;background:' . $acc . ';color:' . $on . ';font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 12px;border-radius:999px;">' . self::e($badge) . '</span></div>';
         $size = $variant === 'compact' ? 24 : 28;
-        $hero .= '<h1 style="margin:0 0 14px;font-size:' . $size . 'px;line-height:' . intval($size * 1.2) . 'px;font-weight:800;">' . self::e($head) . '</h1>';
+        $hero .= '<h1 class="tm-title tm-nl-hero" style="margin:0 0 14px;font-size:' . $size . 'px;line-height:' . intval($size * 1.2) . 'px;font-weight:800;">' . self::e($head) . '</h1>';
         $greet = $ctx['address'] === 'sie' ? 'Guten Tag,' : 'Hallo {{ contact.FIRSTNAME | default: "du" }},';
         $intro = self::clean($d['intro'] ?? '', $f, $removed, $variant === 'story' ? 900 : 450);
         $blocks[] = ['type' => 'text', 'html' => $hero . '<p style="margin:0 0 12px;">' . $greet . '</p>' . self::paras($intro)];
@@ -578,7 +579,14 @@ class TIX_Newsletter_AI {
         if ($ctx['coupon']) $need[] = 'coupon';
         if (count($ev) > 1) $need[] = 'events'; elseif ($e) $need[] = 'event';
         foreach ($ctx['include'] as $k) $need[] = $k;
-        foreach ($need as $t) if (!isset($seen[$t])) { $seen[$t] = true; $order[] = ['type' => $t]; }
+        // Fehlende Pflicht-Bausteine: Event-Karte bzw. Liste und Gutschein vorn (nach der Einleitung), Wunsch-Inhalte hinten
+        $front = [];
+        foreach ($need as $t) {
+            if (isset($seen[$t])) continue;
+            $seen[$t] = true;
+            if (in_array($t, ['event', 'events', 'coupon'], true)) $front[] = ['type' => $t]; else $order[] = ['type' => $t];
+        }
+        $order = array_merge($front, $order);
         if (isset($seen['events'])) $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'event'; }));
         // Kompakt: keine Galerie, keine langen Texte
         if ($variant === 'compact') $order = array_values(array_filter($order, function ($x) { return $x['type'] !== 'gallery'; }));
