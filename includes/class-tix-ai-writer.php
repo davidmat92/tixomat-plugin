@@ -40,6 +40,8 @@ class TIX_AI_Writer {
      * wiederholen und einen Hinweis für den Admin speichern (Option tix_ai_model_notice). → Antwort von wp_remote_post
      */
     public static function anthropic_post(array $payload, $api_key, $timeout = 30) {
+        // Anbieter und Schlüssel aus dem Studio (1.38.646): dann über TIX_AI_Provider (Claude oder OpenAI, Verbrauch, Tageslimit)
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return TIX_AI_Provider::send($payload, $timeout);
         $send = function ($p) use ($api_key, $timeout) {
             return wp_remote_post('https://api.anthropic.com/v1/messages', ['timeout' => $timeout, 'headers' => self::anthropic_headers($api_key), 'body' => wp_json_encode($p)]);
         };
@@ -52,6 +54,11 @@ class TIX_AI_Writer {
             update_option(self::NOTICE_OPT, ['model' => $model, 'fallback' => self::DEFAULT_MODEL, 'at' => current_time('mysql')], false);
             $payload['model'] = self::DEFAULT_MODEL;
             $r = $send($payload);
+        }
+        // Verbrauch auch auf dem alten Weg zählen (GET /ai/usage)
+        if (class_exists('TIX_AI_Provider') && !is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200) {
+            $b = json_decode((string) wp_remote_retrieve_body($r), true);
+            TIX_AI_Provider::record(TIX_AI_Provider::context_org(), (string) ($b['model'] ?? $payload['model']), (array) ($b['usage'] ?? []));
         }
         return $r;
     }
@@ -66,6 +73,7 @@ class TIX_AI_Writer {
 
     /** OpenAI-Modelle erkennen */
     private static function is_openai() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return false; // Studio: Übersetzung in TIX_AI_Provider
         $model = self::get_model();
         return strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0 || strpos($model, 'o1') === 0;
     }
@@ -101,6 +109,7 @@ class TIX_AI_Writer {
     }
 
     private static function get_api_key() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return TIX_AI_Provider::MARKER;
         if (self::is_openai()) {
             $key = trim(tix_get_settings('openai_api_key') ?? '');
             if (empty($key)) return '';

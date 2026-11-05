@@ -207,6 +207,7 @@ class TIX_Assistant {
     }
 
     private static function api_key() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured(self::$org)) return TIX_AI_Provider::MARKER;
         if (defined('TIX_ASSISTANT_KEY') && TIX_ASSISTANT_KEY) return (string) TIX_ASSISTANT_KEY;
         return trim((string) (tix_get_settings('anthropic_api_key') ?? ''));
     }
@@ -781,6 +782,11 @@ class TIX_Assistant {
         }
         if (self::$http) {
             $r = call_user_func(self::$http, $body);
+        } elseif (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured(self::$org)) {
+            // Anbieter aus dem Studio (Veranstalter bzw. Seite, 1.38.646)
+            $resp = TIX_AI_Provider::with_org(intval(self::$org), function () use ($body) { return TIX_AI_Provider::send($body, 30); });
+            if (is_wp_error($resp)) return new WP_Error('tix_assistant_unavailable', $resp->get_error_code() === 'ai_budget' ? $resp->get_error_message() : 'Der Assistent ist gerade nicht erreichbar.', ['status' => 502]);
+            $r = ['code' => intval(wp_remote_retrieve_response_code($resp)), 'body' => json_decode((string) wp_remote_retrieve_body($resp), true)];
         } else {
             $resp = wp_remote_post('https://api.anthropic.com/v1/messages', [
                 'timeout' => 30,

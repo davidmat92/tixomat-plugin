@@ -274,7 +274,7 @@ class TIX_AI_REST {
         $openai = preg_match('/^(gpt|o\d)/', $model) === 1;
         $key = trim((string) ($openai ? ($s['openai_api_key'] ?? '') : ($s['anthropic_api_key'] ?? '')));
         return ['model' => $model, 'models' => $models, 'default' => TIX_AI_Writer::DEFAULT_MODEL, 'guard_enabled' => !empty($s['ai_guard_enabled']),
-            'provider_ready' => $key !== '', 'can_edit' => current_user_can('manage_options')];
+            'provider_ready' => $key !== '' || (class_exists('TIX_AI_Provider') && TIX_AI_Provider::ready()), 'can_edit' => current_user_can('manage_options')];
     }
 
     public static function rest_settings(WP_REST_Request $req) {

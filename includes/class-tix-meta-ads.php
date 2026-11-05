@@ -1035,11 +1035,13 @@ class TIX_Meta_Ads {
         if (!class_exists('TIX_AI_Writer')) return new WP_Error('ai_unavailable', 'KI-System nicht verfügbar.', ['status' => 503]);
 
         $api_key = trim(tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key'));
+        $studio = class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured();
+        if ($studio) $api_key = TIX_AI_Provider::MARKER;
         if (!$api_key) return new WP_Error('ai_unavailable', 'Kein API-Key konfiguriert.', ['status' => 503]);
 
         // AI Writer call_api nutzen (ist private, daher direkter API-Call)
         $model = class_exists('TIX_AI_Writer') ? TIX_AI_Writer::model() : 'claude-sonnet-5-5';
-        $is_openai = strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0;
+        $is_openai = !$studio && (strpos($model, 'gpt') === 0 || strpos($model, 'o3') === 0);
 
         if ($is_openai) {
             $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [

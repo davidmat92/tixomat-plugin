@@ -213,6 +213,7 @@ class TIX_Support_AI {
     }
 
     private static function get_api_key() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return TIX_AI_Provider::MARKER;
         $s = self::get_settings();
         if (!empty($s['ai_provider']) && $s['ai_provider'] === 'openai') {
             return trim($s['openai_api_key'] ?? '');
@@ -236,6 +237,7 @@ class TIX_Support_AI {
     }
 
     private static function is_openai() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return false;
         $s = self::get_settings();
         return !empty($s['ai_provider']) && $s['ai_provider'] === 'openai';
     }

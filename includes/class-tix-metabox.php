@@ -289,6 +289,7 @@ class TIX_Metabox {
 
             <?php // ── Evendis-Assistent (Trigger + Modal) ── ?>
             <?php $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
+            if (!$ai_key && class_exists('TIX_AI_Provider') && TIX_AI_Provider::ready()) $ai_key = TIX_AI_Provider::MARKER;
             $ai_name = tix_get_settings('ai_assistant_name') ?: 'Evendis-Assistent';
             if ($ai_key): ?>
             <div class="tix-ai-trigger-bar" id="tix-ai-fill-bar">
@@ -871,6 +872,7 @@ class TIX_Metabox {
     public static function render_info($post) {
         $sections = self::info_sections();
         $ai_key = function_exists('tix_get_settings') ? (tix_get_settings('anthropic_api_key') ?: tix_get_settings('openai_api_key')) : '';
+            if (!$ai_key && class_exists('TIX_AI_Provider') && TIX_AI_Provider::ready()) $ai_key = TIX_AI_Provider::MARKER;
         ?>
         <p class="description" style="margin-bottom:12px;">
             Klicke auf die graue Überschrift um sie umzubenennen. Leere Felder werden im Frontend nicht angezeigt.

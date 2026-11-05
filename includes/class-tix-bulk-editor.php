@@ -274,7 +274,7 @@ class TIX_Bulk_Editor {
     public static function render_page() {
         $api_key = trim(tix_get_settings('anthropic_api_key') ?? '');
         $openai_key = trim(tix_get_settings('openai_api_key') ?? '');
-        $has_key = !empty($api_key) || !empty($openai_key);
+        $has_key = !empty($api_key) || !empty($openai_key) || (class_exists('TIX_AI_Provider') && TIX_AI_Provider::ready());
         ?>
         <div class="wrap">
             <h1 style="display:none;">KI-Import</h1>

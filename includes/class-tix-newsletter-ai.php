@@ -62,7 +62,10 @@ class TIX_Newsletter_AI {
     // ═══════════════ Schlüssel, Modell, Limit, Kosten ═══════════════
 
     /** Anthropic-Schlüssel der Seite (wie KI-Texte und Assistent; Filter tix_nl_ai_api_key) */
-    private static function api_key() { return trim((string) apply_filters('tix_nl_ai_api_key', function_exists('tix_get_settings') ? (string) tix_get_settings('anthropic_api_key') : '')); }
+    private static function api_key() {
+        if (class_exists('TIX_AI_Provider') && TIX_AI_Provider::configured()) return TIX_AI_Provider::MARKER; // Anbieter aus dem Studio (1.38.646)
+        return trim((string) apply_filters('tix_nl_ai_api_key', function_exists('tix_get_settings') ? (string) tix_get_settings('anthropic_api_key') : ''));
+    }
 
     /** Claude-Modell der Seite; steht die Seite auf OpenAI, gilt die Claude-Vorgabe (der Generator nutzt Werkzeug-Aufrufe von Claude). */
     public static function model() {

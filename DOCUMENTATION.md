@@ -3925,3 +3925,36 @@ Tests: `tests/test-promoter-audit-wp.php` (34/34 Einzel-Seite, 43/43 Plattform).
 - Ältere Plugins: Das Studio speichert dann im Browser (gilt nur auf dem Gerät).
 
 Tests: `tests/test-studio-tour-wp.php` (13/13 Einzel-Seite und Plattform).
+
+## 83. KI-Anbieter und Schlüssel im Studio (ab 1.38.646)
+
+`TIX_AI_Provider` (`includes/class-tix-ai-provider.php`) ist die gemeinsame Anbieter-Schicht für alle KI-Klassen: AI_Writer/AI_REST, Assistent, Support-KI, Content Guard, Social-Texte und Newsletter-KI.
+- Die Klassen bauen ihre Anfragen weiter im Format der Anthropic Messages API, `TIX_AI_Writer::anthropic_post` leitet sie weiter.
+- **Ist im Studio ein Anbieter eingetragen**, geht jede Anfrage an diesen. Bei OpenAI übersetzt die Schicht in Chat Completions: System, Text, Bilder (data-URL), Werkzeuge, `tool_choice`, Werkzeug-Aufrufe und -Ergebnisse, `max_completion_tokens`. Die Antwort kommt zurück im Anthropic-Format (`content` text/tool_use, `stop_reason`, `usage`).
+- Ohne Eintrag bleibt alles wie bisher: Schlüssel und Modell aus den Plugin-Einstellungen; der Verbrauch wird trotzdem gezählt.
+
+**Vorrang:**
+1. Schlüssel des Veranstalters (evendis, Post-Meta `_tix_ai_provider`);
+2. Schlüssel der Seite bzw. Plattform (Option `tix_ai_provider`); auf evendis gilt er für Veranstalter nur bei `allow_platform`, Vorgabe an;
+3. Plugin-Einstellungen.
+
+Den Bereich der Anfrage bestimmt das angemeldete Konto, beim Assistenten der Veranstalter der Seite.
+- Schlüssel werden verschlüsselt (`TIX_Ad_Accounts::enc`) und nie ausgegeben, nur als `key_hint` („sk-ant-…K3f9“).
+- Das Tageslimit in Euro je Bereich führt zu 429 `ai_budget` ohne Aufruf.
+- Verbrauch: Option `tix_ai_usage` `[Tag][Bereich] = {n, cost_eur, in, out, purposes{newsletter, assistant, support, guard, social, import, texte}}` (62 Tage). Kosten sind eine Schätzung (`PRICES`, Filter `tix_ai_prices`).
+
+**Routen** (Rechte wie Werbekonten; Bereich: evendis-Veranstalter = eigener, Admin ohne `?organizer` = Plattform, Einzel-Seite = Seite):
+| Route | |
+|---|---|
+| `GET /ai/settings` | `{scope site\|organizer, provider claude\|openai, model, connected, key_hint, checked_at, daily_limit_eur, effective{source organizer\|site\|legacy, provider, model}\|null, platform{available, allowed, provider}\|null, allow_platform, can_edit, providers{claude\|openai: {label, default, models[{id, label}]}}, today{requests, cost_eur}}` |
+| `POST /ai/settings` | `{provider, api_key?, model?, daily_limit_eur? (0–1000, 0 = ohne), allow_platform? (nur Plattform-Admin)}` bzw. `{disconnect: true}`. Ein neuer Schlüssel wird vor dem Speichern geprüft (Modell-Liste des Anbieters, kostenlos). Fehler am Feld: `tix_invalid_field` (Präfix `sk-ant-` bzw. `sk-`, Anbieterwechsel ohne Schlüssel, Modell), `tix_ai_key` (abgelehnt bzw. nicht erreichbar). Plattform-Bereich auf evendis nur Admin (403) |
+| `GET /ai/usage?days=1–62` | `{scope, source, days[{date, requests, cost_eur}], total, month_eur, by_purpose{}, today, daily_limit_eur, remaining_today_eur, note}` |
+
+**Modelle:**
+- Claude: `claude-sonnet-5-5` (Standard), `claude-opus-5-5`, `claude-haiku-5-5`.
+- OpenAI: `gpt-4o` (Standard), `gpt-4o-mini`, `o3-mini`.
+- Die Liste lässt sich mit dem Filter `tix_ai_models` pflegen.
+
+Die bisherige Route `/studio/ai` (Modell der Plugin-Einstellungen, nur Admin) bleibt.
+
+Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anbieter nachgebildet).
