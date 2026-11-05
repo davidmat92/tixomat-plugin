@@ -111,7 +111,16 @@ pa_eq('Danach Storno: Rest auf 0, offene Zeilen storniert', [0.0, ['cancelled', 
 TIX_Promoter::cancel_commissions($o3);
 pa_eq('Zweites Storno ändert nichts', 0.0, $net($o3));
 // Auszahlung, danach Erstattung → Gegenbuchung mindert die nächste
-$pp = TIX_Promoter_DB::get_promoter($pid);
+[$st, $d, $code] = pa_rest('POST', '/organizer/promoter-payouts', ['promoter_id' => $pid]);
+[$st2, $Lw] = pa_rest('GET', '/organizer/promoters');
+$mw = array_column((array) ($Lw['promoters'] ?? []), null, 'id')[$pid] ?? [];
+pa_eq('Event steht noch aus → keine Auszahlung (409 tix_payout_waiting), 9 € warten', [409, 'tix_payout_waiting', 0.0, 9.0], [$st, $code, $mw['balance'] ?? null, $mw['balance_waiting'] ?? null]);
+// Events vorbei (Party bis 5 Uhr am Folgetag zählt erst danach)
+$past = wp_date('Y-m-d', time() - 3 * DAY_IN_SECONDS);
+foreach ([$ev, $ev3] as $e) { update_post_meta($e, '_tix_date_start', $past); update_post_meta($e, '_tix_time_start', '22:00'); update_post_meta($e, '_tix_time_end', '05:00'); }
+$evn = $mkev("Nacht $sfx", $org); update_post_meta($evn, '_tix_date_start', wp_date('Y-m-d')); update_post_meta($evn, '_tix_time_start', '00:01'); update_post_meta($evn, '_tix_time_end', '00:00');
+$evy = $mkev("Gestern $sfx", $org); update_post_meta($evy, '_tix_date_start', wp_date('Y-m-d', time() - DAY_IN_SECONDS)); update_post_meta($evy, '_tix_time_start', '23:58'); update_post_meta($evy, '_tix_time_end', '23:59');
+pa_eq('Event-Ende: vorbei; Ende 0 Uhr am Folgetag noch nicht; gestern 23:59 vorbei', [true, false, true], [TIX_Promoter_DB::event_ended($ev), TIX_Promoter_DB::event_ended($evn), TIX_Promoter_DB::event_ended($evy)]);
 [$st, $po] = pa_rest('POST', '/organizer/promoter-payouts', ['promoter_id' => $pid, 'note' => 'Test']);
 $poid = intval($po['payout']['id'] ?? 0);
 pa_eq('Auszahlung: offene Provision 6 € + 3 € = 9 €', [201, 9.0], [$st, $po['payout']['commission'] ?? null]);

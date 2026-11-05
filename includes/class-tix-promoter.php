@@ -506,7 +506,8 @@ class TIX_Promoter {
         // Selbstkauf: keine Provision (Bestellung bleibt markiert, damit es nachvollziehbar ist)
         $promoter = TIX_Promoter_DB::get_promoter($promoter_id);
         if (!$promoter) return;
-        if (apply_filters('tix_promoter_block_self_purchase', true) && self::is_self_purchase($promoter, $order)) {
+        // immer an, nicht abschaltbar (User 2026-11-05)
+        if (self::is_self_purchase($promoter, $order)) {
             update_option('_tix_promoter_self_' . $order_id, $promoter_id, false);
             if ($is_wc) { $order->update_meta_data('_tix_promoter_commissions_calculated', 1); $order->save(); }
             else TIX_Order_Attribution::set_meta($order_id, '_tix_promoter_commissions_calculated', 1);

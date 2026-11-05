@@ -1,6 +1,6 @@
 <?php
 /**
- * Geführte Tour im Studio (ab 1.38.641): Gesehen-Stand je Konto, damit er auf allen Geräten gilt.
+ * Geführte Tour im Studio (ab 1.38.644): Gesehen-Stand je Konto, damit er auf allen Geräten gilt.
  *
  * GET  /studio/tour → {seen[], offered[], done[], welcome {state, step}, since, hidden_new}
  * POST /studio/tour {seen?[], offered?[], done?[], welcome?, hidden_new?, reset?} → neuer Stand

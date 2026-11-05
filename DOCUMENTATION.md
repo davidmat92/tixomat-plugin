@@ -3858,7 +3858,7 @@ Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 4
 
 **Behoben (Audit 2026-11-05):**
 - **Mandanten (evendis):** Promoter tragen `organizer_id`. Sie verdienen nur bei Events ihres Veranstalters, Promoter ohne Veranstalter nur bei ausdrücklich zugeordneten Events. Vorher galten Standard- und „Alle Events“-Provision bei allen Veranstaltern. Dashboard, Link-Suche und CSV zeigen nur erlaubte Events (`TIX_Promoter::event_allowed`, `scope_event_ids`). Die Selbst-Anmeldung ordnet auf evendis nicht mehr automatisch alle Events zu.
-- **Selbstkauf:** Ist der Käufer der Promoter selbst (gleiche E-Mail oder gleiches Konto), gibt es keine Provision. Die Option `_tix_promoter_self_<order>` hält den Fall fest, der Filter `tix_promoter_block_self_purchase` schaltet die Sperre ab.
+- **Selbstkauf:** Ist der Käufer der Promoter selbst (gleiche E-Mail oder gleiches Konto), gibt es keine Provision. Die Option `_tix_promoter_self_<order>` hält den Fall fest. Die Sperre ist immer an und nicht abschaltbar (User 2026-11-05).
 - **Basis:** Die Provision rechnet auf den bezahlten Preis, Gutschein- und Promo-Rabatte werden anteilig abgezogen. Geschenkgutscheine sind Guthaben (Teilzahlung) und mindern nicht.
 - **Erstattung, Storno, Rückbuchung** (`TIX_Promoter_DB::reverse_order`):
   - Hooks: `tix_order_refund_recorded`, `tix_order_chargeback` und Status `refunded`.
@@ -3866,6 +3866,11 @@ Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 4
   - Ganz: Offene Zeilen werden storniert, schon abgerechnete oder bezahlte bekommen eine negative Zeile (Status `pending`, `attribution` `refund`/`chargeback`). Die nächste Auszahlung wird um diese Zeile gemindert.
   - Vorher blieb die Provision bei Teil-Erstattungen, bei Erstattung ohne Ticket-Storno, bei Rückbuchungen und nach einer Auszahlung stehen.
   - Eine Auszahlung entsteht nur bei positivem Saldo.
+- **Auszahlung erst nach dem Event (1.38.645, User 2026-11-05):**
+  - Provision ist erst auszahlbar, wenn das Event vorbei ist (`TIX_Promoter_DB::event_ended`).
+  - Als Ende gilt Enddatum bzw. Startdatum mit Endzeit; ohne Endzeit das Tagesende. Liegt die Endzeit vor dem Beginn und fehlt ein Enddatum, gilt der Folgetag.
+  - Gegenbuchungen zählen immer.
+  - Gilt für Studio und WordPress-Admin gleichermaßen (`create_payout`).
 - **Selbst-Anmeldung:**
   - `create_promoter` fehlte, neue Anmeldungen brachen deshalb ab.
   - Früher wurde eine fremde E-Mail mit einem bestehenden Konto verknüpft und ein vorhandener Code angezeigt. Ohne Login gibt es jetzt nur noch einen Login-Link per Mail und kein WordPress-Konto.
@@ -3886,7 +3891,7 @@ Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 4
 
 | Route | |
 |---|---|
-| `GET /organizer/promoters?status=active\|inactive\|all&from&to` | `{promoters[], totals, settings}`. Ein Eintrag: `{id, name, email, code, status, notes, has_account, self_signup, created, clicks, visitors, orders, tickets, revenue, commission{open, approved, paid, total}, balance, last_sale, links{link, qr_link}}`. `settings`: `{enabled, can_edit, cookie_days, consent_category, self_signup, dashboard_url, default_commission{type, value}, multi}` |
+| `GET /organizer/promoters?status=active\|inactive\|all&from&to` | `{promoters[], totals, settings}`. Ein Eintrag: `{id, name, email, code, status, notes, has_account, self_signup, created, clicks, visitors, orders, tickets, revenue, commission{open, approved, paid, total}, balance (auszahlbar), balance_waiting (Event steht noch aus), last_sale, links{link, qr_link}}`. `settings`: `{enabled, can_edit, cookie_days, consent_category, self_signup, dashboard_url, default_commission{type, value}, multi}` |
 | `POST /organizer/promoters` | `{name, email?, code?, notes?, commission?{type, value}, send_access?}` → 201 `{promoter, access_sent}`. `commission` = Provision für alle eigenen Events (Zuordnung Event 0). Fehler: 409 `tix_promoter_exists`, 409 `tix_code_taken` |
 | `GET /organizer/promoters/{id}?from&to` | Eintrag + `assignments[]{event_id, event_title, event_date, commission_type, commission_value, discount_type, discount_value, promo_code, links}`, `sales[]{date, event_id, event_title, order_id, type sale\|refund\|chargeback, tickets, revenue, commission, status, payout_id}`, `clicks_by_day[]`, `payouts[]` |
 | `POST /organizer/promoters/{id}` | `{name, email, notes, status active\|inactive, code}` (ein neuer Code macht alte Links unwirksam) |
@@ -3896,13 +3901,13 @@ Tests: `tests/test-newsletter-ai-wp.php` (KI nachgebildet, 42/42 Einzel-Seite, 4
 | `DELETE /organizer/promoters/{id}/events/{event_id}` | Zuordnung beenden |
 | `POST /organizer/promoter-settings` | `{enabled, self_signup, cookie_days 1–90, default_commission}`. Einzel-Seite Inhaber/Admin, evendis nur Admin (sonst 403) |
 | `GET /organizer/promoter-payouts?promoter_id&status` | `{payouts[]{id, promoter_id, promoter_name, from, to, revenue, commission, count, status pending\|paid\|cancelled, paid_at, note, created}}` |
-| `POST /organizer/promoter-payouts` | `{promoter_id, from?, to?, note?}` → 201; 409 `tix_payout_empty` ohne positiven Saldo |
+| `POST /organizer/promoter-payouts` | `{promoter_id, from?, to?, note?}` → 201. 409 `tix_payout_waiting`, wenn Provision nur auf noch nicht vorbeigegangene Events wartet; 409 `tix_payout_empty` ohne positiven Saldo |
 | `GET /organizer/promoter-payouts/{id}` | + `lines[]` |
 | `POST /organizer/promoter-payouts/{id}/paid {note}` · `/cancel` | nur offene (409 `tix_payout_locked`) |
 
 Die REST-Routen laufen auch bei ausgeschaltetem Promoter-System. Provisionen entstehen aber nur, wenn `enabled` an ist.
 
-Tests: `tests/test-promoter-audit-wp.php` (32/32 Einzel-Seite, 41/41 Plattform).
+Tests: `tests/test-promoter-audit-wp.php` (34/34 Einzel-Seite, 43/43 Plattform).
 ## 82. Geführte Tour im Studio: Gesehen-Stand je Konto (ab 1.38.644)
 
 `TIX_Studio_Tour` (`includes/class-tix-studio-tour.php`):

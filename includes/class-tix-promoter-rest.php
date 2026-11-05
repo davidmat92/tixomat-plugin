@@ -115,8 +115,8 @@ class TIX_Promoter_REST {
             $out[intval($r->promoter_id)]['clicks'] = intval($r->n);
             $out[intval($r->promoter_id)]['visitors'] = intval($r->u);
         }
-        // offenes Guthaben (alle Zeiträume): auszahlbar = pending
-        foreach ((array) $wpdb->get_results("SELECT promoter_id, SUM(commission_amount) b FROM $tc WHERE promoter_id IN ($in) AND status = 'pending' GROUP BY promoter_id") as $r) $out[intval($r->promoter_id)]['balance'] = self::money($r->b);
+        // offenes Guthaben (alle Zeiträume): auszahlbar = Events vorbei (+ Gegenbuchungen), wartet = Event steht noch aus
+        foreach ($ids as $i) { list($now, $wait) = TIX_Promoter_DB::open_balance(intval($i)); $out[intval($i)]['balance'] = $now; $out[intval($i)]['balance_waiting'] = $wait; }
         return $out;
     }
 
@@ -128,7 +128,7 @@ class TIX_Promoter_REST {
         return ['id' => intval($p->id), 'name' => (string) $p->display_name, 'email' => $email, 'code' => $code, 'status' => (string) $p->status, 'notes' => (string) ($p->notes ?? ''),
             'has_account' => intval($p->user_id) > 0, 'created' => $p->created_at ? mysql_to_rfc3339($p->created_at) : null, 'self_signup' => (string) ($p->notes ?? '') === 'Self-Signup',
             'clicks' => intval($st['clicks'] ?? 0), 'visitors' => intval($st['visitors'] ?? 0), 'orders' => intval($st['orders'] ?? 0), 'tickets' => intval($st['tickets'] ?? 0),
-            'revenue' => floatval($st['revenue'] ?? 0), 'commission' => $st['commission'] ?? $z, 'balance' => floatval($st['balance'] ?? 0), 'last_sale' => $st['last_sale'] ?? null,
+            'revenue' => floatval($st['revenue'] ?? 0), 'commission' => $st['commission'] ?? $z, 'balance' => floatval($st['balance'] ?? 0), 'balance_waiting' => floatval($st['balance_waiting'] ?? 0), 'last_sale' => $st['last_sale'] ?? null,
             'links' => self::links($code, self::base())];
     }
 
@@ -151,9 +151,9 @@ class TIX_Promoter_REST {
         list($from, $to) = self::period($req);
         $st = self::stats(array_map(function ($p) { return intval($p->id); }, $rows), $from, $to);
         $items = array_map(function ($p) use ($st) { return self::item($p, $st[intval($p->id)] ?? []); }, $rows);
-        $tot = ['clicks' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0, 'commission_open' => 0.0, 'commission_paid' => 0.0, 'balance' => 0.0];
+        $tot = ['clicks' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0, 'commission_open' => 0.0, 'commission_paid' => 0.0, 'balance' => 0.0, 'balance_waiting' => 0.0];
         foreach ($items as $i) { $tot['clicks'] += $i['clicks']; $tot['orders'] += $i['orders']; $tot['tickets'] += $i['tickets']; $tot['revenue'] += $i['revenue'];
-            $tot['commission_open'] += $i['commission']['open'] + $i['commission']['approved']; $tot['commission_paid'] += $i['commission']['paid']; $tot['balance'] += $i['balance']; }
+            $tot['commission_open'] += $i['commission']['open'] + $i['commission']['approved']; $tot['commission_paid'] += $i['commission']['paid']; $tot['balance'] += $i['balance']; $tot['balance_waiting'] += $i['balance_waiting']; }
         $tot = array_map(function ($v) { return is_float($v) ? round($v, 2) : $v; }, $tot);
         $s = function_exists('tix_get_settings') ? (array) tix_get_settings() : [];
         $r = rest_ensure_response(['ok' => true, 'promoters' => $items, 'totals' => $tot, 'from' => $from ?: null, 'to' => $to ?: null,
@@ -388,7 +388,11 @@ class TIX_Promoter_REST {
         $to = $to ?: current_time('Y-m-d');
         if ($from > $to) return self::bad('from', '„Von“ liegt nach „Bis“.');
         $id = TIX_Promoter_DB::create_payout(['promoter_id' => intval($p->id), 'period_from' => $from, 'period_to' => $to, 'payment_note' => (string) $req->get_param('note')]);
-        if (!$id) return self::bad('period', 'Im Zeitraum gibt es keine offene Provision.', 'tix_payout_empty', 409);
+        if (!$id) {
+            $wait = array_filter((array) TIX_Promoter_DB::get_commissions_for_payout_all(intval($p->id), $from, $to), function ($c) { return floatval($c->commission_amount) > 0 && !TIX_Promoter_DB::event_ended(intval($c->event_id)); });
+            if ($wait) return self::bad('period', 'Provision wird erst nach dem Event auszahlbar.', 'tix_payout_waiting', 409);
+            return self::bad('period', 'Im Zeitraum gibt es keine offene Provision.', 'tix_payout_empty', 409);
+        }
         return new WP_REST_Response(['ok' => true, 'payout' => self::payout_item(TIX_Promoter_DB::get_payout($id))], 201);
     }
 

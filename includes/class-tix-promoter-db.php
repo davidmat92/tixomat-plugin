@@ -704,7 +704,44 @@ class TIX_Promoter_DB {
         );
     }
 
+    /**
+     * Ist das Event vorbei? (Auszahlung erst nach dem Event, User 2026-11-05.) Ende = Enddatum bzw. Startdatum mit
+     * Endzeit; ohne Endzeit Tagesende; Endzeit vor Beginn ohne Enddatum = nächster Tag (Party bis 5 Uhr). Ohne Datum: vorbei.
+     */
+    public static function event_ended(int $event_id) {
+        $ds = (string) get_post_meta($event_id, '_tix_date_start', true);
+        if ($ds === '' || get_post_type($event_id) !== 'event') return true;
+        $de = (string) get_post_meta($event_id, '_tix_date_end', true);
+        $ts = (string) get_post_meta($event_id, '_tix_time_start', true);
+        $te = (string) get_post_meta($event_id, '_tix_time_end', true);
+        $day = $de !== '' ? $de : $ds;
+        try {
+            $end = new DateTime($day . ' ' . ($te !== '' ? $te : '23:59'), wp_timezone());
+            if ($de === '' && $te !== '' && $ts !== '' && $te < $ts) $end->modify('+1 day');
+            return $end->getTimestamp() < time();
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    /** Offene Provision eines Promoters: [auszahlbar, wartet auf Event-Ende] (Gegenbuchungen zählen immer zu auszahlbar) */
+    public static function open_balance(int $promoter_id) {
+        global $wpdb;
+        $now = 0.0; $wait = 0.0;
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT event_id, commission_amount a FROM " . self::table_commissions() . " WHERE promoter_id = %d AND status = 'pending' AND payout_id IS NULL", $promoter_id)) as $r) {
+            if (floatval($r->a) < 0 || self::event_ended(intval($r->event_id))) $now += floatval($r->a); else $wait += floatval($r->a);
+        }
+        return [round($now, 2), round($wait, 2)];
+    }
+
     public static function get_commissions_for_payout(int $promoter_id, string $from, string $to) {
+        // Provision erst nach dem Event auszahlbar; Gegenbuchungen (negativ) immer mitnehmen
+        return array_values(array_filter((array) self::get_commissions_for_payout_all($promoter_id, $from, $to), function ($c) {
+            return floatval($c->commission_amount) < 0 || self::event_ended(intval($c->event_id));
+        }));
+    }
+
+    public static function get_commissions_for_payout_all(int $promoter_id, string $from, string $to) {
         global $wpdb;
         return $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM " . self::table_commissions() . "
