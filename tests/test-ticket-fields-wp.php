@@ -71,6 +71,9 @@ tf_eq('Altersbestätigung fehlt → tix_age_confirm', 'tix_age_confirm', $e ? $e
 list($p, $e) = TIX_Ticket_Fields::validate($items, [$vip('Anna', 'A'), $vip('Ben', 'B')], ['q3' => 'Instagram'], true);
 tf_eq('Vollständig: Regulär ohne Name (Kategorie nicht personalisiert), 2 VIP-Plätze', [null, false, 2, 16], [$e, isset($p['slots'][$ev . ':0']), count($p['slots'][$ev . ':1'] ?? []), $p['age'] ?? 0]);
 list($p0, $e0) = TIX_Ticket_Fields::validate([['event_id' => $ev, 'cat_index' => 0, 'qty' => 1, 'meta' => ['gift' => 1]]], [], [], false);
+$evx = $mkev("Alle $sfx", $org); update_post_meta($evx, TIX_Ticket_Fields::META, TIX_Ticket_Fields::sanitize(['personalize' => 'required', 'questions' => [['label' => 'Frage', 'type' => 'text', 'required' => true]]]));
+list($px, $ex) = TIX_Ticket_Fields::validate([['event_id' => $evx, 'cat_index' => -1, 'qty' => 2, 'meta' => ['special' => 1, 'special_id' => 9]], ['event_id' => $evx, 'cat_index' => 0, 'qty' => 1, 'meta' => []]], [['index' => 0, 'first_name' => 'E', 'last_name' => 'X', 'answers' => ['q1' => 'a']]], [], true);
+tf_eq('Extras (cat_index −1, special) brauchen keinen Namen, nur das Ticket', [null, 1, false], [$ex, count($px['slots'][$evx . ':0'] ?? []), isset($px['slots'][$evx . ':-1'])]);
 tf_eq('Gutschein-Zeile ist kein Ticket → keine Prüfung', [null, null], [$p0, $e0]);
 
 // App-Kasse: Prüfung greift vor dem Anlegen der Bestellung
@@ -132,7 +135,10 @@ tf_eq('1 h vor Beginn → anderer Name gesperrt (tix_transfer)', [403, 'tix_tran
 tf_eq('Umschreiben gesperrt (can_transfer)', false, class_exists('TIX_Ticket_Transfer') ? TIX_Ticket_Transfer::can_transfer($tix[0] ?? 0) : false);
 [$st, $d, $code] = tf_rest('POST', '/customer/tickets/' . ($tix[1] ?? 0) . '/holder', ['first_name' => 'Ben', 'last_name' => 'Beta', 'key' => $okey]);
 tf_eq('Eingechecktes Ticket nicht änderbar → 409', [409, 'tix_holder_locked'], [$st, $code]);
+[$st, $d, $code] = tf_rest('POST', '/customer/tickets/' . ($tix[0] ?? 0) . '/holder', ['first_name' => 'Fremde', 'last_name' => 'Person', 'key' => $okey]);
+tf_eq('Gleicher Name ohne Antworten: gespeicherte Pflichtantwort bleibt (q1 = S)', [200, 'S'], [$st, $d['answers']['q1'] ?? '']);
 $ch = TIX_Ticket_Fields::customer_holder($tix[0] ?? 0);
+tf_eq('Meine Tickets: cat_index, Fragen des Tickets (ohne Einlass-Kennzeichen), Antworten', [1, ['q1', 'q2', 'q4'], false, 'S'], [$ch['cat_index'] ?? null, array_column((array) ($ch['questions'] ?? []), 'key'), isset($ch['questions'][0]['at_checkin']), ((array) ($ch['answers'] ?? []))['q1'] ?? '']);
 tf_eq('Meine Tickets: Inhaber, Pflicht, nicht fehlend', ['Fremde Person', 'required', false], [$ch['name'] ?? '', $ch['mode'] ?? '', $ch['missing'] ?? null]);
 
 // ═══ Umschreiben, Löschfrist, Konto-Löschung ═══

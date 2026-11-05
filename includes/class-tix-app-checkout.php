@@ -883,6 +883,8 @@ class TIX_App_Checkout {
             'event_image'    => $event_id ? (get_the_post_thumbnail_url($event_id, 'large') ?: '') : '',
             'event_image_small' => $event_id ? (get_the_post_thumbnail_url($event_id, 'medium') ?: '') : '',
             'category'       => $cat !== '' ? $cat : 'Ticket',
+            // Kategorie-Index (1.38.648, Fund Homepages: Fragen je Kategorie beim Nachtragen zuordnen); null = unbekannt
+            'cat_index'      => $m('_tix_ticket_cat_index') !== '' ? intval($m('_tix_ticket_cat_index')) : null,
             'seat'           => (string) $m('_tix_ticket_seat_id'),
             'status'         => $status,
             'checked_in'     => $checked,
@@ -1139,6 +1141,8 @@ class TIX_App_Checkout {
                     'event_image'  => $event_id ? get_the_post_thumbnail_url($event_id, 'large') : '',
                     'event_image_small' => $event_id ? get_the_post_thumbnail_url($event_id, 'medium') : '',
                     'category'     => $row['category_name'] ?? '',
+                    'cat_index'    => intval($row['ticket_post_id'] ?? 0) && get_post_meta(intval($row['ticket_post_id']), '_tix_ticket_cat_index', true) !== '' ? intval(get_post_meta(intval($row['ticket_post_id']), '_tix_ticket_cat_index', true)) : null,
+                    'holder'       => intval($row['ticket_post_id'] ?? 0) && class_exists('TIX_Ticket_Fields') ? TIX_Ticket_Fields::customer_holder(intval($row['ticket_post_id'])) : null,
                     'seat'         => $row['seat_id'] ?? '',
                     'status'       => $row['ticket_status'] ?? 'valid',
                     'checked_in'   => !empty($row['checked_in']),

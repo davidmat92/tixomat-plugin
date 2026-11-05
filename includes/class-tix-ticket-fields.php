@@ -159,7 +159,9 @@ class TIX_Ticket_Fields {
     /** Kasse-Zeile ist ein Eintrittsticket? */
     private static function is_ticket_line(array $it) {
         $m = (array) ($it['meta'] ?? []);
-        return intval($it['event_id'] ?? 0) > 0 && empty($m['table_reservation']) && empty($m['wallet_topup']) && empty($m['gift']) && intval($it['qty'] ?? 0) > 0;
+        // Extras (Specials, cat_index −1) sind kein Eintritt (Fund Homepages 2026-11-05)
+        return intval($it['event_id'] ?? 0) > 0 && intval($it['cat_index'] ?? 0) >= 0 && empty($m['special']) && empty($m['special_id'])
+            && empty($m['table_reservation']) && empty($m['wallet_topup']) && empty($m['gift']) && intval($it['qty'] ?? 0) > 0;
     }
 
     private static function check_value(array $q, $v, array $where) {
@@ -367,9 +369,12 @@ class TIX_Ticket_Fields {
         $named = $c['personalize'] !== 'off' && self::applies($c['categories'], $cat);
         $h = self::holder($ticket_id);
         $checked = (string) get_post_meta($ticket_id, '_tix_ticket_checked_in', true) === '1';
+        // Fragen dieses Tickets und die gespeicherten Antworten (nur für den Käufer, „Meine Tickets“)
+        $qs = array_values(array_map(function ($q) { unset($q['at_checkin']); return $q; }, array_filter($c['questions'], function ($q) use ($cat) { return $q['scope'] === 'ticket' && self::applies($q['categories'], $cat); })));
         return ['name' => $h['personalized'] ? $h['name'] : '', 'first_name' => $h['first_name'], 'last_name' => $h['last_name'], 'personalized' => $h['personalized'],
             'mode' => $named ? $c['personalize'] : 'off', 'missing' => $named && $c['personalize'] === 'required' && !$h['personalized'],
-            'editable' => !$checked && (!$h['personalized'] || self::transfer_allowed($ticket_id) === true)];
+            'editable' => !$checked && (!$h['personalized'] || self::transfer_allowed($ticket_id) === true),
+            'cat_index' => $cat, 'questions' => $qs, 'answers' => (object) array_map(function ($a) { return $a['value']; }, self::ticket_answers($ticket_id))];
     }
 
     // ═══════════════ Umschreiben, Löschen, Einlass ═══════════════
@@ -557,10 +562,12 @@ class TIX_Ticket_Fields {
         $email = '';
         if ($req->get_param('email')) { $email = strtolower(sanitize_email((string) $req->get_param('email'))); if (!is_email($email)) return self::bad('email', 'Bitte eine gültige E-Mail-Adresse.'); }
         $in = (array) $req->get_param('answers');
+        $have = self::ticket_answers($tid);
         $new = [];
         foreach ($c['questions'] as $q) {
             if ($q['scope'] !== 'ticket' || !self::applies($q['categories'], $cat)) continue;
-            if (!array_key_exists($q['key'], $in) && $staff) continue; // Team: nur übergebene Antworten ändern
+            // Nicht übergeben: Team ändert nur Übergebenes; Käufer behält gespeicherte Antworten (Fund Homepages 2026-11-05)
+            if (!array_key_exists($q['key'], $in) && ($staff || isset($have[$q['key']]))) continue;
             $r = self::check_value($q, $in[$q['key']] ?? null, ['ticket_id' => $tid]);
             if (is_wp_error($r)) return $r;
             $new[$q['key']] = $r[0];

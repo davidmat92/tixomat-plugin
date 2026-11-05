@@ -3990,7 +3990,7 @@ Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anb
   - `answers{}` für Bestellfragen (flach oder `{"e<event_id>": {…}}`);
   - `age_confirmed`.
 - Fehler 400 mit `data {event_id, index, seq, field}`: `tix_holder_missing`, `tix_answer_invalid`, `tix_age_confirm`.
-- Gutschein-, Guthaben- und Tisch-Zeilen sind keine Tickets.
+- Gutschein-, Guthaben- und Tisch-Zeilen sowie Extras (`special`, `cat_index` −1) sind keine Tickets (1.38.648).
 
 **Ablage und Anzeige:**
 - **Daten:**
@@ -4001,7 +4001,8 @@ Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anb
 - **Wo es erscheint:**
   - Ticket-Erzeugung über den Hook `tix_native_ticket_created` (neu in `TIX_Tickets::on_native_order_completed`).
   - `GET /public/events/{id}` liefert `ticket_fields` (null ohne Abfrage).
-  - „Meine Tickets“ liefert `holder {name, first_name, last_name, personalized, mode, missing, editable}`.
+  - „Meine Tickets“ und die Tickets einer Bestellung liefern `cat_index` und `holder {name, first_name, last_name, personalized, mode, missing, editable, cat_index, questions[] (Fragen dieses Tickets), answers{} (gespeicherte Antworten)}` (1.38.648).
+  - Beim Nachtragen über `POST /customer/tickets/{id}/holder` bleiben gespeicherte Antworten, die nicht mitgeschickt werden (1.38.648).
   - `POST /checkin/scan` liefert `holder {name, personalized, check_id, age_confirmed, answers[] (nur at_checkin)}`.
 
 **Umschreiben:** `TIX_Ticket_Transfer::can_transfer` beachtet `transfer`. Beim Umschreiben werden die alten Antworten gelöscht.
@@ -4011,4 +4012,4 @@ Tests: `tests/test-ai-provider-wp.php` (17/17 Einzel-Seite, 23/23 Plattform, Anb
 - Bei Konto-Löschung werden die Antworten der Bestellungen sofort gelöscht.
 - Inhaber-Namen folgen der Aufbewahrung der Bestellung.
 
-Tests: `tests/test-ticket-fields-wp.php` (33/33 Einzel-Seite, 35/35 Plattform).
+Tests: `tests/test-ticket-fields-wp.php` (36/36 Einzel-Seite, 38/38 Plattform).
