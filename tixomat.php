@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.662
+ * Version: 1.38.663
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.662');
+define('TIXOMAT_VERSION', '1.38.663');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -882,6 +882,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-promoter-auth.php'; // Klasse im
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-rest.php'; // Promoter-Verwaltung im Studio (/organizer/promoters, 1.38.643)
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-portal.php'; // Promoter-Bereich im Studio ohne WordPress (Token, Links, Verkäufe, Auszahlungen, Selbst-Anmeldung)
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-notify.php'; // Mitteilungen an Promoter: Verkauf, Auszahlung, neues Event, Wochenbericht (1.38.662)
+require_once TIXOMAT_PATH . 'includes/class-tix-promoter-rules.php'; // Regeln: Mindest-Auszahlung, Staffel-Bonus, Kategorie-Provision, Obergrenzen, Teamleiter, Auto-Freigabe, Erst-/Letzt-Klick, CSV, Rangliste, /go/ (1.38.663)
 require_once TIXOMAT_PATH . 'includes/class-tix-promoter-material.php'; // Werbematerial: KI-Texte je Event (Cache), Bild-Proxy, Uploads des Veranstalters (1.38.662)
 if (tix_get_settings('promoter_enabled')) {
     TIX_Promoter::init();

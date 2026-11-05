@@ -4375,3 +4375,39 @@ Auftrag `uebergaben/auftrag-promoter-ausbau-2026-11-05.md`, Tests `tests/test-pr
   - Ohne KI gelten feste Vorlagen.
 - **Rechte:** Promoter sehen nur Events, für die sie werben dürfen (sonst 404), wartende Promoter bekommen 403. Veranstalter sehen nur eigene Events.
 - Tests: `tests/test-promoter-p2-wp.php` (24/24 Einzel-Seite, 26/26 Plattform).
+
+### Paket 3 – Regeln und Einstellungen (1.38.663)
+
+`TIX_Promoter_Rules` speichert die Regeln je Bereich: Einzel-Seite als Option `tix_promoter_rules`, Plattform als Meta `_tix_promoter_rules` am Veranstalter. Inhaber und Team-Admins ändern die eigenen.
+
+| Route | Zweck |
+|---|---|
+| `GET /organizer/promoter-rules` | `{rules}` (siehe unten) |
+| `POST /organizer/promoter-rules {…teilweise}` | speichern, Fehler am Feld (400) |
+| `GET /organizer/events/{id}/promoter-categories` | Kategorien `[{index, name, price, commission{type,value}\|null}]` |
+| `POST /organizer/events/{id}/promoter-categories {categories[{index, commission\|null}]}` | Provision je Ticket-Kategorie für alle Promoter am Event; hat Vorrang vor allen anderen |
+| `POST /organizer/promoters/{id}/rules {leader_id, leader_share, cookie_days}` | Teamleiter (0 = keiner; nur eine Ebene, keine Kreise), eigener Anteil (null = Regel), Cookie-Dauer (0 = wie Seite, bis 90) |
+| `GET /organizer/promoters/export?type=promoters\|sales&from=&to=` | `{filename, mime: text/csv, rows, csv}` – UTF-8 mit BOM, Semikolon, Formel-Schutz, keine Käuferdaten |
+| `GET /promoter/leaderboard?from=` | Rangliste (nur mit `leaderboard`): `{enabled, top[{rank, name: „Vorname N.“, tickets, me}], me}`, 30 Tage, ohne Teamzeilen |
+| `GET /public/promoter-config?ref=` | für Websites/Apps: `{enabled, attribution first\|last, cookie_days (je Promoter bzw. Seite), valid, consent_category}` (5 min Cache) |
+
+**Regeln** (`rules`):
+
+| Feld | Bedeutung |
+|---|---|
+| `min_payout` | Mindest-Auszahlung in €. Darunter antwortet `POST /organizer/promoter-payouts` mit 409 `tix_payout_min` |
+| `tiers [{min_tickets ≥ 2, type fixed\|percent, value}]` | Staffel-Bonus je Promoter und Event: Ticket Nr. k bekommt den Bonus der höchsten Stufe mit `min_tickets ≤ k` (höchstens 10 Stufen) |
+| `cap_tickets` | Obergrenze: Tickets mit Provision je Promoter und Event |
+| `cap_amount` | Obergrenze: Provision in € je Promoter und Event |
+| `team {enabled, share 0–50}` | Teamleiter bekommen `share` % der Provision ihrer Unter-Promoter als eigene Zeile (`attribution` = `team`, 0 Tickets). Sie zählt nicht als Bestellung, ohne Verkaufs-Mail. Storno nimmt sie mit zurück |
+| `auto_approve` | Selbst-Anmeldung sofort aktiv |
+| `auto_assign {enabled, type, value}` | Bei Freigabe (Aktion `tix_promoter_approved`) bekommt der Promoter „Alle Events“ mit dieser Provision. Bestand: der alte Schalter `promoter_signup_auto_events` (Einzel-Seite) |
+| `attribution last\|first` | `first`: ein schon gesetzter, gültiger anderer Promoter (Cookie bzw. Besuch) bleibt; der Klick zählt trotzdem. Websites lesen das über `/public/promoter-config` |
+| `leaderboard` | Rangliste im Promoter-Bereich |
+
+- **Cookie-Dauer je Promoter:** gilt für das WordPress-Cookie (`detect_referral`) und für die Websites (`promoter-config`).
+- **Kurzlink:** `/go/<promoter-code>[?e=<event_id>]` läuft über die vorhandenen Marketing-Kurzlinks (`TIX_Short_Links`, `GET /public/go/{code}?e=&qr=`, Filter `tix_go_fallback`).
+  - Hat kein Marketing-Link den Code, führt er auf das Event (mit `&coupon`) bzw. die Startseite mit `?ref`. Mit `qr=1` ist es der QR-Link.
+  - Promoter-Links tragen `links.short`. Websites müssen `e` an `/public/go` weiterreichen.
+- Die Promoter-Liste und das Detail im Studio tragen zusätzlich `leader`, `leader_share`, `cookie_days` und `team_size`. `GET /promoter/me` trägt `rules {min_payout, leaderboard, attribution, tiers, cap_tickets}`.
+- Tests: `tests/test-promoter-p3-wp.php` (22/22 Einzel-Seite, 25/25 Plattform).

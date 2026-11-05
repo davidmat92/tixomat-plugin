@@ -310,10 +310,16 @@ class TIX_Promoter {
 
         $promoter = TIX_Promoter_DB::get_promoter_by_code($code);
         if (!$promoter) return;
+        // Erst-Klick (Regel attribution = first, 1.38.663): ein schon gesetzter, gültiger anderer Promoter bleibt
+        $prev = !empty($_COOKIE[self::COOKIE_NAME]) ? sanitize_text_field($_COOKIE[self::COOKIE_NAME]) : self::session_ref();
+        if ($prev !== '' && $prev !== $code && class_exists('TIX_Promoter_Rules') && TIX_Promoter_Rules::for_promoter($promoter)['attribution'] === 'first' && TIX_Promoter_DB::get_promoter_by_code($prev)) {
+            self::log_referral_click($promoter);
+            return;
+        }
 
         if (class_exists('TIX_Consent') && TIX_Consent::has('marketing')) {
-            // Mit Einwilligung „Marketing“: Cookie (konfigurierbare Laufzeit)
-            $expire = time() + (self::get_cookie_days() * DAY_IN_SECONDS);
+            // Mit Einwilligung „Marketing“: Cookie (Laufzeit der Seite bzw. des Promoters)
+            $expire = time() + ((class_exists('TIX_Promoter_Rules') ? TIX_Promoter_Rules::cookie_days($promoter) : self::get_cookie_days()) * DAY_IN_SECONDS);
             if (!headers_sent()) setcookie(self::COOKIE_NAME, $code, $expire, COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
             $_COOKIE[self::COOKIE_NAME] = $code;
         }
@@ -631,13 +637,17 @@ class TIX_Promoter {
 
             // Effektive Provision ermitteln (3-Stufen-Hierarchie)
             $eff = self::get_effective_commission($promoter_id, $event_id);
-            if ($eff['source'] === 'none') continue; // keine Provision irgendwo gesetzt → skip
-
-            $commission = 0;
-            if ($eff['type'] === 'percent') {
-                $commission = $line_total * ($eff['value'] / 100);
-            } elseif ($eff['type'] === 'fixed') {
-                $commission = $eff['value'] * $qty;
+            if (self::excluded_event($event_id)) continue;
+            // Regeln (1.38.663): Kategorie-Provision, Staffel-Bonus, Obergrenzen
+            if (class_exists('TIX_Promoter_Rules')) {
+                $cat_ix = $is_wc ? -1 : TIX_Promoter_Rules::cat_index_of($item, $event_id);
+                $cat_rules = TIX_Promoter_Rules::cat_commission($event_id);
+                if ($eff['source'] === 'none' && !($cat_ix >= 0 && isset($cat_rules[$cat_ix]))) continue;
+                $ap = TIX_Promoter_Rules::apply($promoter, $event_id, $cat_ix, $qty, $line_total, $eff);
+                $commission = $ap['commission'];
+            } else {
+                if ($eff['source'] === 'none') continue; // keine Provision irgendwo gesetzt → skip
+                $commission = $eff['type'] === 'percent' ? $line_total * ($eff['value'] / 100) : $eff['value'] * $qty;
             }
 
             // Discount: nur wenn echte Assignment existiert (Settings haben keinen Discount)
@@ -651,7 +661,7 @@ class TIX_Promoter {
                 }
             }
 
-            TIX_Promoter_DB::insert_commission([
+            $crow = [
                 'promoter_id'       => $promoter_id,
                 'event_id'          => $event_id,
                 'order_id'          => $order_id,
@@ -661,7 +671,10 @@ class TIX_Promoter {
                 'order_total'       => $line_total,
                 'commission_amount' => round($commission, 2),
                 'discount_amount'   => round($discount, 2),
-            ]);
+            ];
+            TIX_Promoter_DB::insert_commission($crow);
+            // Teamleiter: Anteil an der Provision als eigene Zeile (attribution team)
+            if (class_exists('TIX_Promoter_Rules')) TIX_Promoter_Rules::leader_commission($promoter, $crow);
         }
 
         if ($is_wc) {

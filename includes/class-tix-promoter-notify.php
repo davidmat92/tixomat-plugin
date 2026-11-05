@@ -98,7 +98,7 @@ class TIX_Promoter_Notify {
     // ═══════════════ Verkauf (gesammelt) ═══════════════
 
     public static function on_commission($cid, array $row) {
-        if (!self::on()) return;
+        if (!self::on() || ($row['attribution'] ?? '') === 'team') return;
         $q = (array) get_option(self::OPT_Q, []);
         $q[] = ['p' => intval($row['promoter_id']), 'e' => intval($row['event_id']), 't' => intval($row['tickets_qty']), 'c' => round(floatval($row['commission_amount']), 2), 'at' => time()];
         update_option(self::OPT_Q, array_slice($q, -2000), false);
@@ -155,7 +155,7 @@ class TIX_Promoter_Notify {
         $a = TIX_Promoter_DB::get_assignment_by_promoter_event(intval($p->id), intval($eid), true);
         $url = (string) get_permalink($eid);
         if (class_exists('TIX_Customer_URL')) $url = TIX_Customer_URL::to($url);
-        $l = TIX_Promoter_REST::links((string) $p->promoter_code, $url, TIX_Promoter_REST::link_coupon($a));
+        $l = TIX_Promoter_REST::links((string) $p->promoter_code, $url, TIX_Promoter_REST::link_coupon($a), intval($eid));
         $eff = TIX_Promoter::get_effective_commission(intval($p->id), intval($eid));
         $prov = $eff['source'] === 'none' ? '' : ($eff['type'] === 'percent' ? rtrim(rtrim(number_format($eff['value'], 2, ',', ''), '0'), ',') . ' %' : self::money($eff['value']) . ' je Ticket');
         $date = (string) get_post_meta($eid, '_tix_date_start', true);

@@ -267,7 +267,8 @@ class TIX_Promoter_Portal {
         return ['id' => intval($p->id), 'name' => (string) $p->display_name, 'email' => self::email_of($p), 'code' => (string) $p->promoter_code, 'status' => (string) $p->status,
             'organizer' => $org ? ['id' => $org, 'name' => html_entity_decode(get_the_title($org), ENT_QUOTES, 'UTF-8')] : null,
             'links' => TIX_Promoter_REST::links((string) $p->promoter_code, self::site_base()), 'brand' => self::brand(), 'payout_details' => self::payout_public($p->id),
-            'notify' => class_exists('TIX_Promoter_Notify') ? TIX_Promoter_Notify::prefs(intval($p->id)) : null];
+            'notify' => class_exists('TIX_Promoter_Notify') ? TIX_Promoter_Notify::prefs(intval($p->id)) : null,
+            'rules' => class_exists('TIX_Promoter_Rules') ? (function ($r) { return ['min_payout' => $r['min_payout'], 'leaderboard' => $r['leaderboard'], 'attribution' => $r['attribution'], 'tiers' => $r['tiers'], 'cap_tickets' => $r['cap_tickets']]; })(TIX_Promoter_Rules::for_promoter($p)) : null];
     }
 
     private static function site_base() {
@@ -336,7 +337,7 @@ class TIX_Promoter_Portal {
                 'commission' => ['type' => $eff['type'], 'value' => floatval($eff['value'])],
                 'promo_code' => $a && $a->promo_code !== '' ? (string) $a->promo_code : null,
                 'discount' => $a && $a->discount_type !== '' ? ['type' => (string) $a->discount_type, 'value' => floatval($a->discount_value)] : null,
-                'links' => TIX_Promoter_REST::links((string) $p->promoter_code, $url, TIX_Promoter_REST::link_coupon($a))];
+                'links' => TIX_Promoter_REST::links((string) $p->promoter_code, $url, TIX_Promoter_REST::link_coupon($a), $eid)];
         }
         return rest_ensure_response(['ok' => true, 'pending' => false, 'general' => TIX_Promoter_REST::links((string) $p->promoter_code, self::site_base()), 'events' => $out]);
     }
@@ -421,8 +422,11 @@ class TIX_Promoter_Portal {
         $base = preg_replace('/[^a-z0-9]/', '', sanitize_title(mb_substr($name, 0, 12))) ?: 'promo';
         if (strlen($base) < 3) $base .= 'promo';
         do { $code = $base . wp_rand(10, 9999); } while (TIX_Promoter_DB::get_promoter_by_code($code) || $wpdb->get_var($wpdb->prepare("SELECT id FROM " . TIX_Promoter_DB::table_promoters() . " WHERE promoter_code = %s", $code)));
-        $pid = TIX_Promoter_DB::insert_promoter(['user_id' => 0, 'organizer_id' => $org, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'pending', 'notes' => 'Self-Signup']);
+        // Regel „sofort freigeben“ (1.38.663)
+        $auto = class_exists('TIX_Promoter_Rules') && !empty(TIX_Promoter_Rules::get($org)['auto_approve']);
+        $pid = TIX_Promoter_DB::insert_promoter(['user_id' => 0, 'organizer_id' => $org, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => $auto ? 'active' : 'pending', 'notes' => 'Self-Signup']);
         if (!$pid) return new WP_Error('tix_db', 'Die Anmeldung hat nicht geklappt.', ['status' => 500]);
+        if ($auto) do_action('tix_promoter_approved', intval($pid));
         self::send_login(TIX_Promoter_DB::get_promoter($pid), 'signup');
         do_action('tix_promoter_signup', $pid, $org);
         return $ok;

@@ -147,11 +147,13 @@ class TIX_Promoter_REST {
      * Mit Rabatt-Code (Promoter-Rabatt am Event) zusätzlich &coupon=, damit der Rabatt auch in der nativen Kasse,
      * der App und auf den Marken-Websites ohne Eintippen greift (1.38.660).
      */
-    public static function links($code, $url, $coupon = '') {
+    public static function links($code, $url, $coupon = '', $event_id = 0) {
         $q = ['ref' => $code] + ($coupon !== '' ? ['coupon' => $coupon] : []);
         return ['link' => add_query_arg($q, $url),
             'qr_link' => add_query_arg($q + ['utm_source' => 'promoter', 'utm_medium' => 'qr', 'utm_campaign' => 'promoter-' . $code], $url),
-            'coupon' => $coupon !== '' ? $coupon : null];
+            'coupon' => $coupon !== '' ? $coupon : null,
+            // Kurzlink /go/<code>[?e=] (1.38.663)
+            'short' => class_exists('TIX_Promoter_Rules') ? TIX_Promoter_Rules::short_link($code, intval($event_id)) : null];
     }
 
     /** Rabatt-Code einer Zuordnung, wenn dort ein Rabatt gesetzt ist, sonst '' */
@@ -171,7 +173,7 @@ class TIX_Promoter_REST {
         $w = '';
         if ($from) $w .= $wpdb->prepare(' AND created_at >= %s', $from . ' 00:00:00');
         if ($to) $w .= $wpdb->prepare(' AND created_at <= %s', $to . ' 23:59:59');
-        foreach ((array) $wpdb->get_results("SELECT promoter_id, COUNT(DISTINCT CASE WHEN commission_amount > 0 THEN order_id END) orders, SUM(tickets_qty) tickets, SUM(order_total) revenue,
+        foreach ((array) $wpdb->get_results("SELECT promoter_id, COUNT(DISTINCT CASE WHEN commission_amount > 0 AND attribution != 'team' THEN order_id END) orders, SUM(tickets_qty) tickets, SUM(order_total) revenue,
             SUM(CASE WHEN status = 'pending' THEN commission_amount ELSE 0 END) open_c, SUM(CASE WHEN status = 'approved' THEN commission_amount ELSE 0 END) appr,
             SUM(CASE WHEN status = 'paid' THEN commission_amount ELSE 0 END) paid, SUM(commission_amount) total, MAX(CASE WHEN commission_amount > 0 THEN created_at END) last_sale
             FROM $tc WHERE promoter_id IN ($in) AND status != 'cancelled' $w GROUP BY promoter_id") as $r) {
@@ -201,7 +203,7 @@ class TIX_Promoter_REST {
             'has_account' => intval($p->user_id) > 0, 'created' => $p->created_at ? mysql_to_rfc3339($p->created_at) : null, 'self_signup' => (string) ($p->notes ?? '') === 'Self-Signup',
             'clicks' => intval($st['clicks'] ?? 0), 'visitors' => intval($st['visitors'] ?? 0), 'orders' => intval($st['orders'] ?? 0), 'tickets' => intval($st['tickets'] ?? 0),
             'revenue' => floatval($st['revenue'] ?? 0), 'commission' => $st['commission'] ?? $z, 'balance' => floatval($st['balance'] ?? 0), 'balance_waiting' => floatval($st['balance_waiting'] ?? 0), 'last_sale' => $st['last_sale'] ?? null,
-            'links' => self::links($code, self::base())];
+            'links' => self::links($code, self::base())] + (class_exists('TIX_Promoter_Rules') ? TIX_Promoter_Rules::promoter_fields($p) : []);
     }
 
     private static function period(WP_REST_Request $req) {
@@ -293,7 +295,7 @@ class TIX_Promoter_REST {
             $url = $eid ? self::event_url($eid) : self::base();
             $out['assignments'][] = ['event_id' => $eid, 'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : 'Alle Events', 'event_date' => $eid ? (string) get_post_meta($eid, '_tix_date_start', true) : '',
                 'commission_type' => (string) $a->commission_type, 'commission_value' => floatval($a->commission_value), 'discount_type' => (string) $a->discount_type, 'discount_value' => floatval($a->discount_value),
-                'promo_code' => (string) $a->promo_code, 'links' => self::links($p->promoter_code, $url, $eid ? self::link_coupon($a) : '')];
+                'promo_code' => (string) $a->promo_code, 'links' => self::links($p->promoter_code, $url, $eid ? self::link_coupon($a) : '', $eid)];
         }
         $out['sales'] = array_map(function ($c) {
             return ['date' => mysql_to_rfc3339($c->created_at), 'event_id' => intval($c->event_id), 'event_title' => html_entity_decode((string) ($c->event_title ?: ''), ENT_QUOTES, 'UTF-8'), 'order_id' => intval($c->order_id),
@@ -328,6 +330,7 @@ class TIX_Promoter_REST {
             }
         }
         if ($set) TIX_Promoter_DB::update_promoter(intval($p->id), $set);
+        if ($approve) do_action('tix_promoter_approved', intval($p->id)); // Regeln: automatische Zuordnung
         // Nach der Freigabe bekommt der Promoter seinen Zugang per Mail (Studio-Domain)
         $sent = $approve && class_exists('TIX_Promoter_Portal') && TIX_Promoter_Portal::send_login(TIX_Promoter_DB::get_promoter(intval($p->id))) === true;
         return rest_ensure_response(['ok' => true, 'promoter' => self::item(TIX_Promoter_DB::get_promoter(intval($p->id))), 'access_sent' => $sent]);
@@ -464,6 +467,11 @@ class TIX_Promoter_REST {
         $from = $from ?: '2000-01-01';
         $to = $to ?: current_time('Y-m-d');
         if ($from > $to) return self::bad('from', '„Von“ liegt nach „Bis“.');
+        // Mindest-Auszahlung (Regeln, 1.38.663)
+        if (class_exists('TIX_Promoter_Rules')) {
+            $sum = array_sum(array_map(function ($c) { return floatval($c->commission_amount); }, (array) TIX_Promoter_DB::get_commissions_for_payout(intval($p->id), $from, $to)));
+            if ($sum > 0 && ($e = TIX_Promoter_Rules::payout_error($p, $sum))) return $e;
+        }
         $id = TIX_Promoter_DB::create_payout(['promoter_id' => intval($p->id), 'period_from' => $from, 'period_to' => $to, 'payment_note' => (string) $req->get_param('note')]);
         if (!$id) {
             $wait = array_filter((array) TIX_Promoter_DB::get_commissions_for_payout_all(intval($p->id), $from, $to), function ($c) { return floatval($c->commission_amount) > 0 && !TIX_Promoter_DB::event_ended(intval($c->event_id)); });

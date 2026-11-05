@@ -296,13 +296,15 @@ class TIX_Short_Links {
     // ═══════════════ Aufruf ═══════════════
 
     /** Link zum Code auflösen und einen Klick zählen → Ziel-URL oder null (unbekannt, archiviert, Event weg) */
-    public static function resolve($code, $qr, $ua) {
+    public static function resolve($code, $qr, $ua, $event_id = 0) {
         self::maybe_create();
         global $wpdb;
         $code = strtolower((string) $code);
         if (!preg_match(self::CODE_RE, $code)) return null;
         $l = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE code = %s", $code), ARRAY_A);
-        if (!$l || !empty($l['archived'])) return null;
+        // Kein Kurzlink mit diesem Code: Promoter-Code (TIX_Promoter_Rules, 1.38.663) – /go/<promoter-code>[?e=<event>]
+        if (!$l) return apply_filters('tix_go_fallback', null, $code, intval($event_id), (bool) $qr);
+        if (!empty($l['archived'])) return null;
         if (intval($l['event_id']) && !in_array(get_post_status(intval($l['event_id'])), ['publish', 'future'], true)) return null;
         if (!preg_match(TIX_Web_Stats::BOT, (string) $ua)) {
             $wpdb->query($wpdb->prepare("INSERT INTO " . self::tc() . " (day, link_id, kind, n) VALUES (%s, %d, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1", wp_date('Y-m-d'), intval($l['id']), $qr ? 'qr' : 'link'));
@@ -315,7 +317,7 @@ class TIX_Short_Links {
     /** GET /public/go/{code}?qr=1 → {url}; die Next-Seite leitet weiter und reicht den Browser (user_agent) für den Bot-Filter durch */
     public static function rest_go(WP_REST_Request $req) {
         $ua = (string) ($req->get_param('ua') ?: $req->get_header('user-agent'));
-        $url = self::resolve($req['code'], (string) $req->get_param('qr') === '1', $ua);
+        $url = self::resolve($req['code'], (string) $req->get_param('qr') === '1', $ua, absint($req->get_param('e')));
         if (!$url) return new WP_Error('not_found', 'Diesen Link gibt es nicht (mehr).', ['status' => 404, 'fallback' => self::base() . '/']);
         $r = rest_ensure_response(['ok' => true, 'url' => $url]);
         $r->header('Cache-Control', 'no-store');
@@ -326,7 +328,7 @@ class TIX_Short_Links {
     public static function wp_redirect() {
         $p = (string) wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
         if (!preg_match('#^/go/([A-Za-z0-9-]{1,32})/?$#', $p, $m)) return;
-        $url = self::resolve($m[1], isset($_GET['qr']) && $_GET['qr'] === '1', (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $url = self::resolve($m[1], isset($_GET['qr']) && $_GET['qr'] === '1', (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), isset($_GET['e']) ? absint($_GET['e']) : 0);
         nocache_headers();
         wp_redirect($url ?: self::base() . "/", 302, "Tixomat");
         exit;

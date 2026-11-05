@@ -187,7 +187,7 @@ class TIX_Promoter_Material {
         if (is_wp_error($eid)) return $eid;
         $p = TIX_Promoter_Portal::current();
         $a = TIX_Promoter_DB::get_assignment_by_promoter_event(intval($p->id), $eid, true);
-        $l = TIX_Promoter_REST::links((string) $p->promoter_code, self::event_url($eid), TIX_Promoter_REST::link_coupon($a));
+        $l = TIX_Promoter_REST::links((string) $p->promoter_code, self::event_url($eid), TIX_Promoter_REST::link_coupon($a), $eid);
         $st = self::stored($eid);
         $texts = $st ? $st['texts'] : self::templates($eid);
         $b = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::brand() : [];
