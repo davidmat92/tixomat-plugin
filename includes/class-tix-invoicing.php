@@ -99,6 +99,9 @@ class TIX_Invoicing {
         // Eigener Rechnungs-Kern aktiv (1.38.485): keine zweite Rechnung über den Anbieter (ein Nummernkreis)
         if (class_exists('TIX_Invoices') && TIX_Invoices::enabled()) return;
 
+        // Beispiel-Club, Vorschauen, Demo-Zahlung: nie eine Rechnung (1.38.664)
+        if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_order($order_id)) return;
+
         // Bereits Rechnung vorhanden? Dann skip (idempotent)
         if (self::get_invoice_meta($order_id)) return;
 

@@ -32,6 +32,7 @@ class TIX_Studio_Prefs {
         if (!$user || !$user->ID) return 'full';
         if (user_can($user, 'manage_options')) return 'full';
         if (class_exists('TIX_Sales') && TIX_Sales::is_sales_user($user)) return 'full';
+        if (class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_prospect($user)) return 'full'; // Demo-Studio (1.38.664)
         return (string) $user->user_registered > self::cutoff() ? 'compact' : 'full';
     }
 

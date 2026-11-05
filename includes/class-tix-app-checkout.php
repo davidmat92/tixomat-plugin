@@ -1249,6 +1249,8 @@ class TIX_App_Checkout {
             'specials'        => self::specials($event_id),
             // Vorverkauf {starts_at, started, waitlist_presale, waitlist_soldout}
             'presale'         => class_exists('TIX_Event_Extras') ? TIX_Event_Extras::presale($event_id) : null,
+            // Demo-Studio: Event des Beispiel-Clubs → nur Demo-Zahlung
+            'demo'            => class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_demo_event($event_id),
             'totals'          => null,
             'payment_methods' => [],
             'coupon'          => null,
@@ -1291,6 +1293,11 @@ class TIX_App_Checkout {
                 }
             } elseif (class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN)) {
                 $resp['wallet'] = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']) + ['can_apply' => 0.0, 'selected' => false];
+            }
+            // Demo-Studio (1.38.664): Beispiel-Club nur mit Demo-Zahlung, kein Guthaben, kein Zahlungsanbieter
+            if (class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_demo_event($event_id)) {
+                unset($resp['wallet']);
+                $resp['payment_methods'] = $t['total'] > 0 ? [TIX_Demo_Access::method()] : self::payment_methods(true);
             }
             $resp['coupon'] = [
                 'code'     => (string) ($cart['coupon']['code'] ?? $coupon),
@@ -1443,7 +1450,17 @@ class TIX_App_Checkout {
         $payment_method = sanitize_text_field((string) ($req->get_param('payment_method') ?? ''));
         $mollie_method  = '';
         $stripe_method  = '';
-        if ($wallet && $due <= 0) {
+        // Demo-Studio (1.38.664): Beispiel-Club nur mit Zahlart „demo“ (kein Zahlungsanbieter, kein Guthaben);
+        // „demo“ ist für echte Events nie erlaubt (steht nicht in payment_methods()).
+        $demo_sale = !self::$partner && class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_demo_event($event_id);
+        if ($demo_sale) {
+            $wallet = null;
+            $due = $t['total'];
+            if ($e = TIX_Demo_Access::order_limit_error()) return $e;
+        }
+        if ($demo_sale && $t['total'] > 0) {
+            if ($payment_method !== 'demo') return self::error('tix_demo_payment', 'Im Beispiel-Club wird nur mit der Demo-Zahlung bezahlt.', 400);
+        } elseif ($wallet && $due <= 0) {
             $payment_method = 'wallet';
         } elseif ($t['total'] <= 0) {
             $payment_method = 'free';
@@ -1549,7 +1566,11 @@ class TIX_App_Checkout {
         }
 
         // Zahlung starten
-        if ($payment_method === 'wallet') {
+        if ($demo_sale) TIX_Demo_Access::remember_order($order_id, (string) $req->get_param('demo_access'));
+        if ($payment_method === 'demo' && $demo_sale) {
+            TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
+            $result = ['success' => true];
+        } elseif ($payment_method === 'wallet') {
             TIX_Native_Checkout::update_order_status($order_id, 'completed', 'wallet');
             $result = ['success' => true];
         } elseif ($payment_method === 'free') {
@@ -1574,6 +1595,7 @@ class TIX_App_Checkout {
         if ($new_token !== '' && $user && method_exists('TIX_REST_API', 'guest_user_payload')) {
             $extra = ['token' => $new_token, 'user' => TIX_REST_API::guest_user_payload($user), 'account_created' => true];
         }
+        if ($demo_sale) $extra['demo'] = true;
         return self::order_response($order_id, $payment_url, $extra);
     }
 

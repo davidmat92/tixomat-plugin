@@ -303,7 +303,8 @@ class TIX_Staff_Push {
             }
             $out[] = $uid;
         }
-        return $out;
+        // Demo-Studio (1.38.664): Beispiel-Club meldet sich nie bei Demo-Zugängen (Testkäufe nur an den eigenen Zugang)
+        return (array) apply_filters('tix_staff_push_recipients', $out, $org_ids, $pref);
     }
 
     private static function site_name() {

@@ -848,6 +848,8 @@ class TIX_REST_API {
             $out['organizer']       = TIX_App_Scope::me_payload($user->ID);
             $out['is_admin']        = $user->has_cap('manage_options');
             $out['sales']           = class_exists('TIX_Sales') && TIX_Sales::is_sales_user($user); // Vertrieb (1.38.508)
+            // Demo-Studio (1.38.664): Interessent bzw. Vertriebler – Ablauf, Zurücksetzen, eigener Link zur Demo-Homepage
+            $out['demo_access']     = class_exists('TIX_Demo_Access') ? TIX_Demo_Access::me_payload($user) : null;
         }
         // Studio: Menü-Ansicht je Konto (1.38.655)
         if (class_exists('TIX_Studio_Prefs')) $out['studio_prefs'] = TIX_Studio_Prefs::payload($user);

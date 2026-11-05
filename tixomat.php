@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.664
+ * Version: 1.38.666
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.664');
+define('TIXOMAT_VERSION', '1.38.666');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -529,6 +529,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-features.php'; // App-Funktionen
 require_once TIXOMAT_PATH . 'includes/class-tix-ai-rest.php'; // KI-Funktionen fürs Studio: /ai/text, /ai/extract, /ai/duplicates, /ai/social, /events/{id}/guard, /studio/ai (1.38.505)
 require_once TIXOMAT_PATH . 'includes/class-tix-sales.php'; // Live-Demo Vertrieb: Sandbox (Demo Club/Vorschau), Rolle tix_sales, /platform/sales (1.38.508)
 require_once TIXOMAT_PATH . 'includes/class-tix-demo.php'; // Demo Club: Reset/Seed, /public/demo, /public/demo-ticket (1.38.508)
+require_once TIXOMAT_PATH . 'includes/class-tix-demo-access.php'; // Demo-Studio: Zugänge (Interessenten/Vertrieb), Anmelde-Link, Demo-Zahlung, Verkürzen fremder Testkäufe (1.38.664)
 require_once TIXOMAT_PATH . 'includes/class-tix-sales-previews.php'; // Vorschauen des Vertriebs: /sales/previews, /public/previews, Übernahme per claim_token (1.38.510)
 require_once TIXOMAT_PATH . 'includes/class-tix-website.php'; // Marken-Websites: /studio/website, /public/website, site-config.website (1.38.515)
 require_once TIXOMAT_PATH . 'includes/class-tix-web-stats.php'; // Besucher → Kauf ohne Cookies: /public/stats/hit, /studio/stats/funnel

@@ -204,7 +204,7 @@ class TIX_Demo {
         if (is_wp_error($eid) || !$eid) return 0;
         $meta = array_merge([
             '_tix_organizer_id' => $oid, '_tix_date_start' => self::day($offset), '_tix_time_start' => $time, '_tix_time_doors' => sprintf('%02d:00', max(0, intval($time) - 1)),
-            '_tix_location' => 'Beispiel-Club, Musterstraße 1, 50667 Köln', '_tix_tickets_enabled' => '1', '_tix_ticket_categories' => $cats,
+            '_tix_location' => 'Beispiel-Club, Musterstraße 1, 50667 Köln', '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => $cats,
             '_tix_info_description' => '<p>Beispiel-Event im Beispiel-Club. Alle Daten sind erfunden und werden jede Nacht zurückgesetzt.</p>',
             '_tix_demo' => 1, '_tix_guest_list_enabled' => '1',
         ], $extra);
@@ -380,7 +380,7 @@ class TIX_Demo {
 
     /** Angemeldet als Vertrieb oder Admin? */
     private static function staff_caller() {
-        return is_user_logged_in() && (current_user_can('manage_options') || (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()));
+        return is_user_logged_in() && (current_user_can('manage_options') || (class_exists('TIX_Sales') && TIX_Sales::is_sales_user()) || (class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_prospect()));
     }
 
     /** Ticket-Antwort (Vertrag C). */
