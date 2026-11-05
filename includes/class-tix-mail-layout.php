@@ -149,14 +149,15 @@ class TIX_Mail_Layout {
 
     private static function e($s) { return esc_html((string) $s); }
 
-    /** Knopf in Markenfarbe (VML für Outlook). Öffentlich für Mails, die eigenes HTML bauen. */
+    /** Knopf in Markenfarbe (ohne VML, übersteht wp_kses_post). Öffentlich für Mails, die eigenes HTML bauen. */
     public static function button($label, $url) {
         $c = self::$c ?: self::colors(self::brand());
         $label = self::e(html_entity_decode((string) $label, ENT_QUOTES, 'UTF-8'));
         $url = esc_url($url);
         return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:12px auto 16px;"><tr><td align="center" class="tm-btn-td" bgcolor="' . $c['accent'] . '" style="border-radius:10px;">'
-            . '<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="' . $url . '" style="height:50px;v-text-anchor:middle;width:280px;" arcsize="20%" stroke="f" fillcolor="' . $c['accent'] . '"><w:anchorlock/><center style="color:' . $c['on_accent'] . ';font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">' . $label . '</center></v:roundrect><![endif]-->'
-            . '<!--[if !mso]><!--><a href="' . $url . '" class="tm-btn" style="display:inline-block;padding:15px 28px;min-width:200px;text-align:center;background:' . $c['accent'] . ';color:' . $c['on_accent'] . ';font-weight:700;font-size:16px;line-height:20px;text-decoration:none;border-radius:10px;">' . $label . '</a><!--<![endif]-->'
+            // Ohne Outlook-Bedingungskommentare (VML): Kampagnen-Inhalt läuft beim Speichern durch wp_kses_post, das die Kommentare
+            // zerschneidet – dann stand „<!--“ sichtbar im Knopf. Die Farbe trägt die Zelle (bgcolor), so sieht der Knopf auch in Outlook gut aus.
+            . '<a href="' . $url . '" class="tm-btn" style="display:inline-block;padding:15px 28px;min-width:200px;text-align:center;background:' . $c['accent'] . ';color:' . $c['on_accent'] . ';font-weight:700;font-size:16px;line-height:20px;text-decoration:none;border-radius:10px;">' . $label . '</a>'
             . '</td></tr></table>';
     }
 
