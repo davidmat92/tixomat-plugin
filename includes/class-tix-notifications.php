@@ -233,7 +233,7 @@ class TIX_Notifications {
         return preg_match('/^push-[a-z0-9]{8}$/', $v) ? $v : '';
     }
 
-    private static function new_campaign() { return 'push-' . substr(md5(wp_generate_uuid4()), 0, 8); }
+    public static function new_campaign() { return 'push-' . substr(md5(wp_generate_uuid4()), 0, 8); }
 
     /** Sendung zur Kampagne (für die Zählung der Öffnungen): ['organizer_id', 'event_id'] oder null */
     public static function campaign_scope($key) {
@@ -340,8 +340,23 @@ class TIX_Notifications {
         $event_id = intval($req->get_param('event_id'));
         $target   = sanitize_key((string) $req->get_param('target'));
         $action   = (string) $req->get_param('action');
-        // Kampagne der Sendung (Statistik Stufe 2): Öffnungen in der App und Käufe aus der Mitteilung zählen dazu
-        $cmp      = self::new_campaign();
+        // Planen (1.38.657): send_at bzw. relative_hours (X Stunden vor Event-Beginn) → gespeichert, Versand per Cron
+        if (class_exists('TIX_Notif_Schedule') && (($req->get_param('send_at') ?? '') !== '' || intval($req->get_param('relative_hours')) > 0)) {
+            return TIX_Notif_Schedule::create(['title' => $title, 'body' => $body, 'event_id' => $event_id, 'target' => $target, 'action' => $action,
+                'send_at' => (string) $req->get_param('send_at'), 'relative_hours' => intval($req->get_param('relative_hours'))]);
+        }
+        return self::send_broadcast($title, $body, $event_id, $target, $action, self::new_campaign());
+    }
+
+    /**
+     * Mitteilung jetzt senden (sofort bzw. aus dem Plan; 1.38.657). Läuft mit dem angemeldeten bzw. im Plan
+     * hinterlegten Konto (Bereich, Absender). $cmp = Kampagne der Sendung (beim Planen schon vergeben).
+     */
+    public static function send_broadcast($title, $body, $event_id, $target, $action, $cmp) {
+        $event_id = intval($event_id);
+        $target = sanitize_key((string) $target);
+        $action = (string) $action;
+        $cmp = self::campaign_key($cmp) ?: self::new_campaign();
 
         // Mehr-Veranstalter-Modus: nur eigene Events, nur eigene Follower/Käufer
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && TIX_App_Scope::scoped()) {

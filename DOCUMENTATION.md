@@ -4130,3 +4130,28 @@ Tests: `tests/test-studio-prefs-wp.php` (9/9 in beiden Modi).
 **Antwort:** `{ok, dry_run, events, acts, new[], linked[], updated[], unchanged[], skipped[]}`. Ein Eintrag: `{name, events[], spotify, apple_music, photo, id, linked_events[], own}`, bei `skipped` zusätzlich `reason`. `dry_run: true` legt nichts an und verknüpft nichts; in der Vorschau ist bei neuen Acts `id` = null.
 
 Tests: `tests/test-artists-import-wp.php` (9/9 Einzel-Seite, 11/11 Plattform).
+
+## 89. Mitteilungen planen (ab 1.38.657)
+
+`TIX_Notif_Schedule` (`includes/class-tix-notif-schedule.php`).
+- **Planen:** `POST /notifications/broadcast` (auch „Nachricht an Gäste“) nimmt zusätzlich
+  - `send_at` (ISO 8601 mit Zeitzone oder `JJJJ-MM-TTTHH:MM` in der Zeitzone der Seite, Europe/Berlin; 2 Minuten bis 90 Tage in der Zukunft) oder
+  - `relative_hours` (1–168 Stunden vor Event-Beginn, braucht `event_id`; der Zeitpunkt folgt einer Verschiebung des Events).
+- **Antwort:** 201 `{ok, scheduled, campaign}`, gesendet wird noch nichts. Ohne beides wird wie bisher sofort gesendet.
+- **Kampagne:** Die Kennung `push-…` entsteht beim Planen und bleibt bis zum Versand gleich (Statistik: Öffnungen, Käufe).
+- **Speicher:** Option `tix_notif_scheduled` (höchstens 300). Status `scheduled` → `sent` | `cancelled` | `failed` (mit `error`).
+- **Versand:** Cron `tix_notif_schedule_cron` alle 5 Minuten, höchstens 20 je Lauf, mit Sperre gegen doppelten Versand.
+  - Gesendet wird über `TIX_Notifications::send_broadcast` mit dem Konto, das geplant hat (Bereich, Absender im Verlauf); danach wieder ohne Anmeldung.
+  - Nicht mehr gesendet wird, wenn das Event nicht mehr veröffentlicht ist, die Mitteilungen aus sind oder der Zeitpunkt mehr als 6 Stunden zurückliegt (`failed`).
+
+**Routen** (Rechte wie der Verlauf: Inhaber und Team-Admins; evendis nur eigene):
+| Route | |
+|---|---|
+| `GET /notifications/scheduled?status=scheduled\|sent\|cancelled\|failed\|all` | `{scheduled[{id, title, body, target, event{id, title}\|null, send_at (ISO), relative_hours\|null, status, campaign, created, sender{id, name}, sent_at, recipients, error}], timezone}`; geplante nach Zeitpunkt sortiert |
+| `POST /notifications/scheduled/{id}` | `{title?, body?, send_at?, relative_hours?, event_id?, target?}`, nur `scheduled` (409 `tix_locked`) |
+| `POST /notifications/scheduled/{id}/cancel` | abbrechen |
+| `POST /notifications/scheduled/{id}/send` | jetzt senden |
+
+Fehler am Feld: `send_at`, `relative_hours`, `event_id`; fremdes Event → 403.
+
+Tests: `tests/test-notif-schedule-wp.php` (19/19 Einzel-Seite, 21/21 Plattform).
