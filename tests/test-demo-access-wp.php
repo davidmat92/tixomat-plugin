@@ -58,7 +58,7 @@ t_eq('Vertriebler darf keine Vertriebler anlegen (403)', 403, $st);
 
 // ── 2. Vertriebler legt Interessenten an, Einladung per Link ──
 $GLOBALS['t_mails'] = [];
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'self', 'name' => "Lena Brandt", 'email' => "lena$sfx@beispiel.test", 'company' => 'Beispiel Club']);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'self', 'profile' => 'club', 'name' => "Lena Brandt", 'email' => "lena$sfx@beispiel.test", 'company' => 'Beispiel Club']);
 t_eq('Interessent angelegt (201)', 201, $st);
 $pa = intval($d['access']['id'] ?? 0); $cleanup_users[] = $pa;
 t_eq('Einladung verschickt', true, !empty($d['invite_sent']));
@@ -67,11 +67,11 @@ t_eq('Interessent ist Team des Beispiel-Clubs', $demo, intval(get_user_meta($pa,
 t_eq('Interessent ist Team-Admin', true, TIX_App_Scope::is_org_manager($pa));
 $invite = t_link_token("lena$sfx@beispiel.test");
 t_eq('Link in der Einladung', true, strlen($invite) >= 20);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => 'Doppelt', 'email' => "lena$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'profile' => 'club', 'name' => 'Doppelt', 'email' => "lena$sfx@beispiel.test"]);
 t_eq('gleiche E-Mail → 409', 409, $st);
 
 wp_set_current_user($sales2);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'profile' => 'club', 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"]);
 $pb = intval($d['access']['id'] ?? 0); $cleanup_users[] = $pb;
 list($st, $d) = t_rest('GET', '/demo-access');
 t_eq('Vertriebler 2 sieht nur eigene Zugänge', [$pb], array_column($d['accesses'] ?? [], 'id'));
@@ -87,11 +87,11 @@ t_eq('Admin sieht alle (Interessenten + Vertriebler)', true, in_array($pa, $ids,
 
 // ── 2b. Modell (User 06.11.): Pflicht für Interessenten, Sicht im /me, umstellbar, Filter ──
 wp_set_current_user($sales);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 'Ohne Modell', 'email' => "ohne$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'profile' => 'club', 'name' => 'Ohne Modell', 'email' => "ohne$sfx@beispiel.test"]);
 t_eq('Interessent ohne Modell → 400 Feld model', [400, 'model'], [$st, $d['data']['field'] ?? '']);
 t_eq('Lena: Modell selbstgehostet', 'self', TIX_Demo_Access::model($pa));
-t_eq('Lena: Testkauf über demo.evendis.de', true, strpos(TIX_Demo_Access::me_payload(get_userdata($pa))['home'], TIX_Demo_Access::home_url('', 'self')) === 0);
-t_eq('Max: Modell Provisionskunde, Testkauf über evendis.de/demo', true, TIX_Demo_Access::model($pb) === 'platform' && strpos(TIX_Demo_Access::me_payload(get_userdata($pb))['home'], TIX_Demo_Access::home_url('', 'platform')) === 0);
+t_eq('Lena: Testkauf über demo.evendis.de/club/', true, strpos(TIX_Demo_Access::me_payload(get_userdata($pa))['home'], TIX_Demo_Access::home_url('', 'self', 'club')) === 0);
+t_eq('Max: Modell Provisionskunde, Testkauf über evendis.de/demo', true, TIX_Demo_Access::model($pb) === 'platform' && strpos(TIX_Demo_Access::me_payload(get_userdata($pb))['home'], TIX_Demo_Access::home_url('', 'platform', 'club')) === 0);
 t_eq('Interessent darf Sicht nicht selbst umschalten', false, TIX_Demo_Access::me_payload(get_userdata($pa))['can_switch']);
 wp_set_current_user($sales2);
 list($st, $d) = t_rest('GET', '/demo-access', ['model' => 'platform']);
@@ -107,6 +107,53 @@ t_eq('Vertriebler schaltet eigene Sicht um', ['self', 'self'], [$d['model'] ?? n
 wp_set_current_user($pa);
 list($st) = t_rest('POST', '/demo-access/view', ['model' => 'platform']);
 t_eq('Interessent: Sicht umschalten gesperrt (403)', 403, $st);
+
+// ── 2c. Website-Profil (User 06.11.): Club Ostkai / Festival Seewiese, Pflicht, Team folgt dem Profil ──
+if (!TIX_Demo::org_for('festival')) TIX_Demo::reset(['orders' => 20]);
+$fest = TIX_Demo::org_for('festival');
+t_eq('Festival-Veranstalter vorhanden und Sandbox', true, $fest > 0 && TIX_Sales::is_demo_organizer($fest));
+wp_set_current_user($sales);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'self', 'name' => 'Ohne Profil', 'email' => "ohnep$sfx@beispiel.test"]);
+t_eq('Interessent ohne Profil → 400 Feld profile', [400, 'profile'], [$st, $d['data']['field'] ?? '']);
+t_eq('Lena: Profil club, Team = Club', ['club', $demo], [TIX_Demo_Access::profile($pa), intval(get_user_meta($pa, '_tix_team_organizer_id', true))]);
+list($st, $d) = t_rest('PATCH', "/demo-access/$pa", ['profile' => 'festival']);
+t_eq('Profil umstellen → festival', 'festival', $d['access']['profile'] ?? null);
+t_eq('Team folgt dem Profil (Festival)', $fest, intval(get_user_meta($pa, '_tix_team_organizer_id', true)));
+t_eq('Lena sieht jetzt den Festival-Veranstalter', $fest, intval(TIX_App_Scope::organizer_id_for_user($pa)));
+t_eq('Testkauf-Link selbstgehostet → /festival/', true, strpos(TIX_Demo_Access::me_payload(get_userdata($pa))['home'], '/festival/?demo=') !== false);
+update_user_meta($pa, TIX_Demo_Access::META_MODEL, 'platform');
+t_eq('Testkauf-Link Provisionskunde → ?profile=festival', true, strpos(TIX_Demo_Access::me_payload(get_userdata($pa))['home'], 'profile=festival') !== false);
+update_user_meta($pa, TIX_Demo_Access::META_MODEL, 'self');
+t_rest('PATCH', "/demo-access/$pa", ['profile' => 'club']);
+t_eq('zurück auf Club', $demo, intval(get_user_meta($pa, '_tix_team_organizer_id', true)));
+list($st, $d) = t_rest('GET', '/demo-access', ['profile' => 'festival']);
+t_eq('Filter Profil festival (leer)', [], array_column($d['accesses'] ?? [], 'id'));
+t_eq('Profile mit Beschreibung', ['club', 'festival'], array_column($d['profiles'] ?? [], 'key'));
+list($st, $d) = t_rest('POST', '/demo-access/view', ['profile' => 'festival']);
+t_eq('Vertriebler schaltet Profil um → Team Festival', ['festival', $fest], [$d['profile'] ?? null, intval(get_user_meta($sales, '_tix_team_organizer_id', true))]);
+t_rest('POST', '/demo-access/view', ['profile' => 'club']);
+// öffentliche Demo-Daten je Profil, Inhalte ohne verbotene Wörter
+wp_set_current_user(0);
+list($st, $pc) = t_rest('GET', '/public/demo');
+list($st2, $pf) = t_rest('GET', '/public/demo', ['profile' => 'festival']);
+t_eq('/public/demo: Club Ostkai mit mehreren Events', [true, true], [count($pc['events'] ?? []) >= 5, ($pc['profile'] ?? '') === 'club']);
+t_eq('/public/demo?profile=festival: genau 1 Event', [1, 'festival'], [count($pf['events'] ?? []), $pf['profile'] ?? '']);
+t_eq('App-Inhalte je Profil (FAQ)', [true, true], [!empty($pc['app_content']['pages']['faq']['faq']), !empty($pf['app_content']['pages']['faq']['faq'])]);
+$fev = intval($pf['events'][0]['id'] ?? 0);
+list($st, $fd) = t_rest('GET', "/public/events/$fev");
+t_eq('Festival: Programm über 2 Tage', 2, count($fd['event']['timetable']['days'] ?? []));
+list($st, $fa) = t_rest('GET', "/public/events/$fev/artists");
+t_eq('Festival: Line-up ohne Musikdienst-Suche und ohne Fotos', [true, 0], [count($fa['artists'] ?? []) >= 10 && !array_diff(array_unique(array_column($fa['artists'], 'source')), ['none']), count(array_filter(array_column($fa['artists'] ?? [], 'picture')))]);
+$hay = mb_strtolower(wp_json_encode([$pc, $pf, $fd, $fa]) . wp_json_encode([TIX_Demo_Content::club_events(), TIX_Demo_Content::festival_event(), TIX_Demo_Content::app_content('club'), TIX_Demo_Content::app_content('festival')]), 'UTF-8');
+$hits = array_values(array_filter(TIX_Demo_Content::FORBIDDEN, function ($w) use ($hay) { return mb_strpos($hay, $w) !== false; }));
+t_eq('Demoinhalte ohne Marken und verbotene Wörter', [], $hits);
+t_eq('Demo-Moderation als Künstler-Art host', 'host', (function () { foreach (get_posts(['post_type' => 'tix_artist', 'posts_per_page' => -1, 'meta_key' => '_tix_demo_artist', 'meta_value' => '1']) as $p) { $m = get_post_meta($p->ID, '_tix_artist', true); if (($m['kind'] ?? '') === 'host') return 'host'; } return ''; })());
+// Testkauf im Festival mit Demo-Zahlung
+list($st, $q) = t_rest('POST', '/customer/cart/quote', ['event_id' => $fev, 'items' => [['index' => 2, 'qty' => 2]]]);
+t_eq('Festival: nur Demo-Zahlung', ['demo'], array_column((array) ($q['payment_methods'] ?? []), 'id'));
+list($st, $fo) = t_rest('POST', '/customer/orders', ['event_id' => $fev, 'items' => [['index' => 2, 'qty' => 2]], 'billing' => ['first_name' => 'Lena', 'last_name' => "Fest$sfx", 'email' => "lena$sfx@beispiel.test", 'address_1' => 'Weg 1', 'postcode' => '12345', 'city' => 'Musterstadt', 'country' => 'DE'], 'accept_terms' => true, 'idempotency_token' => "f1-$sfx-abc", 'payment_method' => 'demo', 'demo_access' => TIX_Demo_Access::code($pa)]);
+t_eq('Festival-Testkauf bezahlt, Zugang zugeordnet', ['completed', $pa], [$fo['order']['status'] ?? null, intval(get_post_meta(intval($fo['order']['id'] ?? 0), TIX_Demo_Access::META_ORDER, true))]);
+t_eq('Staff-Push des Festivals ohne Demo-Zugänge', [$admin], apply_filters('tix_staff_push_recipients', [$pa, $sales, $admin], [$fest], 'sales_digest'));
 
 // ── 3. Anmeldung per Link ──
 wp_set_current_user(0);
@@ -162,7 +209,7 @@ t_eq('/me demo_access.can_reset = false', false, $me['can_reset']);
 t_eq('/me Link zur Demo-Homepage mit Code', true, strpos($me['home'], '?demo=') !== false);
 t_eq('Menü komplett', 'full', TIX_Studio_Prefs::default_for(get_userdata($pa)));
 t_eq('Interessent sieht den Beispiel-Club', $demo, intval(TIX_App_Scope::organizer_id_for_user($pa)));
-$real = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'tix_include_sandbox' => 1, 'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $demo, 'compare' => '!='], ['key' => '_tix_organizer_id', 'compare' => 'EXISTS']]]);
+$real = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'tix_include_sandbox' => 1, 'meta_query' => [['key' => '_tix_organizer_id', 'value' => array_map('strval', TIX_Demo_Access::demo_orgs()), 'compare' => 'NOT IN'], ['key' => '_tix_organizer_id', 'compare' => 'EXISTS']]]);
 if ($real) {
     list($st) = t_rest('GET', '/events/' . $real[0]);
     t_eq('Interessent: fremdes Event gesperrt', true, $st >= 400);
@@ -175,11 +222,11 @@ t_eq('/me Vertriebler can_reset = true', true, $me['can_reset']);
 wp_set_current_user($sales2);
 $extra = [];
 for ($i = 0; $i < 19; $i++) {
-    list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => "Viel $i", 'email' => "viel$i-$sfx@beispiel.test", 'invite' => false]);
+    list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'profile' => 'club', 'name' => "Viel $i", 'email' => "viel$i-$sfx@beispiel.test", 'invite' => false]);
     $extra[] = intval($d['access']['id'] ?? 0);
 }
 $cleanup_users = array_merge($cleanup_users, $extra);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => 'Zu viel', 'email' => "zuviel$sfx@beispiel.test", 'invite' => false]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'profile' => 'club', 'name' => 'Zu viel', 'email' => "zuviel$sfx@beispiel.test", 'invite' => false]);
 t_eq('21. aktiver Zugang → 409 tix_demo_limit', [409, 'tix_demo_limit'], [$st, t_code($d)]);
 foreach ($extra as $x) TIX_Demo_Access::cleanup(); // nichts löschen (noch aktiv)
 t_eq('Aufräumen löscht keine aktiven', true, (bool) get_userdata($extra[0]));

@@ -18,8 +18,36 @@ class TIX_Demo {
     const OPT_TICKET_EVENT = 'tix_demo_ticket_event';
     const DEMO_CAT = 'Beispiel-Ticket';
     // Sichtbare Namen „Beispiel“ (1.38.512); Schlüssel/Kennzeichen (demo, _tix_org_demo, /public/demo…, Slug demo-club) bleiben
-    const ORG_NAME = 'Beispiel-Club';
-    const ORG_TEXT = 'Der Beispiel-Club zeigt, wie Veranstalter mit evendis arbeiten: Tickets, Einlass, Gästeliste, Statistik und Abrechnung.';
+    const ORG_NAME = 'Beispiel-Club Ostkai';
+    const ORG_TEXT = 'Der Beispiel-Club Ostkai zeigt, wie Veranstalter mit evendis arbeiten: Tickets, Einlass, Gästeliste, Statistik und Abrechnung. Alle Angaben sind erfunden.';
+    // Zweiter Beispiel-Veranstalter (1.38.669, User 06.11.): Festival-Profil mit genau einem Event über zwei Tage
+    const OPT_FESTIVAL = 'tix_demo_festival_id';
+    const FEST_NAME = 'Beispiel-Festival Seewiese';
+    const FEST_TEXT = 'Das Beispiel-Festival Seewiese zeigt ein Festival mit evendis: Line-up, Programm auf zwei Bühnen, Tickets und Einlass. Alle Angaben sind erfunden.';
+    const PROFILES = ['club', 'festival'];
+
+    /** Veranstalter-ID je Profil (club = Option tix_demo_organizer_id, festival = tix_demo_festival_id) */
+    public static function org_for($profile) {
+        return $profile === 'festival' ? intval(get_option(self::OPT_FESTIVAL, 0)) : TIX_Sales::demo_id();
+    }
+
+    /** Festival-Veranstalter anlegen bzw. sicherstellen */
+    public static function ensure_festival() {
+        $fid = intval(get_option(self::OPT_FESTIVAL, 0));
+        if ($fid && get_post_type($fid) === 'tix_organizer') {
+            if (get_post_status($fid) !== 'publish') wp_update_post(['ID' => $fid, 'post_status' => 'publish']);
+            return $fid;
+        }
+        $fid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => self::FEST_NAME, 'post_name' => 'demo-festival', 'post_content' => self::FEST_TEXT]);
+        if (!$fid || is_wp_error($fid)) return 0;
+        update_option(self::OPT_FESTIVAL, intval($fid), false);
+        foreach ([TIX_Sales::META_DEMO => 1, '_tix_demo_profile' => 'festival', '_tix_org_approval' => 'approved', '_tix_org_landing_slug' => 'demo-festival', '_tix_org_city' => 'Musterstadt',
+            '_tix_org_modules' => wp_json_encode(['tickets' => true, 'music' => true, 'loyalty' => false, 'giftcards' => true, 'support' => true, 'muttizettel' => true, 'wallet' => false])] as $k => $v) {
+            update_post_meta($fid, $k, $v);
+        }
+        TIX_Sales::flush();
+        return intval($fid);
+    }
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -81,7 +109,9 @@ class TIX_Demo {
             $upd = [];
             if (get_post_status($oid) !== 'publish') $upd['post_status'] = 'publish';
             // alter Name aus 1.38.508–511 → beim nächsten Reset umbenennen
-            if (get_post_field('post_title', $oid) === 'Demo Club') { $upd['post_title'] = self::ORG_NAME; $upd['post_content'] = self::ORG_TEXT; }
+            if (in_array(get_post_field('post_title', $oid), ['Demo Club', 'Beispiel-Club'], true)) { $upd['post_title'] = self::ORG_NAME; $upd['post_content'] = self::ORG_TEXT; }
+            update_post_meta($oid, '_tix_demo_profile', 'club');
+            if (get_post_meta($oid, '_tix_org_city', true) === 'Köln') update_post_meta($oid, '_tix_org_city', 'Musterstadt');
             if ($upd) wp_update_post(['ID' => $oid] + $upd);
             return $oid;
         }
@@ -89,8 +119,7 @@ class TIX_Demo {
             'post_content' => self::ORG_TEXT]);
         if (!$oid || is_wp_error($oid)) return 0;
         update_option(TIX_Sales::OPT_DEMO, intval($oid), false);
-        foreach ([TIX_Sales::META_DEMO => 1, '_tix_org_approval' => 'approved', '_tix_org_landing_slug' => 'demo-club', '_tix_org_city' => 'Köln',
-            '_tix_org_phone' => '+49 221 000000', '_tix_org_modules' => wp_json_encode(['tickets' => true, 'music' => true, 'loyalty' => true, 'giftcards' => true, 'support' => true, 'muttizettel' => true, 'wallet' => false])] as $k => $v) {
+        foreach ([TIX_Sales::META_DEMO => 1, '_tix_demo_profile' => 'club', '_tix_org_approval' => 'approved', '_tix_org_landing_slug' => 'demo-club', '_tix_org_city' => 'Musterstadt', '_tix_org_modules' => wp_json_encode(['tickets' => true, 'music' => true, 'loyalty' => true, 'giftcards' => true, 'support' => true, 'muttizettel' => true, 'wallet' => false])] as $k => $v) {
             update_post_meta($oid, $k, $v);
         }
         TIX_Sales::flush();
@@ -180,14 +209,18 @@ class TIX_Demo {
         if (!TIX_Sales::multi()) return ['error' => 'Nur im Mehr-Veranstalter-Modus.'];
         $oid = self::ensure_organizer();
         if (!$oid) return ['error' => 'Beispiel-Club konnte nicht angelegt werden.'];
+        $fid = self::ensure_festival();
         // Während des Resets keine Mails (auch nicht an das Team), keine Verteilung
         add_filter('pre_wp_mail', '__return_true', 1);
+        // erst beide leeren (wipe räumt Anfragen/Gutscheine mit Demo-Kennzeichen seitenweit), dann beide befüllen
         $wiped = self::wipe($oid);
+        $f_wiped = $fid ? self::wipe($fid) : null;
         $seeded = self::seed($oid, max(0, min(400, intval($opt['orders'] ?? 120))));
+        $f_seeded = $fid ? self::seed_festival($fid, max(0, min(300, intval(($opt['orders'] ?? 120) * 0.7)))) : null;
         remove_filter('pre_wp_mail', '__return_true', 1);
         update_option('tix_demo_reset_at', current_time('mysql'), false);
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
-        return ['organizer_id' => $oid, 'wiped' => $wiped, 'seeded' => $seeded];
+        return ['organizer_id' => $oid, 'wiped' => $wiped, 'seeded' => $seeded, 'festival_id' => $fid, 'festival' => ['wiped' => $f_wiped, 'seeded' => $f_seeded]];
     }
 
     // ═══════════════ Beispieldaten ═══════════════
@@ -212,36 +245,93 @@ class TIX_Demo {
         return intval($eid);
     }
 
-    private static function seed($oid, $orders) {
+    /** Event aus einer Vorlage (TIX_Demo_Content): Bild, Kurztext, Texte, Line-up, FAQ, Galerie, Alter */
+    private static function make_from(array $s, $oid, $address) {
+        $extra = ['_tix_location' => $address, '_tix_info_description' => $s['desc'] ?? '', '_tix_info_lineup' => $s['lineup'] ?? ''];
+        if (!empty($s['faq'])) $extra['_tix_faq'] = array_map(function ($p) { return ['q' => $p[0], 'a' => $p[1]]; }, $s['faq']);
+        if (!empty($s['gallery'])) $extra['_tix_gallery'] = array_values(array_filter(array_map(['TIX_Demo_Content', 'image'], $s['gallery'])));
+        if (isset($s['age'])) $extra['_tix_info_age_limit'] = (string) $s['age'];
+        if (!empty($s['extra'])) $extra['_tix_info_extra_info'] = $s['extra'];
+        $eid = self::make_event($oid, $s['title'], $s['day'], $s['time'], $s['cats'], $extra + ($s['meta'] ?? []));
+        if (!$eid) return 0;
+        if (!empty($s['excerpt'])) wp_update_post(['ID' => $eid, 'post_excerpt' => $s['excerpt']]);
+        if (!empty($s['image']) && ($img = TIX_Demo_Content::image($s['image']))) set_post_thumbnail($eid, $img);
+        return $eid;
+    }
+
+    /** Bestellungen über die normale Bestell-Logik (Zahlart demo, Adressen @demo.invalid) → [Bestellungen, Tickets] */
+    private static function seed_orders(array $ev, $orders, $past_key = '') {
         global $wpdb;
-        mt_srand(intval(wp_date('Ymd')));
-        $cat = function ($name, $price, $qty, $extra = []) { return array_merge(['name' => $name, 'price' => $price, 'qty' => $qty, 'online' => '1', 'desc' => ''], $extra); };
-        $ev = [];
-        $ev['live'] = self::make_event($oid, 'Live-Abend (Beispiel)', 0, '19:00', [$cat(self::DEMO_CAT, 0, 10000, ['desc' => 'Kostenlos – zum Ausprobieren des Einlasses']), $cat('Normal', 12, 300)], ['_tix_info_lineup' => 'DJ Beispiel<br>Live-Band „Die Beispiele“']);
-        $ev['w1'] = self::make_event($oid, 'Neon Night', 7, '22:00', [$cat('Early Bird', 9, 100), $cat('Normal', 14, 400), $cat('VIP', 39, 40)], ['_tix_info_lineup' => 'DJ Lumen<br>Night Shift Crew']);
-        $ev['w2'] = self::make_event($oid, 'Schlager Sause', 14, '20:00', [$cat('Vorverkauf', 13.5, 500), $cat('Abendkasse', 18.5, 200)], ['_tix_info_lineup' => 'Die Beispiel-Stimmungsband']);
-        $ev['m1'] = self::make_event($oid, 'Open Air Sommerfest', 30, '15:00', [$cat('Tagesticket', 29, 1500), $cat('Familie (2+2)', 69, 200), $cat('Kinder', 9, 300)], ['_tix_info_lineup' => 'Headliner: The Examples<br>Support: Placeholder']);
-        $ev['past'] = self::make_event($oid, 'Herbst-Opening', -10, '21:00', [$cat('Normal', 12, 300), $cat('VIP', 30, 30)]);
-        update_option(self::OPT_TICKET_EVENT, $ev['live'], false);
-        // Bestellungen (über die normale Bestell-Logik, Zahlart demo, Adressen @demo.invalid)
-        $weights = [['live', 1, 12], ['w1', 0, 9], ['w1', 1, 14], ['w1', 2, 39], ['w2', 0, 13.5], ['m1', 0, 29], ['m1', 1, 69], ['past', 0, 12], ['past', 1, 30]];
+        $weights = [];
+        foreach ($ev as $key => $eid) {
+            foreach ((array) get_post_meta($eid, '_tix_ticket_categories', true) as $ci => $c) {
+                if (is_array($c) && floatval($c['price'] ?? 0) > 0) $weights[] = [$key, intval($ci), floatval($c['price'])];
+            }
+        }
         $made = 0; $tickets = 0;
-        for ($i = 0; $i < $orders; $i++) {
+        for ($i = 0; $weights && $i < $orders; $i++) {
             $w = $weights[mt_rand(0, count($weights) - 1)];
             $eid = $ev[$w[0]];
             $cats = (array) get_post_meta($eid, '_tix_ticket_categories', true);
             $qty = mt_rand(1, 4);
             $fn = self::FIRST[mt_rand(0, count(self::FIRST) - 1)]; $ln = self::LAST[mt_rand(0, count(self::LAST) - 1)];
-            $email = strtolower(remove_accents($fn . '.' . $ln)) . $i . '@demo.invalid';
+            $email = strtolower(remove_accents($fn . '.' . $ln)) . $i . '.' . $eid . '@demo.invalid';
             $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $fn, 'billing_last_name' => $ln, 'billing_email' => $email, 'payment_method' => 'demo', 'total' => $w[2] * $qty,
                 'items' => [['event_id' => $eid, 'cat_index' => $w[1], 'name' => (string) ($cats[$w[1]]['name'] ?? 'Ticket'), 'event_title' => get_the_title($eid), 'price' => $w[2], 'qty' => $qty, 'meta' => []]]]);
             if (!$order_id || is_wp_error($order_id)) continue;
             TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
-            $ago = $w[0] === 'past' ? mt_rand(11, 40) : mt_rand(0, 28);
+            $ago = $w[0] === $past_key ? mt_rand(11, 40) : mt_rand(0, 28);
             $wpdb->update($wpdb->prefix . 'tix_orders', ['date_created' => wp_date('Y-m-d H:i:s', time() - $ago * DAY_IN_SECONDS - mt_rand(0, 80000))], ['id' => $order_id]);
             $made++;
             $tickets += $qty;
         }
+        return [$made, $tickets];
+    }
+
+    /** Festival-Seed: ein Event über zwei Tage mit Programm, Line-up ohne Musikdienst-Suche, Bestellungen, Gästeliste */
+    private static function seed_festival($fid, $orders) {
+        mt_srand(intval(wp_date('Ymd')) + 7);
+        $f = TIX_Demo_Content::festival_event();
+        // immer ein Samstag (Tag 0) und Sonntag (Tag 1), rund sechs Wochen voraus
+        $f['day'] = 42 + ((6 - intval(wp_date('w'))) + 7) % 7;
+        $start = self::day($f['day']);
+        $end = self::day($f['day'] + $f['days'] - 1);
+        $tt = [];
+        foreach ($f['acts'] as $a) $tt[self::day($f['day'] + $a[0])][] = ['time' => $a[2], 'end' => $a[3], 'stage' => $a[1], 'title' => $a[4], 'desc' => $a[5]];
+        foreach ($tt as &$slots) usort($slots, function ($x, $y) { return strcmp($x['time'], $y['time']); });
+        unset($slots);
+        $f['meta'] = ['_tix_date_end' => $end, '_tix_time_end' => $f['time_end'], '_tix_time_doors' => $f['doors'], '_tix_stages' => $f['stages']];
+        $eid = self::make_from($f + ['day' => $f['day']], $fid, TIX_Demo_Content::ADDRESS_FESTIVAL);
+        if (!$eid) return ['events' => 0];
+        // Musikdienst-Suche aus, bevor das Programm (und damit das Line-up) gespeichert wird
+        TIX_Demo_Content::no_lookup($eid, array_unique(array_column($f['acts'], 4)));
+        update_post_meta($eid, '_tix_timetable', $tt);
+        update_post_meta($eid, '_tix_info_lineup', implode('<br>', array_unique(array_column($f['acts'], 4))));
+        // Headliner zuerst: Samstag-Headliner, Sonntag-Abschluss, dann der Rest
+        $names = array_unique(array_merge(['Lena Sonnenschein', 'Die Wellenwerker'], array_column($f['acts'], 4)));
+        TIX_Demo_Content::artists($eid, $fid, $names);
+        list($made, $tickets) = self::seed_orders(['fest' => $eid], $orders);
+        $g = [];
+        for ($i = 0; $i < 10; $i++) {
+            $g[] = ['id' => wp_generate_uuid4(), 'name' => self::FIRST[($i * 7) % count(self::FIRST)] . ' ' . self::LAST[($i * 3) % count(self::LAST)], 'email' => '', 'plus' => $i % 2,
+                'note' => $i < 3 ? 'Künstler-Team' : ($i < 5 ? 'Presse' : ''), 'checked_in' => false, 'checked_in_count' => 0, 'checkin_time' => '', 'checkin_by' => '', 'added_by' => 'demo', 'added_at' => current_time('mysql')];
+        }
+        update_post_meta($eid, '_tix_guest_list', $g);
+        return ['events' => 1, 'orders' => $made, 'tickets' => $tickets, 'acts' => count(array_unique(array_column($f['acts'], 4))), 'start' => $start];
+    }
+
+    private static function seed($oid, $orders) {
+        global $wpdb;
+        mt_srand(intval(wp_date('Ymd')));
+        $cat = function ($name, $price, $qty, $extra = []) { return array_merge(['name' => $name, 'price' => $price, 'qty' => $qty, 'online' => '1', 'desc' => ''], $extra); };
+        $ev = [];
+        // Vorlage Club Ostkai (TIX_Demo_Content, 1.38.669): Events mit Bild, Texten, Line-up, FAQ, Galerie
+        foreach (TIX_Demo_Content::club_events() as $s) {
+            $eid = self::make_from($s, $oid, TIX_Demo_Content::ADDRESS_CLUB);
+            if ($eid) { $ev[$s['key']] = $eid; TIX_Demo_Content::no_lookup($eid, array_map('wp_strip_all_tags', preg_split('/<br\s*\/?>/', (string) $s['lineup']))); }
+        }
+        update_option(self::OPT_TICKET_EVENT, $ev['live'] ?? 0, false);
+        list($made, $tickets) = self::seed_orders($ev, $orders, 'past');
         // Einlass: vergangenes Event fast ganz, Live-Abend teilweise eingecheckt
         foreach (['past' => 92, 'live' => 35] as $k => $pct) {
             foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => (string) $ev[$k]]]]) as $tid) {
@@ -299,7 +389,7 @@ class TIX_Demo {
             $gross = floatval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(i.total),0) FROM {$wpdb->prefix}tix_order_items i JOIN {$wpdb->prefix}tix_orders o ON o.id = i.order_id WHERE i.event_id = %d AND o.status = 'completed'", $ev['past'])));
             $cnt = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT order_id) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $ev['past'])));
             $fee = round($gross * 0.025 + $cnt * 0.59, 2);
-            $wpdb->insert(TIX_Settlement::table(), ['number' => 'DEMO-' . wp_date('ymd'), 'type' => 'event', 'organizer_id' => $oid, 'event_id' => $ev['past'], 'event_title' => 'Herbst-Opening',
+            $wpdb->insert(TIX_Settlement::table(), ['number' => 'DEMO-' . wp_date('ymd'), 'type' => 'event', 'organizer_id' => $oid, 'event_id' => $ev['past'], 'event_title' => get_the_title($ev['past']),
                 'event_date' => self::day(-10), 'status' => 'paid', 'gross' => $gross, 'platform_fee' => $fee, 'payout_amount' => round($gross - $fee, 2), 'orders' => $cnt,
                 'tickets' => intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(quantity),0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $ev['past']))),
                 'due_date' => self::day(-3), 'invoice_number' => 'DEMO-EVR-' . wp_date('ymd'), 'invoice_total' => $fee, 'paid_at' => current_time('mysql', true), 'created' => current_time('mysql', true), 'updated' => current_time('mysql', true)]);
@@ -334,8 +424,8 @@ class TIX_Demo {
         return self::out(['ok' => true, 'demo' => true] + $r);
     }
 
-    private static function demo_events() {
-        $oid = TIX_Sales::demo_id();
+    private static function demo_events($oid = 0) {
+        $oid = $oid ?: TIX_Sales::demo_id();
         if (!$oid) return [];
         return get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 20, 'fields' => 'ids', 'tix_include_sandbox' => 1,
             'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
@@ -344,16 +434,19 @@ class TIX_Demo {
 
     /** GET /public/demo */
     public static function rest_public(WP_REST_Request $req) {
-        $oid = TIX_Sales::demo_id();
-        if (!$oid) return new WP_Error('tix_demo_missing', 'Der Beispiel-Club ist noch nicht eingerichtet.', ['status' => 404]);
+        // ?profile=festival (1.38.669): Beispiel-Festival Seewiese; sonst Club Ostkai
+        $profile = $req->get_param('profile') === 'festival' ? 'festival' : 'club';
+        $oid = self::org_for($profile);
+        if (!$oid) return new WP_Error('tix_demo_missing', 'Der Beispiel-Veranstalter ist noch nicht eingerichtet.', ['status' => 404]);
         $events = [];
-        foreach (self::demo_events() as $eid) {
+        foreach (self::demo_events($oid) as $eid) {
             $p = class_exists('TIX_Public_Events') ? TIX_Public_Events::payload($eid) : null;
             if ($p) $events[] = $p + ['demo' => true];
         }
         $org = class_exists('TIX_Public_Platform') ? TIX_Public_Platform::organizer_payload($oid, true) : ['id' => $oid, 'name' => get_the_title($oid)];
         if (is_array($org)) { $org['demo'] = true; $org['upcoming_count'] = count($events); }
-        return self::out(['ok' => true, 'demo' => true, 'organizer' => $org, 'events' => $events,
+        return self::out(['ok' => true, 'demo' => true, 'profile' => $profile, 'organizer' => $org, 'events' => $events,
+            'app_content' => class_exists('TIX_Demo_Content') ? TIX_Demo_Content::app_content($profile) : null,
             'demo_ticket_event_id' => intval(get_option(self::OPT_TICKET_EVENT, 0)) ?: null, 'reset_at' => wp_date('c', self::next_reset_ts())]);
     }
 

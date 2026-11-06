@@ -4437,3 +4437,11 @@ Nur Mehr-Veranstalter-Modus (evendis), sonst 404. Vertrag: `uebergaben/vertrag-d
 - Kasse: Bei Events des Beispiel-Clubs wird eine nicht erlaubte `return_url` ignoriert statt abgelehnt (Demo-Zahlung braucht keinen Rücksprung).
 - Verkürzen fremder Testkäufer nur noch an Wortgrenzen (eigene Namen mit gleichem Anfang bleiben voll).
 - Tests: `tests/test-demo-access-wp.php` 88/88.
+
+### 91b. Website-Profil Club/Festival und Seed-Vorlagen (ab 1.38.669, User 06.11.)
+- **Zwei Beispiel-Veranstalter** (beide Sandbox, `_tix_org_demo`): „Beispiel-Club Ostkai“ (Option `tix_demo_organizer_id`, Profil club, 8 Events + 1 vergangenes) und „Beispiel-Festival Seewiese“ (Option `tix_demo_festival_id`, Slug demo-festival, 1 Event Samstag+Sonntag rund 6 Wochen voraus, 2 Bühnen, 12 Programmpunkte, 4 Ticketarten). `TIX_Demo::org_for($profile)`, `ensure_festival()`. Reset leert beide und befüllt beide neu.
+- **Seed-Vorlagen** `TIX_Demo_Content`: Texte, Line-up, FAQ, Galerie, Alter, Anfahrt – alles fiktiv (Namen, Orte „Musterstadt“, Künstler), keine Marken (Liste `FORBIDDEN`, geprüft im Test). Bilder nur die fünf lizenzierten Adobe-Stock-Fotos aus `assets/demo` (einmal als Medien, Option `tix_demo_images`). Fiktive Acts: `_tix_lineup_links` mit source none (keine Musikdienst-Suche), Künstler-Einträge des Festival-Veranstalters (`_tix_demo_artist`, Moderation `kind: host`), ohne Fotos.
+- `GET /public/demo?profile=club|festival` → zusätzlich `profile`, `app_content` (Form wie /app/config: home.tiles/hashtag, pages.faq/guide/kontakt) – auf evendis sind die echten App-Inhalte seitenweit.
+- **Profil je Zugang** (`_tix_demo_profile`): Pflicht beim Anlegen von Interessenten (400 Feld `profile`), `PATCH {profile}`, `POST /demo-access/view {model?, profile?}`; das Team (`_tix_team_organizer_id`) folgt dem Profil. Liste: Filter `?profile=`, `summary.club/festival`, `profiles[]`. `/me.demo_access.profile`; Testkauf-Links: selbstgehostet `tix_demo_home_url` + `/club/` bzw. `/festival/`, Provisionskunde `tix_demo_platform_url` (+ `profile=festival`), jeweils `demo=<Code>`.
+- Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
+- Tests: `tests/test-demo-access-wp.php` 110/110.
