@@ -448,7 +448,8 @@ class TIX_Demo {
         if (is_array($org)) { $org['demo'] = true; $org['upcoming_count'] = count($events); }
         return self::out(['ok' => true, 'demo' => true, 'profile' => $profile, 'organizer' => $org, 'events' => $events,
             'app_content' => class_exists('TIX_Demo_Content') ? TIX_Demo_Content::app_content($profile) : null,
-            'demo_ticket_event_id' => intval(get_option(self::OPT_TICKET_EVENT, 0)) ?: null, 'reset_at' => wp_date('c', self::next_reset_ts())]);
+            // kostenloses Einlass-Ticket gibt es nur im Club (Live-Abend)
+            'demo_ticket_event_id' => $profile === 'club' ? (intval(get_option(self::OPT_TICKET_EVENT, 0)) ?: null) : null, 'reset_at' => wp_date('c', self::next_reset_ts())]);
     }
 
     /** Limit je IP (leerer Schlüssel = Client-IP; bis 1.38.510 stand hier fest 'ip' – ein gemeinsamer Zähler für alle). */
