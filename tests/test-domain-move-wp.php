@@ -27,8 +27,13 @@ dm_eq('JSON-Meta ersetzt (\\/\\/)', "https://$to/z", json_decode(get_post_meta($
 dm_eq('Serialisierte Meta ersetzt und lesbar', "https://$to/s", (get_post_meta($pid, '_dm_ser', true)['u'] ?? ''));
 $wd = get_option('tix_website_domain');
 dm_eq('Website-Adresse umgestellt, switched_at bleibt', [$to, $to, '2026-01-01T00:00:00+00:00'], [$wd['live_host'], $wd['preview_host'], $wd['switched_at']]);
+$tmp = get_option('tix_website_domain'); delete_option('tix_website_domain');
+TIX_Domain_Move::move("zwischen-$to", []); wp_cache_flush();
+$wz = get_option('tix_website_domain');
+dm_eq('Ohne gespeicherte Website-Adresse: danach live auf neuer Domain', ['live', "zwischen-$to", "zwischen-$to"], [$wz['status'] ?? '', $wz['live_host'] ?? '', TIX_Website::domain_public()['live_host'] ?? '']);
+TIX_Domain_Move::move($to, []); wp_cache_flush(); update_option('tix_website_domain', array_merge($tmp, ['live_host' => $to, 'preview_host' => $to]));
 $h = TIX_Domain_Move::history();
-dm_eq('Verlauf', [$from, $to], [end($h)['from'] ?? '', end($h)['to'] ?? '']);
+dm_eq('Verlauf', ["zwischen-$to", $to], [end($h)['from'] ?? '', end($h)['to'] ?? '']);
 dm_eq('Status nennt den neuen Host', $to, TIX_Domain_Move::status_payload()['host']);
 dm_eq('guid unverändert', 0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d AND guid LIKE %s", $pid, '%' . $wpdb->esc_like($to) . '%')));
 

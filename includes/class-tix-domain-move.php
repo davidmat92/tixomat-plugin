@@ -133,15 +133,16 @@ class TIX_Domain_Move {
         }
         $steps[] = ['step' => 'adresse', 'ok' => true, 'detail' => "home/siteurl → https://$to"];
 
-        // 3. Website-Adresse (Studio „Veröffentlichen“): Felder mit der alten Domain umstellen
+        // 3. Website-Adresse (Vertrag Homepages vertrag-homepage-laufzeit-domain.md): danach immer {status: live, live_host: <neu>};
+        //    die Übergangsadresse leitet dann per 301 auf live_host. preview_host nur, wenn er die alte Domain bzw. leer war.
         $w = get_option('tix_website_domain', null);
-        if (is_array($w)) {
-            foreach (['live_host', 'preview_host'] as $k) {
-                if (isset($w[$k]) && self::normalize_host($w[$k]) === $from) $w[$k] = $to;
-            }
-            if (!$dry) update_option('tix_website_domain', $w);
-            $steps[] = ['step' => 'website', 'ok' => true, 'detail' => 'Website-Adresse ' . ($w['live_host'] ?? '–')];
-        }
+        $w = is_array($w) ? $w : [];
+        if (empty($w['preview_host']) || self::normalize_host($w['preview_host']) === $from) $w['preview_host'] = $to;
+        $w['live_host'] = $to;
+        if (($w['status'] ?? '') !== 'live') $w['switched_at'] = current_time('c');
+        $w['status'] = 'live';
+        if (!$dry) update_option('tix_website_domain', $w);
+        $steps[] = ['step' => 'website', 'ok' => true, 'detail' => "Website-Adresse live auf $to"];
 
         // 4. Studio-Adresse nur auf Wunsch (sonst bleibt studio.<kunde>.evendis.de)
         if (!empty($args['studio'])) {

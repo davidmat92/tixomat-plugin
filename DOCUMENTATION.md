@@ -4754,7 +4754,7 @@ Umbau 6 „Selbstgehostet“. Klasse `TIX_Domain_Move` (`includes/class-tix-doma
 2. **Lizenz-Server** (veranstalter.evendis.de): `wp tixomat domain lizenz --notiz="[kunden-hetzner:<kurz>]" --von=<alt> --nach=<neu>`. Das zieht den Host-Eintrag um, sonst meldet die Seite `site_limit`. Die Notiz „Host <alt>“ wird angepasst, der Verlauf bekommt `move_host`. Als REST: `POST /license/admin/licenses/{id}/move-host {from, to}` (Admin, nur wenn der Lizenz-Server aktiv ist).
 3. **Kundenseite:** `wp tixomat domain umziehen --nach=<neu> [--trocken] [--studio=https://…]`.
    - Ersetzt die Adressen in der Datenbank per `wp search-replace` (`https://`, `http://`, `www.` und JSON `https:\/\/`, auch serialisiert; `guid` bleibt).
-   - Setzt home/siteurl auf `https://<neu>` und stellt `tix_website_domain` (live/preview) um; `switched_at` bleibt.
+   - Setzt home/siteurl auf `https://<neu>`. `tix_website_domain` ist danach immer `{status: live, live_host: <neu>}`; `preview_host` wird nur umgestellt, wenn er auf die alte Domain zeigte oder leer war. `switched_at` bleibt, wenn der Status schon live war. Damit leitet marken-web die Übergangsadresse per 301 weiter (Vertrag `vertrag-homepage-laufzeit-domain.md`).
    - Leert die `tix_`-Transients und den Objekt-Cache, stößt den Homepage-Neuaufbau für beide Domains an und prüft die Lizenz neu.
    - Die Studio-Adresse ändert sich nur mit `--studio`.
    - Ausgabe: je Schritt eine Zeile, am Ende `ERGEBNIS {from, to, dry_run, steps, hints}`.
@@ -4763,7 +4763,7 @@ Umbau 6 „Selbstgehostet“. Klasse `TIX_Domain_Move` (`includes/class-tix-doma
 - `webhook_url`: Webhooks bei Stripe/PayPal umstellen.
 - `mail_from`: Der Absender liegt noch auf der alten Domain.
 **Studio:** `GET /studio/domain` (Rechte wie Marke) liefert `{host, home, website, history[{from, to, at, by}], hints}`. Status: `wp tixomat domain status`.
-**Tests:** `tests/test-domain-move-wp.php` 17/17 (zwei Umzüge hin und her auf einer Test-DB, Inhalt/JSON/serialisiert, Website-Adresse, Verlauf, Lizenz move-host).
+**Tests:** `tests/test-domain-move-wp.php` 18/18 (zwei Umzüge hin und her auf einer Test-DB, Inhalt/JSON/serialisiert, Website-Adresse, Verlauf, Lizenz move-host).
 
 ## 99. Aus Angebot anlegen (ab 1.38.682)
 Umbau 7 „Selbstgehostet“. Klasse `TIX_Offer_Hosting` (`includes/class-tix-offer-hosting.php`). Nur im Mehr-Veranstalter-Modus und nur für Plattform-Admins (`manage_options`), wie „Gehostete Kunden“.
