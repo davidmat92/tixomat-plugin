@@ -36,6 +36,8 @@ class TIX_Seating {
     const META_TRIAL = '_tix_seating_trial_until';
     const META_LEGACY = '_tix_seating_legacy';
     const OPT_AI_USAGE = 'tix_seating_ai_usage';
+    const OPT_SETTINGS = 'tix_seating_settings';      // Einzel-Seite
+    const META_SETTINGS = '_tix_seating_settings';    // Plattform: je Veranstalter
     const AI_PER_DAY = 20;
     const AI_MAX_BYTES = 8388608; // 8 MB
     const ACCURACY_NOTE = 'Die KI erkennt die Struktur (Bereiche, Reihen, Bögen) meist zu 80–90 %, die genaue Platzzahl zu 60–80 %. Bitte den Entwurf über dem Bild prüfen und im Editor korrigieren.';
@@ -154,6 +156,55 @@ class TIX_Seating {
         return self::multi() ? self::org_access($org) : self::site_access();
     }
 
+    // ═══════════════ Einstellungen (Phase 2) ═══════════════
+
+    public static function default_settings() {
+        return ['hold_minutes' => TIX_Seatmap::RESERVE_MIN, 'best' => ['split_rows' => true, 'single_seat_rule' => true, 'wheelchair_in_best' => false]];
+    }
+
+    /** {hold_minutes 5–30, best {split_rows, single_seat_rule, wheelchair_in_best}} aus Eingabe über $base */
+    public static function clean_settings($in, array $base) {
+        $in = is_array($in) ? $in : [];
+        $b = (array) ($in['best'] ?? []);
+        $bool = function ($k) use ($b, $base) { return array_key_exists($k, $b) ? filter_var($b[$k], FILTER_VALIDATE_BOOLEAN) : (bool) $base['best'][$k]; };
+        return ['hold_minutes' => max(5, min(30, intval($in['hold_minutes'] ?? $base['hold_minutes']))),
+            'best' => ['split_rows' => $bool('split_rows'), 'single_seat_rule' => $bool('single_seat_rule'), 'wheelchair_in_best' => $bool('wheelchair_in_best')]];
+    }
+
+    public static function settings($org = 0) {
+        $raw = (self::multi() && $org) ? get_post_meta(intval($org), self::META_SETTINGS, true) : get_option(self::OPT_SETTINGS, []);
+        return self::clean_settings(is_array($raw) ? $raw : [], self::default_settings());
+    }
+
+    public static function settings_for_event($event_id) {
+        static $c = [];
+        $org = self::multi() ? intval(get_post_meta(intval($event_id), '_tix_organizer_id', true)) : 0;
+        return self::settings($org);
+    }
+
+    public static function hold_minutes_for_event($event_id) {
+        return intval(self::settings_for_event($event_id)['hold_minutes']);
+    }
+
+    /** POST /studio/seating {hold_minutes?, best?} → speichert wie /settings, Antwort wie GET /studio/seating */
+    public static function rest_status_save(WP_REST_Request $req) {
+        $r = self::rest_settings($req);
+        if (is_wp_error($r)) return $r;
+        return self::rest_status($req);
+    }
+
+    /** GET|POST /studio/seating/settings {hold_minutes?, best?} */
+    public static function rest_settings(WP_REST_Request $req) {
+        $org = self::org($req);
+        if ($req->get_method() === 'POST') {
+            if (self::multi() && !$org) return new WP_Error('rest_forbidden', 'Bitte einen Veranstalter wählen (?organizer=).', ['status' => 403]);
+            $b = $req->get_json_params(); $b = is_array($b) ? $b : $req->get_body_params();
+            $new = self::clean_settings($b, self::settings($org));
+            if (self::multi()) update_post_meta($org, self::META_SETTINGS, $new); else update_option(self::OPT_SETTINGS, $new, false);
+        }
+        return rest_ensure_response(['ok' => true, 'settings' => self::settings($org), 'defaults' => ['best_row' => TIX_Seatmap_Best::BEST_ROW] + self::default_settings()]);
+    }
+
     public static function status($org) {
         $multi = self::multi();
         $until = self::trial_until($org);
@@ -165,7 +216,8 @@ class TIX_Seating {
             'on' => $on, 'booked' => $booked, 'legacy' => $legacy && !$booked,
             'trial' => self::trial_active($org) && !$booked, 'trial_until' => $until ? gmdate('c', $until) : null,
             'trial_available' => !$on && $until === 0 && self::entitled(), 'entitled' => self::entitled(),
-            'hold' => ['minutes' => TIX_Seatmap::RESERVE_MIN, 'checkout_minutes' => TIX_Seatmap::CHECKOUT_MIN, 'max_total_minutes' => $lim['total_min']],
+            'hold' => ['minutes' => self::settings($org)['hold_minutes'], 'checkout_minutes' => TIX_Seatmap::CHECKOUT_MIN, 'max_total_minutes' => $lim['total_min']],
+            'settings' => self::settings($org),
             'limits' => ['per_holder' => $lim['holder'], 'per_ip' => $lim['ip'], 'event_share' => $lim['share'], 'event_min' => $lim['min_event']],
         ];
     }
@@ -176,8 +228,12 @@ class TIX_Seating {
         $m = [__CLASS__, 'perm_module'];
         $p = [__CLASS__, 'perm'];
         $id = '(?P<id>\d+)';
-        register_rest_route(self::NS, '/studio/seating', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_status'], 'permission_callback' => $p]);
+        register_rest_route(self::NS, '/studio/seating', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_status'], 'permission_callback' => $p],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_status_save'], 'permission_callback' => $p], // {hold_minutes?, best?} wie /settings
+        ]);
         register_rest_route(self::NS, '/studio/seating/trial', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_trial'], 'permission_callback' => $p]);
+        register_rest_route(self::NS, '/studio/seating/settings', ['methods' => 'GET, POST', 'callback' => [__CLASS__, 'rest_settings'], 'permission_callback' => $p]);
         register_rest_route(self::NS, '/studio/seating/module', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_module'], 'permission_callback' => function () { return current_user_can('manage_options'); }]);
         register_rest_route(self::NS, '/studio/seatmaps', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $m],
@@ -197,6 +253,7 @@ class TIX_Seating {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_event'], 'permission_callback' => [__CLASS__, 'perm_event']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_assign'], 'permission_callback' => [__CLASS__, 'perm_event']],
         ]);
+        register_rest_route(self::NS, '/studio/events/' . $id . '/seatmap/best', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_best_preview'], 'permission_callback' => [__CLASS__, 'perm_event']]);
         register_rest_route(self::NS, '/studio/events/' . $id . '/seatmap/block', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_block'], 'permission_callback' => [__CLASS__, 'perm_event']]);
     }
 
@@ -305,6 +362,7 @@ class TIX_Seating {
             'seats' => TIX_Seatmap::count_seats($data), 'sections' => count((array) ($data['sections'] ?? [])),
             'layout' => (string) ($data['layout'] ?? 'theater'),
             'updated' => get_post_modified_time('c', true, $id), 'events_count' => count($events), 'events' => $events,
+            'used_by' => $events, 'used_count' => count($events),
             'preview' => self::preview($data),
         ];
     }
@@ -432,7 +490,7 @@ class TIX_Seating {
         $raw = [
             'theater' => ['Theater', 'Parkett und Rang im Bogen vor der Bühne', ['layout' => 'theater', 'stage_label' => 'BÜHNE', 'sections' => [
                 ['id' => 'parkett', 'label' => 'Parkett', 'color' => $c[0], 'block' => ['rows' => 12, 'seats' => 20, 'curve' => 0.25, 'gaps' => [['after' => 10, 'width' => 1.5]], 'origin' => ['x' => 0, 'y' => 80]]],
-                ['id' => 'rang', 'label' => 'Rang', 'color' => $c[1], 'block' => ['rows' => 5, 'seats' => 26, 'curve' => 0.3, 'row_start' => 'M', 'origin' => ['x' => 0, 'y' => 520]]],
+                ['id' => 'rang', 'label' => 'Rang', 'color' => $c[1], 'priority' => 'last', 'block' => ['rows' => 5, 'seats' => 26, 'curve' => 0.3, 'row_start' => 'M', 'origin' => ['x' => 0, 'y' => 520]]],
             ], 'objects' => [['type' => 'stage', 'x' => 0, 'y' => 0, 'w' => 420, 'h' => 50, 'label' => 'BÜHNE']]]],
             'club' => ['Club', 'Stehbereich vor der Bühne, Lounge-Tische an der Seite', ['layout' => 'club', 'stage_label' => 'DJ', 'sections' => [
                 ['id' => 'lounge', 'label' => 'Lounge', 'color' => $c[4], 'block' => ['shape' => 'tables', 'tables' => 6, 'seats_per_table' => 6, 'cols' => 2, 'origin' => ['x' => 380, 'y' => 120]]],
@@ -472,8 +530,15 @@ class TIX_Seating {
         $org = self::multi() ? intval(get_post_meta($ev, '_tix_organizer_id', true)) : null;
         $plans = [];
         foreach (TIX_Seatmap::get_all_seatmaps($org ?: null) as $pid => $t) $plans[] = ['id' => $pid, 'title' => $t, 'seats' => intval(get_post_meta($pid, TIX_Seatmap::META_SEATS, true))];
+        $cats = [];
+        foreach ((array) get_post_meta($ev, '_tix_ticket_categories', true) as $ci => $c) {
+            if (!is_array($c)) continue;
+            $pr = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::category_price($ev, $ci) : floatval($c['price'] ?? 0);
+            $cats[] = ['index' => intval($ci), 'name' => (string) ($c['name'] ?? ''), 'price' => $pr !== null ? floatval($pr) : 0.0, 'color' => TIX_Seatmap::PALETTE[intval($ci) % count(TIX_Seatmap::PALETTE)]];
+        }
         $base = ['ok' => true, 'event_id' => $ev, 'module_on' => self::event_on($ev), 'seatmap_id' => $sm, 'plans' => $plans,
-            'mode' => get_post_meta($ev, '_tix_seatmap_mode', true) ?: 'manual'];
+            'mode' => TIX_Seatmap::mode($ev), 'section_categories' => (object) TIX_Seatmap::section_categories($ev), 'categories' => $cats,
+            'section_colors' => (object) array_filter((array) get_post_meta($ev, TIX_Seatmap::META_COLORS, true))];
         if (!$sm) return rest_ensure_response($base + ['can_change' => true]);
         $data = TIX_Seatmap::event_data($ev);
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -492,7 +557,9 @@ class TIX_Seating {
         $counts = ['total' => 0, 'free' => 0, 'held' => 0, 'sold' => 0, 'blocked' => 0, 'unavailable' => 0];
         $sections = [];
         foreach (($data['sections'] ?? []) as $sec) {
-            $c = ['id' => $sec['id'], 'label' => $sec['label'], 'color' => $sec['color'], 'price' => floatval($sec['price'] ?? 0), 'total' => 0, 'free' => 0, 'held' => 0, 'sold' => 0, 'blocked' => 0];
+            $c = ['id' => $sec['id'], 'label' => $sec['label'], 'color' => $sec['color'], 'price' => floatval($sec['price'] ?? 0), 'total' => 0, 'free' => 0, 'held' => 0, 'sold' => 0, 'blocked' => 0,
+                'category_index' => isset($sec['category_index']) ? intval($sec['category_index']) : null, 'category_name' => (string) ($sec['category_name'] ?? ''),
+                'color_source' => (string) ($sec['color_source'] ?? 'plan'), 'priority' => (string) ($sec['priority'] ?? 'normal')];
             foreach (($sec['rows'] ?? []) as $row) foreach (($row['seats'] ?? []) as $s) {
                 if (($s['type'] ?? 'standard') === 'blocked') { $counts['unavailable']++; continue; }
                 $st = $state[$s['id']]['status'] ?? 'free';
@@ -508,18 +575,71 @@ class TIX_Seating {
         ]);
     }
 
+    /**
+     * POST /studio/events/{id}/seatmap {seatmap_id? (0 = entfernen, fehlt = unverändert), mode? pick|best|both (manual = pick),
+     *   section_categories? {sektion: kategorie_index | null}, section_colors? {sektion: #hex | null}}
+     */
     public static function rest_assign(WP_REST_Request $req) {
         $ev = intval($req['id']);
-        $sm = intval($req->get_param('seatmap_id'));
+        $has_sm = $req->get_param('seatmap_id') !== null;
+        $sm = $has_sm ? intval($req->get_param('seatmap_id')) : TIX_Seatmap::event_seatmap($ev);
         $mode = $req->get_param('mode');
-        if ($mode !== null && !in_array($mode, ['manual', 'best'], true)) return self::bad('mode', 'Modus manual oder best.');
+        if ($mode !== null) {
+            $mode = $mode === 'pick' ? 'manual' : $mode;
+            if (!in_array($mode, ['manual', 'best', 'both'], true)) return self::bad('mode', 'Modus pick, best oder both.');
+        }
         if ($sm && self::multi()) {
             $org = intval(get_post_meta($ev, '_tix_organizer_id', true));
             if ($org && TIX_Seatmap::org_of($sm) !== $org) return new WP_Error('tix_seatmap', 'Saalplan nicht gefunden.', ['status' => 404]);
         }
-        $r = TIX_Seatmap::assign($ev, $sm, $mode);
-        if (is_wp_error($r)) return $r;
+        $map = $req->get_param('section_categories');
+        $cols = $req->get_param('section_colors');
+        $data = $sm ? ((($sm === TIX_Seatmap::event_seatmap($ev)) ? TIX_Seatmap::event_data($ev) : TIX_Seatmap::data($sm)) ?: ['sections' => []]) : ['sections' => []];
+        $sids = array_map(function ($x) { return (string) $x['id']; }, (array) ($data['sections'] ?? []));
+        $cats = (array) get_post_meta($ev, '_tix_ticket_categories', true);
+        if ($map !== null) {
+            if (!is_array($map)) return self::bad('section_categories', 'section_categories muss ein Objekt sein.');
+            foreach ($map as $sid => $ci) {
+                if (!in_array((string) $sid, $sids, true)) return self::bad('section_categories', "Den Bereich „{$sid}“ gibt es in diesem Saalplan nicht.");
+                if ($ci !== null && $ci !== '' && !is_array($cats[intval($ci)] ?? null)) return self::bad('section_categories', 'Diese Ticket-Kategorie gibt es im Event nicht.');
+            }
+        }
+        if ($cols !== null && !is_array($cols)) return self::bad('section_colors', 'section_colors muss ein Objekt sein.');
+        if ($has_sm || $mode !== null) {
+            $r = TIX_Seatmap::assign($ev, $sm, $mode);
+            if (is_wp_error($r)) return $r;
+        }
+        if ($map !== null) {
+            $cur = (array) get_post_meta($ev, TIX_Seatmap::META_CATEGORIES, true);
+            foreach ($map as $sid => $ci) {
+                if ($ci === null || $ci === '') unset($cur[(string) $sid]); else $cur[(string) $sid] = intval($ci);
+                // Altes Feld an der Kategorie: verweist es auf diesen Bereich, entscheidet jetzt die Zuordnung
+                foreach ($cats as $k => $c) if (is_array($c) && ($c['seatmap_section'] ?? '') === (string) $sid) $cats[$k]['seatmap_section'] = '';
+            }
+            update_post_meta($ev, '_tix_ticket_categories', $cats);
+            if ($cur) update_post_meta($ev, TIX_Seatmap::META_CATEGORIES, $cur); else delete_post_meta($ev, TIX_Seatmap::META_CATEGORIES);
+        }
+        if ($cols !== null) {
+            $cur = array_filter((array) get_post_meta($ev, TIX_Seatmap::META_COLORS, true));
+            foreach ($cols as $sid => $hex) {
+                $hex = $hex ? sanitize_hex_color((string) $hex) : '';
+                if ($hex) $cur[sanitize_key((string) $sid)] = $hex; else unset($cur[sanitize_key((string) $sid)]);
+            }
+            if ($cur) update_post_meta($ev, TIX_Seatmap::META_COLORS, $cur); else delete_post_meta($ev, TIX_Seatmap::META_COLORS);
+        }
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return self::rest_event($req);
+    }
+
+    /** POST /studio/events/{id}/seatmap/best {qty, section_id | category_index, wheelchair?, attempt?} – Vorschlag zum Ausprobieren, hält nichts */
+    public static function rest_best_preview(WP_REST_Request $req) {
+        $ev = intval($req['id']);
+        $sm = TIX_Seatmap::event_seatmap($ev);
+        if (!$sm) return new WP_Error('tix_no_seatmap', 'Diesem Event ist kein Saalplan zugewiesen.', ['status' => 404]);
+        $info = TIX_Seatmap::best_info($ev, $sm, ['qty' => min(TIX_Seatmap::limits($ev)['holder'], max(1, intval($req->get_param('qty')))), 'section_id' => $req->get_param('section_id'),
+            'category_index' => $req->get_param('category_index'), 'wheelchair' => filter_var($req->get_param('wheelchair'), FILTER_VALIDATE_BOOLEAN), 'attempt' => $req->get_param('attempt')]);
+        unset($info['reason']);
+        return rest_ensure_response(['ok' => true] + $info);
     }
 
     /** POST /studio/events/{id}/seatmap/block {seat_ids[], blocked} – nur freie Plätze lassen sich sperren */
@@ -580,6 +700,7 @@ class TIX_Seating {
                 'layout' => ['type' => 'string', 'enum' => ['theater', 'club', 'banquet', 'arena', 'custom']],
                 'sections' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
                     'label' => ['type' => 'string'], 'price' => $num, 'block' => $block,
+                    'confidence' => ['type' => 'number', 'minimum' => 0, 'maximum' => 1, 'description' => 'Wie sicher dieser Bereich (Reihen, Plätze) erkannt ist'],
                 ], 'required' => ['label', 'block']]],
                 'objects' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
                     'type' => ['type' => 'string', 'enum' => ['stage', 'standing', 'label', 'area']], 'x' => $num, 'y' => $num, 'w' => $num, 'h' => $num,
@@ -715,7 +836,28 @@ class TIX_Seating {
         foreach ((array) ($body['content'] ?? []) as $c) if (($c['type'] ?? '') === 'tool_use' && ($c['name'] ?? '') === 'saalplan') $input = (array) $c['input'];
         self::ai_count($org, true);
         if (!$input || empty($input['sections'])) return new WP_Error('ai_no_plan', 'Auf dem Bild hat die KI keinen Saalplan erkannt. Versuche ein schärferes Bild oder eine Skizze.', ['status' => 422]);
-        return rest_ensure_response(self::draft_from_ai($input, $expected, sanitize_text_field((string) $req->get_param('title')), $org));
+        $out = self::draft_from_ai($input, $expected, sanitize_text_field((string) $req->get_param('title')), $org);
+        $out['image'] = self::keep_image($req, $type, $bytes, $w, $h);
+        return rest_ensure_response($out);
+    }
+
+    /**
+     * Originalbild für die Überlagerung im Studio (Phase 2): vorhandener Anhang bzw. das ausgewertete Bild als neuer Anhang
+     * (eigener Autor) → {attachment_id, url, width, height} | null
+     */
+    public static function keep_image(WP_REST_Request $req, $type, $bytes, $w = 0, $h = 0) {
+        $aid = intval($req->get_param('attachment_id'));
+        if (!$aid || strpos((string) $type, 'image/') !== 0) {
+            if (strpos((string) $type, 'image/') !== 0) return null; // PDF ohne Imagick: kein Bild zum Überlagern
+            $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'][$type] ?? 'jpg';
+            $up = wp_upload_bits('saalplan-vorlage-' . wp_generate_password(8, false, false) . '.' . $ext, null, $bytes);
+            if (!empty($up['error'])) return null;
+            $aid = wp_insert_attachment(['post_mime_type' => $type, 'post_title' => 'Saalplan-Vorlage', 'post_status' => 'inherit', 'post_author' => get_current_user_id()], $up['file']);
+            if (is_wp_error($aid) || !$aid) return null;
+            update_post_meta($aid, '_tix_seatmap_source', 1);
+        }
+        if (!$w || !$h) { $f = get_attached_file($aid); $sz = $f ? @getimagesize($f) : null; if ($sz) { $w = intval($sz[0]); $h = intval($sz[1]); } }
+        return ['attachment_id' => intval($aid), 'url' => (string) wp_get_attachment_url($aid), 'width' => intval($w), 'height' => intval($h)];
     }
 
     /** KI-Antwort → Entwurf (Generator + Prüfung) */
@@ -730,10 +872,13 @@ class TIX_Seating {
             $base = $id; $n = 2;
             while (isset($used[$id])) $id = $base . '-' . $n++;
             $used[$id] = true;
-            $sections[] = ['id' => $id, 'label' => $label, 'color' => $palette[$i % count($palette)], 'price' => max(0, floatval($s['price'] ?? 0)), 'block' => $s['block']];
+            $sections[] = ['id' => $id, 'label' => $label, 'color' => $palette[$i % count($palette)], 'price' => max(0, floatval($s['price'] ?? 0)), 'block' => $s['block'],
+                '_conf' => isset($s['confidence']) ? round(max(0, min(1, floatval($s['confidence']))), 2) : null];
         }
         $plan = ['layout' => in_array($in['layout'] ?? '', ['theater', 'club', 'banquet', 'arena', 'custom'], true) ? $in['layout'] : 'custom',
             'stage_label' => 'BÜHNE', 'sections' => $sections, 'objects' => array_slice((array) ($in['objects'] ?? []), 0, 50)];
+        $conf = array_column($sections, '_conf', 'id');
+        $plan['sections'] = array_map(function ($x) { unset($x['_conf']); return $x; }, $sections);
         $data = TIX_Seatmap::sanitize_seatmap($plan);
         if (!$data) return ['ok' => false, 'error' => 'Kein verwertbarer Plan.'];
         // Verschiebung gegenüber dem Bildrahmen (für die halbtransparente Überlagerung im Studio):
@@ -748,6 +893,23 @@ class TIX_Seating {
         $stats = TIX_Seatmap_Geometry::check($data);
         $got = $stats['bookable'];
         $frame = (array) ($in['frame'] ?? []);
+        // Je Bereich: Art, Plätze, Sicherheit; Stehflächen; Abweichungen als Text (Phase 2)
+        $info = []; $dev = [];
+        $all_conf = isset($in['confidence']) ? round(floatval($in['confidence']), 2) : null;
+        foreach ((array) $data['sections'] as $sec) {
+            $n = 0;
+            foreach ((array) ($sec['rows'] ?? []) as $row) foreach ((array) ($row['seats'] ?? []) as $st) if (($st['type'] ?? '') !== 'blocked') $n++;
+            $c = $conf[$sec['id']] ?? $all_conf;
+            $info[] = ['id' => $sec['id'], 'label' => $sec['label'], 'kind' => (($sec['block']['shape'] ?? 'rows') === 'tables') ? 'tables' : 'rows', 'seats' => $n, 'confidence' => $c];
+            if ($c !== null && $c < 0.6) $dev[] = sprintf('Bereich „%s“ ist unsicher erkannt (%d %%). Bitte Reihen und Plätze prüfen.', $sec['label'], round($c * 100));
+        }
+        $standing = [];
+        foreach ((array) ($data['objects'] ?? []) as $o) if (($o['type'] ?? '') === 'standing') $standing[] = ['label' => (string) ($o['label'] ?? ''), 'capacity' => intval($o['capacity'] ?? 0)];
+        if ($expected && $got !== $expected) $dev[] = sprintf('%d Plätze erkannt, genannt sind %d (%s%d).', $got, $expected, $got > $expected ? '+' : '', $got - $expected);
+        foreach (['duplicates' => 'Doppelte Platz-Nummern: %d', 'overlaps' => 'Überlappende Plätze: %d'] as $k => $fmt) {
+            $v = $stats[$k] ?? 0; $v = is_array($v) ? count($v) : intval($v);
+            if ($v > 0) $dev[] = sprintf($fmt, $v);
+        }
         return [
             'ok' => true,
             'draft' => ['title' => $title ?: 'Saalplan aus Bild', 'data' => $data],
@@ -757,7 +919,8 @@ class TIX_Seating {
             'overlay' => ['frame' => ['width' => floatval($frame['width'] ?? 1000), 'height' => floatval($frame['height'] ?? 0)],
                 // Planpunkt (x, y) → Bildrahmen: (x - shift.x, y - shift.y)
                 'shift' => $shift],
-            'ai' => ['confidence' => isset($in['confidence']) ? round(floatval($in['confidence']), 2) : null, 'notes' => sanitize_textarea_field((string) ($in['notes'] ?? ''))],
+            'ai' => ['confidence' => $all_conf, 'notes' => sanitize_textarea_field((string) ($in['notes'] ?? ''))],
+            'sections_info' => $info, 'standing' => $standing, 'deviations' => $dev, 'image' => null,
             'accuracy_note' => self::ACCURACY_NOTE,
             'usage' => ['today' => self::ai_count($org), 'limit' => self::AI_PER_DAY],
         ];

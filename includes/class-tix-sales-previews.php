@@ -33,6 +33,7 @@ class TIX_Sales_Previews {
     const META_ACCENT = '_tix_org_accent';
     const META_TEMPLATE = '_tix_org_site_template';
     const META_ARCHIVE = '_tix_preview_archive'; // Nutzer: gelöschte Vorschauen (Auswertung)
+    const META_SEATMAP_TPL = '_tix_seatmap_template'; // Paket-Event: Saalplan-Vorlage (theater|club|banquet|arena)
     const OPT_GONE = 'tix_preview_gone';
     const CRON = 'tix_preview_expire';
     const DAYS = 14;
@@ -857,6 +858,13 @@ class TIX_Sales_Previews {
             unset($body['image_id']);
         }
         if (array_key_exists('title', $body) && trim((string) $body['title']) === '') return new WP_Error('missing_title', 'Bitte einen Titel eingeben.', ['status' => 400, 'field' => 'title']);
+        // Saalplan-Vorlage fürs Paket (Saalplan Phase 2): theater|club|banquet|arena, '' = keiner; wird beim Übernehmen ein eigener Plan
+        if (array_key_exists('seatmap_template', $body)) {
+            $tpl = sanitize_key((string) $body['seatmap_template']);
+            if ($tpl !== '' && (!class_exists('TIX_Seating') || !isset(TIX_Seating::templates()[$tpl]))) return new WP_Error('tix_invalid_field', 'Unbekannte Saalplan-Vorlage.', ['status' => 400, 'field' => 'seatmap_template']);
+            if ($tpl === '') unset($ev['meta'][self::META_SEATMAP_TPL]); else $ev['meta'][self::META_SEATMAP_TPL] = $tpl;
+            unset($body['seatmap_template']);
+        }
         $ev = self::apply_editor($ev, $body, false);
         if (is_wp_error($ev)) return $ev;
         return [$ev, $ignored];
@@ -869,6 +877,9 @@ class TIX_Sales_Previews {
             $r = TIX_App_Events::edit_response($ids[$key]);
             $r['event']['key'] = $key;
             $r['event']['preview'] = true;
+            $pi = self::find_event($d, $key);
+            $pev = $pi >= 0 ? (array) $d['events'][$pi] : [];
+            $r['event']['seatmap_template'] = ((string) ($pev['meta'][self::META_SEATMAP_TPL] ?? '')) ?: null;
             return $r;
         });
     }
@@ -1643,6 +1654,7 @@ class TIX_Sales_Previews {
             if (class_exists('TIX_App_Events')) TIX_App_Events::resolve_status($eid);
             if (class_exists('TIX_Artists')) TIX_Artists::reindex($eid);
             if (class_exists('TIX_Sync')) { $c = get_post_meta($eid, '_tix_ticket_categories', true); TIX_Sync::save_breakdance_meta($eid, is_array($c) ? $c : []); }
+            self::claim_seatmap($eid, $org_id, $uid, (string) ($ev['meta'][self::META_SEATMAP_TPL] ?? ''));
             $made++;
         }
         self::delete_tech_events($d['id']);
@@ -1657,6 +1669,26 @@ class TIX_Sales_Previews {
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
         self::notify($d, 'claimed');
         return $made;
+    }
+
+    /**
+     * Saalplan-Vorlage beim Übernehmen (Saalplan Phase 2): eigener Plan des Veranstalters aus der Vorlage; zugewiesen nur, wenn das
+     * Modul „Saalplan & Tische“ dort an ist (sonst bliebe der Plan als Bestandsschutz-Auslöser am Event). → Plan-ID | 0
+     */
+    public static function claim_seatmap($event_id, $org_id, $uid, $tpl) {
+        delete_post_meta($event_id, self::META_SEATMAP_TPL);
+        if ($tpl === '' || !class_exists('TIX_Seating') || !class_exists('TIX_Seatmap')) return 0;
+        $t = TIX_Seating::templates()[$tpl] ?? null;
+        if (!$t) return 0;
+        $sm = wp_insert_post(['post_type' => TIX_Seatmap::CPT, 'post_status' => 'publish', 'post_author' => intval($uid),
+            'post_title' => trim(get_the_title($event_id) . ' – ' . $t['label'])], true);
+        if (is_wp_error($sm) || !$sm) return 0;
+        update_post_meta($sm, TIX_Seatmap::META_ORG, intval($org_id));
+        $r = TIX_Seatmap::store($sm, $t['data']);
+        if (is_wp_error($r)) { wp_delete_post($sm, true); return 0; }
+        if (TIX_Seating::org_access(intval($org_id))) TIX_Seatmap::assign($event_id, $sm);
+        else update_post_meta($event_id, '_tix_seatmap_suggested', intval($sm)); // zum Zuweisen nach Test bzw. Buchung
+        return intval($sm);
     }
 
     // ═══════════════ Ablauf ═══════════════

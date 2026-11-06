@@ -2650,6 +2650,68 @@ Ohne Modul antworten die Plan-Routen mit 403 `tix_module_off`. Die Event-Belegun
 
 ---
 
+### 54.P2 Phase 2: Bester Platz, Einstellungen, Sektion → Kategorie (ab 1.38.671)
+
+**Bester Platz** (`TIX_Seatmap_Best::find`, wie „Best available“)
+- **Suche:** nur in der gewählten Sektion bzw. in allen Sektionen der gewählten Ticket-Kategorie.
+- **Ausgeschlossen:** gesperrte, gehaltene und verkaufte Plätze, Rollstuhlplätze außer bei `wheelchair: true` (dann mit mindestens einem Rollstuhlplatz).
+- **Zusammenhängend:** n Plätze nebeneinander in einer Reihe. Ein Abstand über das 1,6-Fache des üblichen Sitzabstands gilt als Gang.
+- **Ausweichen:** Geht das nicht und `split_rows` ist an, werden die Plätze auf zwei direkt hintereinanderliegende Reihen übereinander verteilt (vorn ⌈n/2⌉), mit `split: true` und `message`. Nie verstreut.
+- **Punktwert je Platz:**
+  - Nähe zur Mittelachse 0,55, Abstand zur besten Reihe 0,35, Sichtwinkel 0,10.
+  - Die Achse läuft von der Bühne zum Schwerpunkt aller Plätze; in der Arena je Tribüne.
+  - Beste Reihe = Anteil der Tiefe: `best_row` des Plans, sonst nach `layout` (theater/banquet 0,3, u-shape/stadium/custom 0,25, club/arena 0).
+- **Zu- und Abschläge:** Sektions-`priority` `first` +0,25 / `last` −0,25. Single-Seat-Regel −0,5, wenn neben der Auswahl ein einzelner freier Platz übrig bliebe. Verteilung auf zwei Reihen −0,3.
+- **Gleichstand:** mehr freie Plätze in der Reihe, dann näher zur Mitte, dann Reihenfolge im Plan. Deterministisch.
+- **„Anderer Vorschlag“:** `attempt` k = k-tbester Vorschlag ohne gemeinsame Plätze mit den besseren; `alternatives` = Anzahl weiterer Vorschläge; `reason: no_more`, wenn keiner mehr kommt.
+
+**Gast**
+- `POST /customer/seats/best {event_id, qty, section_id | category_index, wheelchair?, attempt?, replace?, preview?, hold_token?}`:
+  - `replace` gibt die eigene Haltung vorher frei, `preview` hält nichts.
+  - Antwort zusätzlich: `seats`, `split`, `rows`, `section_id`, `score`, `attempt`, `alternatives`, `message`.
+  - 409 `tix_no_seats` | `tix_no_more` mit Text.
+- `GET /public/events/{id}/seatmap` zusätzlich:
+  - `pick`, `best_available`
+  - `hold_seconds` aus den Einstellungen
+  - `sections[].category_index`
+  - `mode` bleibt `manual|best`; gespeichert wird `manual|best|both`.
+
+**Studio**
+- `GET|POST /studio/seating/settings {hold_minutes 5–30, best{split_rows, single_seat_rule, wheelchair_in_best}}`. Gespeichert unter der Option `tix_seating_settings` bzw. je Veranstalter in `_tix_seating_settings`. Antwort mit `defaults.best_row`. `GET /studio/seating` zeigt `settings`.
+- `POST /studio/events/{id}/seatmap {seatmap_id?, mode? pick|best|both, section_categories?, section_colors?}`:
+  - `seatmap_id` fehlt = unverändert, 0 = entfernen.
+  - `section_categories {sektion: kategorie_index | null}` wird gespeichert unter dem Event-Meta `_tix_seatmap_categories`. Ein altes `seatmap_section` an der Kategorie für diese Sektion wird geleert.
+  - `section_colors` wird gespeichert unter `_tix_seatmap_colors`.
+- `GET …/seatmap` zusätzlich `section_categories`, `categories[{index, name, price, color}]`, `section_colors`, je Sektion `category_index`, `category_name`, `color_source` (`plan` | `category` | `event`) und `priority`.
+- `POST /studio/events/{id}/seatmap/best {qty, section_id | category_index, wheelchair?, attempt?}` schlägt vor, hält aber nichts.
+- `GET /studio/seatmaps` zusätzlich `used_by[]` und `used_count`. Plan-Felder `best_row` und Sektion `priority`; die Vorlage Theater setzt den Rang auf `last`.
+- `POST /studio/seatmaps/from-image` zusätzlich:
+  - `sections_info[{id, label, kind rows|tables, seats, confidence}]` (KI-Feld `confidence` je Bereich, sonst gesamt)
+  - `standing[{label, capacity}]`
+  - `deviations[]` (Abweichung von `total_seats`, Bereiche mit Sicherheit unter 60 %, Doppelte, Überlappungen)
+  - `image {attachment_id, url, width, height}` (das ausgewertete Bild als Anhang, Meta `_tix_seatmap_source`)
+
+**Kategorie am Plan (Ausgabe)**
+- `TIX_Seatmap::event_data` legt verknüpfte Kategorien auf die Sektionen: Name, Preis (`TIX_Cart_Pricing::category_price`, inkl. Preisphase) und Farbe (Palette nach Kategorie-Index, die Event-Farbe hat Vorrang).
+- Der Schnappschuss bleibt unverändert.
+- Die Kasse (`seat_line`) nimmt Index und Preis daraus.
+
+**Behoben:** `TIX_Seatmap_Geometry::normalize` hat Bühne, Stehflächen und Tische nicht mitverschoben (Referenz auf eine Kopie). Bereits gespeicherte Pläne werden beim nächsten Speichern im Editor korrigiert; live nutzt bisher kein Event einen Saalplan.
+
+**Abgleich mit dem Studio (06.11., Studio cd4edcea)**
+- **Kategorie per Name:**
+  - Plan-Sektionen tragen `category_name` und `category_index`. Der Index ist nur ein Hinweis aus den Vorschlägen kommender Events.
+  - Je Event gilt, der Reihe nach: Studio-Zuordnung (`_tix_seatmap_categories`), dann `seatmap_section` an der Kategorie, dann der gleiche Kategorie-Name (`TIX_Seatmap::name_key`: klein, ohne Akzente und Zeichen).
+  - Ohne Treffer hat die Sektion im Event keinen `category_index`.
+- **Haltezeit und Regeln speichern:** auch über `POST /studio/seating {hold_minutes?, best?}` (wie `/settings`, Antwort wie `GET /studio/seating`).
+- **Antwortformen:** `GET /studio/seatmaps` → `{ok, seatmaps: []}`. `POST /studio/seatmaps` → 201 mit `id` oben in der Antwort (dazu `data`, `stats`, `revisions` wie im Detail).
+- **Vorschau-Studio:**
+  - Paket-Events kennen `seatmap_template` (`theater|club|banquet|arena`, `''` = keiner) in `PATCH /sales/previews/{id}/events/{key}` (400 bei unbekannter Vorlage).
+  - Gespeichert wird es im Paket als `_tix_seatmap_template`; `GET …/edit` liefert `event.seatmap_template`.
+  - Beim Übernehmen legt `TIX_Sales_Previews::claim_seatmap` einen eigenen Plan des Veranstalters aus der Vorlage an. Zugewiesen wird er nur, wenn das Modul dort an ist; sonst bleibt er unter `_tix_seatmap_suggested` am Event vorgemerkt, damit kein Bestandsschutz entsteht.
+
+Test: `tests/test-seatmap-phase2-wp.php` (36/36 Einzel-Seite, 38/38 Plattform).
+
 ## 55. Promoter-System
 
 `TIX_Promoter` ermoeglicht Affiliate-/Promoter-Tracking mit individuellen Links und Provisionsberechnung.

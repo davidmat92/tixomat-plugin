@@ -217,12 +217,13 @@ class TIX_Seatmap_Geometry {
         foreach ($data['sections'] as &$sec) {
             foreach ($sec['rows'] as &$row) foreach ($row['seats'] as &$s) { $s['x'] = $mv($s['x'], $dx); $s['y'] = $mv($s['y'], $dy); }
             unset($row, $s);
-            foreach (($sec['tables'] ?? []) as &$t) { $t['x'] = $mv($t['x'], $dx); $t['y'] = $mv($t['y'], $dy); }
+            if (!empty($sec['tables']) && is_array($sec['tables'])) foreach ($sec['tables'] as &$t) { $t['x'] = $mv($t['x'], $dx); $t['y'] = $mv($t['y'], $dy); }
             unset($t);
             if (!empty($sec['block']['origin'])) { $sec['block']['origin'] = ['x' => $mv($sec['block']['origin']['x'], $dx), 'y' => $mv($sec['block']['origin']['y'], $dy)]; }
         }
         unset($sec);
-        foreach (($data['objects'] ?? []) as &$o) { $o['x'] = $mv($o['x'], $dx); $o['y'] = $mv($o['y'], $dy); }
+        // Objekte (Bühne, Stehflächen) mitverschieben – per Referenz auf $data, nicht auf eine Kopie (Fehler bis 1.38.669)
+        if (!empty($data['objects']) && is_array($data['objects'])) foreach ($data['objects'] as &$o) { $o['x'] = $mv($o['x'], $dx); $o['y'] = $mv($o['y'], $dy); }
         unset($o);
         $data['width'] = (int) ceil($b[2] - $b[0] + 2 * self::PAD);
         $data['height'] = (int) ceil($b[3] - $b[1] + 2 * self::PAD);
