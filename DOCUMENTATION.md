@@ -4746,3 +4746,21 @@ Umbau 2 „Selbstgehostet“. Vorher übernahm `TIX_License_Server::create()` ke
 - Die Kundenseite bekommt die Module wie bisher über `/license/check` (beim ersten `TIX_License::check()` in `site-add.sh`).
 - Für den Anlege-Dienst (Server & Betrieb): `ops/kunden-hetzner/lizenz/lizenz.php` als 6. Argument die Module als Komma-Text (`website,app`) bzw. `*` an `create` durchreichen. Bei einer vorhandenen Lizenz die Module über `rest_admin_save {modules}` setzen (wie `lizenz-status.php`).
 - Tests: `tests/test-license-create-modules-wp.php` 9/9; Gegenprobe `test-license-wp.php` 88/88.
+
+## 98. Domain-Umzug einer Seite (ab 1.38.681)
+Umbau 6 „Selbstgehostet“. Klasse `TIX_Domain_Move` (`includes/class-tix-domain-move.php`). Der Anlege-Dienst (Server & Betrieb) führt die Schritte nacheinander aus; das Studio zeigt Knopf und Status.
+**Reihenfolge im Dienst:**
+1. DNS der neuen Domain prüfen, Zertifikat und nginx anlegen. Die alte Domain leitet danach per 301 auf die neue.
+2. **Lizenz-Server** (veranstalter.evendis.de): `wp tixomat domain lizenz --notiz="[kunden-hetzner:<kurz>]" --von=<alt> --nach=<neu>`. Das zieht den Host-Eintrag um, sonst meldet die Seite `site_limit`. Die Notiz „Host <alt>“ wird angepasst, der Verlauf bekommt `move_host`. Als REST: `POST /license/admin/licenses/{id}/move-host {from, to}` (Admin, nur wenn der Lizenz-Server aktiv ist).
+3. **Kundenseite:** `wp tixomat domain umziehen --nach=<neu> [--trocken] [--studio=https://…]`.
+   - Ersetzt die Adressen in der Datenbank per `wp search-replace` (`https://`, `http://`, `www.` und JSON `https:\/\/`, auch serialisiert; `guid` bleibt).
+   - Setzt home/siteurl auf `https://<neu>` und stellt `tix_website_domain` (live/preview) um; `switched_at` bleibt.
+   - Leert die `tix_`-Transients und den Objekt-Cache, stößt den Homepage-Neuaufbau für beide Domains an und prüft die Lizenz neu.
+   - Die Studio-Adresse ändert sich nur mit `--studio`.
+   - Ausgabe: je Schritt eine Zeile, am Ende `ERGEBNIS {from, to, dry_run, steps, hints}`.
+**Hinweise** (`hints`, auch in `GET /studio/domain`):
+- `apple_pay_domain`: die neue Domain bei Mollie bzw. Stripe eintragen.
+- `webhook_url`: Webhooks bei Stripe/PayPal umstellen.
+- `mail_from`: Der Absender liegt noch auf der alten Domain.
+**Studio:** `GET /studio/domain` (Rechte wie Marke) liefert `{host, home, website, history[{from, to, at, by}], hints}`. Status: `wp tixomat domain status`.
+**Tests:** `tests/test-domain-move-wp.php` 17/17 (zwei Umzüge hin und her auf einer Test-DB, Inhalt/JSON/serialisiert, Website-Adresse, Verlauf, Lizenz move-host).
