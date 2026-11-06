@@ -19,7 +19,7 @@ class TIX_Site_Config {
 
     const NS = 'tixomat/v1';
     const OPTION = 'tix_site_config';
-    const SECTIONS = ['profile', 'nav', 'home', 'seo', 'social', 'contact', 'venue', 'legal'];
+    const SECTIONS = ['profile', 'nav', 'home', 'seo', 'social', 'contact', 'venue', 'legal', 'homepage']; // homepage: 1.38.673, TIX_Site_Brand
     const SOCIAL = ['instagram', 'facebook', 'tiktok', 'youtube', 'spotify', 'soundcloud', 'whatsapp'];
     const OPT_PLAY_PUBLIC = 'tix_play_public';
     const OPT_TOP_BAR = 'tix_app_top_bar'; // '0' = App-Leiste oben aus (1.38.534), sonst an
@@ -299,7 +299,7 @@ class TIX_Site_Config {
         $o = self::stored();
         $venue_id = $c['venue']['id'] ?? null; // kanonisch aus venue(), nicht die gespeicherte Auswahl
         foreach (self::SECTIONS as $k) {
-            if (!array_key_exists($k, $o) || $o[$k] === null) continue;
+            if ($k === 'homepage' || !array_key_exists($k, $o) || $o[$k] === null) continue;
             // Kontakt: leere Studio-Felder überschreiben den Rückfall nicht (1.38.578)
             $ov = $k === 'contact' && is_array($o[$k]) ? array_filter($o[$k], function ($v) { return $v !== null && $v !== ''; }) : $o[$k];
             $c[$k] = is_array($c[$k] ?? null) && is_array($ov) ? array_replace($c[$k], $ov) : $ov;
@@ -312,6 +312,11 @@ class TIX_Site_Config {
             $wn = $c['website']['nav'] ?? [];
             if (!empty($wn['header'])) $c['nav']['header'] = $wn['header'];
             if (!empty($wn['footer'])) $c['nav']['footer'] = $wn['footer'];
+        }
+        // Homepage zur Laufzeit (1.38.673): Angaben über die Bereiche oben hinaus; null = keine Homepage für diesen Host
+        if (class_exists('TIX_Site_Brand')) {
+            $c['colors'] = TIX_Site_Brand::top_colors((array) $c['colors'], $o['homepage'] ?? null);
+            $c['homepage'] = TIX_Site_Brand::payload($c, $o['homepage'] ?? null);
         }
         $c['overrides'] = array_values(array_intersect(self::SECTIONS, array_keys($o)));
         $c['plugin_version'] = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '';
@@ -344,7 +349,7 @@ class TIX_Site_Config {
         return esc_url_raw($v);
     }
 
-    /** POST /studio/site-config {profile?, nav?, home?, seo?, social?, contact?, venue?, legal?, app?: {play_public?, top_bar?}} – Bereich null = zurück auf berechnet. */
+    /** POST /studio/site-config {profile?, nav?, home?, seo?, social?, contact?, venue?, legal?, homepage?, app?: {play_public?, top_bar?}} – Bereich null = zurück auf berechnet. */
     public static function rest_save(WP_REST_Request $req) {
         $p = $req->get_json_params();
         if (!is_array($p)) return self::bad('body', 'Bitte JSON senden.');
@@ -430,6 +435,13 @@ class TIX_Site_Config {
                     foreach (['name', 'address', 'city'] as $vk) if (array_key_exists($vk, $v)) $ve[$vk] = sanitize_text_field((string) $v[$vk]);
                     foreach (['lat', 'lng'] as $vk) if (array_key_exists($vk, $v)) $ve[$vk] = $v[$vk] !== null ? floatval($v[$vk]) : null;
                     $o[$k] = $ve;
+                    break;
+                case 'homepage':
+                    // 1.38.673: Teilfelder, Feld null = entfernen (TIX_Site_Brand::clean); enabled Vorgabe an
+                    $br = TIX_Site_Brand::clean($v, $o['homepage'] ?? []);
+                    if (is_wp_error($br)) return $br;
+                    if (!array_key_exists('enabled', $br)) $br['enabled'] = true;
+                    $o[$k] = $br;
                     break;
                 case 'legal':
                     if (!is_array($v)) return self::bad('legal', 'Ungültige Angaben.');

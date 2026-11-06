@@ -4653,6 +4653,36 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 - Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
 - Tests: `tests/test-demo-access-wp.php` 110/110.
 
+## 94. Homepage zur Laufzeit (ab 1.38.673)
+
+`GET /public/site-config` liefert zusätzlich **`homepage`** (`TIX_Site_Brand`, `includes/class-tix-site-brand.php`). Damit baut `apps/marken-web` neue gehostete Kunden ohne Eintrag in `brands.ts`. Die Feldnamen sind am 06.11. mit dem Homepages-Chat abgestimmt. Name, Profil, Farben (accent/background/glow), Logo, Icon, Favicon, Platzhalter, Navigation, Social, App, Kontakt, Ort, Rechtstexte, Schrift und SEO kommen wie bisher aus den bestehenden Bereichen; ohne App reicht `app.has_app = false`.
+
+- `homepage` ist `null`, solange nichts gespeichert ist. `null` oder `enabled: false` → keine Homepage für diesen Host (404). KitchenKlub, Mallorca, evendis-Demo und XXL bleiben fest in `brands.ts` und haben Vorrang.
+- Felder:
+
+| Feld | Inhalt | Rückfall |
+|---|---|---|
+| `enabled` | Homepage an | `true`, sobald gespeichert |
+| `key` | Kurzname `a-z0-9-` (Anzeige, Logs) | erster Teil des Hosts |
+| `short_name` | optional | `null` |
+| `in_venue` | „bei der …“ | „im …“ (club) bzw. „beim …“ + Name |
+| `layout` | `club` \| `festival` \| `festivalTour` | `profile` |
+| `display_font` | `manrope` \| `anton` | `manrope` |
+| `single_venue` | nur ein Veranstalter | nicht Plattform |
+| `hashtag` | | App-Inhalte `home.hashtag` |
+| `tickets_path` | | `/tickets/` |
+| `wp_paths []` | zusätzlich zur Grundliste | leer |
+| `redirects {alt: neu}` | Schlüssel mit `*` = Präfix | leer |
+| `about {eyebrow, title, text}` | | leer |
+| `description` | Meta-Description | `seo.description` |
+| `colors {background, glow, surface, surface_raised, spotlight, teal, cta_bg, cta_fg}` | alle optional, sonst leitet marken-web aus `colors.accent`/`background` ab | leer |
+| `page_slugs {pfad: slug}`, `nav_cta {label, href}` | zusätzlich wie `brands.ts` (optional) | leer bzw. `null` |
+
+- `homepage.colors.background` und `.glow` füllen auch die oberen `colors.background` / `colors.glow`.
+- **Schreiben:** `POST /studio/site-config {homepage: {…}}` (Rechte wie die Marke), Teilfelder; Feld `null` = entfernen, `homepage: null` = alles weg. Prüfungen: Pfade mit `/`, Ziele Pfad oder http(s), Farben `#RRGGBB`, `glow` auch `radial-/linear-gradient(…)` ohne `url()`, höchstens 60 `wp_paths`, 100 `redirects`, 30 `page_slugs`; Fehler 400 `tix_invalid_field`, `field` = `homepage.<feld>`. Gespeichert in `tix_site_config.homepage`.
+- **WP-CLI (für `kunde-anlegen`):** `wp tixomat marke setzen --daten='{"key":"xxl","layout":"festivalTour","has_app":false}'` (gleiche Prüfung, setzt `enabled`; `has_app` stellt den Studio-Schalter `tix_studio_has_app`), `wp tixomat marke zeigen`, `wp tixomat marke zuruecksetzen`. `--json` geht nicht (WP-CLI macht daraus `--format=json`).
+- Test `tests/test-site-brand-wp.php` (27/27 in beiden Modi).
+
 ## 96. Zahlungsanbieter im Studio (ab 1.38.675)
 Vertrag: `uebergaben/vertrag-zahlungsanbieter-studio.md`. Klasse `TIX_Studio_Payments` (`includes/class-tix-studio-payments.php`).
 - `GET /studio/payments`, `POST /studio/payments` (Teil-Update `{order?, mollie?, stripe?, paypal?, bank?}`), `POST /studio/payments/test {provider}` (mollie|stripe|paypal, mit gespeicherten Daten, nichts wird gebucht, 10 je 10 min → 429 `tix_pay_test_limit`).
