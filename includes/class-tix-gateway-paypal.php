@@ -12,6 +12,9 @@ class TIX_Gateway_PayPal {
     public static function get_icon()  { return 'https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-100px.png'; }
 
     public static function is_available() {
+        // Schalter aus dem Studio (§96); ohne gespeicherten Wert wie bisher: an, sobald Zugangsdaten da sind
+        $on = tix_get_settings('paypal_enabled');
+        if ($on !== null && empty($on)) return false;
         return !empty(self::get_client_id()) && !empty(self::get_secret());
     }
 

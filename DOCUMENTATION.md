@@ -4652,3 +4652,13 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 - **Profil je Zugang** (`_tix_demo_profile`): Pflicht beim Anlegen von Interessenten (400 Feld `profile`), `PATCH {profile}`, `POST /demo-access/view {model?, profile?}`; das Team (`_tix_team_organizer_id`) folgt dem Profil. Liste: Filter `?profile=`, `summary.club/festival`, `profiles[]`. `/me.demo_access.profile`; Testkauf-Links: selbstgehostet `tix_demo_home_url` + `/club/` bzw. `/festival/`, Provisionskunde `tix_demo_platform_url` (+ `profile=festival`), jeweils `demo=<Code>`.
 - Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
 - Tests: `tests/test-demo-access-wp.php` 110/110.
+
+## 96. Zahlungsanbieter im Studio (ab 1.38.675)
+Vertrag: `uebergaben/vertrag-zahlungsanbieter-studio.md`. Klasse `TIX_Studio_Payments` (`includes/class-tix-studio-payments.php`).
+- `GET /studio/payments`, `POST /studio/payments` (Teil-Update `{order?, mollie?, stripe?, paypal?, bank?}`), `POST /studio/payments/test {provider}` (mollie|stripe|paypal, mit gespeicherten Daten, nichts wird gebucht, 10 je 10 min → 429 `tix_pay_test_limit`).
+- Speicher = `tix_settings` wie im WP-Admin (kein zweiter Speicher); Antwort liest frisch aus der Option (nicht über den statischen Zwischenspeicher von `tix_get_settings`). Schlüssel nur maskiert (`key_set`, `key_hint`), IBAN gekürzt. Feld fehlt/'' = unverändert, `null` = löschen.
+- Rechte `TIX_Studio::perm_brand`. Plattform (Mehr-Veranstalter-Modus): GET `{locked: true, reason}`, POST/Test 403 `tix_payments_locked` (Zahlungen laufen über das Sammelkonto).
+- Neuer Schlüssel → Selbsttest, Ergebnis als `last_test` (Option `tix_studio_payments_state`), bei Fehler zusätzlich `test_failed`. Warnungen `tix_no_payment`, `tix_test_mode`, `tix_webhook_missing`.
+- Neu: `tix_settings.paypal_enabled` (nur aus dem Studio; ohne Wert wie bisher an, sobald Zugangsdaten da sind). `TIX_Gateway_PayPal::is_available()` beachtet ihn, das Speichern im WP-Admin behält ihn.
+- Prüfungen: Mollie `live_|test_`, Stripe `sk_/rk_live|test_`, `pk_live|test_`, `whsec_`, IBAN Modulo 97, `order` nur bekannte Anbieter (Rest in bisheriger Reihenfolge angehängt).
+- Tests: `tests/test-studio-payments-wp.php` 33/33 (Einzel-Seite), 3/3 (Plattform).
