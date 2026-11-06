@@ -4653,32 +4653,32 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 - Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
 - Tests: `tests/test-demo-access-wp.php` 110/110.
 
-## 94. Homepage-Marke zur Laufzeit (ab 1.38.673)
+## 94. Homepage zur Laufzeit (ab 1.38.673)
 
-`GET /public/site-config` liefert zusätzlich `brand`: alles, was `apps/marken-web` bisher aus `brands.ts` liest, schon mit Rückfällen gefüllt (`TIX_Site_Brand`, `includes/class-tix-site-brand.php`). Damit kann marken-web neue gehostete Kunden ohne Code-Commit bedienen. Die bestehenden Bereiche der Antwort bleiben unverändert.
+`GET /public/site-config` liefert zusätzlich **`homepage`** (`TIX_Site_Brand`, `includes/class-tix-site-brand.php`). Damit baut `apps/marken-web` neue gehostete Kunden ohne Eintrag in `brands.ts`. Die Feldnamen sind am 06.11. mit dem Homepages-Chat abgestimmt. Name, Profil, Farben (accent/background/glow), Logo, Icon, Favicon, Platzhalter, Navigation, Social, App, Kontakt, Ort, Rechtstexte, Schrift und SEO kommen wie bisher aus den bestehenden Bereichen; ohne App reicht `app.has_app = false`.
 
-**Felder (`brand`):**
+- `homepage` ist `null`, solange nichts gespeichert ist. `null` oder `enabled: false` → keine Homepage für diesen Host (404). KitchenKlub, Mallorca, evendis-Demo und XXL bleiben fest in `brands.ts` und haben Vorrang.
+- Felder:
 
 | Feld | Inhalt | Rückfall |
 |---|---|---|
-| `ready` | Marke ausdrücklich gespeichert (Studio bzw. `kunde-anlegen`) – nur dann baut marken-web zur Laufzeit | – |
-| `key`, `name`, `short_name`, `in_venue` | Kurzname, Name, Kurzform, „im …“/„beim …“ | erster Teil des Hosts, Seitenname, Name, nach Profil |
-| `site_host`, `api_base` | Host der Kunden-Adresse, `https://<host>/wp-json/tixomat/v1` | Host von `home_url` |
+| `enabled` | Homepage an | `true`, sobald gespeichert |
+| `key` | Kurzname `a-z0-9-` (Anzeige, Logs) | erster Teil des Hosts |
+| `short_name` | optional | `null` |
+| `in_venue` | „bei der …“ | „im …“ (club) bzw. „beim …“ + Name |
 | `layout` | `club` \| `festival` \| `festivalTour` | `profile` |
-| `single_venue`, `display` | nur ein Veranstalter; Überschriften `manrope` \| `anton` | nicht Plattform; `manrope` |
-| `logo`, `icon`, `placeholder` | absolute URLs | Studio-Logo, Site-Icon (sonst Logo), Studio-Platzhalter |
-| `hashtag`, `instagram {url, handle}` | | App-Inhalte `home.hashtag`, `social.instagram` |
-| `nav [{label, href}]`, `nav_cta {label, href}` | eigene Links als Pfad | `nav.header`; `null` |
-| `contact {email, address, company, whatsapp, phone}` | WhatsApp nur Ziffern | `contact`, App-Inhalte |
-| `social [{label, url, icon}]` | | `social` |
-| `about {eyebrow, title, text}`, `description` | | „Der Club“/„Das Festival“, Name, `seo.description` |
-| `tickets_path`, `page_slugs {pfad: slug}`, `wp_paths []`, `redirects {alt: neu}` | | `/tickets/`, leer |
-| `store {app_store_id, play_package, play_public}`, `no_app` | | `app.*`; ohne App |
-| `colors` | 13 CSS-Variablen wie brands.ts (`--bg` … `--cta-fg`) | aus Akzent und Grund abgeleitet: `--signal`/`--free`/`--cta-bg` = Akzent, `--cta-fg` nach Kontrast, Flächen aus `--bg` (Vorgabe #17181F), `--bg-light` Verlauf Grund → Akzent |
-| `stored` | Liste der gespeicherten Felder | – |
+| `display_font` | `manrope` \| `anton` | `manrope` |
+| `single_venue` | nur ein Veranstalter | nicht Plattform |
+| `hashtag` | | App-Inhalte `home.hashtag` |
+| `tickets_path` | | `/tickets/` |
+| `wp_paths []` | zusätzlich zur Grundliste | leer |
+| `redirects {alt: neu}` | Schlüssel mit `*` = Präfix | leer |
+| `about {eyebrow, title, text}` | | leer |
+| `description` | Meta-Description | `seo.description` |
+| `colors {background, glow, surface, surface_raised, spotlight, teal, cta_bg, cta_fg}` | alle optional, sonst leitet marken-web aus `colors.accent`/`background` ab | leer |
+| `page_slugs {pfad: slug}`, `nav_cta {label, href}` | zusätzlich wie `brands.ts` (optional) | leer bzw. `null` |
 
-**Schreiben:** `POST /studio/site-config {brand: {…}}` (Rechte wie Marke), nur Teilfelder; Feld `null` = zurück auf berechnet, `brand: null` = alles zurück (`ready` false), `{ready: true}` = nur als eingerichtet markieren. Prüfungen: Pfade mit `/`, Links Pfad oder http(s), Farben `#RRGGBB`, `--bg-light` Farbe oder `radial-/linear-gradient(…)` ohne `url()`, höchstens 20 Navigations-/Social-Einträge, 60 `wp_paths`, 100 `redirects`; Fehler 400 `tix_invalid_field` mit `field` = `brand.<feld>`. Gespeichert in `tix_site_config.brand`.
-
-**WP-CLI (für `kunde-anlegen`):** `wp tixomat marke setzen --daten='{"name":"…","layout":"festivalTour","no_app":true}'` (gleiche Prüfung, setzt `ready`), `wp tixomat marke zeigen`, `wp tixomat marke zuruecksetzen`. Achtung: `--json` geht nicht (WP-CLI macht daraus `--format=json`).
-
-KitchenKlub und Mallorca: Dort ist nichts gespeichert, also `ready = false` – marken-web nimmt weiter `brands.ts`. Test `tests/test-site-brand-wp.php` (32/32 in beiden Modi).
+- `homepage.colors.background` und `.glow` füllen auch die oberen `colors.background` / `colors.glow`.
+- **Schreiben:** `POST /studio/site-config {homepage: {…}}` (Rechte wie die Marke), Teilfelder; Feld `null` = entfernen, `homepage: null` = alles weg. Prüfungen: Pfade mit `/`, Ziele Pfad oder http(s), Farben `#RRGGBB`, `glow` auch `radial-/linear-gradient(…)` ohne `url()`, höchstens 60 `wp_paths`, 100 `redirects`, 30 `page_slugs`; Fehler 400 `tix_invalid_field`, `field` = `homepage.<feld>`. Gespeichert in `tix_site_config.homepage`.
+- **WP-CLI (für `kunde-anlegen`):** `wp tixomat marke setzen --daten='{"key":"xxl","layout":"festivalTour","has_app":false}'` (gleiche Prüfung, setzt `enabled`; `has_app` stellt den Studio-Schalter `tix_studio_has_app`), `wp tixomat marke zeigen`, `wp tixomat marke zuruecksetzen`. `--json` geht nicht (WP-CLI macht daraus `--format=json`).
+- Test `tests/test-site-brand-wp.php` (27/27 in beiden Modi).
