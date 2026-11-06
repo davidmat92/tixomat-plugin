@@ -27,7 +27,7 @@ class TIX_Artists {
     const META_REDIRECT = '_tix_artist_merged_into';
     const EV_META = '_tix_artists';
     const EV_REF = '_tix_artist_ref';
-    const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show'];
+    const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show', 'host'];
     const ROLES = ['headliner', 'support', 'guest'];
     const MAX_PER_EVENT = 20;
     const LINKS = ['website', 'instagram', 'tiktok', 'youtube', 'spotify', 'apple_music'];
@@ -714,7 +714,7 @@ class TIX_Artists {
     }
 
     private static function jsonld(array $a, array $events, $url) {
-        $type = ['band' => 'MusicGroup', 'ensemble' => 'PerformingGroup', 'show' => 'PerformingGroup', 'solo' => 'Person', 'comedian' => 'Person', 'dj' => 'Person'][$a['kind']] ?? 'PerformingGroup';
+        $type = ['band' => 'MusicGroup', 'ensemble' => 'PerformingGroup', 'show' => 'PerformingGroup', 'solo' => 'Person', 'comedian' => 'Person', 'dj' => 'Person', 'host' => 'Person'][$a['kind']] ?? 'PerformingGroup';
         $img = ($a['images']['cover']['large'] ?? null) ?: ($a['images']['portrait']['large'] ?? null);
         $sameas = array_values(array_filter([$a['links']['website'], $a['links']['instagram'], $a['links']['tiktok'], $a['links']['youtube'], $a['links']['spotify'], $a['links']['apple_music']]));
         $ev = [];

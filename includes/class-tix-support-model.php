@@ -454,7 +454,8 @@ class TIX_Support_Model {
         $per = max(1, min(100, intval($req->get_param('per_page') ?: 25)));
         $page = max(1, intval($req->get_param('page') ?: 1));
         $st = sanitize_key((string) $req->get_param('status'));
-        $args = ['post_type' => self::CPT, 'post_status' => isset(self::STATUS_MAP[$st]) ? [self::STATUS_MAP[$st]] : array_values(self::STATUS_MAP),
+        // done = Erledigt + ohne Antwort abgelegt (3 Stufen im Studio, 06.11.)
+        $args = ['post_type' => self::CPT, 'post_status' => $st === 'done' ? ['tix_resolved', 'tix_closed'] : (isset(self::STATUS_MAP[$st]) ? [self::STATUS_MAP[$st]] : array_values(self::STATUS_MAP)),
             'posts_per_page' => 500, 'orderby' => 'modified', 'order' => 'DESC', 'fields' => 'ids',
             // Betreiber-Anfragen aus „Hilfe & Support“ (1.38.480) stehen im Plattform-Studio, nicht im Kunden-Postfach
             'meta_query' => [['key' => '_tix_sp_help', 'compare' => 'NOT EXISTS']]];
