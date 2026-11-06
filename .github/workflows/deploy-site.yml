@@ -9,6 +9,11 @@ name: Deploy to site (manual)
 #   site=test-quelle  → nur demo.mdj.events: Test-Quelle für geteilte Events (Partner-API,
 #                       Zahlung im Testmodus). Seit 2026-10-03 wiederbelebt, NICHT Teil von „alle“.
 #   site=<einzeln>    → nur diese Site
+#   site=xxl          → XXL Schlagerparty auf dem Sammelserver kunden-hetzner (gehostete Kunden, 2026-11-06)
+#   site=kunde        → ein Kunde auf kunden-hetzner nach Kurzname (Eingabe „kunde“), z. B. aus bin/kunde-anlegen
+#                       Gehostete Kunden: Host = Repo-Variable KUNDEN_HOST, Domain und Ordner liest der Lauf aus
+#                       /etc/kunden/<kurz>.env auf dem Server (ops/kunden-hetzner im Monorepo). „alle“ nimmt jeden
+#                       Kunden von dort mit, sobald KUNDEN_HOST gesetzt ist.
 #
 # Der Server erlaubt nur ~1 SSH-Verbindung pro Minute: Die Sites laufen nacheinander
 # (max-parallel 1) mit Pausen zwischen den Verbindungen.
@@ -16,11 +21,16 @@ on:
   workflow_dispatch:
     inputs:
       site:
-        description: "Ziel-Site (alle = kitchenklub + evendis + mallorca)"
+        description: "Ziel-Site (alle = kitchenklub + evendis + mallorca + Kunden auf kunden-hetzner)"
         required: true
         default: evendis
         type: choice
-        options: [alle, evendis, test-quelle, kitchenklub, mallorca]
+        options: [alle, evendis, test-quelle, kitchenklub, mallorca, xxl, kunde]
+      kunde:
+        description: "Nur bei site=kunde: Kurzname des Kunden auf kunden-hetzner (a-z0-9)"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   plan:
@@ -29,11 +39,29 @@ jobs:
       sites: ${{ steps.list.outputs.sites }}
     steps:
       - id: list
+        env:
+          SITE: ${{ inputs.site }}
+          KUNDE: ${{ inputs.kunde }}
+          KUNDEN_HOST: ${{ vars.KUNDEN_HOST }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          case "${{ inputs.site }}" in
-            alle) echo 'sites=["kitchenklub","evendis","mallorca"]' >> "$GITHUB_OUTPUT" ;;
-            *)    echo 'sites=["${{ inputs.site }}"]' >> "$GITHUB_OUTPUT" ;;
+          # Kunden auf dem Sammelserver: Kurznamen aus /etc/kunden/*.env (nur wenn KUNDEN_HOST gesetzt ist)
+          kunden() {
+            [ -n "$KUNDEN_HOST" ] || return 0
+            echo "$SSH_KEY" > k && chmod 600 k
+            ssh -i k -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@"$KUNDEN_HOST" \
+              "for e in /etc/kunden/*.env; do [ \"\$(basename \$e)\" = server.env ] || sed -n 's/^SITE=\([a-z0-9]*\).*/\1/p' \$e; done" || true
+            rm -f k
+          }
+          case "$SITE" in
+            alle)  list="kitchenklub evendis mallorca $(kunden | sed 's/^/kunde:/' | tr '\n' ' ')" ;;
+            xxl)   list="kunde:xxl" ;;
+            kunde) [[ "$KUNDE" =~ ^[a-z][a-z0-9]{1,15}$ ]] || { echo "::error::Eingabe kunde fehlt oder ungültig"; exit 1; }
+                   list="kunde:$KUNDE" ;;
+            *)     list="$SITE" ;;
           esac
+          echo "sites=$(printf '%s\n' $list | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
+          echo "Ziele: $list"
 
   deploy:
     needs: plan
@@ -50,8 +78,22 @@ jobs:
 
       - name: Ziel bestimmen
         id: target
+        env:
+          KUNDEN_HOST: ${{ vars.KUNDEN_HOST }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           case "${{ matrix.site }}" in
+            # Gehostete Kunden (Sammelserver kunden-hetzner): Domain und Ordner stehen auf dem Server in /etc/kunden/<kurz>.env.
+            # Ohne KUNDEN_HOST kein Ziel – nie auf den alten Server ausweichen.
+            kunde:*)     k="${{ matrix.site }}"; k="${k#kunde:}"
+                         [ -n "$KUNDEN_HOST" ] || { echo "::error::Repo-Variable KUNDEN_HOST fehlt (gh variable set KUNDEN_HOST -b <IP>)"; exit 1; }
+                         echo "$SSH_KEY" > k && chmod 600 k
+                         envk=$(ssh -i k -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@"$KUNDEN_HOST" "cat /etc/kunden/$k.env") || { rm -f k; echo "::error::/etc/kunden/$k.env fehlt auf kunden-hetzner"; exit 1; }
+                         rm -f k
+                         app=$(printf '%s\n' "$envk" | sed -n 's/^APP=\([A-Za-z0-9._-]*\).*/\1/p')
+                         dom=$(printf '%s\n' "$envk" | sed -n 's/^DOMAIN=\([A-Za-z0-9.-]*\).*/\1/p')
+                         [ -n "$app" ] && [ -n "$dom" ] || { echo "::error::APP/DOMAIN in /etc/kunden/$k.env fehlen"; exit 1; }
+                         url="https://$dom"; host="$KUNDEN_HOST" ;;
             # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
             # (gh variable set KITCHENKLUB_HOST -b 178.104.202.230). Ohne Variable bleibt der alte RunCloud-Server.
             kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de; host="${{ vars.KITCHENKLUB_HOST }}" ;;
