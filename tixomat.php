@@ -433,6 +433,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-metabox.php';
 
 // ── Saalplan-System (Admin + Frontend + AJAX) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-seatmap-geometry.php'; // Saalplan: Sitze aus parametrischen Blöcken mit echten x/y (1.38.659)
+require_once TIXOMAT_PATH . 'includes/class-tix-platform-offers.php'; // Angebote des Plattform-Betreibers: Katalog, Nummernkreis AN-JJJJ-NNNN, PDF, Mail, Annahme-Link /platform/offers*, /platform/offer-catalog, /public/offers/{token} (1.38.670)
 require_once TIXOMAT_PATH . 'includes/class-tix-seatmap-best.php'; // Saalplan: Bester Platz mit Punktwert und Single-Seat-Regel (1.38.671)
 require_once TIXOMAT_PATH . 'includes/class-tix-seatmap.php';
 TIX_Seatmap::init();
