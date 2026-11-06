@@ -872,6 +872,7 @@ class TIX_Platform_Offers {
         }
         $d = self::clean_data($b, $old);
         $d['history'] = $old['history'] ?? [];
+        if (isset($old['hosting'])) $d['hosting'] = $old['hosting']; // Verknüpfung „Aus Angebot anlegen“ (§99) bleibt
         self::history($d, 'updated');
         self::update_data($row->id, $d);
         return self::rest_get($req);
@@ -998,7 +999,7 @@ class TIX_Platform_Offers {
         $row = self::load($req);
         if (is_wp_error($row)) return $row;
         $d = self::data($row);
-        unset($d['history'], $d['decision'], $d['last_sent_to']);
+        unset($d['history'], $d['decision'], $d['last_sent_to'], $d['hosting']);
         $d['valid_until'] = wp_date('Y-m-d', time() + intval(self::catalog()['valid_days'] ?? 30) * DAY_IN_SECONDS);
         $d = self::clean_data($d);
         self::history($d, 'duplicated', ['from' => (string) $row->number]);
@@ -1016,7 +1017,7 @@ class TIX_Platform_Offers {
         if ($row->status === 'accepted') return new WP_Error('tix_offer_locked', 'Angenommene Angebote bleiben, wie sie sind. Für Neues bitte duplizieren.', ['status' => 409]);
         $max = intval($wpdb->get_var($wpdb->prepare('SELECT MAX(version) FROM ' . self::table() . ' WHERE base_number = %s', $row->base_number)));
         $d = self::data($row);
-        unset($d['history'], $d['decision'], $d['last_sent_to']);
+        unset($d['history'], $d['decision'], $d['last_sent_to'], $d['hosting']);
         if ($d['valid_until'] < wp_date('Y-m-d')) $d['valid_until'] = wp_date('Y-m-d', time() + intval(self::catalog()['valid_days'] ?? 30) * DAY_IN_SECONDS);
         $d = self::clean_data($d);
         self::history($d, 'version', ['from' => (string) $row->number]);

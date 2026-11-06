@@ -4764,3 +4764,15 @@ Umbau 6 „Selbstgehostet“. Klasse `TIX_Domain_Move` (`includes/class-tix-doma
 - `mail_from`: Der Absender liegt noch auf der alten Domain.
 **Studio:** `GET /studio/domain` (Rechte wie Marke) liefert `{host, home, website, history[{from, to, at, by}], hints}`. Status: `wp tixomat domain status`.
 **Tests:** `tests/test-domain-move-wp.php` 17/17 (zwei Umzüge hin und her auf einer Test-DB, Inhalt/JSON/serialisiert, Website-Adresse, Verlauf, Lizenz move-host).
+
+## 99. Aus Angebot anlegen (ab 1.38.682)
+Umbau 7 „Selbstgehostet“. Klasse `TIX_Offer_Hosting` (`includes/class-tix-offer-hosting.php`). Nur im Mehr-Veranstalter-Modus und nur für Plattform-Admins (`manage_options`), wie „Gehostete Kunden“.
+- `GET /platform/offers/{id}/hosting` liefert die Vorbelegung für „Neuer Kunde“:
+  - `offer {id, number, status}`, `name` (Firma, sonst Name), `kurz` (Vorschlag `^[a-z][a-z0-9]{1,15}$`: Umlaute ausgeschrieben, Rechtsform weg, nicht `neu|protokoll|auftrag`).
+  - `profile: null` (im Formular wählen), `accent: null`, `homepage_now: true`.
+  - `address`: mit Position `domain` gilt `{mode: domain, host: null, transit}`, sonst `{mode: transit, host: <kurz>.evendis.de}`.
+  - `modules`: `website`, dazu `app` bei Position `app`; bei `app_alle_module` `null` (alle). `modules_pick` = Anzahl `app_modul`, diese wählt der Admin aus.
+  - `license {customer, email, valid_until (term_months, sonst 12 Monate), modules, billing monthly|yearly}`, `contact {name, email, phone}`, `company {…}`, `items[]`, `hosting`.
+  - `warnings[]`: `tix_offer_not_accepted`, `tix_offer_not_selfhosted` (weder Shop noch Lizenz), `tix_offer_pick_modules`, `tix_offer_already_hosted`, `tix_offer_no_email`. Die Warnungen sperren nichts.
+- `POST /platform/offers/{id}/hosting {kurz, job_id?}`: Nach dem Anlegen verknüpft das Studio das Angebot. Gespeichert wird `data.hosting {kurz, job_id, at, by}`, dazu ein Verlauf-Eintrag `hosting`. Ändern des Entwurfs behält die Verknüpfung, Duplikat und neue Version nicht.
+- Tests: `tests/test-offer-hosting-wp.php` 16/16 (Plattform), 4/4 (Einzel-Seite: keine Route). Gegenprobe `test-platform-offers-wp.php`.
