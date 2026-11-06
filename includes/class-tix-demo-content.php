@@ -139,8 +139,8 @@ class TIX_Demo_Content {
         if ($profile === 'festival') {
             return [
                 'home' => ['hashtag' => '#seewiesefestival', 'tiles' => [
-                    ['title' => 'Line-up', 'icon' => 'mic', 'action' => 'page:line-up'], ['title' => 'Festival-Guide', 'icon' => 'map', 'action' => 'page:guide'],
-                    ['title' => 'Tickets', 'icon' => 'ticket', 'action' => 'tab:events'], ['title' => 'FAQ', 'icon' => 'question', 'action' => 'page:faq'],
+                    ['label' => 'Line-up', 'icon' => 'mic', 'action' => 'page:line-up'], ['label' => 'Festival-Guide', 'icon' => 'map', 'action' => 'page:guide'],
+                    ['label' => 'Tickets', 'icon' => 'ticket', 'action' => 'tab:events'], ['label' => 'FAQ', 'icon' => 'question', 'action' => 'page:faq'],
                 ]],
                 'pages' => [
                     'faq' => ['title' => 'Häufige Fragen', 'faq' => array_map(function ($p) { return ['q' => $p[0], 'a' => $p[1]]; }, self::festival_event()['faq'])],
@@ -150,8 +150,8 @@ class TIX_Demo_Content {
         }
         return [
             'home' => ['hashtag' => '#ostkainacht', 'tiles' => [
-                ['title' => 'Events', 'icon' => 'calendar', 'action' => 'tab:events'], ['title' => 'Vorverkauf', 'icon' => 'ticket', 'action' => 'presale'],
-                ['title' => 'Musikwunsch', 'icon' => 'music', 'action' => 'page:musikwunsch'], ['title' => 'FAQ', 'icon' => 'question', 'action' => 'page:faq'],
+                ['label' => 'Events', 'icon' => 'calendar', 'action' => 'tab:events'], ['label' => 'Vorverkauf', 'icon' => 'ticket', 'action' => 'presale'],
+                ['label' => 'Musikwunsch', 'icon' => 'music', 'action' => 'page:musikwunsch'], ['label' => 'FAQ', 'icon' => 'question', 'action' => 'page:faq'],
             ]],
             'pages' => [
                 'faq' => ['title' => 'Häufige Fragen', 'faq' => [

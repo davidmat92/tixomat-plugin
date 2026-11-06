@@ -297,7 +297,8 @@ class TIX_Demo {
         $start = self::day($f['day']);
         $end = self::day($f['day'] + $f['days'] - 1);
         $tt = [];
-        foreach ($f['acts'] as $a) $tt[self::day($f['day'] + $a[0])][] = ['time' => $a[2], 'end' => $a[3], 'stage' => $a[1], 'title' => $a[4], 'desc' => $a[5]];
+        // Moderation steht nicht im Programm (sonst wäre sie als erster Slot „Headliner“), bleibt aber Künstler-Eintrag (kind host)
+        foreach ($f['acts'] as $a) if (stripos($a[5], 'Moderation') !== 0) $tt[self::day($f['day'] + $a[0])][] = ['time' => $a[2], 'end' => $a[3], 'stage' => $a[1], 'title' => $a[4], 'desc' => $a[5]];
         foreach ($tt as &$slots) usort($slots, function ($x, $y) { return strcmp($x['time'], $y['time']); });
         unset($slots);
         $f['meta'] = ['_tix_date_end' => $end, '_tix_time_end' => $f['time_end'], '_tix_time_doors' => $f['doors'], '_tix_stages' => $f['stages']];
@@ -306,7 +307,7 @@ class TIX_Demo {
         // Musikdienst-Suche aus, bevor das Programm (und damit das Line-up) gespeichert wird
         TIX_Demo_Content::no_lookup($eid, array_unique(array_column($f['acts'], 4)));
         update_post_meta($eid, '_tix_timetable', $tt);
-        update_post_meta($eid, '_tix_info_lineup', implode('<br>', array_unique(array_column($f['acts'], 4))));
+        update_post_meta($eid, '_tix_info_lineup', implode('<br>', array_unique(array_column(array_merge(...array_values($tt)), 'title'))) . '<br>Moderation: Max Mikro');
         // Headliner zuerst: Samstag-Headliner, Sonntag-Abschluss, dann der Rest
         $names = array_unique(array_merge(['Lena Sonnenschein', 'Die Wellenwerker'], array_column($f['acts'], 4)));
         TIX_Demo_Content::artists($eid, $fid, $names);
