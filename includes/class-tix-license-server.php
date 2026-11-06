@@ -176,11 +176,13 @@ class TIX_License_Server {
             'valid_until' => self::date_or_null($args['valid_until'] ?? gmdate('Y-m-d', strtotime('+1 year'))),
             'note'        => sanitize_textarea_field($args['note'] ?? ''),
             'enforce'     => !empty($args['enforce']) ? 1 : 0,
+            'modules'     => self::modules_value($args['modules'] ?? null),
             'created_at'  => current_time('mysql'),
         ]);
         $id = intval($wpdb->insert_id);
         if (!$id) return null;
-        self::log($id, 'create', ['enforce' => !empty($args['enforce'])]);
+        $mods = self::modules_value($args['modules'] ?? null);
+        self::log($id, 'create', ['enforce' => !empty($args['enforce']), 'modules' => $mods === null ? 'alle' : json_decode($mods, true)]);
         return self::get($id);
     }
 
@@ -209,6 +211,20 @@ class TIX_License_Server {
         if (!$lic || $lic->modules === null || $lic->modules === '') return null;
         $m = json_decode((string) $lic->modules, true);
         return is_array($m) ? array_values(array_intersect(TIX_Modules::keys(), $m)) : null;
+    }
+
+    /** Module beim Anlegen (§97): null/fehlt/'*'/'alle' → NULL (alle), Liste oder Komma-Text → JSON der bekannten Schlüssel. */
+    public static function modules_value($m) {
+        if ($m === null || $m === '' || $m === '*' || $m === 'alle' || !class_exists('TIX_Modules')) return null;
+        if (is_string($m)) $m = explode(',', $m);
+        return wp_json_encode(array_values(array_intersect(TIX_Modules::keys(), array_map('sanitize_key', array_map('trim', (array) $m)))));
+    }
+
+    /** Unbekannte Modul-Schlüssel (für die Prüfung beim Anlegen). */
+    public static function unknown_modules($m) {
+        if ($m === null || $m === '' || $m === '*' || $m === 'alle' || !class_exists('TIX_Modules')) return [];
+        if (is_string($m)) $m = explode(',', $m);
+        return array_values(array_diff(array_map('sanitize_key', array_map('trim', (array) $m)), TIX_Modules::keys()));
     }
 
     /** Aus dem Formular: „alle“ → NULL, sonst JSON-Liste. */
@@ -618,7 +634,10 @@ class TIX_License_Server {
 
     public static function rest_admin_create(WP_REST_Request $req) {
         self::maybe_install();
+        $mods = $req->get_param('modules');
+        if ($bad = self::unknown_modules($mods)) return new WP_Error('tix_invalid_field', 'Unbekannte Module: ' . implode(', ', $bad), ['status' => 400, 'field' => 'modules']);
         $lic = self::create([
+            'modules' => $mods,
             'customer' => (string) $req->get_param('customer'), 'email' => (string) $req->get_param('email'),
             'max_sites' => $req->get_param('max_sites') ?? 1, 'valid_until' => (string) ($req->get_param('valid_until') ?? gmdate('Y-m-d', strtotime('+1 year'))),
             'note' => (string) $req->get_param('note'), 'enforce' => filter_var($req->get_param('enforce'), FILTER_VALIDATE_BOOLEAN),
@@ -731,6 +750,7 @@ class TIX_License_Server {
             $lic = self::create([
                 'customer' => wp_unslash($_POST['customer'] ?? ''), 'email' => wp_unslash($_POST['email'] ?? ''),
                 'max_sites' => $_POST['max_sites'] ?? 1, 'valid_until' => $_POST['valid_until'] ?? '', 'note' => wp_unslash($_POST['note'] ?? ''),
+                'modules' => ($_POST['modules_mode'] ?? 'all') === 'all' ? null : (array) ($_POST['modules'] ?? []),
             ]);
             $msg = $lic ? 'created' : 'error';
             $id  = $lic ? intval($lic->id) : 0;

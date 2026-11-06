@@ -4737,3 +4737,12 @@ Vertrag: `uebergaben/vertrag-zahlungsanbieter-studio.md`. Klasse `TIX_Studio_Pay
 - Neu: `tix_settings.paypal_enabled` (nur aus dem Studio; ohne Wert wie bisher an, sobald Zugangsdaten da sind). `TIX_Gateway_PayPal::is_available()` beachtet ihn, das Speichern im WP-Admin behält ihn.
 - Prüfungen: Mollie `live_|test_`, Stripe `sk_/rk_live|test_`, `pk_live|test_`, `whsec_`, IBAN Modulo 97, `order` nur bekannte Anbieter (Rest in bisheriger Reihenfolge angehängt).
 - Tests: `tests/test-studio-payments-wp.php` 33/33 (Einzel-Seite), 3/3 (Plattform).
+
+## 97. Module beim Anlegen einer Lizenz (ab 1.38.680)
+Umbau 2 „Selbstgehostet“. Vorher übernahm `TIX_License_Server::create()` keine Module, jede neue Lizenz hatte alle.
+- `create(['modules' => …])`: fehlt, `null`, `'*'` oder `'alle'` ergibt NULL (alle Module). Eine Liste oder Komma-Text ergibt JSON der bekannten Schlüssel (`TIX_Modules::keys()`), Unbekanntes fällt weg. `[]` heißt nur Grundfunktionen. Der Verlauf `create` nennt die Module.
+- `POST /license/admin/licenses {…, modules?}`: Unbekannte Schlüssel ergeben 400 `tix_invalid_field` (Feld `modules`). Die Antwort `license.modules` nennt die Freischaltung.
+- WP-Admin „Lizenz anlegen“ übernimmt `modules_mode`/`modules[]` wie beim Ändern.
+- Die Kundenseite bekommt die Module wie bisher über `/license/check` (beim ersten `TIX_License::check()` in `site-add.sh`).
+- Für den Anlege-Dienst (Server & Betrieb): `ops/kunden-hetzner/lizenz/lizenz.php` als 6. Argument die Module als Komma-Text (`website,app`) bzw. `*` an `create` durchreichen. Bei einer vorhandenen Lizenz die Module über `rest_admin_save {modules}` setzen (wie `lizenz-status.php`).
+- Tests: `tests/test-license-create-modules-wp.php` 9/9; Gegenprobe `test-license-wp.php` 88/88.
