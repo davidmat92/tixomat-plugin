@@ -328,7 +328,8 @@ class TIX_App_Events {
             // Muttizettel-Hinweis (gilt nur mit Modul „muttizettel“ des Veranstalters)
             'muttizettel_note'    => (string) get_post_meta($id, '_tix_muttizettel_note', true),
             // „Musik hören“: Künstler-Links wie im Event-Detail (source auto|manual|none) + auto = automatische Treffer
-            'lineup_links'        => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::for_event($id, true) : [],
+            // Verknüpfung mit Künstlern (1.38.669): artist_id, artist_name, artist_slug, picture_source act | artist | null; photo_id = eigenes Act-Foto
+            'lineup_links'        => class_exists('TIX_Lineup_Links') ? (class_exists('TIX_Artists') ? TIX_Artists::link_lineup(TIX_Lineup_Links::for_event($id, true), $id) : TIX_Lineup_Links::for_event($id, true)) : [],
         ] + (class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::payload($id) : []) + ((class_exists('TIX_Contract') && TIX_Contract::multi()) ? [
             // Hinweis beim ersten Online-Verkauf (evendis): {version, title, url, text} oder null – ohne Häkchen
             'contract_notice'     => TIX_Contract::first_sale_notice($id),

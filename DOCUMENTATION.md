@@ -4428,3 +4428,41 @@ Nur Mehr-Veranstalter-Modus (evendis), sonst 404. Vertrag: `uebergaben/vertrag-d
 - `GET /orders` (alle Bestellungen): im Mehr-Veranstalter-Modus jetzt auch für Veranstalter/Team ohne `edit_posts` (vorher 403 – auch für echte Veranstalter); `get_orders` schottet dort selbst ab. Zugangs-Verwaltung (`/demo-access`) wird nie verkürzt; eigene Namen/Adressen bleiben voll, auch wenn ein fremder Käufer gleich heißt.
 - `/me.demo_access.test_orders` = eigene Testkäufe seit dem letzten Zurücksetzen.
 - Tests: `tests/test-demo-access-wp.php` (77/77, Plattform).
+
+## 92. Künstlerbilder aus einer Quelle (ab 1.38.669)
+
+Vorher gab es zwei getrennte Bildquellen: das Act-Foto am Line-up-Eintrag (`_tix_lineup_photos`) und das Bild am Künstlerprofil (`_tix_artist.images`). Die App las das eine, das Studio unter „Künstler“ das andere. Verknüpft wurde nur mit Künstlern, die dem Event zugeordnet waren (`_tix_artists`).
+
+**Zuordnung Act ↔ Künstler** (`TIX_Artists::artist_for_line`)
+- Vergleich über `act_key()`. Dabei fallen weg:
+  - Zeichen vor dem ersten Buchstaben (Emoji)
+  - „Music by“, „Musik von“ und „Sound by“ am Anfang
+  - ein Zusatz in Klammern am Ende („(DJ/Moderation)“)
+  - „DJ“ bzw. „MC“ am Anfang
+- Zuerst gelten die zugeordneten Künstler des Events, sonst ein eigener Künstler gleichen Namens auch ohne Zuordnung. Eigen heißt auf der Einzel-Seite: alle Künstler der Seite. Auf der Plattform: vom Veranstalter bzw. Co-Veranstalter des Events verwaltet.
+- Gesperrte und zusammengeführte Künstler zählen nie. Bei mehreren Treffern ohne Zuordnung wird nicht verknüpft.
+
+**Lesen (eine Quelle)**
+- `GET /public/events/{id}` → `lineup_links[]` und `GET /public/events/{id}/artists` → `artists[]`. Je Zeile:
+  - `picture`, `picture_thumb`: das Act-Foto, sonst Porträt bzw. Titelbild des Künstlers.
+  - `picture_source`: `act` | `artist` | `null`.
+  - `artist_id`, `artist_name`.
+  - `artist_slug`: nur bei öffentlichem Künstler, sonst `null`; nur dann zur Künstlerseite verlinken.
+  - `portrait`, `cover`, `images`, `credit` wie bisher.
+- `GET /public/events/{id}` → `artists[]` (zugeordnete Künstler): `image` ist das Bild des Künstlers, sonst das Act-Foto gleichen Namens im Event; dazu `image_source` mit `artist` | `act` | `null`.
+- Studio-Editor `GET /events/{id}/edit` → `lineup_links[]` zusätzlich mit `artist_id`, `artist_name`, `artist_slug` und `picture_source`. `photo_id` bleibt das Act-Foto selbst. Das Feld `artists[]` des Editors trägt `image_source` wie oben.
+
+**Schreiben**
+- Wird ein Act-Foto gesetzt (`POST /events/{id}/lineup-photo` bzw. `lineup_links[{name, photo_id}]`) und gehört die Zeile zu einem eigenen Künstler ohne Porträt und ohne Titelbild, wird das Foto sein Porträt (`credit` leer, Protokoll `updated` mit `from: lineup_photo`). Vorhandene Bilder bleiben unverändert.
+- Fremde Künstler (Plattform: anderer Veranstalter) werden nie geändert.
+
+**`POST /artists/import-lineup`**
+- Die Namen werden gesäubert: „🎧 Music by DJ Lexi“ wird „DJ Lexi“, „Andreas Köhler (DJ/Moderation)“ wird „Andreas Köhler“.
+- Vorhandene eigene Künstler werden über `act_key` gefunden, auch wenn das Profil ein Emoji oder „DJ“ im Namen trägt.
+- Act-Fotos gehen an Künstler ohne Bild.
+
+**Nachtrag (WP-CLI)**
+- `wp tixomat artists sync-photos --trocken [--event=<id>]` zeigt, welche Künstler ein Act-Foto bekämen. Ohne `--trocken` werden sie übernommen. Wiederholbar.
+- `wp tixomat artists check-event <id>` zeigt je Line-up-Zeile den Künstler und die Bildquelle (nur lesen).
+
+Test: `tests/test-artist-images-wp.php` (Einzel-Seite 18, Plattform 20).

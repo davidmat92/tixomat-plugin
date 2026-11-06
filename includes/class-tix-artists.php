@@ -39,6 +39,7 @@ class TIX_Artists {
         add_action('init', [__CLASS__, 'register_cpt'], 5);
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('transition_post_status', [__CLASS__, 'on_publish'], 30, 3);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artists', [__CLASS__, 'cli']);
     }
 
     public static function multi() {
@@ -60,6 +61,110 @@ class TIX_Artists {
         $n = strtolower(remove_accents(html_entity_decode((string) $name, ENT_QUOTES, 'UTF-8')));
         $n = preg_replace('/^(the|die|der|das|dj)\s+/u', '', trim($n));
         return preg_replace('/[^a-z0-9]+/', '', $n);
+    }
+
+    /**
+     * Act-Zeile → Künstlername (1.38.669): Zeichen vor dem ersten Buchstaben (Emoji), „Music by“/„Musik von“/„Sound by“
+     * vorne und ein Zusatz in Klammern hinten fallen weg: „🎧 Music by DJ Alex Alive“ → „DJ Alex Alive“,
+     * „Andreas Köhler (DJ/Moderation)“ → „Andreas Köhler“.
+     */
+    public static function act_name($name) {
+        $orig = trim(html_entity_decode((string) $name, ENT_QUOTES, 'UTF-8'));
+        $n = preg_replace('/^[^\p{L}\p{N}]+/u', '', $orig);
+        $n = preg_replace('/^(music|musik|sound|sounds|mixed|hosted|presented)\s+(by|von)\s+/iu', '', (string) $n);
+        $n = trim((string) preg_replace('/\s*\([^()]*\)\s*$/u', '', (string) $n));
+        return $n !== '' ? $n : $orig;
+    }
+
+    /** Vergleichsschlüssel Act ↔ Künstler: wie norm(), aber auf dem gesäuberten Namen (Emoji vorne egal, „DJ“ vorne egal). */
+    public static function act_key($name) {
+        return self::norm(self::act_name($name));
+    }
+
+    /** Schlüssel → Künstler-IDs aller veröffentlichten, nicht zusammengeführten Künstler (je Anfrage einmal) */
+    private static function key_index() {
+        if (isset(self::$cache['keyidx'])) return self::$cache['keyidx'];
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT ID, post_title FROM {$wpdb->posts} WHERE post_type = %s AND post_status = 'publish'", self::CPT));
+        $idx = [];
+        foreach ((array) $rows as $r) {
+            $k = self::act_key($r->post_title);
+            if (strlen($k) >= 2) $idx[$k][] = intval($r->ID);
+        }
+        return self::$cache['keyidx'] = $idx;
+    }
+
+    /** Gehört der Künstler zum Bereich des Events? Einzel-Seite: alle; Plattform: vom Veranstalter des Events verwaltet. */
+    private static function owned_for_event($aid, $event_id) {
+        if (!self::multi()) return true;
+        $d = self::raw($aid);
+        $mb = (array) ($d['managed_by'] ?? []);
+        $oids = array_filter([intval(get_post_meta($event_id, '_tix_organizer_id', true)), intval(get_post_meta($event_id, '_tix_co_organizer_id', true))]);
+        return ($mb['type'] ?? '') === 'organizer' && in_array(intval($mb['id'] ?? 0), $oids, true);
+    }
+
+    /**
+     * Künstler zu einer Line-up-Zeile (1.38.669): zuerst die dem Event zugeordneten Künstler (gleicher Schlüssel), sonst ein
+     * eigener Künstler der Seite bzw. des Veranstalters mit gleichem Namen (auch ohne Zuordnung). Gesperrte und
+     * zusammengeführte nie; bei mehreren Treffern ohne Zuordnung keiner. → ID | 0
+     */
+    public static function artist_for_line($event_id, $name) {
+        $k = self::act_key($name);
+        if (strlen($k) < 2) return 0;
+        $ck = intval($event_id) . '|' . $k;
+        if (isset(self::$cache['line'][$ck])) return self::$cache['line'][$ck];
+        $hit = 0;
+        foreach (self::event_list($event_id) as $r) {
+            $aid = intval($r['artist_id'] ?? 0);
+            $d = self::raw($aid);
+            if (!$d || ($d['status'] ?? '') === 'blocked' || get_post_meta($aid, self::META_REDIRECT, true)) continue;
+            if (self::act_key(get_the_title($aid)) === $k) { $hit = $aid; break; }
+        }
+        if (!$hit) {
+            $cand = [];
+            foreach ((array) (self::key_index()[$k] ?? []) as $aid) {
+                $d = self::raw($aid);
+                if (!$d || ($d['status'] ?? '') === 'blocked' || get_post_meta($aid, self::META_REDIRECT, true)) continue;
+                if (self::owned_for_event($aid, $event_id)) $cand[] = $aid;
+            }
+            if (count($cand) === 1) $hit = $cand[0];
+        }
+        return self::$cache['line'][$ck] = $hit;
+    }
+
+    /** Verknüpfungsangaben eines Künstlers für eine Line-up-Zeile (slug nur bei öffentlichem Profil) */
+    private static function line_info($aid) {
+        return ['id' => intval($aid), 'slug' => self::is_public($aid) ? (string) get_post_field('post_name', $aid) : null, 'name' => (string) get_the_title($aid)] + self::images_public($aid);
+    }
+
+    /** Zwischenspeicher der Zuordnung Act ↔ Künstler leeren (nach Änderungen an Künstlern, Zuordnungen oder Act-Fotos) */
+    public static function flush_cache() {
+        unset(self::$cache['line'], self::$cache['actpics'], self::$cache['keyidx'], self::$cache['pub']);
+    }
+
+    /** Hat der Künstler ein eigenes Bild (Porträt oder Titelbild)? */
+    public static function has_image($aid) {
+        $d = self::raw($aid);
+        $img = (array) ($d['images'] ?? []);
+        return intval($img['portrait']['id'] ?? 0) > 0 || intval($img['cover']['id'] ?? 0) > 0;
+    }
+
+    /**
+     * Act-Foto → Künstlerprofil (1.38.669): Wird an einer Line-up-Zeile ein Foto gesetzt und gehört die Zeile zu einem
+     * Künstler des Bereichs ohne eigenes Bild, wird es sein Porträt. Vorhandene Bilder bleiben. → Künstler-ID | 0
+     */
+    public static function adopt_photo($event_id, $name, $attachment_id, $dry = false) {
+        $att = intval($attachment_id);
+        if (!$att || get_post_type($att) !== 'attachment' || strpos((string) get_post_mime_type($att), 'image/') !== 0) return 0;
+        $aid = self::artist_for_line($event_id, $name);
+        if (!$aid || !self::owned_for_event($aid, $event_id) || self::has_image($aid)) return 0;
+        if ($dry) return $aid;
+        $d = self::raw($aid);
+        $d['images']['portrait'] = ['id' => $att, 'credit' => ''];
+        self::save_raw($aid, $d);
+        self::log($aid, 'updated', ['from' => 'lineup_photo', 'event' => intval($event_id)]);
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        return $aid;
     }
 
     /** Spotify-Artist-ID aus Link bzw. ID */
@@ -117,6 +222,7 @@ class TIX_Artists {
         update_post_meta($id, self::META_SPOTIFY, (string) ($d['ids']['spotify'] ?? ''));
         update_post_meta($id, self::META_APPLE, (string) ($d['ids']['apple'] ?? ''));
         unset(self::$cache[intval($id)]);
+        self::flush_cache();
     }
 
     private static function log($id, $action, array $extra = []) {
@@ -242,7 +348,23 @@ class TIX_Artists {
         return is_array($l) ? array_values($l) : [];
     }
 
-    /** Öffentlich: [{id, slug, name, role, tour, image}] – nur öffentliche Künstler (in Vorschauen: alle zugeordneten, nicht gesperrten) */
+    /** Act-Fotos eines Events je Schlüssel act_key → {thumb, large} (nur gesetzte bzw. übernommene Act-Fotos) */
+    private static function act_photos($event_id) {
+        $ck = intval($event_id);
+        if (isset(self::$cache['actpics'][$ck])) return self::$cache['actpics'][$ck];
+        $out = [];
+        if (class_exists('TIX_Lineup_Links')) foreach ((array) TIX_Lineup_Links::for_event($event_id) as $r) {
+            $k = self::act_key((string) ($r['artist'] ?? ''));
+            if ($k !== '' && !empty($r['picture']) && !isset($out[$k])) $out[$k] = ['thumb' => (string) ($r['picture_thumb'] ?: $r['picture']), 'large' => (string) $r['picture']];
+        }
+        return self::$cache['actpics'][$ck] = $out;
+    }
+
+    /**
+     * Öffentlich: [{id, slug, name, role, tour, image, image_source}] – nur öffentliche Künstler (in Vorschauen: alle
+     * zugeordneten, nicht gesperrten). image = Bild des Künstlers, sonst das Act-Foto gleichen Namens im Event (1.38.669);
+     * image_source artist | act | null.
+     */
     public static function event_public($event_id) {
         $preview = class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::rendering_event($event_id);
         $out = [];
@@ -254,32 +376,45 @@ class TIX_Artists {
             if (!$preview && !self::$cache['pub'][$aid]) continue;
             $img = (array) ($d['images'] ?? []);
             $iid = intval($img['portrait']['id'] ?? 0) ?: intval($img['cover']['id'] ?? 0);
+            $image = $iid ? ((string) (wp_get_attachment_image_url($iid, 'medium') ?: '') ?: null) : null;
+            $src = $image ? 'artist' : null;
+            if (!$image) {
+                $act = self::act_photos($event_id)[self::act_key(get_the_title($aid))] ?? null;
+                if ($act) { $image = $act['thumb']; $src = 'act'; }
+            }
             $out[] = ['id' => $aid, 'slug' => (string) get_post_field('post_name', $aid), 'name' => (string) get_the_title($aid), 'role' => (string) ($r['role'] ?? 'headliner'),
-                'tour' => ($r['tour'] ?? '') ?: null, 'image' => $iid ? (string) (wp_get_attachment_image_url($iid, 'medium') ?: '') : null] + self::images_public($aid);
+                'tour' => ($r['tour'] ?? '') ?: null, 'image' => $image, 'image_source' => $src] + self::images_public($aid);
         }
         return $out;
     }
 
     /**
-     * Line-up-Zeilen ({name, artist, picture?, picture_thumb?, …}) mit den zugeordneten Künstlern des Events verknüpfen (1.38.535):
-     * gleicher normalisierter Name → artist_id, artist_slug, portrait, cover, credit; ohne Treffer null. Ein fehlendes Act-Foto
-     * (picture) übernimmt das Porträt bzw. Titelbild des Künstlers – gesetzte Act-Fotos bleiben unverändert.
+     * Line-up-Zeilen ({name, artist, picture?, picture_thumb?, …}) mit Künstlern verknüpfen (1.38.535, eine Bildquelle 1.38.669):
+     * gleicher Schlüssel (act_key) wie ein zugeordneter Künstler, sonst ein eigener Künstler der Seite bzw. des Veranstalters
+     * gleichen Namens → artist_id, artist_slug (nur öffentlich), artist_name, portrait, cover, credit; ohne Treffer null.
+     * Bild: Act-Foto der Zeile, sonst Porträt bzw. Titelbild des Künstlers; picture_source act | artist | null.
      */
     public static function link_lineup(array $rows, $event_id, $artists = null) {
         $by = [];
-        foreach (($artists === null ? self::event_public($event_id) : $artists) as $ar) $by[self::norm($ar['name'])] = $ar;
+        foreach (($artists === null ? self::event_public($event_id) : $artists) as $ar) $by[self::act_key($ar['name'])] = $ar;
         foreach ($rows as &$row) {
-            $ar = $by[self::norm((string) ($row['artist'] ?? ($row['name'] ?? '')))] ?? null;
+            $nm = (string) (($row['artist'] ?? '') !== '' ? $row['artist'] : ($row['name'] ?? ''));
+            $ar = $by[self::act_key($nm)] ?? null;
+            if (!$ar && ($aid = self::artist_for_line($event_id, $nm))) $ar = self::line_info($aid);
             $row['artist_id'] = $ar ? intval($ar['id']) : null;
-            $row['artist_slug'] = $ar ? (string) $ar['slug'] : null;
+            $row['artist_slug'] = $ar ? (($ar['slug'] ?? '') !== '' ? (string) $ar['slug'] : null) : null;
+            $row['artist_name'] = $ar ? (string) $ar['name'] : null;
             $row['images'] = $ar['images'] ?? ['cover' => null, 'portrait' => null];
             $row['portrait'] = $ar['portrait'] ?? null;
             $row['cover'] = $ar['cover'] ?? null;
             $row['credit'] = (string) ($ar['credit'] ?? '');
-            if ($ar && array_key_exists('picture', $row) && empty($row['picture'])) {
-                $pic = $ar['portrait'] ?: $ar['cover'];
-                if ($pic) { $row['picture'] = $pic['large']; $row['picture_thumb'] = $pic['medium']; }
+            $src = !empty($row['picture']) ? 'act' : null;
+            if (!$src && $ar) {
+                $pic = ($ar['portrait'] ?? null) ?: ($ar['cover'] ?? null);
+                if ($pic) { $row['picture'] = $pic['large'] ?: $pic['medium']; $row['picture_thumb'] = $pic['medium'] ?: $pic['large']; $src = 'artist'; }
             }
+            if (!$src) { $row['picture'] = $row['picture'] ?? null; $row['picture_thumb'] = $row['picture_thumb'] ?? null; }
+            $row['picture_source'] = $src;
         }
         unset($row);
         return $rows;
@@ -294,7 +429,10 @@ class TIX_Artists {
             if (!$d) continue;
             $img = (array) ($d['images'] ?? []);
             $iid = intval($img['portrait']['id'] ?? 0) ?: intval($img['cover']['id'] ?? 0);
-            $list[] = ['artist_id' => $aid, 'name' => (string) get_the_title($aid), 'slug' => (string) get_post_field('post_name', $aid), 'image' => $iid ? (string) (wp_get_attachment_image_url($iid, 'medium') ?: '') : null,
+            $image = $iid ? ((string) (wp_get_attachment_image_url($iid, 'medium') ?: '') ?: null) : null;
+            $src = $image ? 'artist' : null;
+            if (!$image && ($act = self::act_photos($event_id)[self::act_key(get_the_title($aid))] ?? null)) { $image = $act['thumb']; $src = 'act'; }
+            $list[] = ['artist_id' => $aid, 'name' => (string) get_the_title($aid), 'slug' => (string) get_post_field('post_name', $aid), 'image' => $image, 'image_source' => $src,
                 'role' => (string) ($r['role'] ?? 'headliner'), 'tour' => ($r['tour'] ?? '') ?: null, 'tours' => array_map(function ($t) { return ['slug' => $t['slug'], 'name' => $t['name']]; }, (array) $d['tours']),
                 'status' => (string) $d['status']];
         }
@@ -353,6 +491,7 @@ class TIX_Artists {
         delete_post_meta($event_id, self::EV_REF);
         foreach ($list as $r) add_post_meta($event_id, self::EV_REF, (string) intval($r['artist_id']));
         foreach (array_column($list, 'artist_id') as $aid) unset(self::$cache['pub'][intval($aid)]);
+        self::flush_cache();
         self::notify_pending($event_id);
     }
 
@@ -887,8 +1026,8 @@ class TIX_Artists {
         $acts = [];
         foreach ($events as $eid) {
             foreach (TIX_Lineup_Links::for_event($eid, true) as $row) {
-                $name = trim((string) ($row['artist'] ?? ''));
-                $k = self::norm($name);
+                $name = self::act_name((string) ($row['artist'] ?? '')); // „Music by …“ und „(DJ/Moderation)“ weg (1.38.669)
+                $k = self::act_key($name);
                 if ($k === '' || mb_strlen($name) > 120) continue;
                 $a = $acts[$k] ?? ['name' => $name, 'events' => [], 'spotify' => '', 'apple_music' => '', 'photo_id' => 0];
                 $a['events'][] = $eid;
@@ -906,7 +1045,12 @@ class TIX_Artists {
             $item = ['name' => $a['name'], 'events' => $a['events'], 'spotify' => $a['spotify'] ?: null, 'apple_music' => $a['apple_music'] ?: null, 'photo' => $a['photo_id'] ? (string) (wp_get_attachment_image_url($a['photo_id'], 'medium') ?: '') : null];
             // vorhandener Künstler: eigener (bzw. Seite) vor öffentlichem fremden; gesperrte/zusammengeführte nie
             $hit = 0; $own = false;
-            foreach (self::find(['name' => $a['name'], 'spotify' => $a['spotify'], 'apple' => $a['apple_music']], 10, false) as $f) {
+            // eigener Künstler gleichen Namens (auch mit Emoji bzw. „DJ“ im Profilnamen) zuerst (1.38.669)
+            foreach ($a['events'] as $eid) {
+                $aid = self::artist_for_line($eid, $a['name']);
+                if ($aid && self::owned_for_event($aid, $eid) && (!self::multi() || self::is_admin() || $org)) { $hit = $aid; $own = true; break; }
+            }
+            if (!$hit) foreach (self::find(['name' => $a['name'], 'spotify' => $a['spotify'], 'apple' => $a['apple_music']], 10, false) as $f) {
                 $d = self::raw($f['id']);
                 if (!$d || ($d['status'] ?? '') === 'blocked') continue;
                 $mine = !self::multi() || (($d['managed_by']['type'] ?? '') === 'organizer' && intval($d['managed_by']['id'] ?? 0) === $org) || (self::is_admin() && !$org);
@@ -943,7 +1087,7 @@ class TIX_Artists {
                 $ch = false;
                 if ($a['spotify'] !== '' && empty($d['links']['spotify'])) { $d['links']['spotify'] = esc_url_raw($a['spotify']); $d['ids']['spotify'] = $d['ids']['spotify'] ?? '' ?: self::spotify_id($a['spotify']); $ch = true; }
                 if ($a['apple_music'] !== '' && empty($d['links']['apple_music'])) { $d['links']['apple_music'] = esc_url_raw($a['apple_music']); $d['ids']['apple'] = $d['ids']['apple'] ?? '' ?: self::apple_id($a['apple_music']); $ch = true; }
-                if ($a['photo_id'] && empty($d['images']['portrait']['id']) && get_post_type($a['photo_id']) === 'attachment') { $d['images']['portrait'] = ['id' => $a['photo_id'], 'credit' => '']; $ch = true; }
+                if ($a['photo_id'] && !self::has_image($hit) && get_post_type($a['photo_id']) === 'attachment') { $d['images']['portrait'] = ['id' => $a['photo_id'], 'credit' => '']; $ch = true; }
                 if ($ch) { self::save_raw($hit, $d); self::log($hit, 'updated', ['from' => 'lineup']); $res['updated'][] = $item + ['id' => $hit]; }
             }
             // Mit den Events verknüpfen (höchstens MAX_PER_EVENT je Event)
@@ -1201,6 +1345,59 @@ class TIX_Artists {
         self::log($into, 'merged', ['from' => $from, 'events' => $moved]);
         self::log($from, 'merged_into', ['into' => $into]);
         return $moved;
+    }
+
+    // ═══════════════ Nachtrag Act-Fotos → Künstler (1.38.669) ═══════════════
+
+    /**
+     * Act-Fotos aller Events (bzw. eines) an Künstler ohne eigenes Bild übergeben – wie beim Hochladen (adopt_photo).
+     * $dry = nur zeigen. → {events, rows[{event_id, act, artist_id, artist, photo_id}], adopted, dry_run}
+     */
+    public static function sync_photos($event_id = 0, $dry = true) {
+        $res = ['events' => 0, 'rows' => [], 'adopted' => 0, 'dry_run' => (bool) $dry];
+        if (!class_exists('TIX_Lineup_Links')) return $res;
+        $ids = $event_id ? [intval($event_id)] : array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'future', 'draft', 'pending', 'private'],
+            'posts_per_page' => -1, 'fields' => 'ids', 'no_found_rows' => true, 'suppress_filters' => true, 'tix_include_sandbox' => 1,
+            'meta_query' => [['key' => TIX_Lineup_Links::META_PHOTOS, 'compare' => 'EXISTS']]]));
+        $done = [];
+        foreach ($ids as $eid) {
+            if (get_post_type($eid) !== 'event') continue;
+            $res['events']++;
+            foreach ((array) TIX_Lineup_Links::for_event($eid, true) as $row) {
+                $pid = intval($row['photo_id'] ?? 0);
+                if (!$pid) continue;
+                $aid = self::artist_for_line($eid, (string) $row['artist']);
+                if (!$aid || isset($done[$aid])) continue;
+                $got = self::adopt_photo($eid, (string) $row['artist'], $pid, $dry);
+                if (!$got) continue;
+                $done[$aid] = true;
+                $res['adopted']++;
+                $res['rows'][] = ['event_id' => $eid, 'act' => (string) $row['name'], 'artist_id' => $aid, 'artist' => (string) get_the_title($aid), 'photo_id' => $pid];
+            }
+        }
+        return $res;
+    }
+
+    /**
+     * wp tixomat artists sync-photos [--trocken] [--event=<id>]   Act-Fotos an Künstler ohne Bild übergeben (--trocken = nur zeigen)
+     * wp tixomat artists check-event <id>                         Line-up-Zeilen mit Künstler und Bildquelle zeigen (nur lesen)
+     */
+    public static function cli($args, $assoc) {
+        $cmd = (string) ($args[0] ?? '');
+        if ($cmd === 'sync-photos') {
+            $dry = isset($assoc['trocken']) || isset($assoc['dry-run']);
+            $r = self::sync_photos(intval($assoc['event'] ?? 0), $dry);
+            foreach ($r['rows'] as $row) WP_CLI::line(sprintf('Event %d · %s → Künstler %d „%s“ (Foto %d)', $row['event_id'], $row['act'], $row['artist_id'], $row['artist'], $row['photo_id']));
+            WP_CLI::success(sprintf('%d Events geprüft, %d Künstler %s.', $r['events'], $r['adopted'], $dry ? 'würden ein Bild bekommen (trocken, nichts geändert)' : 'haben ein Bild bekommen'));
+            return;
+        }
+        if ($cmd === 'check-event' && !empty($args[1])) {
+            $eid = intval($args[1]);
+            $rows = class_exists('TIX_Lineup_Links') ? self::link_lineup(TIX_Lineup_Links::for_event($eid, true), $eid) : [];
+            foreach ($rows as $r) WP_CLI::line(sprintf('%s | Künstler %s | Bild %s | Act-Foto %d', $r['name'], $r['artist_id'] ? $r['artist_id'] . ' „' . $r['artist_name'] . '“' : '–', $r['picture_source'] ?: '–', intval($r['photo_id'] ?? 0)));
+            return;
+        }
+        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id>');
     }
 }
 
