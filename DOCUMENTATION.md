@@ -4428,3 +4428,110 @@ Nur Mehr-Veranstalter-Modus (evendis), sonst 404. Vertrag: `uebergaben/vertrag-d
 - `GET /orders` (alle Bestellungen): im Mehr-Veranstalter-Modus jetzt auch für Veranstalter/Team ohne `edit_posts` (vorher 403 – auch für echte Veranstalter); `get_orders` schottet dort selbst ab. Zugangs-Verwaltung (`/demo-access`) wird nie verkürzt; eigene Namen/Adressen bleiben voll, auch wenn ein fremder Käufer gleich heißt.
 - `/me.demo_access.test_orders` = eigene Testkäufe seit dem letzten Zurücksetzen.
 - Tests: `tests/test-demo-access-wp.php` (77/77, Plattform).
+
+## 93. Angebote des Plattform-Betreibers (ab 1.38.670)
+
+`includes/class-tix-platform-offers.php` (`TIX_Platform_Offers`). Gilt nur im Mehr-Veranstalter-Modus; auf Einzel-Seiten antworten alle Routen mit 404 `rest_no_route`.
+
+- **Rechte:** Plattform-Admins (`manage_options`) und der Vertrieb (Rolle `tix_sales`).
+  - Der Vertrieb sieht und bearbeitet nur seine eigenen Angebote (`owner_id`), Admins sehen alle.
+  - Den Katalog ändern nur Admins.
+- **Katalog** (Option `tix_offer_catalog`, leer = Startwerte aus `default_catalog()`):
+  - Tarife (`plan`), Module (`module`) und Leistungen (`service`) mit `prices {monthly, yearly, once, per_event}`, `default_interval`, optional `fee_percent`/`fee_fixed` (je Ticket).
+  - Dazu `price_note`, `term`, `benefits[]` (Schlüssel), `adds[]` (kommt beim Anlegen automatisch dazu, z. B. App → App-Einrichtung), `recommended`, `active`.
+  - Vorteile `benefits[{key, title, text, group}]`, `general_benefits[]`, Wettbewerb `competitors[{id, name, examples[3]}]` mit `comparison_examples[3]`.
+  - Außerdem `tax_rate`, `valid_days`, `number_prefix`, `intro`, `conditions`.
+  - Startwerte:
+    - Quelle: veranstalter.evendis.de/preise/ und Startseite, Stand 06.11.2026 (User-Entscheid; die Werbe-PDF ist bei den Gebühren veraltet). Katalog `version` 2.
+    - `kostenlos` Kostenlos eintragen 0 €
+    - `tickets` Tickets über evendis 2,5 % + 0,59 € je verkauftem Ticket, inkl. MwSt. und Zahlung
+    - `shop` Eigener Shop 79 € im Monat bei Jahresvertrag, Einrichtung inklusive; `shop_monatlich` monatlich kündbar 99 € im Monat
+    - `app` Basis 149 € im Monat (setzt Shop oder Lizenz voraus) + `app_einrichtung` 1.490 € einmalig, `app_modul` 29 €, `app_alle_module` 249 €
+    - `lizenz` 699 € im Jahr je Website
+    - `domain` (eigene Domain für die Veranstalter-Seite), `datenumzug`, `schulung`: auf Anfrage
+    - Kein Startangebot. „In jedem Konto ohne Aufpreis“ (5 Designs, Link mit QR und Story-Bild, Kalender-Abo, CSV-Export, Awareness) als `general_benefits`.
+    - Wettbewerb aus der Übersicht (Stand 16.10.2026): nur Gesprächshilfe im Studio.
+- **Angebot** (Tabelle `{prefix}tix_platform_offers`, Daten als JSON):
+  - `customer {company, name, email, phone, street, zip, city, country, vat_id, provider}`.
+  - `items[{id, catalog_key, type, name, description, qty, interval monthly|yearly|once|per_event|per_ticket, list_price, price, fee_percent, fee_fixed, note}]`. `price` = überschrieben, `null` = Listenpreis. Bei Katalog-Positionen kommt der Listenpreis immer aus dem Katalog (beim Speichern des Entwurfs).
+  - `discount {type none|percent|amount, value, on all|recurring|once, label}`, `tax_rate`, `term_months`.
+  - `benefits[{key, title, text, on}]`; fehlt das Feld beim Anlegen, wird es aus den Positionen vorgeschlagen.
+  - `comparison {competitor_id}`, daraus werden die Beispielzeilen. **Nur im Studio** (Gesprächshilfe mit Stand und Quelle): nie im PDF, nie auf der Kundenseite bzw. in `/public/offers/{token}`.
+  - `valid_until`, `intro`, `conditions`, `contact {name, email, phone}` (Vorgabe: das eigene Konto), `accept_link` (Vorgabe an), `internal_note`.
+- **Summen:**
+  - Wiederkehrend aufs Jahr gerechnet (monatlich × 12 + jährlich), einmalig getrennt (einmalig + je Event).
+  - Rabatt prozentual oder als Betrag (beim Betrag mit `on: all` anteilig auf beide Teile), danach MwSt.
+  - `monthly_net` = Jahr ÷ 12.
+  - Gebühren je Ticket stehen unter `fees` und nicht in der Summe; fehlende Preise unter `missing_prices`.
+- **Nummernkreis:** `AN-JJJJ-NNNN` je Jahr, Option `tix_offer_seq` unter `GET_LOCK`, nie unter der höchsten vorhandenen Nummer. Neue Version: `AN-JJJJ-NNNN-2` …
+- **Status:** `draft` → `sent` → `viewed` → `accepted` (= „Interesse bestätigt“, vorerst unverbindlich; online oder von Hand) / `rejected`; `expired` (Cron `tix_offer_expire` täglich, in Listen sofort); `replaced` (durch eine neue Version).
+  - Nach dem Senden lässt sich nur noch `internal_note` ändern, alles andere über `/version`.
+  - Löschen geht nur bei Entwürfen.
+- **PDF** (`render_pdf`, `TIX_PDFA` mit Manrope, sonst `TIX_Simple_PDF`):
+  - Kopf in Nachtblau mit roter Kante, Kunde und Kontakt, Einleitung, Vorteile zweispaltig.
+  - Leistungstabelle mit „statt“ bei überschriebenem Preis, Summen, Bedingungen, Gültigkeit. Kein Wettbewerbsvergleich.
+  - Mit Link steht „Interesse bestätigen – unverbindlich“ mit der Adresse im PDF, sonst „Interesse? Antworte einfach an …“. Der Vertrag kommt jeweils separat.
+  - Absender und Fußzeile aus den Rechnungsangaben (`invoice_company_*`).
+- **Senden:**
+  - Mail mit PDF-Anhang an `customer.email` (oder `to`), `Reply-To` = Kontakt, Kopie an das eigene Konto (`cc_me`, Vorgabe an) und `cc[]`.
+  - Verlangt `confirm: true`, alle Preise und eine gültige `valid_until`.
+  - Erzeugt beim ersten Senden den Token (40 Zeichen), Ablauf = Ende von `valid_until`.
+- **Annahme-Link:** `home_url('/?tix_offer=<token>')` (Filter `tix_offer_accept_url`) zeigt eine eigenständige Seite (noindex, ohne Cache) mit Übersicht, PDF (`&pdf=1`), „Interesse bestätigen“ (Name, ohne Häkchen; Text: unverbindlich, der Vertrag kommt separat) und „Ablehnen“. Die Mail an den Ersteller heißt „Interesse bestätigt: <Nummer>“.
+  - Öffnungen zählen je IP alle 30 min einmal, das Team zählt nicht.
+  - Nach der Entscheidung bekommen der Ersteller und `invoice_email` (sonst `admin_email`) eine Mail mit Knopf ins Studio (`/plattform/angebote/?id=`).
+  - Hooks: `tix_offer_viewed`, `tix_offer_decided`.
+- **Routen** (Namespace `tixomat/v1`):
+  - `GET /platform/offer-catalog` → `{catalog, custom, can_edit, intervals, statuses}`; `POST {catalog}` bzw. `{reset: true}` (Admin, 400 `tix_catalog_invalid`).
+  - `GET /platform/offers?status=draft|sent|viewed|open|accepted|rejected|expired|replaced&q=&owner=&page=&per_page=&all=` → `{offers[], total, has_more, counts}`.
+  - `POST /platform/offers` (201): Positionen auch kurz als `"jahresvertrag"` oder `{catalog_key, interval?, qty?, price?}`; `auto_adds: false` schaltet `adds` ab.
+  - `GET|PATCH|DELETE /platform/offers/{id}` (409 `tix_offer_locked`).
+  - `POST /platform/offers/calc` (Live-Summe ohne Speichern, mit `benefits_suggested`), `POST /platform/offers/preview` (PDF ohne Speichern).
+  - `POST /platform/offers/intro {offer_id | Angebotsdaten, hint?}` → `{intro}` (KI, 503 `ai_unavailable`).
+  - `GET /platform/offers/{id}/pdf` → `{filename, mime, data}` (Base64).
+  - `POST /platform/offers/{id}/send {confirm, to?, cc?, cc_me?, subject?, message?}` (400 `tix_confirm_required` / `tix_offer_email` / `tix_offer_empty` / `tix_offer_price_missing`, 409 `tix_offer_expired`), Antwort zusätzlich `mail {to, copies}`.
+  - `POST /platform/offers/{id}/duplicate` (neue Nummer), `/version` (gleiche Grundnummer, alte `replaced`, ihr Link endet), `/status {status accepted|rejected|sent, note?}`.
+  - Öffentlich: `GET /public/offers/{token}`, `GET …/pdf`, `POST …/interest {name ≥ 3 Zeichen, note?}` (gleich `POST …/accept`, kein `confirm` mehr) → Status `accepted` („Interesse bestätigt“), `POST …/decline {reason?}`; 404 `tix_offer_not_found`, 410 `tix_offer_expired` / `tix_offer_replaced`, 409 `tix_offer_decided`, 429 bei mehr als 10 Entscheidungen je IP und Stunde.
+- Tests: `tests/test-platform-offers-wp.php` (29/29 Plattform, Einzel-Seite 1/1 = Sperre).
+
+### 93.1 Hochrechnung je Event (Nachtrag 06.11., Felder und Rechnung wie `projectionCalc` im Studio)
+
+Vergleicht das Provisionsmodell (Tickets über evendis) mit Selbstgehostet (eigener Shop bzw. Lizenz, ggf. App) für dieselbe Prognose.
+
+**Eingabe am Angebot:** `projection` (mit Speichern, `/calc` und `/preview`; `null` oder `tickets: 0` = keine Hochrechnung)
+- `model`: `commission` | `selfhosted`. Vorgabe aus den Positionen: Shop, Lizenz oder App ergeben `selfhosted`.
+- `tickets` (je Event), `avg_price`, `events_year` (Vorgabe 12), `tickets_per_order` (Vorgabe 1).
+- `payment`: `paypal` | `card` (Kreditkarte & Klarna) | `both`. Bei `both` gelten `paypal_share` und `card_klarna_share` (= 100 − PayPal, Vorgabe 30/70).
+- `bearer`: `guest` | `split` | `organizer`.
+- `in_pdf` (Vorgabe an).
+
+**Rechnung**
+- **Provisionsmodell:** Gebühr der Position `tickets` (sonst aus dem Katalog) je verkauftem Ticket, inkl. MwSt. und Zahlung. Freitickets 0 €, an einen Zahlungsdienstleister 0 €.
+- **Selbstgehostet:**
+  - An evendis: die wiederkehrende Jahressumme des Angebots brutto nach Rabatt (`totals.yearly.gross`) ÷ `events_year`. Hat das Angebot weder Shop noch Lizenz noch App, gilt „Eigener Shop“ × 12 inkl. MwSt.
+  - An den Zahlungsdienstleister: je Zahlart Anteil × (Umsatz × % + Zahlungen × Fixbetrag), mit Zahlungen = Tickets ÷ `tickets_per_order`. „Kreditkarte & Klarna“ zählt je zur Hälfte (`projection_defaults.klarna_within` 50).
+  - Summe = gerundete Teile addiert.
+- **Vergleich:** inkl. MwSt. „Lohnt sich ab“ = (Paket ÷ 12) ÷ (Provision je Ticket − Zahlungskosten je Ticket), aufgerundet.
+- **Beispiel (Test):** 450 Tickets × 24 €, 20 Events, 2 je Bestellung, 30/70, Shop + App. Provisionsmodell 535,50 €; Selbstgehostet 514,30 € (162,79 an evendis + 351,51 an den Zahlungsdienstleister); lohnt sich ab 664 Tickets im Monat.
+
+**Ergebnis** `totals.projection` (in `/calc`, `GET /platform/offers/{id}`; auf der Kundenseite nur mit `in_pdf`):
+- `input`, `revenue_event`, `revenue_year`
+- `commission {fee_percent, fee_fixed, fee_per_ticket, to_evendis_event, to_psp_event 0, total_event, bearer, organizer_pays, guests_pay, per_ticket, percent_of_revenue, per_year}`
+- `selfhosted {package, package_source offer|catalog, package_year, to_evendis_event, to_psp_event, total_event, per_ticket, percent_of_revenue, per_year, methods[{key, label, provider, detail, share, percent, fixed, as_of, source, cost_event, rate_missing}], missing_rates[]}`
+- `comparison {cheaper commission|selfhosted|equal, difference_event, difference_year, break_even_tickets_month}`
+- `payment_note` (Pflicht-Hinweis: Die Gebühren gehen nicht an evendis, das Geld landet direkt beim Veranstalter), `rates_note` („Sätze Stand …“), `basis_note`
+- Fehlt ein Satz, sind `to_psp_event` und `total_event` `null`, und `rate_missing` sagt „bitte im Katalog eintragen“.
+
+**Katalog**
+- `payment_rates {paypal, card, klarna}`, je `{label, provider, detail, percent, fixed, as_of, retrieved, source}`; die Liste `[{key, …}]` wird auch angenommen. `percent`/`fixed` `null` = fehlt.
+- Dazu `payment_note` und `projection_defaults {paypal_share, klarna_within, tickets_per_order, events_year}`.
+- Startwerte, am 06.11.2026 von den öffentlichen Preisseiten abgerufen (`retrieved`):
+
+| Zahlart | Satz | Quelle | Stand der Seite |
+|---|---|---|---|
+| PayPal Checkout, Inland | 2,99 % + 0,39 € | paypal.com/de/business/paypal-business-fees | 04.11.2026 |
+| Kreditkarte, EWR-Verbraucherkarte (Mollie) | 1,80 % + 0,25 € | mollie.com/de/pricing | 05.11.2026 |
+| Klarna DACH (Mollie) | 2,99 % + 0,35 € | mollie.com/de/pricing | 05.11.2026 |
+
+PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steht nur im `detail`. Gewerbliche Karten (2,90 %) und Karten außerhalb des EWR (3,25 %) sind nicht abgebildet.
+
+**PDF:** eigener Block „Hochrechnung je Event“ vor den Bedingungen (abschaltbar über `in_pdf`). Er enthält die Eingaben, die Tabelle Provisionsmodell gegen Selbstgehostet, die Sätze je Zahlart, „Bei dieser Prognose ist … um X € günstiger“, „lohnt sich ab …“ und die Hinweise.
