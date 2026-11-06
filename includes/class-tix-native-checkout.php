@@ -597,10 +597,8 @@ class TIX_Native_Checkout {
             return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map(function ($s) use ($data) { return TIX_Seatmap::seat_label($s, $data); }, $r['failed'])) . '.';
         }
         // Verknüpfte Ticket-Kategorie (seatmap_section), sonst -1 (Ticket heißt wie der Bereich)
-        $cat_index = -1;
-        foreach ((array) get_post_meta($event_id, '_tix_ticket_categories', true) as $ci => $c) {
-            if (is_array($c) && ($c['seatmap_section'] ?? '') === $sec['id']) { $cat_index = intval($ci); break; }
-        }
+        // Phase 2: auch die Zuordnung Sektion → Kategorie aus dem Studio (_tix_seatmap_categories)
+        $cat_index = TIX_Seatmap::section_categories($event_id)[(string) $sec['id']] ?? -1;
         return [
             'event_id'    => intval($event_id),
             'cat_index'   => $cat_index,

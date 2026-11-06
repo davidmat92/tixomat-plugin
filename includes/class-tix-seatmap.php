@@ -374,7 +374,7 @@ class TIX_Seatmap {
             // eigene Reservierungen nicht als belegt zeigen (z. B. nach Neuladen)
             'taken'        => self::taken($event_id, $sm, self::get_session_id()),
             'held'         => self::held_by($event_id, self::get_session_id()),
-            'hold_seconds' => self::RESERVE_MIN * 60,
+            'hold_seconds' => self::reserve_min($event_id) * 60,
             'max_seats'    => self::limits($event_id)['holder'],
             'products'     => [],
         ]);
@@ -389,7 +389,7 @@ class TIX_Seatmap {
         if (empty($r['reserved'])) {
             wp_send_json_error(['message' => $r['message'] ?: 'Sitze bereits belegt', 'failed' => $r['failed'], 'code' => $r['error']]);
         }
-        wp_send_json_success($r + ['session_id' => self::get_session_id(), 'hold_seconds' => self::RESERVE_MIN * 60]);
+        wp_send_json_success($r + ['session_id' => self::get_session_id(), 'hold_seconds' => self::reserve_min($event_id) * 60]);
     }
 
     public static function ajax_release() {
@@ -502,6 +502,83 @@ class TIX_Seatmap {
         return max(1, intval(get_post_meta(intval($seatmap_id), self::META_VERSION, true)));
     }
 
+    /** Platzvergabe: pick (Gast wählt) | best (nur Bestplatz) | both (Vorschlag + selbst wählen); gespeichert manual|best|both */
+    public static function mode($event_id) {
+        $m = (string) get_post_meta(intval($event_id), '_tix_seatmap_mode', true);
+        return $m === 'best' ? 'best' : ($m === 'both' ? 'both' : 'pick');
+    }
+
+    const PALETTE = ['#E8445A', '#3D7BF7', '#1F8F5F', '#E8B931', '#8E5CF7', '#F28C28', '#14B8A6', '#EC4899'];
+    const META_COLORS = '_tix_seatmap_colors';
+    const META_CATEGORIES = '_tix_seatmap_categories'; // Event: {sektion: kategorie_index} (Phase 2)
+
+    /**
+     * Sektion → Ticket-Kategorie des Events → [section_id => cat_index]. Reihenfolge: Studio-Zuordnung (_tix_seatmap_categories),
+     * Kategorie-Feld seatmap_section, sonst der Kategorie-Name der Sektion (category_name, wie das Studio ihn setzt; der
+     * category_index des Plans ist nur ein Hinweis aus den Vorschlägen und gilt nicht für ein bestimmtes Event).
+     */
+    public static function section_categories($event_id, $data = null) {
+        $out = [];
+        foreach ((array) get_post_meta(intval($event_id), '_tix_ticket_categories', true) as $ci => $c) {
+            if (is_array($c) && !empty($c['seatmap_section']) && !isset($out[$c['seatmap_section']])) $out[(string) $c['seatmap_section']] = intval($ci);
+        }
+        foreach ((array) get_post_meta(intval($event_id), self::META_CATEGORIES, true) as $sid => $ci) if (is_numeric($ci)) $out[(string) $sid] = intval($ci);
+        if ($data === null) $data = self::raw_event_data($event_id);
+        if (is_array($data)) {
+            $by_name = [];
+            foreach ((array) get_post_meta(intval($event_id), '_tix_ticket_categories', true) as $ci => $c) {
+                $k = is_array($c) ? self::name_key((string) ($c['name'] ?? '')) : '';
+                if ($k !== '' && !isset($by_name[$k])) $by_name[$k] = intval($ci);
+            }
+            foreach ((array) ($data['sections'] ?? []) as $sec) {
+                $sid = (string) ($sec['id'] ?? '');
+                $k = self::name_key((string) ($sec['category_name'] ?? ''));
+                if ($sid !== '' && !isset($out[$sid]) && $k !== '' && isset($by_name[$k])) $out[$sid] = $by_name[$k];
+            }
+        }
+        return $out;
+    }
+
+    /** Namensvergleich für Kategorien: klein, ohne Akzente und Zeichen */
+    public static function name_key($s) {
+        return preg_replace('/[^a-z0-9]+/', '', strtolower(remove_accents(html_entity_decode(trim((string) $s), ENT_QUOTES, 'UTF-8'))));
+    }
+
+    /** Plan-Daten des Events ohne Kategorie-Überlagerung (Schnappschuss bzw. aktueller Plan) */
+    public static function raw_event_data($event_id) {
+        $sm = self::event_seatmap($event_id);
+        if (!$sm) return null;
+        $snap = get_post_meta(intval($event_id), self::META_SNAPSHOT, true);
+        if (is_array($snap) && intval($snap['seatmap_id'] ?? 0) === $sm && is_array($snap['data'] ?? null)) return $snap['data'];
+        return self::data($sm);
+    }
+
+    /**
+     * Verknüpfte Kategorien auf die Sektionen legen (Phase 2): Name und Preis aus der Kategorie (inkl. Preisphase),
+     * Farbe aus der Kategorie (Palette nach Index, Event-Farbe _tix_seatmap_colors schlägt sie) – nur für die Ausgabe.
+     */
+    public static function apply_categories($event_id, $data) {
+        if (!is_array($data) || empty($data['sections'])) return $data;
+        $map = self::section_categories($event_id, $data);
+        $cats = (array) get_post_meta(intval($event_id), '_tix_ticket_categories', true);
+        $colors = (array) get_post_meta(intval($event_id), self::META_COLORS, true);
+        foreach ($data['sections'] as &$sec) {
+            $sid = (string) ($sec['id'] ?? '');
+            if (!isset($map[$sid])) { $sec['color_source'] = 'plan'; unset($sec['category_index']); continue; } // Plan-Index ist nur ein Hinweis
+            $ci = $map[$sid];
+            $c = is_array($cats[$ci] ?? null) ? $cats[$ci] : [];
+            $sec['category_index'] = $ci;
+            if (!empty($c['name'])) $sec['category_name'] = sanitize_text_field((string) $c['name']);
+            $price = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::category_price($event_id, $ci) : floatval($c['price'] ?? 0);
+            if ($price !== null) $sec['price'] = floatval($price);
+            $own = sanitize_hex_color((string) ($colors[$sid] ?? ''));
+            $sec['color'] = $own ?: self::PALETTE[$ci % count(self::PALETTE)];
+            $sec['color_source'] = $own ? 'event' : 'category';
+        }
+        unset($sec);
+        return $data;
+    }
+
     /** Saalplan eines Events (0 = keiner) */
     public static function event_seatmap($event_id) {
         $id = intval(get_post_meta(intval($event_id), '_tix_seatmap_id', true));
@@ -513,8 +590,8 @@ class TIX_Seatmap {
         $sm = self::event_seatmap($event_id);
         if (!$sm) return null;
         $snap = get_post_meta(intval($event_id), self::META_SNAPSHOT, true);
-        if (is_array($snap) && intval($snap['seatmap_id'] ?? 0) === $sm && is_array($snap['data'] ?? null)) return $snap['data'];
-        return self::data($sm);
+        if (is_array($snap) && intval($snap['seatmap_id'] ?? 0) === $sm && is_array($snap['data'] ?? null)) return self::apply_categories($event_id, $snap['data']);
+        return self::apply_categories($event_id, self::data($sm));
     }
 
     /** Version, die das Event nutzt */
@@ -643,7 +720,7 @@ class TIX_Seatmap {
         self::$allow_assign = false;
         $snap = get_post_meta($event_id, self::META_SNAPSHOT, true);
         if (is_array($snap) && intval($snap['seatmap_id'] ?? 0) !== intval($seatmap_id)) delete_post_meta($event_id, self::META_SNAPSHOT);
-        if ($mode !== null) update_post_meta($event_id, '_tix_seatmap_mode', $mode === 'best' ? 'best' : 'manual');
+        if ($mode !== null) update_post_meta($event_id, '_tix_seatmap_mode', in_array($mode, ['best', 'both'], true) ? $mode : 'manual');
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return true;
     }
@@ -670,6 +747,7 @@ class TIX_Seatmap {
             'height'      => intval($data['height'] ?? 600),
             'layout'      => in_array($data['layout'] ?? '', $layouts, true) ? $data['layout'] : 'theater',
             'stage_label' => sanitize_text_field($data['stage_label'] ?? 'BÜHNE'),
+            'best_row'    => (isset($data['best_row']) && is_numeric($data['best_row'])) ? round(max(0, min(1, floatval($data['best_row']))), 2) : null,
             'sections'    => [],
             'objects'     => [],
         ];
@@ -696,6 +774,7 @@ class TIX_Seatmap {
                 'position'      => in_array($section['position'] ?? '', $positions, true) ? $section['position'] : 'center',
                 'price'         => max(0, floatval($section['price'] ?? 0)),
                 'category_name' => sanitize_text_field($section['category_name'] ?? ''),
+                'priority'      => in_array($section['priority'] ?? '', ['first', 'last'], true) ? $section['priority'] : 'normal',
                 'rows'          => [],
             ];
             if (isset($section['category_index']) && is_numeric($section['category_index'])) $s['category_index'] = intval($section['category_index']);
@@ -821,6 +900,7 @@ class TIX_Seatmap {
                 'label'      => !empty($s['category_name']) ? $s['category_name'] : $s['label'],
                 'color'      => $s['color'] ?? '#FF5500',
                 'price'      => floatval($s['price'] ?? 0),
+                'category_index' => isset($s['category_index']) ? intval($s['category_index']) : null,
                 'product_id' => 0,
                 'total'      => $total,
                 'available'  => $event_id ? self::available_seats($event_id, $seatmap_id, $s['id']) : $total,
@@ -836,50 +916,10 @@ class TIX_Seatmap {
         wp_enqueue_style('tix-seatmap-picker', TIXOMAT_URL . 'assets/css/seatmap-picker.css', ['tix-google-fonts'], TIXOMAT_VERSION);
     }
 
-    /**
-     * Best-Available: zusammenhängende Sitze in einer Reihe, bevorzugt vorne und mittig;
-     * Fallback Einzelsitze aus verschiedenen Reihen.
-     */
+    /** Best-Available über TIX_Seatmap_Best (Phase 2) → Sitz-IDs bzw. [] */
     private static function find_best_seats($data, $taken, $section_id, $qty) {
-        $taken = array_flip($taken);
-        $best = null; $best_score = -INF;
-        foreach (($data['sections'] ?? []) as $section) {
-            if ($section_id && $section['id'] !== $section_id) continue;
-            $rows = $section['rows'] ?? [];
-            $total_rows = count($rows);
-            foreach ($rows as $ri => $row) {
-                $seats = $row['seats'] ?? [];
-                $n = count($seats);
-                $center = ($n - 1) / 2;
-                $block = [];
-                $flush = function () use (&$block, &$best, &$best_score, $qty, $center, $total_rows, $ri) {
-                    if (count($block) < $qty) { $block = []; return; }
-                    for ($b = 0; $b <= count($block) - $qty; $b++) {
-                        $mid = ($block[$b][0] + $block[$b + $qty - 1][0]) / 2;
-                        $score = ($total_rows - $ri) * 100 + (100 - abs($mid - $center));
-                        if ($score > $best_score) { $best_score = $score; $best = array_column(array_slice($block, $b, $qty), 1); }
-                    }
-                    $block = [];
-                };
-                foreach ($seats as $si => $seat) {
-                    if (($seat['type'] ?? 'standard') === 'blocked' || isset($taken[$seat['id']])) { $flush(); continue; }
-                    $block[] = [$si, $seat['id']];
-                }
-                $flush();
-            }
-        }
-        if ($best) return $best;
-        $fallback = [];
-        foreach (($data['sections'] ?? []) as $section) {
-            if ($section_id && $section['id'] !== $section_id) continue;
-            foreach (($section['rows'] ?? []) as $row) foreach (($row['seats'] ?? []) as $seat) {
-                if (($seat['type'] ?? 'standard') !== 'blocked' && !isset($taken[$seat['id']])) {
-                    $fallback[] = $seat['id'];
-                    if (count($fallback) >= $qty) return $fallback;
-                }
-            }
-        }
-        return [];
+        $r = TIX_Seatmap_Best::find($data, ['qty' => $qty, 'sections' => $section_id ? [$section_id] : [], 'taken' => $taken]);
+        return $r['seats'];
     }
 
     // ──────────────────────────────────────────
@@ -978,8 +1018,14 @@ class TIX_Seatmap {
      * noch von anderen gehalten ist. Neue Plätze unterliegen den Grenzen (limits()).
      * @return array {reserved[], failed[], expires_at (UTC, Y-m-d H:i:s), error (limit_holder|limit_ip|limit_event|null), message}
      */
-    public static function hold($event_id, $seatmap_id, array $seat_ids, $holder, $minutes = self::RESERVE_MIN) {
+    /** Haltezeit in Minuten (Studio-Einstellung hold_minutes, sonst RESERVE_MIN) */
+    public static function reserve_min($event_id = 0) {
+        return class_exists('TIX_Seating') ? TIX_Seating::hold_minutes_for_event(intval($event_id)) : self::RESERVE_MIN;
+    }
+
+    public static function hold($event_id, $seatmap_id, array $seat_ids, $holder, $minutes = null) {
         global $wpdb;
+        if ($minutes === null) $minutes = self::reserve_min($event_id);
         self::maybe_upgrade();
         $table   = $wpdb->prefix . self::TABLE_SUFFIX;
         $event_id = intval($event_id);
@@ -1062,9 +1108,33 @@ class TIX_Seatmap {
 
     /** Beste freie Plätze einer Sektion (ohne sie zu halten) */
     public static function best($event_id, $seatmap_id, $section_id, $qty, $holder = '') {
+        return (array) self::best_info($event_id, $seatmap_id, ['section_id' => $section_id, 'qty' => $qty, 'holder' => $holder])['seats'];
+    }
+
+    /**
+     * Bester Platz mit allen Angaben (TIX_Seatmap_Best::find): $o {qty, section_id | category_index, wheelchair, attempt, holder,
+     * ignore_own (eigene Haltung wie frei behandeln)} – Einstellungen des Veranstalters (split_rows, single_seat_rule) gelten.
+     */
+    public static function best_info($event_id, $seatmap_id, array $o) {
         $data = self::event_data($event_id);
-        if (!$data) return [];
-        return (array) self::find_best_seats($data, self::taken($event_id, $seatmap_id, $holder), $section_id, max(1, intval($qty)));
+        $empty = ['seats' => [], 'split' => false, 'rows' => [], 'section_id' => null, 'score' => null, 'attempt' => 0, 'alternatives' => 0, 'message' => '', 'reason' => 'none'];
+        if (!$data) return $empty;
+        $sections = [];
+        $sid = sanitize_key((string) ($o['section_id'] ?? ''));
+        if ($sid !== '') $sections = [$sid];
+        elseif (isset($o['category_index']) && $o['category_index'] !== '' && $o['category_index'] !== null) {
+            foreach ((array) ($data['sections'] ?? []) as $sec) if (isset($sec['category_index']) && intval($sec['category_index']) === intval($o['category_index'])) $sections[] = (string) $sec['id'];
+            $sections = array_values(array_unique($sections));
+            if (!$sections) return ['message' => 'Für diese Kategorie gibt es keinen Bereich im Saalplan.'] + $empty;
+        }
+        $set = class_exists('TIX_Seating') ? TIX_Seating::settings_for_event(intval($event_id)) : ['best' => []];
+        $holder = (string) ($o['holder'] ?? '');
+        return TIX_Seatmap_Best::find($data, [
+            'qty' => max(1, intval($o['qty'] ?? 1)), 'sections' => $sections, 'taken' => self::taken($event_id, $seatmap_id, $holder),
+            'wheelchair' => !empty($o['wheelchair']) || !empty($set['best']['wheelchair_in_best']),
+            'split_rows' => $set['best']['split_rows'] ?? true, 'single_seat_rule' => $set['best']['single_seat_rule'] ?? true,
+            'attempt' => max(0, intval($o['attempt'] ?? 0)),
+        ]);
     }
 
     /**
@@ -1357,6 +1427,7 @@ class TIX_Seatmap {
             $sections[] = [
                 'id' => $sec['id'], 'label' => $sec['label'], 'color' => $sec['color'],
                 'price' => round($sec['price'], 2), 'total' => $sec['total'], 'available' => $sec['available'],
+                'category_index' => $sec['category_index'] ?? null,
             ];
         }
         $lim = self::limits($event_id);
@@ -1365,9 +1436,11 @@ class TIX_Seatmap {
             'event_id'     => $event_id,
             'seatmap_id'   => $sm,
             'version'      => self::event_version($event_id),
-            'mode'         => get_post_meta($event_id, '_tix_seatmap_mode', true) ?: 'manual', // manual | best
-            'hold_minutes' => self::RESERVE_MIN,
-            'hold_seconds' => self::RESERVE_MIN * 60,
+            'mode'         => self::mode($event_id) === 'best' ? 'best' : 'manual', // manual | best (alte Apps); both → manual + best_available
+            'pick'         => self::mode($event_id) !== 'best',
+            'best_available' => self::mode($event_id) !== 'pick',
+            'hold_minutes' => self::reserve_min($event_id),
+            'hold_seconds' => self::reserve_min($event_id) * 60,
             'max_seats'    => $lim['holder'],
             'layout'       => [
                 'width' => intval($data['width'] ?? 800), 'height' => intval($data['height'] ?? 600),
@@ -1406,20 +1479,33 @@ class TIX_Seatmap {
         return rest_ensure_response(['ok' => true]);
     }
 
-    /** POST /customer/seats/best {event_id, section_id, qty, hold_token?} → beste Plätze finden und halten */
+    /**
+     * POST /customer/seats/best {event_id, qty, section_id | category_index, wheelchair?, attempt?, replace?, preview?, hold_token?}
+     * → beste Plätze finden und halten (preview: nur zeigen). attempt = „anderer Vorschlag“, replace = eigene Haltung vorher freigeben.
+     */
     public static function rest_best(WP_REST_Request $req) {
         if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;
+        // Auch im Modus pick erlaubt (ältere Apps nutzen „Beste Plätze“ als Hilfe beim Wählen)
         $h = self::rest_holder($req);
         if (is_wp_error($h)) return $h;
         list($token, $holder) = $h;
-        $qty  = min(self::limits($event_id)['holder'], max(1, intval($req->get_param('qty'))));
-        $best = self::best($event_id, $sm, sanitize_key((string) $req->get_param('section_id')), $qty, $holder);
-        if (count($best) < $qty) {
-            return new WP_Error('tix_no_seats', 'Nicht genügend freie Plätze verfügbar.', ['status' => 409]);
+        $qty = min(self::limits($event_id)['holder'], max(1, intval($req->get_param('qty'))));
+        $preview = filter_var($req->get_param('preview'), FILTER_VALIDATE_BOOLEAN);
+        $replace = filter_var($req->get_param('replace'), FILTER_VALIDATE_BOOLEAN);
+        if ($replace && !$preview) self::release($event_id, self::held_by($event_id, $holder), $holder);
+        $info = self::best_info($event_id, $sm, ['qty' => $qty, 'section_id' => $req->get_param('section_id'), 'category_index' => $req->get_param('category_index'),
+            'wheelchair' => filter_var($req->get_param('wheelchair'), FILTER_VALIDATE_BOOLEAN), 'attempt' => $req->get_param('attempt'), 'holder' => $holder]);
+        $pub = array_intersect_key($info, array_flip(['seats', 'split', 'rows', 'section_id', 'score', 'attempt', 'alternatives', 'message']));
+        if (count($info['seats']) < $qty) {
+            return new WP_Error($info['reason'] === 'no_more' ? 'tix_no_more' : 'tix_no_seats', $info['message'] ?: 'Nicht genügend freie Plätze verfügbar.', ['status' => 409, 'hold_token' => $token] + $pub);
         }
-        return self::hold_response($token, self::hold($event_id, $sm, $best, $holder), $event_id);
+        if ($preview) return rest_ensure_response(['ok' => true, 'preview' => true, 'hold_token' => $token] + $pub);
+        $r = self::hold_response($token, self::hold($event_id, $sm, $info['seats'], $holder), $event_id);
+        if (is_wp_error($r)) return $r;
+        $r->set_data($r->get_data() + $pub);
+        return $r;
     }
 }
