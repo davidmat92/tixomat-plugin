@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * Zahlungsanbieter im Studio (1.38.675, Doku §96, Vertrag uebergaben/vertrag-zahlungsanbieter-studio.md).
+ * Zahlungsanbieter im Studio (1.38.679, Doku §96, Vertrag uebergaben/vertrag-zahlungsanbieter-studio.md).
  *
  * Dieselben Einstellungen wie im WP-Admin (Option tix_settings) – kein zweiter Speicher.
  *   GET  /studio/payments         Stand (Schlüssel nur maskiert)

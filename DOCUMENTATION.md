@@ -4728,7 +4728,7 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 
 Test `tests/test-mail-transport-wp.php` (45/45 Einzel-Seite, 14/14 Plattform).
 
-## 96. Zahlungsanbieter im Studio (ab 1.38.675)
+## 96. Zahlungsanbieter im Studio (ab 1.38.679)
 Vertrag: `uebergaben/vertrag-zahlungsanbieter-studio.md`. Klasse `TIX_Studio_Payments` (`includes/class-tix-studio-payments.php`).
 - `GET /studio/payments`, `POST /studio/payments` (Teil-Update `{order?, mollie?, stripe?, paypal?, bank?}`), `POST /studio/payments/test {provider}` (mollie|stripe|paypal, mit gespeicherten Daten, nichts wird gebucht, 10 je 10 min → 429 `tix_pay_test_limit`).
 - Speicher = `tix_settings` wie im WP-Admin (kein zweiter Speicher); Antwort liest frisch aus der Option (nicht über den statischen Zwischenspeicher von `tix_get_settings`). Schlüssel nur maskiert (`key_set`, `key_hint`), IBAN gekürzt. Feld fehlt/'' = unverändert, `null` = löschen.

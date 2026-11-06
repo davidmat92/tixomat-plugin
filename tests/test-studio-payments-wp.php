@@ -1,5 +1,5 @@
 <?php
-/** Studio: Zahlungsanbieter (TIX_Studio_Payments, 1.38.675, §96). wp eval-file …/tests/test-studio-payments-wp.php (beide Modi). Anbieter werden per pre_http_request nachgestellt. */
+/** Studio: Zahlungsanbieter (TIX_Studio_Payments, 1.38.679, §96). wp eval-file …/tests/test-studio-payments-wp.php (beide Modi). Anbieter werden per pre_http_request nachgestellt. */
 if (!defined('ABSPATH') || !class_exists('TIX_Studio_Payments')) { echo "Plugin nötig\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function zp_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
