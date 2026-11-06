@@ -4652,3 +4652,33 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 - **Profil je Zugang** (`_tix_demo_profile`): Pflicht beim Anlegen von Interessenten (400 Feld `profile`), `PATCH {profile}`, `POST /demo-access/view {model?, profile?}`; das Team (`_tix_team_organizer_id`) folgt dem Profil. Liste: Filter `?profile=`, `summary.club/festival`, `profiles[]`. `/me.demo_access.profile`; Testkauf-Links: selbstgehostet `tix_demo_home_url` + `/club/` bzw. `/festival/`, Provisionskunde `tix_demo_platform_url` (+ `profile=festival`), jeweils `demo=<Code>`.
 - Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
 - Tests: `tests/test-demo-access-wp.php` 110/110.
+
+## 94. Homepage-Marke zur Laufzeit (ab 1.38.673)
+
+`GET /public/site-config` liefert zusätzlich `brand`: alles, was `apps/marken-web` bisher aus `brands.ts` liest, schon mit Rückfällen gefüllt (`TIX_Site_Brand`, `includes/class-tix-site-brand.php`). Damit kann marken-web neue gehostete Kunden ohne Code-Commit bedienen. Die bestehenden Bereiche der Antwort bleiben unverändert.
+
+**Felder (`brand`):**
+
+| Feld | Inhalt | Rückfall |
+|---|---|---|
+| `ready` | Marke ausdrücklich gespeichert (Studio bzw. `kunde-anlegen`) – nur dann baut marken-web zur Laufzeit | – |
+| `key`, `name`, `short_name`, `in_venue` | Kurzname, Name, Kurzform, „im …“/„beim …“ | erster Teil des Hosts, Seitenname, Name, nach Profil |
+| `site_host`, `api_base` | Host der Kunden-Adresse, `https://<host>/wp-json/tixomat/v1` | Host von `home_url` |
+| `layout` | `club` \| `festival` \| `festivalTour` | `profile` |
+| `single_venue`, `display` | nur ein Veranstalter; Überschriften `manrope` \| `anton` | nicht Plattform; `manrope` |
+| `logo`, `icon`, `placeholder` | absolute URLs | Studio-Logo, Site-Icon (sonst Logo), Studio-Platzhalter |
+| `hashtag`, `instagram {url, handle}` | | App-Inhalte `home.hashtag`, `social.instagram` |
+| `nav [{label, href}]`, `nav_cta {label, href}` | eigene Links als Pfad | `nav.header`; `null` |
+| `contact {email, address, company, whatsapp, phone}` | WhatsApp nur Ziffern | `contact`, App-Inhalte |
+| `social [{label, url, icon}]` | | `social` |
+| `about {eyebrow, title, text}`, `description` | | „Der Club“/„Das Festival“, Name, `seo.description` |
+| `tickets_path`, `page_slugs {pfad: slug}`, `wp_paths []`, `redirects {alt: neu}` | | `/tickets/`, leer |
+| `store {app_store_id, play_package, play_public}`, `no_app` | | `app.*`; ohne App |
+| `colors` | 13 CSS-Variablen wie brands.ts (`--bg` … `--cta-fg`) | aus Akzent und Grund abgeleitet: `--signal`/`--free`/`--cta-bg` = Akzent, `--cta-fg` nach Kontrast, Flächen aus `--bg` (Vorgabe #17181F), `--bg-light` Verlauf Grund → Akzent |
+| `stored` | Liste der gespeicherten Felder | – |
+
+**Schreiben:** `POST /studio/site-config {brand: {…}}` (Rechte wie Marke), nur Teilfelder; Feld `null` = zurück auf berechnet, `brand: null` = alles zurück (`ready` false), `{ready: true}` = nur als eingerichtet markieren. Prüfungen: Pfade mit `/`, Links Pfad oder http(s), Farben `#RRGGBB`, `--bg-light` Farbe oder `radial-/linear-gradient(…)` ohne `url()`, höchstens 20 Navigations-/Social-Einträge, 60 `wp_paths`, 100 `redirects`; Fehler 400 `tix_invalid_field` mit `field` = `brand.<feld>`. Gespeichert in `tix_site_config.brand`.
+
+**WP-CLI (für `kunde-anlegen`):** `wp tixomat marke setzen --daten='{"name":"…","layout":"festivalTour","no_app":true}'` (gleiche Prüfung, setzt `ready`), `wp tixomat marke zeigen`, `wp tixomat marke zuruecksetzen`. Achtung: `--json` geht nicht (WP-CLI macht daraus `--format=json`).
+
+KitchenKlub und Mallorca: Dort ist nichts gespeichert, also `ready = false` – marken-web nimmt weiter `brands.ts`. Test `tests/test-site-brand-wp.php` (32/32 in beiden Modi).
