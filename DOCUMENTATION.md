@@ -4655,31 +4655,45 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 
 ## 95. Mailversand wählbar: evendis oder eigener Dienst (ab 1.38.674)
 
-`TIX_Mail_Transport` (`includes/class-tix-mail-transport.php`). Drei Wege:
+`TIX_Mail_Transport` (`includes/class-tix-mail-transport.php`). Die Routen sind am 06.11. mit dem Studio-Chat abgestimmt.
 
 | Weg | `mode` / `provider` | Was passiert |
 |---|---|---|
-| Über evendis (Standard) | `evendis` / `null` | Versand wie eingerichtet (FluentSMTP → evendis-Brevo). Absender fest `noreply@evendis.de`, Name = `mail_from_name` bzw. Name der Seite, Reply-To = Kontakt (TIX_Mail_Layout). |
-| Eigener Dienst Brevo | `own` / `brevo` | Tixomat schickt jede Mail selbst über die Brevo-Transaktions-API mit dem Schlüssel des Kunden (`pre_wp_mail`, Priorität 50). HTML, Text-Fassung, Cc/Bcc, Reply-To, Anhänge, `X-*`/`List-Unsubscribe`/`In-Reply-To`/`References` und die Message-ID des Support-Verlaufs gehen mit. |
-| Eigener Absender vom Betrieb | `own` / `server` | Auf dem Server eingerichtet (KitchenKlub, Mallorca: FluentSMTP mit eigener Domain). Tixomat ändert nichts. Nicht im Studio änderbar. |
+| Über evendis (Standard) | `evendis` / `null` | Versand wie eingerichtet (FluentSMTP-Verbindung „evendis (Standard)“). Tixomat erzwingt den Absender `noreply@evendis.de` (auch über eine From-Kopfzeile), Name = `mail_from_name` bzw. Name der Seite, Reply-To = `mail_reply_to` bzw. Kontakt. |
+| Eigener Dienst Brevo | `own` / `brevo` | Tixomat schickt jede Mail selbst über die Brevo-Transaktions-API mit dem Schlüssel des Kunden (`pre_wp_mail`, Priorität 50). Absender = `mail_from`. HTML, Text-Fassung, Cc/Bcc, Reply-To, Anhänge, `X-*`/`List-Unsubscribe`/`In-Reply-To`/`References` und die Message-ID des Support-Verlaufs gehen mit. |
+| Eigener Absender vom Betrieb | `own` / `server` | Auf dem Server eingerichtet (KitchenKlub, Mallorca: eigene FluentSMTP-Verbindung). Tixomat ändert nichts; im Studio nur Anzeige. |
 
-- **Ohne gespeicherte Wahl** gilt: Absender der Studio-Marke auf `@evendis.de` bzw. `@*.evendis.de` (oder leer) → `evendis`, sonst `own`/`server`. Bestehende Seiten verhalten sich deshalb wie bisher.
-- **Rückfall:** Schlägt der eigene Dienst fehl (Fehler, nicht erreichbar, nicht vollständig eingerichtet), läuft dieselbe Mail normal über WordPress weiter, mit Absender `noreply@evendis.de` und dem Namen der Seite, nur für diese Mail. Gespeichert werden `tix_mail_transport_state` (`last_ok`, `last_error`, Rückfälle der letzten 24 h) und die Aktion `tix_mail_transport_fallback`.
+- **Absender, Name und Antwort** haben eine Quelle: die Felder der Studio-Marke `mail_from`, `mail_from_name`, `mail_reply_to` (`tix_studio_brand`). Diese Route schreibt dieselben Felder. Der eigene Dienst speichert nur den Schlüssel.
+- **Ohne gespeicherte Wahl** entscheidet zuerst die Standard-Verbindung von FluentSMTP (`fluentmail-settings.misc.default_connection`): Titel mit „evendis“ oder Absender `@evendis.de` bzw. `@*.evendis.de` → `evendis`, jede andere Verbindung → `own`/`server`. Ohne FluentSMTP entscheidet der Absender der Studio-Marke. Bestehende Seiten verhalten sich wie bisher.
+- **Plattform** (Mehr-Veranstalter-Modus): `locked: true`, „eigener Dienst“ wird mit 403 `tix_mail_locked` abgelehnt; der Versand bleibt wie bisher.
+- **Rückfall:** Schlägt der eigene Dienst fehl (jede Ablehnung oder Störung: 401, gesperrtes Konto, 5xx, Netz, unvollständig eingerichtet), läuft dieselbe Mail normal über WordPress/FluentSMTP weiter, nur für diese Mail mit Absender `noreply@evendis.de`. Eine eigene `fallback_connection` in FluentSMTP ist dafür nicht nötig.
+  - Zustand in `tix_mail_transport_state`; Aktion `tix_mail_transport_fallback`.
+  - Der Inhaber (`mail_reply_to`, sonst `admin_email`) bekommt höchstens einmal in 24 h eine Hinweis-Mail über evendis.
+  - Die nächste erfolgreiche Mail beendet den Rückfall.
 - Ein früherer `pre_wp_mail`-Filter (Demo, `*.invalid`) gewinnt; der eigene Dienst schickt dann nicht.
-- **Schlüssel:** AES-256-GCM verschlüsselt in `tix_mail_transport.brevo.key_enc` (Schlüssel aus `wp_salt('secure_auth')`), nie in einer Antwort, nur als `••••` und die letzten 4 Zeichen.
-- **Weitere Anbieter:** Klasse mit `TIX_Mail_Provider` (`send`, `verify`, `domain`) und ein Eintrag in `PROVIDERS`. SMTP und Postmark stehen schon mit `available: false` in der Liste.
+- **Schlüssel:** AES-256-GCM verschlüsselt in `tix_mail_transport.brevo.key_enc`, nie in einer Antwort, nur als `…` und die letzten 4 Zeichen.
+- **Weitere Anbieter:** eine Klasse mit `TIX_Mail_Provider` (`send`, `verify`, `verify_sender`, `domain`) und ein Eintrag in `PROVIDERS`.
 
 **Routen** (Rechte wie Marke, `TIX_Studio::perm_brand`):
-- `GET /studio/mail-transport` → `{mode, provider, saved, evendis {from_email, from_name, reply_to}, own {provider, brevo {api_key_set, api_key_hint, from_email, from_name, reply_to}, server {from_email, from_name, reply_to}|null}, providers [{key, label, available, fields}], effective {from_email, from_name, reply_to, via evendis|brevo|server}, status {state ok|fallback|untested, last_ok, last_error {at, code, message}|null, fallbacks_24h, last_fallback}, domain {name, status verified|pending|missing|unknown, hint}|null}`.
-  - `domain` nur bei Brevo, aus `GET /v3/senders/domains/{domain}`, 10 min zwischengespeichert.
-- `POST /studio/mail-transport {mode: evendis|own, provider?: brevo, api_key?, from_email?, from_name?, reply_to?}`
-  - Ohne `api_key` bleibt der Schlüssel; Brevo-Daten bleiben auch beim Wechsel auf evendis erhalten.
-  - Der Schlüssel wird mit `GET /v3/account` geprüft:
-    - unbekannt → 400 `tix_mail_key_invalid`
-    - IP nicht freigegeben → gespeichert mit `warning {code: tix_mail_ip_blocked, message}`
-  - Weitere Fehler: 400 `tix_invalid_field` mit `field`.
-  - Nach dem Speichern steht der Zustand auf `untested`.
-- `POST /studio/mail-transport/test {to?}` (Vorgabe: eigene Adresse) → `{ok, via, to, from_email, message_id}`.
-  - Beim eigenen Dienst ohne Rückfall: Fehler 502 `tix_mail_send_failed` mit `data.reason` (`tix_mail_ip_blocked`, `tix_mail_key_invalid`, `tix_mail_sender_invalid`, `tix_mail_provider_error`, `tix_mail_unreachable`).
+- `GET /studio/mail-transport` →
+  - `{mode, provider brevo|server|null, saved, locked, providers ['brevo'], providers_soon ['smtp','postmark']`
+  - `evendis {from, from_name, reply_to}`
+  - `own {provider, key_set, key_hint, from, from_name, reply_to, verified bool|null, last_test {at, ok, message, via}|null, server {from, from_name, reply_to, connection}|null}`
+  - `fallback {active, since, reason, code, count_24h}|null`
+  - `status {state ok|fallback|untested, last_ok, fallbacks_24h}}`
+  - `verified` stammt aus `GET /v3/senders` bzw. der Domain und wird 10 min zwischengespeichert.
+- `POST /studio/mail-transport {mode, provider?, api_key?, from?, from_name?, reply_to?}` → wie GET plus `warning {code, message}|null`.
+  - `api_key`: weggelassen oder `''` = behalten, `null` = löschen.
+  - Bei `own` prüft das Plugin den Schlüssel mit `GET /v3/account` und den Absender mit `GET /v3/senders` bzw. der Domain.
+  - Fehler:
+    - 400 `tix_mail_key_invalid` (`field` = `api_key`)
+    - 400 `tix_mail_sender_unverified` mit `data.domain`
+    - 400 `tix_mail_bad_email` mit `data.field`
+    - 400 `tix_invalid_field`
+  - Kann Brevo nicht geprüft werden (z. B. IP nicht freigegeben, `tix_mail_ip_blocked`), wird mit `warning` gespeichert.
+- `POST /studio/mail-transport/test {to?}` (Vorgabe: eigene Adresse) → `{ok, message, sent_to, via evendis|brevo|server, from, message_id}`.
+  - Wird als `own.last_test` gemerkt.
+  - Beim eigenen Dienst ohne Rückfall.
+  - Fehler: 502 `tix_mail_send_failed` mit `data.reason`/`data.via`; 429 `tix_mail_test_limit` ab der 6. Testmail je Nutzer und Stunde.
 
-Test `tests/test-mail-transport-wp.php` (37/37 in beiden Modi).
+Test `tests/test-mail-transport-wp.php` (45/45 Einzel-Seite, 14/14 Plattform).

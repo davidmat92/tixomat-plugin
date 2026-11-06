@@ -25,6 +25,8 @@ interface TIX_Mail_Provider {
     public static function send(array $cfg, array $m);
     /** Zugang prüfen: true | WP_Error (code tix_mail_key_invalid | tix_mail_ip_blocked | tix_mail_unreachable) */
     public static function verify(array $cfg);
+    /** Absender beim Anbieter bestätigt? true | WP_Error (tix_mail_sender_unverified …) */
+    public static function verify_sender(array $cfg, $email);
     /** Absender-Domain beim Anbieter: {name, status verified|pending|missing|unknown, hint} */
     public static function domain(array $cfg, $domain);
 }
@@ -43,6 +45,8 @@ class TIX_Mail_Transport {
 
     /** Rückfall für genau eine Mail (Absender evendis) */
     private static $force_evendis = false;
+    /** Hinweis-Mail an den Inhaber läuft (nicht erneut über den eigenen Dienst) */
+    private static $notifying = false;
     /** Tests: callable($provider, $cfg, $m) statt Versand */
     public static $send_override = null;
 
@@ -94,6 +98,23 @@ class TIX_Mail_Transport {
         return class_exists('TIX_Mail_Layout') ? (string) TIX_Mail_Layout::default_from() : '';
     }
 
+    /**
+     * Standard-Verbindung von FluentSMTP (Option fluentmail-settings): {title, sender_email, sender_name, provider, evendis} oder null.
+     * Auf gehosteten Seiten legt site-add die Verbindung „evendis (Standard)“ an (provider sendinblue, key_store wp_config).
+     */
+    public static function fluent_default() {
+        $o = get_option('fluentmail-settings', null);
+        if (!is_array($o)) return null;
+        $key = (string) ($o['misc']['default_connection'] ?? '');
+        $c = $key !== '' ? ($o['connections'][$key] ?? null) : null;
+        if (!is_array($c)) return null;
+        $ps = (array) ($c['provider_settings'] ?? []);
+        $title = (string) ($c['title'] ?? ($ps['title'] ?? ''));
+        $from = strtolower(trim((string) ($ps['sender_email'] ?? '')));
+        $evendis = stripos($title, 'evendis') !== false || (bool) preg_match('/@([a-z0-9-]+\.)*evendis\.de$/', $from);
+        return ['title' => $title, 'sender_email' => $from ?: null, 'sender_name' => (string) ($ps['sender_name'] ?? '') ?: null, 'provider' => (string) ($ps['provider'] ?? ''), 'evendis' => $evendis];
+    }
+
     /** [mode evendis|own, provider brevo|server|null, saved] */
     public static function choice() {
         $o = self::stored();
@@ -101,16 +122,22 @@ class TIX_Mail_Transport {
             $p = $o['mode'] === 'own' ? (isset(self::PROVIDERS[$o['provider'] ?? '']) ? $o['provider'] : 'server') : null;
             return [$o['mode'], $p, true];
         }
-        // nichts gewählt: wie heute
+        // nichts gewählt: wie heute – zuerst die Standard-Verbindung von FluentSMTP, sonst der Absender der Studio-Marke
+        $fd = self::fluent_default();
+        if ($fd) return $fd['evendis'] ? ['evendis', null, false] : ['own', 'server', false];
         return preg_match('/@([a-z0-9-]+\.)*evendis\.de$/i', self::site_from()) || self::site_from() === '' ? ['evendis', null, false] : ['own', 'server', false];
     }
 
     /** Einstellungen des Anbieters mit Schlüssel im Klartext (nur serverseitig). */
     private static function provider_cfg($p) {
         $c = (array) (self::stored()[$p] ?? []);
-        $c['api_key'] = self::decrypt($c['key_enc'] ?? '');
-        unset($c['key_enc']);
-        return $c;
+        $k = self::decrypt($c['key_enc'] ?? '');
+        // Absender, Name, Antwort: eine Quelle = Felder der Studio-Marke (mail_from, mail_from_name, mail_reply_to)
+        $b = get_option('tix_studio_brand', []);
+        $b = is_array($b) ? $b : [];
+        $from = trim((string) ($b['mail_from'] ?? ''));
+        return ['api_key' => $k, 'from_email' => is_email($from) ? $from : '', 'from_name' => trim((string) ($b['mail_from_name'] ?? '')) ?: self::site_name(),
+            'reply_to' => trim((string) ($b['mail_reply_to'] ?? '')) ?: self::site_reply_to()];
     }
 
     private static function provider_class($p) {
@@ -215,6 +242,7 @@ class TIX_Mail_Transport {
         [$mode, $p] = self::choice();
         if ($mode !== 'own' || $p === 'server' || !$p) return null;
         $cfg = self::provider_cfg($p);
+        if (self::$notifying) return null;
         if ($cfg['api_key'] === '' || !is_email($cfg['from_email'] ?? '')) { self::fallback('tix_mail_not_configured', 'Eigener Dienst nicht vollständig eingerichtet.'); return null; }
         $m = self::message((array) $atts, $cfg);
         if (!$m['to']) return null;
@@ -235,7 +263,7 @@ class TIX_Mail_Transport {
     private static function ok() {
         $s = self::state();
         if (time() - intval($s['last_ok'] ?? 0) < 600 && empty($s['failing'])) return; // nicht bei jeder Mail schreiben
-        $s['last_ok'] = time(); $s['failing'] = false;
+        $s['last_ok'] = time(); $s['failing'] = false; unset($s['failing_since']);
         update_option(self::STATE, $s, false);
     }
 
@@ -246,9 +274,25 @@ class TIX_Mail_Transport {
         $s['fallbacks'] = array_values(array_filter((array) ($s['fallbacks'] ?? []), function ($t) use ($now) { return $t > $now - DAY_IN_SECONDS; }));
         if (count($s['fallbacks']) < 500) $s['fallbacks'][] = $now;
         $s['last_error'] = ['at' => $now, 'code' => (string) $code, 'message' => mb_substr(wp_strip_all_tags((string) $msg), 0, 300)];
+        if (empty($s['failing'])) $s['failing_since'] = $now;
         $s['failing'] = true;
+        $notify = $now - intval($s['notified_at'] ?? 0) > DAY_IN_SECONDS;
+        if ($notify) $s['notified_at'] = $now;
         update_option(self::STATE, $s, false);
         do_action('tix_mail_transport_fallback', $code, $msg);
+        if ($notify) add_action('shutdown', [__CLASS__, 'notify_owner']);
+    }
+
+    /** Hinweis an den Inhaber (Antwortadresse der Seite bzw. Admin), über evendis – höchstens einmal in 24 h. */
+    public static function notify_owner() {
+        $s = self::state();
+        $to = self::site_reply_to() ?: (string) get_option('admin_email');
+        if (!is_email($to)) return;
+        $err = (string) ($s['last_error']['message'] ?? '');
+        self::$notifying = true; self::$force_evendis = true;
+        wp_mail($to, 'Mailversand: eigener Dienst ausgefallen',
+            "Hallo,\n\nder eigene Mailversand von " . self::site_name() . " hat eine Mail nicht angenommen. Damit nichts verloren geht, laufen die Mails jetzt über evendis (noreply@evendis.de).\n\nGrund: " . ($err !== '' ? $err : 'unbekannt') . "\n\nBitte im Studio unter Einstellungen → E-Mail-Versand prüfen und eine Testmail schicken.\n");
+        self::$notifying = false; self::$force_evendis = false;
     }
 
     // ═══════════════ REST ═══════════════
@@ -263,51 +307,66 @@ class TIX_Mail_Transport {
     }
 
     private static function hint($key) {
-        return $key === '' ? null : '••••' . substr($key, -4);
+        return $key === '' ? '' : '…' . substr($key, -4);
     }
 
-    /** Antwort für das Studio (nie der Schlüssel selbst). */
-    public static function payload($check_domain = false) {
+    /** Plattform (evendis.de mit mehreren Veranstaltern): nur Standard. */
+    public static function locked() {
+        return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+    }
+
+    /** Eigener Absender vom Betrieb: aus der FluentSMTP-Verbindung, sonst aus der Studio-Marke. */
+    private static function server_info() {
+        $fd = self::fluent_default();
+        return ['from' => ($fd['sender_email'] ?? null) ?: (self::site_from() ?: null), 'from_name' => ($fd['sender_name'] ?? null) ?: self::site_name(),
+            'reply_to' => self::site_reply_to() ?: null, 'connection' => $fd['title'] ?? null];
+    }
+
+    /**
+     * Antwort für das Studio (nie der Schlüssel selbst). Form wie vom Studio-Chat vorgeschlagen (06.11.).
+     */
+    public static function payload($check_sender = false) {
         [$mode, $p, $saved] = self::choice();
         $st = self::state();
         $now = time();
         $fb = array_values(array_filter((array) ($st['fallbacks'] ?? []), function ($t) use ($now) { return $t > $now - DAY_IN_SECONDS; }));
-        $brevo = self::provider_cfg('brevo');
-        $evendis = ['from_email' => self::EVENDIS_FROM, 'from_name' => self::site_name(), 'reply_to' => self::site_reply_to() ?: null];
-        $own_cfg = $p && $p !== 'server' ? self::provider_cfg($p) : [];
-        $state = 'ok';
-        if ($mode === 'own' && $p !== 'server') {
-            if (!empty($st['failing'])) $state = 'fallback';
-            elseif (empty($st['last_ok'])) $state = 'untested';
+        $cfg = self::provider_cfg('brevo');
+        $evendis = ['from' => self::EVENDIS_FROM, 'from_name' => self::site_name(), 'reply_to' => self::site_reply_to() ?: null];
+        $verified = null;
+        if ($check_sender && $mode === 'own' && $p === 'brevo' && $cfg['api_key'] !== '' && is_email($cfg['from_email']) && ($cls = self::provider_class('brevo'))) {
+            $tk = 'tix_mail_snd_' . md5(strtolower($cfg['from_email']) . '|' . substr($cfg['api_key'], -6));
+            $v = get_transient($tk);
+            if (!is_array($v)) { $r = is_callable(self::$send_override) ? true : $cls::verify_sender($cfg, $cfg['from_email']); $v = ['ok' => $r === true, 'code' => is_wp_error($r) ? $r->get_error_code() : null]; set_transient($tk, $v, 10 * MINUTE_IN_SECONDS); }
+            $verified = $v['code'] === 'tix_mail_sender_unverified' ? false : ($v['ok'] ? true : null);
         }
-        $out = [
+        $lt = $st['last_test'] ?? null;
+        $failing = $mode === 'own' && $p !== 'server' && !empty($st['failing']);
+        return [
             'ok' => true,
-            'mode' => $mode, 'provider' => $p, 'saved' => $saved,
+            'mode' => $mode,
+            // brevo | server (eigener Absender vom Betrieb, z. B. KitchenKlub/Mallorca – nur anzeigen) | null
+            'provider' => $p,
+            'saved' => $saved,
+            'locked' => self::locked(),
+            'providers' => array_keys(array_filter(self::PROVIDERS, function ($v) { return $v['available']; })),
+            'providers_soon' => array_keys(array_filter(self::PROVIDERS, function ($v) { return !$v['available']; })),
             'evendis' => $evendis,
             'own' => [
-                'provider' => $p && $p !== 'server' ? $p : (isset(self::stored()['brevo']) ? 'brevo' : null),
-                'brevo' => ['api_key_set' => $brevo['api_key'] !== '', 'api_key_hint' => self::hint($brevo['api_key']),
-                    'from_email' => $brevo['from_email'] ?? null, 'from_name' => $brevo['from_name'] ?? null, 'reply_to' => $brevo['reply_to'] ?? null],
-                // Eigener Absender vom Betrieb (FluentSMTP): nur anzeigen
-                'server' => $p === 'server' ? ['from_email' => self::site_from() ?: null, 'from_name' => self::site_name(), 'reply_to' => self::site_reply_to() ?: null] : null,
+                'provider' => 'brevo',
+                'key_set' => $cfg['api_key'] !== '',
+                'key_hint' => self::hint($cfg['api_key']),
+                'from' => $cfg['from_email'] ?: null,
+                'from_name' => $cfg['from_name'],
+                'reply_to' => $cfg['reply_to'] ?: null,
+                'verified' => $verified,
+                'last_test' => is_array($lt) ? ['at' => gmdate('c', $lt['at']), 'ok' => (bool) $lt['ok'], 'message' => $lt['message'], 'via' => $lt['via'] ?? null] : null,
+                'server' => $p === 'server' ? self::server_info() : null,
             ],
-            'providers' => array_map(function ($k, $v) { return ['key' => $k, 'label' => $v['label'], 'available' => $v['available'], 'fields' => $v['fields']]; }, array_keys(self::PROVIDERS), self::PROVIDERS),
-            'effective' => $mode === 'evendis' ? $evendis + ['via' => 'evendis']
-                : ($p === 'server' ? ['from_email' => self::site_from() ?: null, 'from_name' => self::site_name(), 'reply_to' => self::site_reply_to() ?: null, 'via' => 'server']
-                : ['from_email' => $own_cfg['from_email'] ?? null, 'from_name' => ($own_cfg['from_name'] ?? '') ?: self::site_name(), 'reply_to' => ($own_cfg['reply_to'] ?? '') ?: (self::site_reply_to() ?: null), 'via' => $p]),
-            'status' => ['state' => $state, 'last_ok' => !empty($st['last_ok']) ? gmdate('c', $st['last_ok']) : null,
-                'last_error' => !empty($st['last_error']) ? ['at' => gmdate('c', $st['last_error']['at']), 'code' => $st['last_error']['code'], 'message' => $st['last_error']['message']] : null,
-                'fallbacks_24h' => count($fb), 'last_fallback' => $fb ? gmdate('c', max($fb)) : null],
-            'domain' => null,
+            'fallback' => $failing ? ['active' => true, 'since' => gmdate('c', intval($st['failing_since'] ?? ($st['last_error']['at'] ?? $now))),
+                'reason' => $st['last_error']['message'] ?? '', 'code' => $st['last_error']['code'] ?? null, 'count_24h' => count($fb)] : null,
+            'status' => ['state' => $failing ? 'fallback' : (($mode === 'own' && $p !== 'server' && empty($st['last_ok'])) ? 'untested' : 'ok'),
+                'last_ok' => !empty($st['last_ok']) ? gmdate('c', $st['last_ok']) : null, 'fallbacks_24h' => count($fb)],
         ];
-        if ($check_domain && $mode === 'own' && $p === 'brevo' && is_email($own_cfg['from_email'] ?? '') && ($cls = self::provider_class('brevo'))) {
-            $dom = strtolower(substr(strrchr($own_cfg['from_email'], '@'), 1));
-            $tk = 'tix_mail_dom_' . md5($dom . '|' . substr($own_cfg['api_key'], -6));
-            $d = get_transient($tk);
-            if (!is_array($d)) { $d = $cls::domain($own_cfg, $dom); set_transient($tk, $d, 10 * MINUTE_IN_SECONDS); }
-            $out['domain'] = $d;
-        }
-        return $out;
     }
 
     public static function rest_get(WP_REST_Request $req) {
@@ -316,86 +375,132 @@ class TIX_Mail_Transport {
         return $r;
     }
 
-    private static function bad($field, $msg, $code = 'tix_invalid_field') {
-        return new WP_Error($code, $msg, ['status' => 400, 'field' => $field]);
+    private static function bad($field, $msg, $code = 'tix_invalid_field', array $extra = []) {
+        return new WP_Error($code, $msg, ['status' => 400, 'field' => $field] + $extra);
     }
 
-    /** POST {mode: evendis|own, provider?: brevo, api_key?, from_email?, from_name?, reply_to?} */
+    /** Absender-Felder der Studio-Marke setzen (eine Quelle für Standard und eigenen Dienst). */
+    private static function set_brand_fields(array $f) {
+        $b = get_option('tix_studio_brand', []);
+        $b = is_array($b) ? $b : [];
+        foreach ($f as $k => $v) { if ($v === null || $v === '') unset($b[$k]); else $b[$k] = $v; }
+        update_option('tix_studio_brand', $b, false);
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::flush();
+    }
+
+    /**
+     * POST {mode: evendis|own, provider?: brevo, api_key?, from?, from_name?, reply_to?}
+     * api_key: fehlt/'' = behalten, null = löschen. from/from_name/reply_to = Felder der Studio-Marke (mail_from …).
+     */
     public static function rest_save(WP_REST_Request $req) {
         $b = (array) $req->get_json_params();
+        if (array_key_exists('from_email', $b) && !array_key_exists('from', $b)) $b['from'] = $b['from_email'];
         $mode = (string) ($b['mode'] ?? '');
         if (!in_array($mode, ['evendis', 'own'], true)) return self::bad('mode', 'Bitte „evendis“ oder „own“ wählen.');
+        if ($mode === 'own' && self::locked()) return new WP_Error('tix_mail_locked', 'Auf der Plattform läuft der Versand immer über evendis.', ['status' => 403]);
+        // Absender-Felder prüfen (beide Modi)
+        $fields = [];
+        foreach (['from' => 'mail_from', 'reply_to' => 'mail_reply_to'] as $in => $key) {
+            if (!array_key_exists($in, $b)) continue;
+            $raw = trim((string) $b[$in]);
+            $v = sanitize_email($raw);
+            if ($raw !== '' && !is_email($v)) return self::bad($in, 'Ungültige E-Mail-Adresse.', 'tix_mail_bad_email');
+            $fields[$key] = $v ?: null;
+        }
+        if (array_key_exists('from_name', $b)) $fields['mail_from_name'] = mb_substr(sanitize_text_field((string) $b['from_name']), 0, 80) ?: null;
         $o = self::stored();
         $warning = null;
-        if ($mode === 'evendis') {
-            $o['mode'] = 'evendis';
-        } else {
+        if ($mode === 'own') {
             $p = (string) ($b['provider'] ?? ($o['provider'] ?? 'brevo'));
             if (!isset(self::PROVIDERS[$p])) return self::bad('provider', 'Unbekannter Dienst.');
             if (!self::PROVIDERS[$p]['available']) return self::bad('provider', self::PROVIDERS[$p]['label'] . ' folgt später.');
             $c = (array) ($o[$p] ?? []);
-            if (array_key_exists('api_key', $b) && $b['api_key'] !== null) {
-                $k = trim((string) $b['api_key']);
-                if ($k === '') unset($c['key_enc']);
-                else {
-                    if (strlen($k) < 20 || strlen($k) > 200 || preg_match('/\s/', $k)) return self::bad('api_key', 'Der API-Schlüssel sieht nicht vollständig aus.');
+            if (array_key_exists('api_key', $b)) {
+                if ($b['api_key'] === null) unset($c['key_enc']);
+                elseif (($k = trim((string) $b['api_key'])) !== '') {
+                    if (strlen($k) < 20 || strlen($k) > 200 || preg_match('/\s/', $k)) return self::bad('api_key', 'Der API-Schlüssel sieht nicht vollständig aus.', 'tix_mail_key_invalid');
                     $c['key_enc'] = self::encrypt($k);
                 }
             }
-            foreach (['from_email', 'reply_to'] as $f) {
-                if (!array_key_exists($f, $b)) continue;
-                $v = sanitize_email((string) $b[$f]);
-                if ((string) $b[$f] !== '' && !is_email($v)) return self::bad($f, 'Ungültige E-Mail-Adresse.');
-                if ($v === '') unset($c[$f]); else $c[$f] = $v;
-            }
-            if (array_key_exists('from_name', $b)) { $n = mb_substr(sanitize_text_field((string) $b['from_name']), 0, 80); if ($n === '') unset($c['from_name']); else $c['from_name'] = $n; }
-            if (empty($c['key_enc'])) return self::bad('api_key', 'Bitte den API-Schlüssel eintragen.');
-            if (empty($c['from_email'])) return self::bad('from_email', 'Bitte die Absender-Adresse eintragen.');
-            // Zugang prüfen
+            $from = array_key_exists('mail_from', $fields) ? (string) $fields['mail_from'] : (string) (get_option('tix_studio_brand', [])['mail_from'] ?? '');
+            if (empty($c['key_enc'])) return self::bad('api_key', 'Bitte den API-Schlüssel eintragen.', 'tix_mail_key_invalid');
+            if (!is_email($from)) return self::bad('from', 'Bitte die Absender-Adresse eintragen.', 'tix_mail_bad_email');
             $cls = self::provider_class($p);
-            $plain = self::decrypt($c['key_enc']);
-            $v = is_callable(self::$send_override) ? true : ($cls ? $cls::verify(['api_key' => $plain] + $c) : true);
-            if (is_wp_error($v)) {
-                if ($v->get_error_code() === 'tix_mail_key_invalid') return new WP_Error('tix_mail_key_invalid', $v->get_error_message(), ['status' => 400, 'field' => 'api_key']);
-                $warning = ['code' => $v->get_error_code(), 'message' => $v->get_error_message()];
+            if (!is_callable(self::$send_override) && $cls) {
+                $plain = self::decrypt($c['key_enc']);
+                $v = $cls::verify(['api_key' => $plain]);
+                if (is_wp_error($v) && $v->get_error_code() === 'tix_mail_key_invalid') return self::bad('api_key', $v->get_error_message(), 'tix_mail_key_invalid');
+                if ($v === true) {
+                    $s = $cls::verify_sender(['api_key' => $plain], $from);
+                    if (is_wp_error($s) && $s->get_error_code() === 'tix_mail_sender_unverified') return self::bad('from', $s->get_error_message(), 'tix_mail_sender_unverified', ['domain' => strtolower(substr(strrchr($from, '@'), 1))]);
+                    if (is_wp_error($s)) $warning = ['code' => $s->get_error_code(), 'message' => $s->get_error_message()];
+                } else {
+                    // z. B. IP nicht freigegeben: speichern, Hinweis zeigen
+                    $warning = ['code' => $v->get_error_code(), 'message' => $v->get_error_message()];
+                }
             }
             $o[$p] = $c;
-            $o['mode'] = 'own';
             $o['provider'] = $p;
-            // Neuer Weg: Zustand zurücksetzen, die nächste Mail zeigt, ob es geht
-            delete_option(self::STATE);
+            if (($o['mode'] ?? '') !== 'own') delete_option(self::STATE);
+        } elseif (array_key_exists('api_key', $b) && $b['api_key'] === null) {
+            unset($o['brevo']['key_enc']);
         }
+        $o['mode'] = $mode;
         $o['updated_at'] = time();
         $o['updated_by'] = get_current_user_id();
+        if ($fields) self::set_brand_fields($fields);
         update_option(self::OPTION, $o, false);
+        foreach (['brevo'] as $pp) delete_transient('tix_mail_snd_' . md5(strtolower((string) (get_option('tix_studio_brand', [])['mail_from'] ?? '')) . '|' . substr(self::provider_cfg($pp)['api_key'], -6)));
         return rest_ensure_response(self::payload(true) + ['warning' => $warning]);
     }
 
-    /** POST /test {to?} – Testmail über den gewählten Weg (eigener Dienst ohne Rückfall). */
+    /** POST /test {to?} – Testmail über den gewählten Weg (eigener Dienst ohne Rückfall); 5 je Stunde. */
     public static function rest_test(WP_REST_Request $req) {
         $b = (array) $req->get_json_params();
         $to = array_key_exists('to', $b) && (string) $b['to'] !== '' ? sanitize_email((string) $b['to']) : (string) wp_get_current_user()->user_email;
-        if (!is_email($to)) return self::bad('to', 'Ungültige E-Mail-Adresse.');
+        if (!is_email($to)) return self::bad('to', 'Ungültige E-Mail-Adresse.', 'tix_mail_bad_email');
+        $rk = 'tix_mail_test_' . get_current_user_id();
+        $n = intval(get_transient($rk));
+        if ($n >= 5) return new WP_Error('tix_mail_test_limit', 'Höchstens 5 Testmails pro Stunde.', ['status' => 429]);
+        set_transient($rk, $n + 1, HOUR_IN_SECONDS);
         [$mode, $p] = self::choice();
         $name = self::site_name();
+        $via = $mode === 'evendis' ? 'evendis' : ($p === 'server' ? 'server' : $p);
         $subject = 'Testmail von ' . $name;
-        $text = "Hallo,\n\ndiese Testmail zeigt, dass der Mailversand von {$name} funktioniert.\n\nVersand: " . ($mode === 'evendis' ? 'über evendis' : ($p === 'server' ? 'eigener Absender (Server)' : self::PROVIDERS[$p]['label'])) . "\nZeit: " . wp_date('d.m.Y H:i') . "\n";
-        if ($mode === 'own' && $p !== 'server') {
+        $text = "Hallo,\n\ndiese Testmail zeigt, dass der Mailversand von {$name} funktioniert.\n\nVersand: " . ($via === 'evendis' ? 'über evendis' : ($via === 'server' ? 'eigener Absender (vom Betrieb eingerichtet)' : self::PROVIDERS[$p]['label'])) . "\nZeit: " . wp_date('d.m.Y H:i') . "\n";
+        if ($via !== 'evendis' && $via !== 'server') {
             $cfg = self::provider_cfg($p);
-            if ($cfg['api_key'] === '' || !is_email($cfg['from_email'] ?? '')) return self::bad('api_key', 'Eigener Dienst nicht vollständig eingerichtet.');
+            if ($cfg['api_key'] === '' || !is_email($cfg['from_email'])) return self::bad('api_key', 'Eigener Dienst nicht vollständig eingerichtet.', 'tix_mail_key_invalid');
             $m = self::message(['to' => $to, 'subject' => $subject, 'message' => $text, 'headers' => []], $cfg);
             $r = self::send_via($p, $cfg, $m);
-            if (is_wp_error($r)) return new WP_Error('tix_mail_send_failed', $r->get_error_message(), ['status' => 502, 'reason' => $r->get_error_code()]);
+            if (is_wp_error($r)) {
+                self::remember_test(false, $r->get_error_message(), $via);
+                return new WP_Error('tix_mail_send_failed', $r->get_error_message(), ['status' => 502, 'reason' => $r->get_error_code(), 'via' => $via]);
+            }
             self::ok();
-            return rest_ensure_response(['ok' => true, 'via' => $p, 'to' => $to, 'from_email' => $m['from_email'], 'message_id' => $r['message_id'] ?? null]);
+            $msg = 'Testmail an ' . $to . ' über ' . self::PROVIDERS[$p]['label'] . ' verschickt.';
+            self::remember_test(true, $msg, $via);
+            return rest_ensure_response(['ok' => true, 'message' => $msg, 'sent_to' => $to, 'via' => $via, 'from' => $m['from_email'], 'message_id' => $r['message_id'] ?? null]);
         }
         $err = null;
         $cb = function ($e) use (&$err) { $err = $e; };
         add_action('wp_mail_failed', $cb);
         $sent = wp_mail($to, $subject, $text);
         remove_action('wp_mail_failed', $cb);
-        if (!$sent) return new WP_Error('tix_mail_send_failed', $err instanceof WP_Error ? $err->get_error_message() : 'Die Testmail konnte nicht verschickt werden.', ['status' => 502, 'reason' => 'wp_mail']);
-        return rest_ensure_response(['ok' => true, 'via' => $mode === 'evendis' ? 'evendis' : 'server', 'to' => $to, 'from_email' => $mode === 'evendis' ? self::EVENDIS_FROM : (self::site_from() ?: null), 'message_id' => null]);
+        if (!$sent) {
+            $msg = $err instanceof WP_Error ? $err->get_error_message() : 'Die Testmail konnte nicht verschickt werden.';
+            self::remember_test(false, $msg, $via);
+            return new WP_Error('tix_mail_send_failed', $msg, ['status' => 502, 'reason' => 'wp_mail', 'via' => $via]);
+        }
+        $msg = 'Testmail an ' . $to . ($via === 'evendis' ? ' über evendis' : '') . ' verschickt.';
+        self::remember_test(true, $msg, $via);
+        return rest_ensure_response(['ok' => true, 'message' => $msg, 'sent_to' => $to, 'via' => $via, 'from' => $via === 'evendis' ? self::EVENDIS_FROM : (self::server_info()['from'] ?? null), 'message_id' => null]);
+    }
+
+    private static function remember_test($ok, $msg, $via) {
+        $s = self::state();
+        $s['last_test'] = ['at' => time(), 'ok' => (bool) $ok, 'message' => mb_substr((string) $msg, 0, 300), 'via' => $via];
+        update_option(self::STATE, $s, false);
     }
 }
 
@@ -445,6 +550,19 @@ class TIX_Mail_Brevo implements TIX_Mail_Provider {
         if (is_wp_error($r)) return $r;
         [$code, $d] = $r;
         return $code === 200 ? true : self::error($code, $d);
+    }
+
+    /** Absender bestätigt: als einzelner Absender (GET /v3/senders, aktiv) oder über die bestätigte Domain. */
+    public static function verify_sender(array $cfg, $email) {
+        $email = strtolower((string) $email);
+        $r = self::req('GET', '/senders', $cfg['api_key']);
+        if (is_wp_error($r)) return $r;
+        [$code, $d] = $r;
+        if ($code !== 200) return self::error($code, $d);
+        foreach ((array) ($d['senders'] ?? []) as $snd) if (strtolower((string) ($snd['email'] ?? '')) === $email && !empty($snd['active'])) return true;
+        $dom = substr(strrchr($email, '@'), 1);
+        if ((self::domain($cfg, $dom)['status'] ?? '') === 'verified') return true;
+        return new WP_Error('tix_mail_sender_unverified', 'Brevo kennt den Absender ' . $email . ' noch nicht. In Brevo unter Absender & Domains den Absender anlegen oder die Domain ' . $dom . ' bestätigen.');
     }
 
     public static function domain(array $cfg, $domain) {
