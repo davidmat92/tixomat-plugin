@@ -1390,6 +1390,8 @@ class TIX_App_Checkout {
         $return_raw = $req->get_param('return_url');
         if ($return_raw !== null && $return_raw !== '') {
             $return_url = TIX_Native_Checkout::validate_return_url((string) $return_raw);
+            // Demo-Zahlung (Beispiel-Club) ist sofort bezahlt – ein Rücksprung wird nie gebraucht
+            if (is_wp_error($return_url) && class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_demo_event(intval($req->get_param('event_id')))) $return_url = '';
             if (is_wp_error($return_url)) return $return_url;
         }
 

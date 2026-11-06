@@ -4428,3 +4428,12 @@ Nur Mehr-Veranstalter-Modus (evendis), sonst 404. Vertrag: `uebergaben/vertrag-d
 - `GET /orders` (alle Bestellungen): im Mehr-Veranstalter-Modus jetzt auch für Veranstalter/Team ohne `edit_posts` (vorher 403 – auch für echte Veranstalter); `get_orders` schottet dort selbst ab. Zugangs-Verwaltung (`/demo-access`) wird nie verkürzt; eigene Namen/Adressen bleiben voll, auch wenn ein fremder Käufer gleich heißt.
 - `/me.demo_access.test_orders` = eigene Testkäufe seit dem letzten Zurücksetzen.
 - Tests: `tests/test-demo-access-wp.php` (77/77, Plattform).
+
+### 91a. Modell je Demo-Zugang (ab 1.38.668, User 06.11.)
+- Meta `_tix_demo_model` = `platform` (Provisionskunde: Tickets über evendis, 2,5 % + 0,59 € je Ticket) | `self` (selbstgehostet: eigener Shop/Lizenz, 0 € je Ticket). Ein gemeinsamer Beispiel-Club, das Studio blendet nach dem Modell (Sicht-Modus).
+- `POST /demo-access` für Interessenten mit Pflichtfeld `model` (400 Feld `model`), Vertriebler optional (Startsicht). `PATCH /demo-access/{id} {model}` stellt um. `GET /demo-access?model=` filtert; Antwort zusätzlich `summary.platform/self` und `models [{key, label, price, text}]`. ACCESS trägt `model`.
+- `POST /demo-access/view {model}` – Vertriebler/Admin schalten ihre eigene Sicht um (Interessenten 403).
+- `/me.demo_access` zusätzlich `model`, `can_switch`, `home_self`, `home_platform`; `home` je Modell: selbstgehostet → `tix_demo_home_url` (demo.evendis.de), Provisionskunde → neue Option `tix_demo_platform_url` (Vorgabe https://evendis.de/demo, Veranstalter-Seite des Beispiel-Clubs), jeweils `?demo=<Code>`.
+- Kasse: Bei Events des Beispiel-Clubs wird eine nicht erlaubte `return_url` ignoriert statt abgelehnt (Demo-Zahlung braucht keinen Rücksprung).
+- Verkürzen fremder Testkäufer nur noch an Wortgrenzen (eigene Namen mit gleichem Anfang bleiben voll).
+- Tests: `tests/test-demo-access-wp.php` 88/88.

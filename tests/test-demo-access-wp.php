@@ -58,7 +58,7 @@ t_eq('Vertriebler darf keine Vertriebler anlegen (403)', 403, $st);
 
 // ── 2. Vertriebler legt Interessenten an, Einladung per Link ──
 $GLOBALS['t_mails'] = [];
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => "Lena Brandt", 'email' => "lena$sfx@beispiel.test", 'company' => 'Beispiel Club']);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'self', 'name' => "Lena Brandt", 'email' => "lena$sfx@beispiel.test", 'company' => 'Beispiel Club']);
 t_eq('Interessent angelegt (201)', 201, $st);
 $pa = intval($d['access']['id'] ?? 0); $cleanup_users[] = $pa;
 t_eq('Einladung verschickt', true, !empty($d['invite_sent']));
@@ -67,11 +67,11 @@ t_eq('Interessent ist Team des Beispiel-Clubs', $demo, intval(get_user_meta($pa,
 t_eq('Interessent ist Team-Admin', true, TIX_App_Scope::is_org_manager($pa));
 $invite = t_link_token("lena$sfx@beispiel.test");
 t_eq('Link in der Einladung', true, strlen($invite) >= 20);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 'Doppelt', 'email' => "lena$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => 'Doppelt', 'email' => "lena$sfx@beispiel.test"]);
 t_eq('gleiche E-Mail → 409', 409, $st);
 
 wp_set_current_user($sales2);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => "Max Mustermann$sfx", 'email' => "max$sfx@beispiel.test"]);
 $pb = intval($d['access']['id'] ?? 0); $cleanup_users[] = $pb;
 list($st, $d) = t_rest('GET', '/demo-access');
 t_eq('Vertriebler 2 sieht nur eigene Zugänge', [$pb], array_column($d['accesses'] ?? [], 'id'));
@@ -84,6 +84,29 @@ wp_set_current_user($admin);
 list($st, $d) = t_rest('GET', '/demo-access');
 $ids = array_column($d['accesses'] ?? [], 'id');
 t_eq('Admin sieht alle (Interessenten + Vertriebler)', true, in_array($pa, $ids, true) && in_array($pb, $ids, true) && in_array($sales, $ids, true));
+
+// ── 2b. Modell (User 06.11.): Pflicht für Interessenten, Sicht im /me, umstellbar, Filter ──
+wp_set_current_user($sales);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 'Ohne Modell', 'email' => "ohne$sfx@beispiel.test"]);
+t_eq('Interessent ohne Modell → 400 Feld model', [400, 'model'], [$st, $d['data']['field'] ?? '']);
+t_eq('Lena: Modell selbstgehostet', 'self', TIX_Demo_Access::model($pa));
+t_eq('Lena: Testkauf über demo.evendis.de', true, strpos(TIX_Demo_Access::me_payload(get_userdata($pa))['home'], TIX_Demo_Access::home_url('', 'self')) === 0);
+t_eq('Max: Modell Provisionskunde, Testkauf über evendis.de/demo', true, TIX_Demo_Access::model($pb) === 'platform' && strpos(TIX_Demo_Access::me_payload(get_userdata($pb))['home'], TIX_Demo_Access::home_url('', 'platform')) === 0);
+t_eq('Interessent darf Sicht nicht selbst umschalten', false, TIX_Demo_Access::me_payload(get_userdata($pa))['can_switch']);
+wp_set_current_user($sales2);
+list($st, $d) = t_rest('GET', '/demo-access', ['model' => 'platform']);
+t_eq('Filter Modell', [$pb], array_column($d['accesses'] ?? [], 'id'));
+t_eq('Modelle mit Preisen in der Liste', ['platform', 'self'], array_column($d['models'] ?? [], 'key'));
+list($st, $d) = t_rest('PATCH', "/demo-access/$pb", ['model' => 'self']);
+t_eq('Modell nachträglich umstellen', 'self', $d['access']['model'] ?? null);
+list($st, $d) = t_rest('PATCH', "/demo-access/$pb", ['model' => 'quatsch']);
+t_eq('unbekanntes Modell → 400', 400, $st);
+t_rest('PATCH', "/demo-access/$pb", ['model' => 'platform']);
+list($st, $d) = t_rest('POST', '/demo-access/view', ['model' => 'self']);
+t_eq('Vertriebler schaltet eigene Sicht um', ['self', 'self'], [$d['model'] ?? null, TIX_Demo_Access::model($sales2)]);
+wp_set_current_user($pa);
+list($st) = t_rest('POST', '/demo-access/view', ['model' => 'platform']);
+t_eq('Interessent: Sicht umschalten gesperrt (403)', 403, $st);
 
 // ── 3. Anmeldung per Link ──
 wp_set_current_user(0);
@@ -152,11 +175,11 @@ t_eq('/me Vertriebler can_reset = true', true, $me['can_reset']);
 wp_set_current_user($sales2);
 $extra = [];
 for ($i = 0; $i < 19; $i++) {
-    list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => "Viel $i", 'email' => "viel$i-$sfx@beispiel.test", 'invite' => false]);
+    list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => "Viel $i", 'email' => "viel$i-$sfx@beispiel.test", 'invite' => false]);
     $extra[] = intval($d['access']['id'] ?? 0);
 }
 $cleanup_users = array_merge($cleanup_users, $extra);
-list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'name' => 'Zu viel', 'email' => "zuviel$sfx@beispiel.test", 'invite' => false]);
+list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'prospect', 'model' => 'platform', 'name' => 'Zu viel', 'email' => "zuviel$sfx@beispiel.test", 'invite' => false]);
 t_eq('21. aktiver Zugang → 409 tix_demo_limit', [409, 'tix_demo_limit'], [$st, t_code($d)]);
 foreach ($extra as $x) TIX_Demo_Access::cleanup(); // nichts löschen (noch aktiv)
 t_eq('Aufräumen löscht keine aktiven', true, (bool) get_userdata($extra[0]));
