@@ -4652,3 +4652,34 @@ PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steh
 - **Profil je Zugang** (`_tix_demo_profile`): Pflicht beim Anlegen von Interessenten (400 Feld `profile`), `PATCH {profile}`, `POST /demo-access/view {model?, profile?}`; das Team (`_tix_team_organizer_id`) folgt dem Profil. Liste: Filter `?profile=`, `summary.club/festival`, `profiles[]`. `/me.demo_access.profile`; Testkauf-Links: selbstgehostet `tix_demo_home_url` + `/club/` bzw. `/festival/`, Provisionskunde `tix_demo_platform_url` (+ `profile=festival`), jeweils `demo=<Code>`.
 - Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
 - Tests: `tests/test-demo-access-wp.php` 110/110.
+
+## 95. Mailversand wählbar: evendis oder eigener Dienst (ab 1.38.674)
+
+`TIX_Mail_Transport` (`includes/class-tix-mail-transport.php`). Drei Wege:
+
+| Weg | `mode` / `provider` | Was passiert |
+|---|---|---|
+| Über evendis (Standard) | `evendis` / `null` | Versand wie eingerichtet (FluentSMTP → evendis-Brevo). Absender fest `noreply@evendis.de`, Name = `mail_from_name` bzw. Name der Seite, Reply-To = Kontakt (TIX_Mail_Layout). |
+| Eigener Dienst Brevo | `own` / `brevo` | Tixomat schickt jede Mail selbst über die Brevo-Transaktions-API mit dem Schlüssel des Kunden (`pre_wp_mail`, Priorität 50). HTML, Text-Fassung, Cc/Bcc, Reply-To, Anhänge, `X-*`/`List-Unsubscribe`/`In-Reply-To`/`References` und die Message-ID des Support-Verlaufs gehen mit. |
+| Eigener Absender vom Betrieb | `own` / `server` | Auf dem Server eingerichtet (KitchenKlub, Mallorca: FluentSMTP mit eigener Domain). Tixomat ändert nichts. Nicht im Studio änderbar. |
+
+- **Ohne gespeicherte Wahl** gilt: Absender der Studio-Marke auf `@evendis.de` bzw. `@*.evendis.de` (oder leer) → `evendis`, sonst `own`/`server`. Bestehende Seiten verhalten sich deshalb wie bisher.
+- **Rückfall:** Schlägt der eigene Dienst fehl (Fehler, nicht erreichbar, nicht vollständig eingerichtet), läuft dieselbe Mail normal über WordPress weiter, mit Absender `noreply@evendis.de` und dem Namen der Seite, nur für diese Mail. Gespeichert werden `tix_mail_transport_state` (`last_ok`, `last_error`, Rückfälle der letzten 24 h) und die Aktion `tix_mail_transport_fallback`.
+- Ein früherer `pre_wp_mail`-Filter (Demo, `*.invalid`) gewinnt; der eigene Dienst schickt dann nicht.
+- **Schlüssel:** AES-256-GCM verschlüsselt in `tix_mail_transport.brevo.key_enc` (Schlüssel aus `wp_salt('secure_auth')`), nie in einer Antwort, nur als `••••` und die letzten 4 Zeichen.
+- **Weitere Anbieter:** Klasse mit `TIX_Mail_Provider` (`send`, `verify`, `domain`) und ein Eintrag in `PROVIDERS`. SMTP und Postmark stehen schon mit `available: false` in der Liste.
+
+**Routen** (Rechte wie Marke, `TIX_Studio::perm_brand`):
+- `GET /studio/mail-transport` → `{mode, provider, saved, evendis {from_email, from_name, reply_to}, own {provider, brevo {api_key_set, api_key_hint, from_email, from_name, reply_to}, server {from_email, from_name, reply_to}|null}, providers [{key, label, available, fields}], effective {from_email, from_name, reply_to, via evendis|brevo|server}, status {state ok|fallback|untested, last_ok, last_error {at, code, message}|null, fallbacks_24h, last_fallback}, domain {name, status verified|pending|missing|unknown, hint}|null}`.
+  - `domain` nur bei Brevo, aus `GET /v3/senders/domains/{domain}`, 10 min zwischengespeichert.
+- `POST /studio/mail-transport {mode: evendis|own, provider?: brevo, api_key?, from_email?, from_name?, reply_to?}`
+  - Ohne `api_key` bleibt der Schlüssel; Brevo-Daten bleiben auch beim Wechsel auf evendis erhalten.
+  - Der Schlüssel wird mit `GET /v3/account` geprüft:
+    - unbekannt → 400 `tix_mail_key_invalid`
+    - IP nicht freigegeben → gespeichert mit `warning {code: tix_mail_ip_blocked, message}`
+  - Weitere Fehler: 400 `tix_invalid_field` mit `field`.
+  - Nach dem Speichern steht der Zustand auf `untested`.
+- `POST /studio/mail-transport/test {to?}` (Vorgabe: eigene Adresse) → `{ok, via, to, from_email, message_id}`.
+  - Beim eigenen Dienst ohne Rückfall: Fehler 502 `tix_mail_send_failed` mit `data.reason` (`tix_mail_ip_blocked`, `tix_mail_key_invalid`, `tix_mail_sender_invalid`, `tix_mail_provider_error`, `tix_mail_unreachable`).
+
+Test `tests/test-mail-transport-wp.php` (37/37 in beiden Modi).
