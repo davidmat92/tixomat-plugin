@@ -4635,3 +4635,20 @@ Vergleicht das Provisionsmodell (Tickets über evendis) mit Selbstgehostet (eige
 PayPal über Mollie kostet laut Mollie zusätzlich 0,10 € je Zahlung; das steht nur im `detail`. Gewerbliche Karten (2,90 %) und Karten außerhalb des EWR (3,25 %) sind nicht abgebildet.
 
 **PDF:** eigener Block „Hochrechnung je Event“ vor den Bedingungen (abschaltbar über `in_pdf`). Er enthält die Eingaben, die Tabelle Provisionsmodell gegen Selbstgehostet, die Sätze je Zahlart, „Bei dieser Prognose ist … um X € günstiger“, „lohnt sich ab …“ und die Hinweise.
+
+### 91a. Modell je Demo-Zugang (ab 1.38.668, User 06.11.)
+- Meta `_tix_demo_model` = `platform` (Provisionskunde: Tickets über evendis, 2,5 % + 0,59 € je Ticket) | `self` (selbstgehostet: eigener Shop/Lizenz, 0 € je Ticket). Ein gemeinsamer Beispiel-Club, das Studio blendet nach dem Modell (Sicht-Modus).
+- `POST /demo-access` für Interessenten mit Pflichtfeld `model` (400 Feld `model`), Vertriebler optional (Startsicht). `PATCH /demo-access/{id} {model}` stellt um. `GET /demo-access?model=` filtert; Antwort zusätzlich `summary.platform/self` und `models [{key, label, price, text}]`. ACCESS trägt `model`.
+- `POST /demo-access/view {model}` – Vertriebler/Admin schalten ihre eigene Sicht um (Interessenten 403).
+- `/me.demo_access` zusätzlich `model`, `can_switch`, `home_self`, `home_platform`; `home` je Modell: selbstgehostet → `tix_demo_home_url` (demo.evendis.de), Provisionskunde → neue Option `tix_demo_platform_url` (Vorgabe https://evendis.de/demo, Veranstalter-Seite des Beispiel-Clubs), jeweils `?demo=<Code>`.
+- Kasse: Bei Events des Beispiel-Clubs wird eine nicht erlaubte `return_url` ignoriert statt abgelehnt (Demo-Zahlung braucht keinen Rücksprung).
+- Verkürzen fremder Testkäufer nur noch an Wortgrenzen (eigene Namen mit gleichem Anfang bleiben voll).
+- Tests: `tests/test-demo-access-wp.php` 88/88.
+
+### 91b. Website-Profil Club/Festival und Seed-Vorlagen (ab 1.38.669, User 06.11.)
+- **Zwei Beispiel-Veranstalter** (beide Sandbox, `_tix_org_demo`): „Beispiel-Club Ostkai“ (Option `tix_demo_organizer_id`, Profil club, 8 Events + 1 vergangenes) und „Beispiel-Festival Seewiese“ (Option `tix_demo_festival_id`, Slug demo-festival, 1 Event Samstag+Sonntag rund 6 Wochen voraus, 2 Bühnen, 12 Programmpunkte, 4 Ticketarten). `TIX_Demo::org_for($profile)`, `ensure_festival()`. Reset leert beide und befüllt beide neu.
+- **Seed-Vorlagen** `TIX_Demo_Content`: Texte, Line-up, FAQ, Galerie, Alter, Anfahrt – alles fiktiv (Namen, Orte „Musterstadt“, Künstler), keine Marken (Liste `FORBIDDEN`, geprüft im Test). Bilder nur die fünf lizenzierten Adobe-Stock-Fotos aus `assets/demo` (einmal als Medien, Option `tix_demo_images`). Fiktive Acts: `_tix_lineup_links` mit source none (keine Musikdienst-Suche), Künstler-Einträge des Festival-Veranstalters (`_tix_demo_artist`, Moderation `kind: host`), ohne Fotos.
+- `GET /public/demo?profile=club|festival` → zusätzlich `profile`, `app_content` (Form wie /app/config: home.tiles/hashtag, pages.faq/guide/kontakt) – auf evendis sind die echten App-Inhalte seitenweit.
+- **Profil je Zugang** (`_tix_demo_profile`): Pflicht beim Anlegen von Interessenten (400 Feld `profile`), `PATCH {profile}`, `POST /demo-access/view {model?, profile?}`; das Team (`_tix_team_organizer_id`) folgt dem Profil. Liste: Filter `?profile=`, `summary.club/festival`, `profiles[]`. `/me.demo_access.profile`; Testkauf-Links: selbstgehostet `tix_demo_home_url` + `/club/` bzw. `/festival/`, Provisionskunde `tix_demo_platform_url` (+ `profile=festival`), jeweils `demo=<Code>`.
+- Staff-Pushes beider Beispiel-Veranstalter nie an Demo-Zugänge.
+- Tests: `tests/test-demo-access-wp.php` 110/110.

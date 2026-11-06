@@ -25,6 +25,13 @@ class TIX_Demo_Access {
     const OPT_STUDIO = 'tix_demo_studio_url';
     const OPT_HOME = 'tix_demo_home_url';
     const META_ORDER = '_tix_demo_access';
+    const META_MODEL = '_tix_demo_model';
+    const OPT_PLATFORM_HOME = 'tix_demo_platform_url';
+    /** Modell (User 06.11.): platform = Provisionskunde (Tickets über evendis, 2,5 % + 0,59 € je Ticket), self = selbstgehostet (0 € je Ticket) */
+    const MODELS = ['platform', 'self'];
+    /** Website-Profil (User 06.11.): club = mehrere Events (Beispiel-Club Ostkai), festival = 1 Event (Beispiel-Festival Seewiese) */
+    const META_PROFILE = '_tix_demo_profile';
+    const PROFILES = ['club', 'festival'];
 
     private static $foreign = null;
 
@@ -85,9 +92,51 @@ class TIX_Demo_Access {
         return $b . '/' . ltrim($path, '/');
     }
 
-    public static function home_url($code = '') {
-        $b = rtrim((string) get_option(self::OPT_HOME, 'https://demo.evendis.de'), '/') . '/';
-        return $code !== '' ? $b . '?demo=' . rawurlencode($code) : $b;
+    /** Testkauf: selbstgehostet → Demo-Homepage (demo.evendis.de/club/ bzw. /festival/), Provisionskunde → evendis.de/demo/ (?profile=festival) */
+    public static function home_url($code = '', $model = 'self', $profile = 'club') {
+        $q = [];
+        if ($model === 'platform') {
+            $b = rtrim((string) get_option(self::OPT_PLATFORM_HOME, 'https://evendis.de/demo'), '/') . '/';
+            if ($profile === 'festival') $q['profile'] = 'festival';
+        } else {
+            $b = rtrim((string) get_option(self::OPT_HOME, 'https://demo.evendis.de'), '/') . '/' . ($profile === 'festival' ? 'festival' : 'club') . '/';
+        }
+        if ($code !== '') $q['demo'] = $code;
+        return $q ? $b . '?' . http_build_query($q) : $b;
+    }
+
+    public static function profile($uid) {
+        $p = (string) get_user_meta(intval($uid), self::META_PROFILE, true);
+        return in_array($p, self::PROFILES, true) ? $p : 'club';
+    }
+
+    private static function clean_profile($v) {
+        $v = (string) $v;
+        return in_array($v, self::PROFILES, true) ? $v : '';
+    }
+
+    /** Profil setzen und den Zugang dem passenden Beispiel-Veranstalter zuordnen (Team) */
+    public static function set_profile($uid, $profile) {
+        if ($profile === 'festival' && class_exists('TIX_Demo')) TIX_Demo::ensure_festival();
+        update_user_meta(intval($uid), self::META_PROFILE, $profile);
+        $oid = class_exists('TIX_Demo') ? TIX_Demo::org_for($profile) : 0;
+        if ($oid) update_user_meta(intval($uid), '_tix_team_organizer_id', $oid);
+    }
+
+    /** Alle Beispiel-Veranstalter (Club, Festival) */
+    public static function demo_orgs() {
+        return array_values(array_filter([class_exists('TIX_Demo') ? TIX_Demo::org_for('club') : 0, class_exists('TIX_Demo') ? TIX_Demo::org_for('festival') : 0]));
+    }
+
+    /** Modell des Zugangs (Vorgabe Provisionskunde) */
+    public static function model($uid) {
+        $m = (string) get_user_meta(intval($uid), self::META_MODEL, true);
+        return in_array($m, self::MODELS, true) ? $m : 'platform';
+    }
+
+    private static function clean_model($v) {
+        $v = (string) $v;
+        return in_array($v, self::MODELS, true) ? $v : '';
     }
 
     /** Kurzer Code je Zugang (Zuordnung der Testkäufe von der Demo-Homepage) */
@@ -141,7 +190,13 @@ class TIX_Demo_Access {
             'extended'   => (bool) get_user_meta($user->ID, '_tix_demo_extended', true),
             'can_reset'  => !$prospect,
             'can_manage' => !$prospect,
-            'home'       => self::home_url(self::code($user->ID)),
+            // Modell (06.11.): Sicht im Demo-Studio; Vertriebler schalten selbst um (POST /demo-access/view)
+            'model'      => self::model($user->ID),
+            'profile'    => self::profile($user->ID),
+            'can_switch' => !$prospect,
+            'home'       => self::home_url(self::code($user->ID), self::model($user->ID), self::profile($user->ID)),
+            'home_self'  => self::home_url(self::code($user->ID), 'self', self::profile($user->ID)),
+            'home_platform' => self::home_url(self::code($user->ID), 'platform', self::profile($user->ID)),
             'reset_at'   => class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null,
             // eigene Testkäufe seit dem letzten Zurücksetzen (Karte „Testkauf ausprobieren“ im Studio)
             'test_orders' => self::test_orders($user->ID, $user->user_email),
@@ -161,6 +216,8 @@ class TIX_Demo_Access {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $staff],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create'], 'permission_callback' => $staff],
         ]);
+        // Vertriebler: eigene Sicht umschalten (Provisionskunde ↔ selbstgehostet)
+        register_rest_route(self::NS, '/demo-access/view', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_view'], 'permission_callback' => $staff]);
         register_rest_route(self::NS, '/demo-access/reset', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reset'], 'permission_callback' => $staff]);
         register_rest_route(self::NS, '/demo-access/(?P<id>\d+)', [
             ['methods' => 'PATCH,POST', 'callback' => [__CLASS__, 'rest_update'], 'permission_callback' => $staff],
@@ -219,7 +276,9 @@ class TIX_Demo_Access {
             'owner'       => $ou ? ['id' => intval($ou->ID), 'name' => (string) $ou->display_name] : null,
             'last_seen'   => $last ? wp_date('c', $last) : null,
             'test_orders' => self::test_orders($u->ID, $u->user_email),
-            'home'        => self::home_url(self::code($u->ID)),
+            'model'       => self::model($u->ID),
+            'profile'     => self::profile($u->ID),
+            'home'        => self::home_url(self::code($u->ID), self::model($u->ID), self::profile($u->ID)),
         ];
     }
 
@@ -230,11 +289,15 @@ class TIX_Demo_Access {
         if (!$admin) $args['meta_query'] = [['key' => '_tix_demo_owner', 'value' => (string) get_current_user_id()]];
         $rows = array_map([__CLASS__, 'row'], array_filter(get_users($args), function ($u) { return !$u->has_cap('manage_options'); }));
         $kind = (string) $req->get_param('kind');
+        $model = self::clean_model($req->get_param('model'));
+        $profile = self::clean_profile($req->get_param('profile'));
         $st = (string) $req->get_param('status');
         $q = mb_strtolower(trim((string) $req->get_param('q')));
         $all = $rows;
-        $rows = array_values(array_filter($rows, function ($r) use ($kind, $st, $q) {
+        $rows = array_values(array_filter($rows, function ($r) use ($kind, $model, $profile, $st, $q) {
             if ($kind !== '' && $r['kind'] !== $kind) return false;
+            if ($model !== '' && $r['model'] !== $model) return false;
+            if ($profile !== '' && $r['profile'] !== $profile) return false;
             if ($st === 'active' && !in_array($r['status'], ['active', 'expiring'], true)) return false;
             if (in_array($st, ['expired', 'blocked'], true) && $r['status'] !== $st) return false;
             if ($q !== '' && mb_strpos(mb_strtolower($r['name'] . ' ' . $r['email'] . ' ' . $r['company']), $q) === false) return false;
@@ -249,7 +312,13 @@ class TIX_Demo_Access {
                 'active'      => count(array_filter($all, function ($r) { return in_array($r['status'], ['active', 'expiring'], true); })),
                 'seen_week'   => count(array_filter($all, function ($r) use ($week) { return $r['last_seen'] && strtotime($r['last_seen']) >= $week; })),
                 'test_orders' => array_sum(array_column($all, 'test_orders')),
+                'platform'    => count(array_filter($all, function ($r) { return $r['model'] === 'platform'; })),
+                'self'        => count(array_filter($all, function ($r) { return $r['model'] === 'self'; })),
+                'club'        => count(array_filter($all, function ($r) { return $r['profile'] === 'club'; })),
+                'festival'    => count(array_filter($all, function ($r) { return $r['profile'] === 'festival'; })),
             ],
+            'profiles' => self::profiles_info(),
+            'models' => self::models_info(),
             'limits' => ['days' => self::DAYS, 'max_active' => $admin ? null : self::MAX_ACTIVE, 'active_own' => $active_own, 'can_create_sales' => $admin],
             'studio' => self::studio_url('/'),
             'home' => self::home_url(),
@@ -276,9 +345,15 @@ class TIX_Demo_Access {
             $d = $r->get_data();
             $u = get_userdata(intval($d['user']['id'] ?? 0));
             if ($u && ($c = trim(sanitize_text_field((string) $req->get_param('company')))) !== '') update_user_meta($u->ID, '_tix_demo_company', mb_substr($c, 0, 80));
+            if ($u && ($m = self::clean_model($req->get_param('model'))) !== '') update_user_meta($u->ID, self::META_MODEL, $m);
+            if ($u && ($p = self::clean_profile($req->get_param('profile'))) !== '') self::set_profile($u->ID, $p);
             return self::out(['ok' => true, 'access' => $u ? self::row($u) : null, 'invite_sent' => !empty($d['invite_sent'])], 201);
         }
         if ($kind !== 'prospect') return new WP_Error('tix_invalid_field', 'Unbekannte Art.', ['status' => 400, 'field' => 'kind']);
+        $model = self::clean_model($req->get_param('model'));
+        if ($model === '') return new WP_Error('tix_invalid_field', 'Bitte das Modell wählen: Provisionskunde oder selbstgehostet.', ['status' => 400, 'field' => 'model']);
+        $profile = self::clean_profile($req->get_param('profile'));
+        if ($profile === '') return new WP_Error('tix_invalid_field', 'Bitte das Profil wählen: Club (mehrere Events) oder Festival (1 Event).', ['status' => 400, 'field' => 'profile']);
         $email = sanitize_email((string) $req->get_param('email'));
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 80);
         $company = mb_substr(trim(sanitize_text_field((string) $req->get_param('company'))), 0, 80);
@@ -300,6 +375,8 @@ class TIX_Demo_Access {
         update_user_meta($uid, '_tix_demo_owner', get_current_user_id());
         update_user_meta($uid, '_tix_demo_created', time());
         update_user_meta($uid, '_tix_demo_expires', time() + self::DAYS * DAY_IN_SECONDS);
+        update_user_meta($uid, self::META_MODEL, $model);
+        self::set_profile($uid, $profile);
         if ($company !== '') update_user_meta($uid, '_tix_demo_company', $company);
         self::code($uid);
         $sent = $req->get_param('invite') === null || filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN) ? self::send_link(get_userdata($uid), true) : false;
@@ -327,6 +404,16 @@ class TIX_Demo_Access {
                 delete_user_meta($u->ID, '_tix_demo_blocked');
             }
         }
+        if ($req->get_param('model') !== null) {
+            $m = self::clean_model($req->get_param('model'));
+            if ($m === '') return new WP_Error('tix_invalid_field', 'Unbekanntes Modell.', ['status' => 400, 'field' => 'model']);
+            update_user_meta($u->ID, self::META_MODEL, $m);
+        }
+        if ($req->get_param('profile') !== null) {
+            $p = self::clean_profile($req->get_param('profile'));
+            if ($p === '') return new WP_Error('tix_invalid_field', 'Unbekanntes Profil.', ['status' => 400, 'field' => 'profile']);
+            self::set_profile($u->ID, $p);
+        }
         if (($n = trim(sanitize_text_field((string) $req->get_param('name')))) !== '') wp_update_user(['ID' => $u->ID, 'display_name' => mb_substr($n, 0, 80)]);
         if ($req->get_param('company') !== null) update_user_meta($u->ID, '_tix_demo_company', mb_substr(trim(sanitize_text_field((string) $req->get_param('company'))), 0, 80));
         return self::out(['ok' => true, 'access' => self::row(get_userdata($u->ID))]);
@@ -353,6 +440,35 @@ class TIX_Demo_Access {
     private static function delete_prospect($uid) {
         if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
         wp_delete_user(intval($uid));
+    }
+
+    /** POST /demo-access/view {model} – eigene Sicht (Vertriebler, Admin) → {ok, demo_access} */
+    public static function rest_view(WP_REST_Request $req) {
+        // {model?, profile?} – mindestens eins; Profil hängt auch das Team um (Vertriebler arbeiten dann im anderen Beispiel-Veranstalter)
+        $m = self::clean_model($req->get_param('model'));
+        $p = self::clean_profile($req->get_param('profile'));
+        if ($m === '' && $p === '') return new WP_Error('tix_invalid_field', 'Unbekanntes Modell bzw. Profil.', ['status' => 400, 'field' => 'model']);
+        $u = wp_get_current_user();
+        if ($m !== '') update_user_meta($u->ID, self::META_MODEL, $m);
+        if ($p !== '' && !$u->has_cap('manage_options')) self::set_profile($u->ID, $p);
+        elseif ($p !== '') update_user_meta($u->ID, self::META_PROFILE, $p);
+        return self::out(['ok' => true, 'model' => self::model($u->ID), 'profile' => self::profile($u->ID), 'demo_access' => self::me_payload($u)]);
+    }
+
+    /** Website-Profile (Anzeige im Studio) */
+    public static function profiles_info() {
+        return [
+            ['key' => 'club', 'label' => 'Club', 'sub' => 'mehrere Events', 'text' => 'Wie ein Club mit Programm jede Woche: Events, Vorverkauf, Gästeliste, Musikwunsch.'],
+            ['key' => 'festival', 'label' => 'Festival', 'sub' => '1 Event', 'text' => 'Ein großes Event über mehrere Tage: Line-up, Programm auf Bühnen, Festival-Guide.'],
+        ];
+    }
+
+    /** Modelle mit Preisen wie veranstalter.evendis.de/preise/ (Anzeige im Studio) */
+    public static function models_info() {
+        return [
+            ['key' => 'platform', 'label' => 'Provisionskunde', 'price' => '2,5 % + 0,59 € je Ticket', 'text' => 'Tickets über evendis: Veranstalter-Seite auf evendis.de, Gebühr, Abrechnung und Auszahlung durch evendis.'],
+            ['key' => 'self', 'label' => 'Selbstgehostet', 'price' => '0 € je Ticket', 'text' => 'Eigener Shop mit Lizenz: eigene Website und Domain, ggf. eigene App, eigener Zahlungsanbieter, keine evendis-Gebühr.'],
+        ];
     }
 
     /** POST /demo-access/reset – Beispiel-Club zurücksetzen (Admin und Vertriebler, nie Interessenten) */
@@ -491,8 +607,7 @@ class TIX_Demo_Access {
     /** Staff-Pushes des Beispiel-Clubs nie an Demo-Zugänge (sonst sähe jeder die Testkäufe der anderen). */
     public static function push_recipients($uids, $org_ids, $pref) {
         if (!class_exists('TIX_Sales')) return $uids;
-        $demo = TIX_Sales::demo_id();
-        if (!$demo || !in_array($demo, array_map('intval', (array) $org_ids), true)) return $uids;
+        if (!array_intersect(self::demo_orgs(), array_map('intval', (array) $org_ids))) return $uids;
         return array_values(array_filter((array) $uids, function ($uid) { return !self::is_demo_user(intval($uid)); }));
     }
 
@@ -609,7 +724,8 @@ class TIX_Demo_Access {
         if (isset($map['@C:' . $s])) return $map['@C:' . $s];
         foreach ($map as $from => $to) {
             if (strpos($from, '@L:') === 0 || strpos($from, '@C:') === 0) continue;
-            if (mb_strlen($from) >= 5 && strpos($s, $from) !== false) $s = str_replace($from, $to, $s);
+            // nur ganze Wörter (sonst würde „Max Mustermann2“ zu „M. M***2“)
+            if (mb_strlen($from) >= 5 && strpos($s, $from) !== false) $s = preg_replace('/(?<![\p{L}\p{N}])' . preg_quote($from, '/') . '(?![\p{L}\p{N}])/u', str_replace(['\\', '$'], ['\\\\', '\\$'], $to), $s) ?? $s;
         }
         return $s;
     }
