@@ -4776,3 +4776,23 @@ Umbau 7 „Selbstgehostet“. Klasse `TIX_Offer_Hosting` (`includes/class-tix-of
   - `warnings[]`: `tix_offer_not_accepted`, `tix_offer_not_selfhosted` (weder Shop noch Lizenz), `tix_offer_pick_modules`, `tix_offer_already_hosted`, `tix_offer_no_email`. Die Warnungen sperren nichts.
 - `POST /platform/offers/{id}/hosting {kurz, job_id?}`: Nach dem Anlegen verknüpft das Studio das Angebot. Gespeichert wird `data.hosting {kurz, job_id, at, by}`, dazu ein Verlauf-Eintrag `hosting`. Ändern des Entwurfs behält die Verknüpfung, Duplikat und neue Version nicht.
 - Tests: `tests/test-offer-hosting-wp.php` 16/16 (Plattform), 4/4 (Einzel-Seite: keine Route). Gegenprobe `test-platform-offers-wp.php`.
+
+## 100. Kunden an einem Ort (ab 1.38.684)
+Für die Kundenverwaltung im Studio (Konzept `konzept-studio-kundenverwaltung.md` §7, Vertrag `uebergaben/vertrag-platform-customers.md`). Klasse `TIX_Platform_Customers` (`includes/class-tix-platform-customers.php`). Gilt nur im Mehr-Veranstalter-Modus und nur für Plattform-Admins (`manage_options`); Vertrieb bekommt 403, auf Einzel-Seiten gibt es die Route nicht (404).
+- **Zusammensetzen über feste IDs, nie über Namen:**
+  - Lizenz (Lizenz-Server derselben Seite): Hosts aus `tix_license_sites` (ohne dev) und „Host …“ in der Notiz; Kurzname aus `[kunden-hetzner:<kurz>]` in der Notiz (setzt der Kunden-Dienst).
+  - Partner-Verzeichnis (`tix_partners`): Host von `api_base`, `organizer_id`.
+  - Veranstalter (`tix_organizer`, ohne Demo-/Vorschau-Veranstalter).
+  - Lizenz ↔ Partner über den Host, Partner → Veranstalter über `organizer_id`.
+- **Art:** `hosted` (Lizenz mit Kurzname), `bestand` (eigene Seite ohne Kunden-Dienst, z. B. KitchenKlub/Mallorca; mit oder ohne Lizenz), `license` (nur Lizenz), `provision` (Veranstalter auf der Plattform).
+- **Schlüssel:** `h-<kurz>` vor `l-<lizenz-id>` vor `v-<veranstalter-id>` vor `p-<partner-id>`. Jeder Teil-Schlüssel bleibt als Alias gültig (`aliases[]`, z. B. `v-12` → `l-5`), die Akte liefert `key` (fest) und `requested_key`.
+- `GET /platform/customers?q=&art=&attention=1` → `{customers[], counts {all, provision, hosted, bestand, license, attention}, sources {licenses, partners}}`. Zähler beachten `q`, nicht `art`/`attention`. Sortierung: mit Aufmerksamkeit zuerst, dann Name.
+  - Zeile: `key, aliases, name, art, organizer_id, license_id, hosting_kurz, partner_id, domain, logo, status, status_source (license|approval|partner), license {id, state, stage, valid_until}|null, events {all, upcoming}|null, attention[]`.
+  - `attention[]` `{code, label, count?, date?}`: `approval_pending`, `license_expiring` (≤ 30 Tage), `license_expired`, `license_suspended`, `license_revoked`, `support_unread`, `settlement_held`, `payout_missing` (Abrechnung im Entwurf). Hosting-Prüfung und live/aus kennt nur der Kunden-Dienst; das Studio ergänzt sie.
+- `GET /platform/customers/{key}` → Zeile plus `organizer` (wie `/platform/organizers/{id}`-Zeile), `license` (wie `/license/admin/licenses/{id}`), `partner {id, name, host, sales_enabled, pending}`, `emails[]`, `modules {organizer, organizer_locked, license {all, keys}}`, `counts {support_open, settlements, offers}`. 404 `tix_not_found`.
+- **Filter `?customer=<schlüssel>`** (auch Aliase; unbekannt → 404 `tix_not_found`, Antwort zusätzlich `customer {key, name, art}`):
+  - `GET /platform/support`: Hilfe-Anfragen des Veranstalters (`_tix_sp_help_org`) oder vom Host der eigenen Seite (`_tix_sp_help_site`).
+  - `GET /platform/settlements`: nur der Veranstalter des Kunden, `totals` ebenfalls nur für ihn.
+  - `GET /platform/offers`: fest verknüpft (`data.customer_key`, alle Aliase), über den Hosting-Kurznamen (`data.hosting.kurz`, §99) oder gleiche E-Mail (Inhaber bzw. Lizenz, Groß/klein egal).
+- **Angebot ↔ Kunde:** `POST /platform/customers/{key}/offers {offer_id}` verknüpft (auch nach dem Senden, Verlauf `customer`), `DELETE … {offer_id}` löst. `POST /platform/offers {…, customer_key}` legt direkt aus der Akte an (nur Admins, unbekannt → 400 `tix_invalid_field`). Ändern des Entwurfs und neue Version behalten die Verknüpfung, das Duplikat nicht. Die Angebotsliste liefert `customer_key`.
+- Tests: `tests/test-platform-customers-wp.php` 38/38 (Plattform), 1/1 (Einzel-Seite).

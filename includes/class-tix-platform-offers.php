@@ -704,7 +704,7 @@ class TIX_Platform_Offers {
             'views' => intval($row->views), 'viewed_at' => self::iso($row->viewed_at), 'sent_at' => self::iso($row->sent_at), 'decided_at' => self::iso($row->decided_at),
             'created_at' => self::iso($row->created_at), 'updated_at' => self::iso($row->updated_at),
             'owner' => $owner ? ['id' => intval($owner->ID), 'name' => (string) $owner->display_name] : null,
-            'editable' => $row->status === 'draft', 'accept_link' => !empty($d['accept_link'])];
+            'editable' => $row->status === 'draft', 'accept_link' => !empty($d['accept_link']), 'customer_key' => !empty($d['customer_key']) ? (string) $d['customer_key'] : null];
     }
 
     public static function full($row) {
@@ -799,6 +799,13 @@ class TIX_Platform_Offers {
         elseif ($st === 'open') { $where[] = "status IN ('sent','viewed') AND (valid_until IS NULL OR valid_until >= %s)"; $args[] = $today; }
         elseif (in_array($st, self::STATUSES, true)) { $where[] = 'status = %s'; $args[] = $st; }
         elseif (!$req['all']) { $where[] = "status <> 'replaced'"; }
+        $cust = null;
+        if ((string) $req['customer'] !== '' && class_exists('TIX_Platform_Customers')) {
+            // Kundenakte (§100): fest verknüpft, Hosting-Kurzname oder E-Mail des Kunden
+            $cust = TIX_Platform_Customers::filter_customer($req['customer']);
+            if (is_wp_error($cust)) return $cust;
+            $where[] = TIX_Platform_Customers::offer_where($cust);
+        }
         $q = trim((string) $req['q']);
         if ($q !== '') { $like = '%' . $wpdb->esc_like($q) . '%'; $where[] = '(number LIKE %s OR company LIKE %s OR contact_name LIKE %s OR contact_email LIKE %s OR plan LIKE %s)'; array_push($args, $like, $like, $like, $like, $like); }
         $per = max(1, min(100, intval($req['per_page']) ?: 25));
@@ -813,8 +820,10 @@ class TIX_Platform_Offers {
         foreach ($wpdb->get_results($wpdb->prepare("SELECT (CASE WHEN status IN ('sent','viewed') AND valid_until < %s THEN 'expired' ELSE status END) s, COUNT(*) n FROM $t WHERE status <> 'replaced'$own GROUP BY s", $today)) as $r) {
             if (isset($counts[$r->s])) $counts[$r->s] = intval($r->n);
         }
-        return rest_ensure_response(['ok' => true, 'offers' => array_map([__CLASS__, 'summary'], $rows), 'total' => $total, 'page' => $page, 'per_page' => $per,
-            'has_more' => $page * $per < $total, 'counts' => $counts]);
+        $res = ['ok' => true, 'offers' => array_map([__CLASS__, 'summary'], $rows), 'total' => $total, 'page' => $page, 'per_page' => $per,
+            'has_more' => $page * $per < $total, 'counts' => $counts];
+        if ($cust) $res['customer'] = TIX_Platform_Customers::filter_head($cust);
+        return rest_ensure_response($res);
     }
 
     /** POST {customer, items[], discount, benefits?, comparison?, valid_until?, intro?, conditions?, contact?, accept_link?, tax_rate?, term_months?}
@@ -842,6 +851,12 @@ class TIX_Platform_Offers {
         }
         $b['items'] = $items;
         $d = self::clean_data($b);
+        // Neues Angebot aus der Kundenakte (§100)
+        if (!empty($b['customer_key']) && class_exists('TIX_Platform_Customers')) {
+            $ck = self::is_admin_user() ? TIX_Platform_Customers::canonical($b['customer_key']) : null;
+            if (!$ck) return new WP_Error('tix_invalid_field', 'Diesen Kunden gibt es nicht.', ['status' => 400, 'field' => 'customer_key']);
+            $d['customer_key'] = $ck;
+        }
         self::history($d, 'created');
         $id = self::insert($d);
         if (!$id) return new WP_Error('tix_offer_failed', 'Das Angebot konnte nicht gespeichert werden.', ['status' => 500]);
@@ -873,6 +888,7 @@ class TIX_Platform_Offers {
         $d = self::clean_data($b, $old);
         $d['history'] = $old['history'] ?? [];
         if (isset($old['hosting'])) $d['hosting'] = $old['hosting']; // Verknüpfung „Aus Angebot anlegen“ (§99) bleibt
+        if (isset($old['customer_key'])) $d['customer_key'] = $old['customer_key']; // Kundenakte (§100) bleibt
         self::history($d, 'updated');
         self::update_data($row->id, $d);
         return self::rest_get($req);
@@ -999,7 +1015,7 @@ class TIX_Platform_Offers {
         $row = self::load($req);
         if (is_wp_error($row)) return $row;
         $d = self::data($row);
-        unset($d['history'], $d['decision'], $d['last_sent_to'], $d['hosting']);
+        unset($d['history'], $d['decision'], $d['last_sent_to'], $d['hosting'], $d['customer_key']);
         $d['valid_until'] = wp_date('Y-m-d', time() + intval(self::catalog()['valid_days'] ?? 30) * DAY_IN_SECONDS);
         $d = self::clean_data($d);
         self::history($d, 'duplicated', ['from' => (string) $row->number]);
@@ -1017,9 +1033,11 @@ class TIX_Platform_Offers {
         if ($row->status === 'accepted') return new WP_Error('tix_offer_locked', 'Angenommene Angebote bleiben, wie sie sind. Für Neues bitte duplizieren.', ['status' => 409]);
         $max = intval($wpdb->get_var($wpdb->prepare('SELECT MAX(version) FROM ' . self::table() . ' WHERE base_number = %s', $row->base_number)));
         $d = self::data($row);
+        $ck = $d['customer_key'] ?? null;
         unset($d['history'], $d['decision'], $d['last_sent_to'], $d['hosting']);
         if ($d['valid_until'] < wp_date('Y-m-d')) $d['valid_until'] = wp_date('Y-m-d', time() + intval(self::catalog()['valid_days'] ?? 30) * DAY_IN_SECONDS);
         $d = self::clean_data($d);
+        if ($ck) $d['customer_key'] = $ck; // neue Version bleibt beim Kunden (§100)
         self::history($d, 'version', ['from' => (string) $row->number]);
         $id = self::insert($d, ['base_number' => $row->base_number, 'version' => $max + 1, 'owner_id' => intval($row->owner_id)]);
         if ($row->status !== 'draft') {

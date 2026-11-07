@@ -261,6 +261,13 @@ class TIX_Platform_Admin {
         // Demo Club / Vorschau nie in Plattform-Abrechnungen (1.38.508)
         $sbx = class_exists('TIX_Sales') ? TIX_Sales::sql_ids() : '0';
         $where .= " AND organizer_id NOT IN ($sbx)";
+        // Kundenakte (§100): ?customer=<schlüssel> → nur Abrechnungen dieses Veranstalters
+        $cust = null;
+        if ((string) $req->get_param('customer') !== '' && class_exists('TIX_Platform_Customers')) {
+            $cust = TIX_Platform_Customers::filter_customer($req->get_param('customer'));
+            if (is_wp_error($cust)) return $cust;
+            $where .= $wpdb->prepare(' AND organizer_id = %d', intval($cust['organizer_id']));
+        }
         $rows = (array) $wpdb->get_results("SELECT * FROM $t WHERE $where ORDER BY created DESC LIMIT 500");
         $q = mb_strtolower(trim((string) $req->get_param('q')));
         $out = [];
@@ -270,7 +277,14 @@ class TIX_Platform_Admin {
             $out[] = $row;
         }
         $sum = function ($st) use ($wpdb, $t, $sbx) { return round(floatval($wpdb->get_var("SELECT SUM(payout_amount) FROM $t WHERE organizer_id NOT IN ($sbx) AND status IN ('" . implode("','", array_map('esc_sql', (array) $st)) . "')")), 2); };
-        return rest_ensure_response(['ok' => true, 'settlements' => $out, 'totals' => ['open' => $sum(['draft', 'ready', 'held']), 'released' => $sum('approved'), 'paid' => $sum('paid')]]);
+        $res = ['ok' => true, 'settlements' => $out, 'totals' => ['open' => $sum(['draft', 'ready', 'held']), 'released' => $sum('approved'), 'paid' => $sum('paid')]];
+        if ($cust) {
+            $oid = intval($cust['organizer_id']);
+            $sum_c = function ($st) use ($wpdb, $t, $oid) { return round(floatval($wpdb->get_var($wpdb->prepare("SELECT SUM(payout_amount) FROM $t WHERE organizer_id = %d AND status IN ('" . implode("','", array_map('esc_sql', (array) $st)) . "')", $oid))), 2); };
+            $res['totals'] = ['open' => $sum_c(['draft', 'ready', 'held']), 'released' => $sum_c('approved'), 'paid' => $sum_c('paid')];
+            $res['customer'] = TIX_Platform_Customers::filter_head($cust);
+        }
+        return rest_ensure_response($res);
     }
 
     public static function rest_settlement_action(WP_REST_Request $req) {
@@ -491,7 +505,15 @@ class TIX_Platform_Admin {
         $status = $req->get_param('status') === 'all' ? ['tix_open', 'tix_progress', 'tix_resolved', 'tix_closed'] : ['tix_open', 'tix_progress'];
         $ids = get_posts(['post_type' => 'tix_support_ticket', 'post_status' => $status, 'posts_per_page' => 300, 'fields' => 'ids', 'orderby' => 'modified', 'order' => 'DESC',
             'meta_query' => [['key' => self::HELP_META, 'value' => '1']], 'no_found_rows' => true]);
-        return rest_ensure_response(['ok' => true, 'tickets' => array_map([__CLASS__, 'help_row'], $ids)]);
+        $res = ['ok' => true];
+        // Kundenakte (§100): ?customer=<schlüssel> → Veranstalter oder Host der eigenen Seite
+        if ((string) $req->get_param('customer') !== '' && class_exists('TIX_Platform_Customers')) {
+            $cust = TIX_Platform_Customers::filter_customer($req->get_param('customer'));
+            if (is_wp_error($cust)) return $cust;
+            $ids = array_values(array_filter($ids, function ($tid) use ($cust) { return TIX_Platform_Customers::support_match($cust, $tid); }));
+            $res['customer'] = TIX_Platform_Customers::filter_head($cust);
+        }
+        return rest_ensure_response($res + ['tickets' => array_map([__CLASS__, 'help_row'], $ids)]);
     }
 
     private static function help_or_404($id) {
