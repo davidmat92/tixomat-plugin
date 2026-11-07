@@ -49,6 +49,7 @@ class TIX_Platform_Customers {
         $p = ['permission_callback' => [__CLASS__, 'perm']];
         register_rest_route(self::NS, '/platform/customers', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list']] + $p);
         register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get']] + $p);
+        register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/modules', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_modules']] + $p);
         register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/offers', [
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_link_offer']] + $p,
             ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_unlink_offer']] + $p,
@@ -365,12 +366,7 @@ class TIX_Platform_Customers {
         $row['license'] = $c['_lic'] ? TIX_License_Server::admin_payload($c['_lic']['row']) : null;
         $row['partner'] = $c['_partner'] ? array_intersect_key($c['_partner'], array_flip(['id', 'name', 'host', 'sales_enabled', 'pending'])) : null;
         $row['emails'] = self::emails($c);
-        // Module beider Ebenen nebeneinander (welche gilt, entscheidet der User – siehe Vertrag §4)
-        $row['modules'] = [
-            'organizer' => $row['organizer']['modules'] ?? null,
-            'organizer_locked' => $row['organizer']['modules_locked'] ?? null,
-            'license' => $c['_lic'] ? ['all' => TIX_License_Server::license_modules($c['_lic']['row']) === null, 'keys' => TIX_License_Server::license_modules($c['_lic']['row'])] : null,
-        ];
+        $row['modules'] = self::modules_payload($c, $row['organizer']);
         $sc = $oid ? (self::settlement_counts()[$oid] ?? []) : [];
         $row['counts'] = [
             'support_open' => count(self::support_for($c)),
@@ -378,6 +374,75 @@ class TIX_Platform_Customers {
             'offers' => self::offer_count($c),
         ];
         return rest_ensure_response(['ok' => true, 'customer' => $row]);
+    }
+
+    // ═══════════════ Module (User-Entscheid 07.11.: bei Lizenz-Kunden gilt die Lizenz) ═══════════════
+
+    /**
+     * Ein Schalterfeld je Kunde. Provision: Veranstalter-Module (TIX_Plan). Kunde mit Lizenz (hosted, bestand, license):
+     * Lizenz-Module (TIX_Modules) – die Veranstalter-Module werden dort nicht gezeigt. Bestand ohne Lizenz: nichts schaltbar.
+     */
+    public static function modules_payload($c, $org_row = null) {
+        if ($c['_lic']) {
+            $keys = TIX_License_Server::license_modules($c['_lic']['row']);
+            $all = class_exists('TIX_Modules') ? TIX_Modules::keys() : [];
+            $on = [];
+            foreach ($all as $k) $on[$k] = $keys === null || in_array($k, $keys, true);
+            $labels = [];
+            if (class_exists('TIX_Modules')) foreach (TIX_Modules::MODULES as $k => $m) $labels[$k] = ['label' => $m[0], 'group' => $m[2]];
+            return ['source' => 'license', 'editable' => true, 'all' => $keys === null, 'modules' => $on, 'labels' => $labels, 'locked' => (object) []];
+        }
+        if ($c['art'] === 'provision' && $c['organizer_id']) {
+            $org_row = $org_row ?: (class_exists('TIX_Platform_Admin') ? TIX_Platform_Admin::org_row($c['organizer_id']) : null);
+            return ['source' => 'organizer', 'editable' => true, 'all' => false, 'modules' => $org_row['modules'] ?? (object) [],
+                'labels' => class_exists('TIX_Plan') ? array_map(function ($l) { return ['label' => $l]; }, TIX_Plan::LABELS) : (object) [],
+                'locked' => $org_row['modules_locked'] ?? (object) []];
+        }
+        return ['source' => 'none', 'editable' => false, 'all' => false, 'modules' => (object) [], 'labels' => (object) [], 'locked' => (object) []];
+    }
+
+    /** POST /platform/customers/{key}/modules {modules: {key: bool}} | {all: true} – schreibt die gültige Ebene. */
+    public static function rest_modules(WP_REST_Request $req) {
+        $c = self::raw($req['key']);
+        if (!$c) return new WP_Error('tix_not_found', 'Diesen Kunden gibt es nicht.', ['status' => 404]);
+        $b = $req->get_json_params() ?: $req->get_params();
+        $all_flag = !empty($b['all']) && filter_var($b['all'], FILTER_VALIDATE_BOOLEAN);
+        $in = $b['modules'] ?? null;
+        if (!$all_flag && !is_array($in)) return new WP_Error('tix_invalid_field', 'Bitte Module als {key: true|false} senden.', ['status' => 400, 'field' => 'modules']);
+        if ($c['_lic']) {
+            $known = class_exists('TIX_Modules') ? TIX_Modules::keys() : [];
+            if (!$all_flag) {
+                $bad = array_diff(array_keys($in), $known);
+                if ($bad) return new WP_Error('tix_invalid_field', 'Unbekanntes Modul: ' . reset($bad) . '.', ['status' => 400, 'field' => 'modules.' . reset($bad)]);
+                $cur = TIX_License_Server::license_modules($c['_lic']['row']) ?? $known;
+                foreach ($in as $k => $v) {
+                    if (filter_var($v, FILTER_VALIDATE_BOOLEAN)) $cur[] = $k; else $cur = array_diff($cur, [$k]);
+                }
+                $cur = array_values(array_intersect($known, array_unique($cur)));
+                $value = count($cur) === count($known) ? null : $cur; // alles an = „alle“ (auch künftige Module)
+            } else {
+                $value = null;
+            }
+            $r = new WP_REST_Request('POST', '/tixomat/v1/license/admin/licenses/' . intval($c['license_id']));
+            $r->set_param('id', intval($c['license_id']));
+            $r->set_header('Content-Type', 'application/json');
+            $r->set_body(wp_json_encode(['modules' => $value]));
+            $res = TIX_License_Server::rest_admin_save($r);
+            if (is_wp_error($res)) return $res;
+            self::flush();
+            return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key']))]);
+        }
+        if ($c['art'] === 'provision' && $c['organizer_id'] && class_exists('TIX_Platform_Admin')) {
+            if ($all_flag) return new WP_Error('tix_invalid_field', '„all“ gibt es nur für Lizenz-Module.', ['status' => 400, 'field' => 'all']);
+            $r = new WP_REST_Request('POST', '/tixomat/v1/platform/organizers/' . intval($c['organizer_id']) . '/modules');
+            $r->set_param('id', intval($c['organizer_id']));
+            $r->set_param('modules', $in);
+            $res = TIX_Platform_Admin::rest_org_modules($r);
+            if (is_wp_error($res)) return $res;
+            self::flush();
+            return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key']))]);
+        }
+        return new WP_Error('tix_modules_no_license', 'Dieser Kunde hat keine Lizenz auf dieser Plattform – Module schaltet die eigene Seite.', ['status' => 409]);
     }
 
     // ═══════════════ Filter ?customer= ═══════════════
