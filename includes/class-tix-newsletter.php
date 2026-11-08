@@ -12,7 +12,9 @@
  *    Anmeldung braucht wieder das Double-Opt-in.
  * Kampagnen ({prefix}tix_nl_campaigns): Entwurf → geplant → wird vorbereitet → versendet (bzw. fehlgeschlagen).
  *  - Zielgruppen: `contacts` (alle aktiven Kontakte des Bereichs), `event` (aktive Kontakte, die Tickets für das Event
- *    gekauft haben), `brevo_list` (vorhandene Liste im Brevo-Konto, nur mit Bestätigung, dass alle eingewilligt haben).
+ *    gekauft haben), `brevo_list` (vorhandene Listen im Brevo-Konto, nur mit Bestätigung, dass alle eingewilligt haben).
+ *  - Brevo-Listen (1.38.692, §105): `list_ids` (bis 10) nur an diese Listen (`brevo_list`) oder zusätzlich zu den eigenen
+ *    Empfängern; eigene Abmeldungen gehen als Ausschluss-Liste mit; GET …/lists, Empfängerzahl ohne Doppelte vorab.
  *  - Versand: Das Plugin legt je Kampagne eine Brevo-Liste an, importiert die Empfänger, legt die Brevo-Kampagne an
  *    (Absender aus Brevo, Abmeldelink {{ unsubscribe }}, Impressum im Fuß) und sendet sofort bzw. zur geplanten Zeit.
  *  - Links auf die eigene Website tragen utm_source=newsletter, utm_medium=email, utm_campaign=nl-<id> und c=nl-<id>:
@@ -25,12 +27,14 @@ class TIX_Newsletter {
 
     const NS = 'tixomat/v1';
     const API = 'https://api.brevo.com/v3';
-    const DB_VERSION = '2'; // 2 = Spalte blocks (Baukasten, 1.38.654)
+    const DB_VERSION = '3'; // 2 = Spalte blocks (Baukasten, 1.38.654); 3 = Brevo-Listen (brevo_lists_src, brevo_excl, audience_meta)
     const OPT = 'tix_nl_settings';
     const META = '_tix_nl_settings';
     const CRON = 'tix_nl_cron';
     const STATS_DAYS = 30;
     const MAX_RECIPIENTS = 50000;
+    const MAX_LISTS = 10;          // gewählte Brevo-Listen je Kampagne
+    const LISTS_LIMIT = 1000;      // höchstens so viele Listen aus dem Brevo-Konto
     const CONSENT_TEXT = 'Ja, ich möchte Neuigkeiten und Event-Tipps von %s per E-Mail erhalten. Dafür wird ausgewertet, ob und welche Links ich öffne. Die Einwilligung kann ich jederzeit über den Abmeldelink in jeder Mail widerrufen.';
 
     public static function init() {
@@ -84,6 +88,8 @@ class TIX_Newsletter {
             audience VARCHAR(16) NOT NULL DEFAULT 'contacts',
             event_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             brevo_list_src BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            brevo_lists_src TEXT NULL,
+            audience_meta LONGTEXT NULL,
             status VARCHAR(16) NOT NULL DEFAULT 'draft',
             scheduled_at DATETIME NULL,
             sent_at DATETIME NULL,
@@ -91,6 +97,7 @@ class TIX_Newsletter {
             brevo_campaign BIGINT UNSIGNED NOT NULL DEFAULT 0,
             brevo_list BIGINT UNSIGNED NOT NULL DEFAULT 0,
             brevo_process BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            brevo_excl BIGINT UNSIGNED NOT NULL DEFAULT 0,
             stats LONGTEXT NULL,
             stats_at DATETIME NULL,
             error VARCHAR(255) NOT NULL DEFAULT '',
@@ -164,6 +171,7 @@ class TIX_Newsletter {
         $r('/marketing/newsletter/contacts', 'GET', 'rest_contacts', $mod);
         $r('/marketing/newsletter/contacts/(?P<id>\d+)', 'DELETE', 'rest_contact_delete', $mod);
         $r('/marketing/newsletter/audience', 'GET', 'rest_audience', $mod);
+        $r('/marketing/newsletter/lists', 'GET', 'rest_lists', $mod);
         $r('/marketing/newsletter/campaigns', 'GET', 'rest_campaigns', $mod);
         $r('/marketing/newsletter/campaigns', 'POST', 'rest_create', $mod);
         $r('/marketing/newsletter/campaigns/(?P<id>\d+)', 'GET', 'rest_campaign', $mod);
@@ -479,22 +487,165 @@ class TIX_Newsletter {
         return $eid && get_post_type($eid) === 'event' && in_array(intval($eid), array_map('intval', TIX_Studio_Stats::scope_ids()), true);
     }
 
-    /** GET /marketing/newsletter/audience?audience=contacts|event|brevo_list&event_id=&list_id= → {count} */
+    // ═══════════════ Brevo-Listen (1.38.692, §105) ═══════════════
+
+    private static function lists_cache_key($org, $key) { return 'tix_nl_lists_' . md5(intval($org) . '|' . $key); }
+
+    /** Alle Listen des Brevo-Kontos ohne die eigenen (Tixomat · …, Tixomat-Ordner) → [{id, name, count, folder}] oder WP_Error */
+    public static function brevo_lists($org, array $s, $refresh = false) {
+        if ($s['api_key'] === '') return self::bad('api_key', 'Bitte zuerst Brevo verbinden.', 'tix_nl_not_connected', 409);
+        $ck = self::lists_cache_key($org, $s['api_key']);
+        $c = $refresh ? false : get_transient($ck);
+        if (is_array($c)) return $c;
+        $raw = [];
+        for ($off = 0; $off < self::LISTS_LIMIT; $off += 50) {
+            $r = self::brevo($s['api_key'], 'GET', '/contacts/lists?limit=50&offset=' . $off . '&sort=desc');
+            if (is_wp_error($r)) return new WP_Error('tix_brevo_error', $r->get_error_message(), ['status' => 502]);
+            if ($r[0] !== 200) return new WP_Error('tix_brevo_error', self::brevo_err($r, 'Brevo liefert die Listen nicht.'), ['status' => 502]);
+            $page = (array) ($r[1]['lists'] ?? []);
+            foreach ($page as $l) if (is_array($l) && !empty($l['id'])) $raw[intval($l['id'])] = $l;
+            if (count($page) < 50 || (isset($r[1]['count']) && $off + 50 >= intval($r[1]['count']))) break;
+        }
+        $folders = [];
+        $need = false; foreach ($raw as $l) if (!empty($l['folderId'])) $need = true;
+        if ($need) for ($off = 0; $off < self::LISTS_LIMIT; $off += 50) {
+            $r = self::brevo($s['api_key'], 'GET', '/contacts/folders?limit=50&offset=' . $off);
+            if (is_wp_error($r) || $r[0] !== 200) break; // Ordnername ist nur Beiwerk
+            $page = (array) ($r[1]['folders'] ?? []);
+            foreach ($page as $f) if (is_array($f) && !empty($f['id'])) $folders[intval($f['id'])] = (string) ($f['name'] ?? '');
+            if (count($page) < 50) break;
+        }
+        $out = [];
+        foreach ($raw as $id => $l) {
+            $name = (string) ($l['name'] ?? '');
+            $fid = intval($l['folderId'] ?? 0);
+            if (strpos($name, 'Tixomat · ') === 0 || ($s['folder_id'] && $fid === intval($s['folder_id']))) continue;
+            $out[] = ['id' => $id, 'name' => $name, 'count' => intval($l['uniqueSubscribers'] ?? $l['totalSubscribers'] ?? 0), 'folder' => $fid ? (string) ($folders[$fid] ?? '') : ''];
+        }
+        set_transient($ck, $out, 5 * MINUTE_IN_SECONDS);
+        return $out;
+    }
+
+    /** GET /marketing/newsletter/lists[?refresh=1] → {lists, total} */
+    public static function rest_lists(WP_REST_Request $req) {
+        $org = self::org($req);
+        $l = self::brevo_lists($org, self::settings($org), (bool) $req->get_param('refresh'));
+        if (is_wp_error($l)) return $l;
+        return rest_ensure_response(['ok' => true, 'lists' => $l, 'total' => count($l)]);
+    }
+
+    /** list_ids aus Parameter (Array oder „7,9“) → int[] (eindeutig, Reihenfolge bleibt) */
+    private static function parse_ids($v) {
+        if (is_string($v)) $v = $v === '' ? [] : explode(',', $v);
+        $out = [];
+        foreach ((array) $v as $x) { $i = absint($x); if ($i && !in_array($i, $out, true)) $out[] = $i; }
+        return $out;
+    }
+
+    /** Gewählte Listen einer Kampagne; alte Daten: [brevo_list_src] */
+    public static function list_ids_of(array $c) {
+        $l = !empty($c['brevo_lists_src']) ? json_decode((string) $c['brevo_lists_src'], true) : null;
+        if (is_array($l)) return self::parse_ids($l);
+        return intval($c['brevo_list_src'] ?? 0) ? [intval($c['brevo_list_src'])] : [];
+    }
+
+    private static function meta_of(array $c) {
+        $m = !empty($c['audience_meta']) ? json_decode((string) $c['audience_meta'], true) : null;
+        return is_array($m) ? $m : [];
+    }
+
+    /** Hash wie im täglichen Aufräumen (anonymisierte Abmeldung, Status blocked) */
+    private static function email_hash($email) { return hash('sha256', strtolower((string) $email) . wp_salt('auth')); }
+
+    /** Eigene Abmeldungen des Bereichs → [klartext-adressen (Set), hashes (Set)] */
+    private static function unsub_sets($org) {
+        global $wpdb;
+        $plain = []; $hash = [];
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT email, status FROM " . self::tc() . " WHERE organizer_id = %d AND status IN ('unsubscribed','blocked')", $org)) as $r) {
+            if ($r->status === 'blocked') $hash[strtolower($r->email)] = 1; else $plain[strtolower($r->email)] = 1;
+        }
+        return [$plain, $hash];
+    }
+
+    /**
+     * Empfänger insgesamt: eigene (contacts/event) + Brevo-Listen, ohne Doppelte, eigene Abmeldungen und in Brevo gesperrte.
+     * → {count, own, lists[{id,count}], excluded, exact, _own [email=>first], _exclude [email…]} oder WP_Error (tix_nl_list_gone …)
+     */
+    public static function count_audience($org, array $s, $audience, $event_id, array $list_ids, $cache = true) {
+        $own = $audience === 'brevo_list' ? [] : self::recipients($org, $audience, $event_id);
+        $out = ['count' => count($own), 'own' => count($own), 'lists' => [], 'excluded' => 0, 'exact' => true, '_own' => $own, '_exclude' => []];
+        if (!$list_ids) return $out;
+        if ($s['api_key'] === '') return self::bad('api_key', 'Bitte zuerst Brevo verbinden.', 'tix_nl_not_connected', 409);
+        $ck = 'tix_nl_aud_' . md5(intval($org) . '|' . $s['api_key'] . '|' . $audience . '|' . intval($event_id) . '|' . implode(',', $list_ids) . '|' . count($own));
+        if ($cache && is_array($c = get_transient($ck))) return $c + ['_own' => $own];
+        $known = self::brevo_lists($org, $s);
+        if (is_wp_error($known)) return $known;
+        $names = array_column($known, 'name', 'id');
+        $sizes = [];
+        foreach ($list_ids as $id) {
+            $r = self::brevo($s['api_key'], 'GET', '/contacts/lists/' . $id);
+            if (is_wp_error($r)) return new WP_Error('tix_brevo_error', $r->get_error_message(), ['status' => 502]);
+            if ($r[0] === 404) return new WP_Error('tix_nl_list_gone', 'Die Brevo-Liste „' . ($names[$id] ?? ('#' . $id)) . '“ gibt es nicht mehr.', ['status' => 409, 'list_id' => $id, 'field' => 'list_ids']);
+            if ($r[0] !== 200) return new WP_Error('tix_brevo_error', self::brevo_err($r, 'Brevo liefert die Liste nicht.'), ['status' => 502]);
+            $sizes[$id] = intval($r[1]['uniqueSubscribers'] ?? $r[1]['totalSubscribers'] ?? 0);
+            $out['lists'][] = ['id' => $id, 'count' => $sizes[$id]];
+        }
+        $total = count($own) + array_sum($sizes);
+        if ($total > self::MAX_RECIPIENTS) {
+            // zu groß zum Durchzählen: Summe als Schätzung (Studio zeigt „etwa …“)
+            $out['count'] = min($total, self::MAX_RECIPIENTS * 10); $out['exact'] = false;
+        } else {
+            list($plain, $hash) = self::unsub_sets($org);
+            $seen = []; foreach ($own as $em => $fn) $seen[strtolower($em)] = 1;
+            $excl = [];
+            $raw = count($own);
+            foreach ($list_ids as $id) {
+                for ($off = 0; $off < self::MAX_RECIPIENTS; $off += 500) {
+                    $r = self::brevo($s['api_key'], 'GET', '/contacts/lists/' . $id . '/contacts?limit=500&offset=' . $off);
+                    if (is_wp_error($r)) return new WP_Error('tix_brevo_error', $r->get_error_message(), ['status' => 502]);
+                    if ($r[0] === 404) return new WP_Error('tix_nl_list_gone', 'Die Brevo-Liste „' . ($names[$id] ?? ('#' . $id)) . '“ gibt es nicht mehr.', ['status' => 409, 'list_id' => $id, 'field' => 'list_ids']);
+                    if ($r[0] !== 200) return new WP_Error('tix_brevo_error', self::brevo_err($r, 'Brevo liefert die Kontakte nicht.'), ['status' => 502]);
+                    $page = (array) ($r[1]['contacts'] ?? []);
+                    foreach ($page as $x) {
+                        $em = strtolower((string) ($x['email'] ?? ''));
+                        if ($em === '') continue;
+                        $raw++;
+                        if (isset($seen[$em])) continue;
+                        $seen[$em] = 1;
+                        if (isset($plain[$em]) || isset($hash[self::email_hash($em)])) { $excl[$em] = 1; continue; }
+                        if (!empty($x['emailBlacklisted'])) { $excl[$em] = 0; continue; } // kennt Brevo selbst, nicht importieren
+                    }
+                    if (count($page) < 500) break;
+                }
+            }
+            $out['count'] = count($seen) - count($excl);
+            $out['excluded'] = $raw - $out['count'];
+            $out['_exclude'] = array_keys(array_filter($excl));
+        }
+        $keep = $out; unset($keep['_own']);
+        set_transient($ck, $keep, MINUTE_IN_SECONDS);
+        return $out;
+    }
+
+    /** GET /marketing/newsletter/audience?audience=contacts|event|brevo_list&event_id=&list_ids=7,9 → {count, own, lists, excluded, exact} */
     public static function rest_audience(WP_REST_Request $req) {
         $org = self::org($req);
         $a = (string) ($req->get_param('audience') ?: 'contacts');
-        if ($a === 'brevo_list') {
-            $s = self::settings($org);
-            if ($s['api_key'] === '') return self::bad('api_key', 'Bitte zuerst Brevo verbinden.');
-            $r = self::brevo($s['api_key'], 'GET', '/contacts/lists?limit=50&offset=0');
-            if (is_wp_error($r)) return $r;
-            $lists = array_map(function ($l) { return ['id' => intval($l['id']), 'name' => (string) $l['name'], 'count' => intval($l['uniqueSubscribers'] ?? $l['totalSubscribers'] ?? 0)]; }, (array) ($r[1]['lists'] ?? []));
-            $lists = array_values(array_filter($lists, function ($l) use ($s) { return strpos($l['name'], 'Tixomat · ') !== 0; }));
-            return rest_ensure_response(['ok' => true, 'audience' => 'brevo_list', 'lists' => $lists]);
+        $ids = self::parse_ids($req->get_param('list_ids'));
+        if (count($ids) > self::MAX_LISTS) return self::bad('list_ids', 'Höchstens ' . self::MAX_LISTS . ' Brevo-Listen.');
+        if ($a === 'brevo_list' && !$ids) {
+            // ältere Studios: Listen zur Auswahl (ohne Zählung)
+            $l = self::brevo_lists($org, self::settings($org));
+            if (is_wp_error($l)) return $l->get_error_code() === 'tix_nl_not_connected' ? self::bad('api_key', 'Bitte zuerst Brevo verbinden.') : $l;
+            return rest_ensure_response(['ok' => true, 'audience' => 'brevo_list', 'lists' => array_map(function ($x) { return ['id' => $x['id'], 'name' => $x['name'], 'count' => $x['count']]; }, $l)]);
         }
         $eid = absint($req->get_param('event_id'));
         if ($a === 'event' && !self::event_ok($eid)) return self::bad('event_id', 'Event nicht gefunden.', 'not_found', 404);
-        return rest_ensure_response(['ok' => true, 'audience' => $a === 'event' ? 'event' : 'contacts', 'count' => count(self::recipients($org, $a === 'event' ? 'event' : 'contacts', $eid))]);
+        $a = in_array($a, ['event', 'brevo_list'], true) ? $a : 'contacts';
+        $res = self::count_audience($org, self::settings($org), $a, $eid, $ids);
+        if (is_wp_error($res)) return $res;
+        unset($res['_own'], $res['_exclude']);
+        return rest_ensure_response(['ok' => true, 'audience' => $a] + $res);
     }
 
     // ═══════════════ Kampagnen ═══════════════
@@ -506,7 +657,7 @@ class TIX_Newsletter {
     }
 
     /** Felder aus der Anfrage prüfen → [set, WP_Error|null] */
-    private static function fields(WP_REST_Request $req, $org) {
+    private static function fields(WP_REST_Request $req, $org, array $cur = null) {
         $set = [];
         foreach (['name' => 120, 'subject' => 200, 'preheader' => 200] as $f => $len) if ($req->has_param($f)) $set[$f] = mb_substr(trim(wp_strip_all_tags((string) $req->get_param($f))), 0, $len);
         if ($req->has_param('content')) { $set['content'] = wp_kses_post((string) $req->get_param('content')); if (!$req->has_param('blocks')) $set['blocks'] = null; }
@@ -517,21 +668,40 @@ class TIX_Newsletter {
             $set['blocks'] = wp_json_encode($b);
             $set['content'] = TIX_Newsletter_Blocks::render($b, $org);
         }
+        $a = $cur ? (string) $cur['audience'] : 'contacts';
         if ($req->has_param('audience')) {
             $a = (string) $req->get_param('audience');
             if (!in_array($a, ['contacts', 'event', 'brevo_list'], true)) return [null, self::bad('audience', 'Bitte eine Zielgruppe wählen.')];
             $set['audience'] = $a;
-            $set['event_id'] = 0; $set['brevo_list_src'] = 0;
+            $set['event_id'] = 0;
             if ($a === 'event') {
                 $eid = absint($req->get_param('event_id'));
                 if (!self::event_ok($eid)) return [null, self::bad('event_id', 'Event nicht gefunden.', 'not_found', 404)];
                 $set['event_id'] = $eid;
             }
-            if ($a === 'brevo_list') {
+        }
+        // Brevo-Listen (§105): list_ids gewinnt; älteres Studio schickt nur list_id (bei brevo_list)
+        $touch = $req->has_param('audience') || $req->has_param('list_ids') || $req->has_param('list_id');
+        if ($touch) {
+            if ($req->has_param('list_ids')) $ids = self::parse_ids($req->get_param('list_ids'));
+            elseif ($req->has_param('list_id') && absint($req->get_param('list_id'))) $ids = [absint($req->get_param('list_id'))];
+            elseif ($req->has_param('audience')) $ids = [];
+            else $ids = $cur ? self::list_ids_of($cur) : [];
+            if ($a === 'brevo_list' && !$ids) return [null, self::bad('list_ids', 'Bitte mindestens eine Brevo-Liste wählen.')];
+            if (count($ids) > self::MAX_LISTS) return [null, self::bad('list_ids', 'Höchstens ' . self::MAX_LISTS . ' Brevo-Listen.')];
+            $meta = $cur ? self::meta_of($cur) : [];
+            if ($ids) {
                 if (!rest_sanitize_boolean($req->get_param('consent_confirmed'))) return [null, self::bad('consent_confirmed', 'Bitte bestätige, dass alle Kontakte dieser Liste eingewilligt haben.')];
-                $set['brevo_list_src'] = absint($req->get_param('list_id'));
-                if (!$set['brevo_list_src']) return [null, self::bad('list_id', 'Bitte eine Brevo-Liste wählen.')];
-            }
+                $known = self::brevo_lists($org, self::settings($org));
+                if (is_wp_error($known)) return [null, $known];
+                $names = array_column($known, 'name', 'id');
+                foreach ($ids as $id) if (!isset($names[$id])) return [null, new WP_Error('tix_invalid_field', 'Diese Brevo-Liste gibt es im Konto nicht.', ['status' => 400, 'field' => 'list_ids', 'list_id' => $id])];
+                $meta['consent'] = ['confirmed' => true, 'at' => gmdate('c'), 'by' => get_current_user_id()];
+                $meta['lists'] = array_map(function ($id) use ($names) { return ['id' => $id, 'name' => $names[$id]]; }, $ids);
+            } else unset($meta['consent'], $meta['lists']);
+            $set['brevo_lists_src'] = wp_json_encode($ids);
+            $set['brevo_list_src'] = $ids ? $ids[0] : 0;
+            $set['audience_meta'] = $meta ? wp_json_encode($meta) : null;
         }
         return [$set, null];
     }
@@ -555,7 +725,7 @@ class TIX_Newsletter {
         $c = self::get($req['id'], $org);
         if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
         if ($c['status'] !== 'draft') return self::bad('status', 'Versendete oder geplante Kampagnen lassen sich nicht mehr ändern.', 'tix_nl_locked', 409);
-        list($set, $err) = self::fields($req, $org);
+        list($set, $err) = self::fields($req, $org, $c);
         if ($err) return $err;
         if ($set) $wpdb->update(self::tk(), $set + ['updated' => self::now()], ['id' => intval($c['id'])]);
         return rest_ensure_response(['ok' => true, 'campaign' => self::out(self::get($c['id'], $org), false)]);
@@ -613,7 +783,7 @@ class TIX_Newsletter {
         $c = self::get($req['id'], $org);
         if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
         $row = ['organizer_id' => $org, 'name' => mb_substr('Kopie von ' . $c['name'], 0, 120), 'subject' => $c['subject'], 'preheader' => $c['preheader'], 'content' => $c['content'], 'blocks' => $c['blocks'],
-            'audience' => $c['audience'], 'event_id' => $c['event_id'], 'brevo_list_src' => $c['brevo_list_src'], 'status' => 'draft', 'created_by' => get_current_user_id(), 'created' => self::now(), 'updated' => self::now()];
+            'audience' => $c['audience'], 'event_id' => $c['event_id'], 'brevo_list_src' => $c['brevo_list_src'], 'brevo_lists_src' => $c['brevo_lists_src'], 'audience_meta' => $c['audience_meta'], 'status' => 'draft', 'created_by' => get_current_user_id(), 'created' => self::now(), 'updated' => self::now()];
         $wpdb->insert(self::tk(), $row);
         return new WP_REST_Response(['ok' => true, 'campaign' => self::out(self::get($wpdb->insert_id, $org), true)], 201);
     }
@@ -630,12 +800,16 @@ class TIX_Newsletter {
         $eid = intval($c['event_id']);
         $o = ['id' => intval($c['id']), 'name' => $c['name'], 'subject' => $c['subject'], 'preheader' => $c['preheader'], 'status' => $c['status'],
             'audience' => $c['audience'], 'event' => $eid ? ['id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8')] : null,
-            'list_id' => intval($c['brevo_list_src']) ?: null, 'scheduled_at' => $c['scheduled_at'] ? mysql_to_rfc3339($c['scheduled_at']) : null,
+            'list_id' => self::list_ids_of($c)[0] ?? null, 'list_ids' => self::list_ids_of($c), 'scheduled_at' => $c['scheduled_at'] ? mysql_to_rfc3339($c['scheduled_at']) : null,
             'sent_at' => $c['sent_at'] ? mysql_to_rfc3339($c['sent_at']) : null, 'recipients' => intval($c['recipients']), 'error' => $c['error'] ?: null,
             'utm_campaign' => 'nl-' . intval($c['id']), 'stats' => is_array($st) ? $st : null, 'stats_at' => $c['stats_at'] ? mysql_to_rfc3339($c['stats_at']) : null,
             'orders' => $sales ? $sales['orders'] : ($c['status'] === 'sent' ? 0 : null), 'tickets' => $sales ? $sales['tickets'] : ($c['status'] === 'sent' ? 0 : null),
             'revenue' => $sales ? $sales['revenue'] : ($c['status'] === 'sent' ? 0.0 : null), 'updated' => mysql_to_rfc3339($c['updated'])];
         if ($full) {
+            $m = self::meta_of($c);
+            $o['lists'] = $m['lists'] ?? [];
+            $o['consent'] = isset($m['consent']) ? ['confirmed' => true, 'at' => $m['consent']['at'] ?? null, 'by' => intval($m['consent']['by'] ?? 0)] : null;
+            if (isset($m['sent_lists'])) $o['sent_lists'] = $m['sent_lists'];
             $o['content'] = $c['content'];
             // Baukasten: Blöcke; alte Kampagnen erscheinen als ein HTML-Block (editor = html)
             $bl = !empty($c['blocks']) ? json_decode((string) $c['blocks'], true) : null;
@@ -698,7 +872,11 @@ class TIX_Newsletter {
         $bl = !empty($c['blocks']) && class_exists('TIX_Newsletter_Blocks') ? json_decode((string) $c['blocks'], true) : null;
         // Baukasten: frisch aus den Blöcken (Event-Daten, Gutschein aktuell), ohne wpautop
         $content = self::tag_links(is_array($bl) ? TIX_Newsletter_Blocks::render($bl, $org) : wpautop((string) $c['content']), $c['id']);
-        $note = 'Du bekommst diese Mail, weil du dich für den Newsletter von ' . esc_html(self::owner_name($org)) . ' angemeldet hast. <a href="{{ unsubscribe }}" style="text-decoration:underline;">Abmelden</a><br>' . esc_html($addr);
+        // Nur Brevo-Listen: die Liste stammt aus dem Konto des Veranstalters (§105)
+        $why = ($c['audience'] ?? '') === 'brevo_list'
+            ? 'Du bekommst diese Mail, weil du dich bei ' . esc_html($s['sender_name'] !== '' ? $s['sender_name'] : self::owner_name($org)) . ' angemeldet hast.'
+            : 'Du bekommst diese Mail, weil du dich für den Newsletter von ' . esc_html(self::owner_name($org)) . ' angemeldet hast.';
+        $note = $why . ' <a href="{{ unsubscribe }}" style="text-decoration:underline;">Abmelden</a><br>' . esc_html($addr);
         if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render(['title' => (string) $c['subject'], 'hide_title' => is_array($bl) || strpos($content, 'tm-nl-hero') !== false, 'preheader' => (string) $c['preheader'], 'kind' => 'promo', 'blocks' => [['type' => 'html', 'html' => $content]], 'note' => $note]);
         return '<!doctype html><html><body>' . $content . '<p>' . $note . '</p></body></html>';
     }
@@ -757,7 +935,10 @@ class TIX_Newsletter {
         if ($c['status'] !== 'draft') return self::bad('status', 'Diese Kampagne ist schon geplant oder versendet.', 'tix_nl_locked', 409);
         $s = self::settings($org);
         if (($ok = self::ready($c, $s)) !== true) return $ok;
-        if ($c['audience'] !== 'brevo_list' && !count(self::recipients($org, $c['audience'], intval($c['event_id'])))) return self::bad('audience', 'In dieser Zielgruppe ist noch niemand mit bestätigter Anmeldung.', 'tix_nl_empty', 409);
+        // frisch zählen (gelöschte Liste sofort melden), nicht aus dem 60-s-Zwischenspeicher
+        $cnt = self::count_audience($org, $s, $c['audience'], intval($c['event_id']), self::list_ids_of($c), false);
+        if (is_wp_error($cnt)) return $cnt;
+        if (!$cnt['count']) return self::bad('audience', self::list_ids_of($c) ? 'In dieser Zielgruppe ist niemand übrig, der die Mail bekommen darf.' : 'In dieser Zielgruppe ist noch niemand mit bestätigter Anmeldung.', 'tix_nl_empty', 409);
         $at = (string) $req->get_param('at');
         $ts = $at !== '' ? strtotime($at) : time();
         if ($at !== '' && ($ts === false || $ts < time() + 600 || $ts > time() + 90 * DAY_IN_SECONDS)) return self::bad('at', 'Bitte einen Zeitpunkt zwischen 10 Minuten und 90 Tagen ab jetzt wählen.');
@@ -778,9 +959,28 @@ class TIX_Newsletter {
             $r = self::brevo($s['api_key'], 'PUT', '/emailCampaigns/' . intval($c['brevo_campaign']) . '/status', ['status' => 'suspended']);
             if (is_wp_error($r) || !in_array($r[0], [200, 204], true)) return self::bad('status', 'Brevo versendet die Kampagne schon.', 'tix_nl_locked', 409);
         }
-        if ($c['brevo_list'] && $s['api_key'] !== '') self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . intval($c['brevo_list']));
-        $wpdb->update(self::tk(), ['status' => 'draft', 'scheduled_at' => null, 'brevo_list' => 0, 'brevo_process' => 0, 'updated' => self::now()], ['id' => intval($c['id'])]);
+        // nur eigene Kampagnen-/Ausschluss-Listen löschen, nie die gewählten Listen des Kunden
+        if ($s['api_key'] !== '') self::delete_own_lists($c, $s);
+        $m = self::meta_of($c); unset($m['excl_process'], $m['sent_lists']);
+        $wpdb->update(self::tk(), ['status' => 'draft', 'scheduled_at' => null, 'brevo_list' => 0, 'brevo_excl' => 0, 'brevo_process' => 0, 'audience_meta' => $m ? wp_json_encode($m) : null, 'updated' => self::now()], ['id' => intval($c['id'])]);
         return rest_ensure_response(['ok' => true, 'campaign' => self::out(self::get($c['id'], $org), false)]);
+    }
+
+    /** Eigene Listen der Kampagne (Kampagnen-Liste, Ausschluss-Liste) löschen – gewählte Kundenlisten nie */
+    private static function delete_own_lists(array $c, array $s, $lists = true, $excl = true) {
+        $keep = self::list_ids_of($c);
+        if ($lists && intval($c['brevo_list']) && $c['audience'] !== 'brevo_list' && !in_array(intval($c['brevo_list']), $keep, true)) self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . intval($c['brevo_list']));
+        if ($excl && intval($c['brevo_excl'] ?? 0) && !in_array(intval($c['brevo_excl']), $keep, true)) self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . intval($c['brevo_excl']));
+    }
+
+    /** Liste in Brevo anlegen und Adressen importieren → [list_id, process_id] oder Fehlertext */
+    private static function import_list($org, array $s, $name, array $json) {
+        $r = self::brevo($s['api_key'], 'POST', '/contacts/lists', ['name' => $name, 'folderId' => self::folder($org, $s)]);
+        if (is_wp_error($r) || $r[0] !== 201) return is_wp_error($r) ? $r->get_error_message() : self::brevo_err($r, 'Brevo-Liste ließ sich nicht anlegen.');
+        $list = intval($r[1]['id']);
+        $p = self::brevo($s['api_key'], 'POST', '/contacts/import', ['jsonBody' => $json, 'listIds' => [$list], 'updateExistingContacts' => true, 'emptyContactsAttributes' => false]);
+        if (is_wp_error($p) || !in_array($p[0], [200, 202], true)) return is_wp_error($p) ? $p->get_error_message() : self::brevo_err($p, 'Der Import zu Brevo hat nicht geklappt.');
+        return [$list, intval($p[1]['processId'] ?? 0)];
     }
 
     private static function fail(array $c, $msg) {
@@ -812,37 +1012,64 @@ class TIX_Newsletter {
         $ts = strtotime($c['scheduled_at'] . ' UTC');
         if ($c['status'] === 'scheduled') {
             if ($ts > time() + 15 * MINUTE_IN_SECONDS) return;
-            if ($c['audience'] === 'brevo_list') {
-                $wpdb->update(self::tk(), ['status' => 'preparing', 'brevo_list' => intval($c['brevo_list_src']), 'brevo_process' => 0], ['id' => intval($c['id'])]);
-            } else {
-                $rec = self::recipients($org, $c['audience'], intval($c['event_id']));
-                if (!$rec) return self::fail($c, 'In der Zielgruppe ist niemand mehr mit bestätigter Anmeldung.');
-                $r = self::brevo($s['api_key'], 'POST', '/contacts/lists', ['name' => 'Tixomat · Kampagne #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), 'folderId' => self::folder($org, $s)]);
-                if (is_wp_error($r) || $r[0] !== 201) return self::fail($c, is_wp_error($r) ? $r->get_error_message() : self::brevo_err($r, 'Brevo-Liste ließ sich nicht anlegen.'));
-                $list = intval($r[1]['id']);
+            $ids = self::list_ids_of($c);
+            $cnt = self::count_audience($org, $s, $c['audience'], intval($c['event_id']), $ids, false);
+            if (is_wp_error($cnt)) {
+                if ($cnt->get_error_code() === 'tix_brevo_error') return; // Brevo kurz weg: beim nächsten Lauf neu
+                if ($cnt->get_error_code() === 'tix_nl_list_gone') {
+                    // Name zum Zeitpunkt der Auswahl (die Liste selbst kennt Brevo nicht mehr)
+                    $gid = intval(($cnt->get_error_data()['list_id'] ?? 0));
+                    $nm = array_column((array) (self::meta_of($c)['lists'] ?? []), 'name', 'id');
+                    if (!empty($nm[$gid])) return self::fail($c, 'Die Brevo-Liste „' . $nm[$gid] . '“ gibt es nicht mehr.');
+                }
+                return self::fail($c, $cnt->get_error_message());
+            }
+            if (!$cnt['count']) return self::fail($c, 'In der Zielgruppe ist niemand mehr mit bestätigter Anmeldung.');
+            $rec = $cnt['_own'];
+            $list = 0; $proc = 0; $excl = 0; $eproc = 0;
+            if ($rec) {
                 $json = [];
                 foreach ($rec as $em => $fn) $json[] = ['email' => $em] + ($fn !== '' ? ['attributes' => ['FIRSTNAME' => $fn]] : []);
-                $p = self::brevo($s['api_key'], 'POST', '/contacts/import', ['jsonBody' => $json, 'listIds' => [$list], 'updateExistingContacts' => true, 'emptyContactsAttributes' => false]);
-                if (is_wp_error($p) || !in_array($p[0], [200, 202], true)) return self::fail($c, is_wp_error($p) ? $p->get_error_message() : self::brevo_err($p, 'Der Import zu Brevo hat nicht geklappt.'));
-                $wpdb->update(self::tk(), ['status' => 'preparing', 'brevo_list' => $list, 'brevo_process' => intval($p[1]['processId'] ?? 0), 'recipients' => count($rec)], ['id' => intval($c['id'])]);
+                $res = self::import_list($org, $s, 'Tixomat · Kampagne #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), $json);
+                if (!is_array($res)) return self::fail($c, $res);
+                list($list, $proc) = $res;
             }
+            if ($ids && $cnt['_exclude']) {
+                // eigene Abmeldungen auch für Brevo-Listen: Ausschluss-Liste
+                $res = self::import_list($org, $s, 'Tixomat · Ausschluss #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), array_map(function ($e) { return ['email' => $e]; }, $cnt['_exclude']));
+                if (!is_array($res)) { if ($list) self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . $list); return self::fail($c, $res); }
+                list($excl, $eproc) = $res;
+            }
+            $m = self::meta_of($c);
+            if ($ids) {
+                $names = array_column((array) ($m['lists'] ?? []), 'name', 'id');
+                $sizes = array_column($cnt['lists'], 'count', 'id');
+                $m['sent_lists'] = array_map(function ($id) use ($names, $sizes) { return ['id' => $id, 'name' => (string) ($names[$id] ?? ''), 'count' => intval($sizes[$id] ?? 0)]; }, $ids);
+            }
+            if ($eproc) $m['excl_process'] = $eproc; else unset($m['excl_process']);
+            $wpdb->update(self::tk(), ['status' => 'preparing', 'brevo_list' => $list, 'brevo_excl' => $excl, 'brevo_process' => $proc, 'recipients' => intval($cnt['count']), 'audience_meta' => $m ? wp_json_encode($m) : null], ['id' => intval($c['id'])]);
             $c = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::tk() . " WHERE id = %d", intval($c['id'])), ARRAY_A);
         }
         if ($c['status'] !== 'preparing') return;
-        if ($c['brevo_process']) {
-            $p = self::brevo($s['api_key'], 'GET', '/processes/' . intval($c['brevo_process']));
+        $m = self::meta_of($c);
+        foreach (array_filter([intval($c['brevo_process']), intval($m['excl_process'] ?? 0)]) as $pid) {
+            $p = self::brevo($s['api_key'], 'GET', '/processes/' . $pid);
             if (is_wp_error($p)) return;
             $st = (string) ($p[1]['status'] ?? '');
             if ($st !== 'completed') { if ($st === 'failed') self::fail($c, 'Der Import zu Brevo ist fehlgeschlagen.'); return; }
         }
         $later = $ts > time() + 5 * MINUTE_IN_SECONDS;
-        $bid = self::push_campaign($c, $s, ['recipients' => ['listIds' => [intval($c['brevo_list'])]]] + ($later ? ['scheduledAt' => gmdate('c', $ts)] : []));
+        // Alte Kampagnen (vor §105) in preparing: brevo_list = gewählte Liste; neue: eigene Liste + gewählte Listen
+        $lids = array_values(array_unique(array_filter(array_merge([intval($c['brevo_list'])], self::list_ids_of($c)))));
+        $rcp = ['listIds' => $lids] + (intval($c['brevo_excl'] ?? 0) ? ['exclusionListIds' => [intval($c['brevo_excl'])]] : []);
+        $bid = self::push_campaign($c, $s, ['recipients' => $rcp] + ($later ? ['scheduledAt' => gmdate('c', $ts)] : []));
         if (is_wp_error($bid)) return self::fail($c, $bid->get_error_message());
         if (!$later) {
             $r = self::brevo($s['api_key'], 'POST', '/emailCampaigns/' . $bid . '/sendNow');
             if (is_wp_error($r) || !in_array($r[0], [200, 204], true)) return self::fail($c, is_wp_error($r) ? $r->get_error_message() : self::brevo_err($r, 'Brevo hat den Versand abgelehnt.'));
         }
-        $wpdb->update(self::tk(), ['status' => 'sent', 'sent_at' => gmdate('Y-m-d H:i:s', $later ? $ts : time()), 'brevo_process' => 0, 'updated' => self::now()], ['id' => intval($c['id'])]);
+        unset($m['excl_process']);
+        $wpdb->update(self::tk(), ['status' => 'sent', 'sent_at' => gmdate('Y-m-d H:i:s', $later ? $ts : time()), 'brevo_process' => 0, 'audience_meta' => $m ? wp_json_encode($m) : null, 'updated' => self::now()], ['id' => intval($c['id'])]);
     }
 
     /** Kennzahlen von Brevo (globalStats) */
@@ -883,9 +1110,10 @@ class TIX_Newsletter {
                 if (empty($x['emailBlacklisted'])) continue;
                 self::unsubscribe_row($wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::tc() . " WHERE organizer_id = %d AND email = %s", $org, strtolower((string) $x['email']))), 'brevo');
             }
-            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, brevo_list FROM " . self::tk() . " WHERE organizer_id = %d AND status = 'sent' AND audience <> 'brevo_list' AND brevo_list > 0 AND sent_at < %s", $org, gmdate('Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS))) as $k) {
-                self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . intval($k->brevo_list));
-                $wpdb->update(self::tk(), ['brevo_list' => 0], ['id' => intval($k->id)]);
+            // Kampagnen- und Ausschluss-Listen nach 30 Tagen löschen; gewählte Kundenlisten nie (delete_own_lists)
+            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::tk() . " WHERE organizer_id = %d AND status = 'sent' AND ((audience <> 'brevo_list' AND brevo_list > 0) OR brevo_excl > 0) AND sent_at < %s", $org, gmdate('Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS)), ARRAY_A) as $k) {
+                self::delete_own_lists($k, $s);
+                $wpdb->update(self::tk(), ['brevo_list' => $k['audience'] === 'brevo_list' ? intval($k['brevo_list']) : 0, 'brevo_excl' => 0], ['id' => intval($k['id'])]);
             }
         }
         $wpdb->query($wpdb->prepare("DELETE FROM " . self::tc() . " WHERE status = 'pending' AND consent_at < %s", gmdate('Y-m-d H:i:s', time() - 7 * DAY_IN_SECONDS)));

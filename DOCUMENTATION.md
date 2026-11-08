@@ -4864,3 +4864,28 @@ Klasse `TIX_Owner_Access` (`includes/class-tix-owner-access.php`), Routen in `TI
 - Schreiben, wie alle App-Funktionen: Studio `POST /studio/features` bzw. `POST /studio/config {app_features: {cloakroom: bool}}`, Veranstalterbereich `POST /app/config {features: {cloakroom: bool}}`. Rechte: Admin, Einzel-Seite Inhaber (Rolle Veranstalter); evendis nur Plattform-Admin (kein Veranstalter-Modul). Schalten setzt den Stand `updated` der App-Konfig.
 - Die Garderobe selbst (Foto, Nummer, Ort, Erinnerung) läuft nur lokal in den Apps; der Server speichert nichts.
 - Tests: `tests/test-cloakroom-wp.php` 23/23 (Einzel-Seite), 24/24 (Plattform).
+
+## 105. Newsletter an Brevo-Listen (ab 1.38.692, User 08.11.)
+Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3 (Spalten `brevo_lists_src` JSON int[], `audience_meta` JSON, `brevo_excl`).
+- **`GET /marketing/newsletter/lists[?refresh=1]`** → `{lists [{id, name, count, folder}], total}`. Holt alle Seiten (50 je Seite, bis 1000), ohne `Tixomat · …` und ohne Listen im Tixomat-Ordner. `count` = uniqueSubscribers. Zwischenspeicher 5 min je Bereich und Schlüssel. Ohne Brevo kommt 409 `tix_nl_not_connected`.
+- **Kampagne `list_ids`** (bis 10, nur Listen aus dem Konto):
+  - Bei `contacts`/`event` zusätzlich, bei `brevo_list` ausschließlich (mindestens 1).
+  - Nicht leer → `consent_confirmed` Pflicht.
+  - `list_id` (älteres Studio) zählt als `[list_id]`, `list_ids` gewinnt.
+  - Lesen: `list_ids`, `list_id` = erste ID. Im Detail kommen `lists` [{id, name}], `consent {confirmed, at, by}` und nach dem Versand `sent_lists` [{id, name, count}] dazu.
+  - Die Zielgruppe ohne `list_ids` zu ändern leert die Listen.
+- **`GET …/audience?audience=&event_id=&list_ids=7,9`** → `{count, own, lists [{id, count}], excluded, exact}`.
+  - `count` zählt ohne Doppelte, ohne eigene Abmeldungen (auch anonymisierte, Hash-Vergleich) und ohne Brevo-Sperre.
+  - Gezählt wird über `/contacts/lists/{id}/contacts` (500 je Seite).
+  - Über `MAX_RECIPIENTS` liefert die Route die Summe als Schätzung (`exact: false`).
+  - Zwischenspeicher 60 s. Das Senden zählt immer frisch.
+  - `brevo_list` ohne `list_ids` gibt wie bisher die Listenauswahl zurück.
+- **Versand:**
+  - Eigene Empfänger gehen in die Liste `Tixomat · Kampagne #…`. Eigene Abmeldungen, die in den gewählten Listen vorkommen, gehen in die Liste `Tixomat · Ausschluss #…`.
+  - `recipients.listIds` = eigene Liste + `list_ids`, dazu `exclusionListIds`. `recipients` = frische Zählung.
+  - Warten auf beide Importe.
+  - Eine gelöschte Liste beim Senden gibt 409 `tix_nl_list_gone` (`data.list_id`). Im Versandschritt schlägt die Kampagne fehl mit „Die Brevo-Liste „…“ gibt es nicht mehr.“
+  - Ist Brevo nicht erreichbar, versucht der nächste Lauf es erneut.
+- **Fußzeile bei `brevo_list`:** „Du bekommst diese Mail, weil du dich bei {Absender} angemeldet hast.“ Der Abmeldelink bleibt.
+- **Aufräumen** (Zurückholen, täglich nach 30 Tagen): nur Kampagnen- und Ausschluss-Listen, nie gewählte Kundenlisten. Behoben: Zurückholen einer alten `brevo_list`-Kampagne löschte vorher die Kundenliste.
+- Tests: `tests/test-newsletter-lists-wp.php` 35/35 (Einzel-Seite und Plattform), `test-newsletter-wp.php` 37/37 unverändert grün.
