@@ -361,22 +361,36 @@ class TIX_Gateway_Stripe {
     /* ────────────── WEBHOOK ────────────── */
 
     public static function handle_webhook() {
+        $payload = (string) file_get_contents('php://input');
+        $sig_header = (string) ($_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '');
+        list($code, $msg) = self::process_webhook($payload, $sig_header);
+        status_header($code);
+        echo $msg;
+        exit;
+    }
+
+    /**
+     * Webhook verarbeiten (Audit 08.11., testbar ohne exit). Rückgabe [HTTP-Code, Text].
+     * - Webhook-Geheimnis gespeichert: Kopf `Stripe-Signature` Pflicht und gültig, sonst 400.
+     * - Kein Geheimnis: Session-Events werden nie aus dem Payload übernommen, sondern per
+     *   GET /v1/checkout/sessions/{id} bei Stripe nachgefragt (Bestellnummer, Session, Zahlstatus, Betrag);
+     *   ohne API-Schlüssel 400, Stripe nicht erreichbar 503 (Stripe wiederholt).
+     */
+    public static function process_webhook(string $payload, string $sig_header): array {
         $signing_secret = self::get_webhook_secret();
-        $payload = file_get_contents('php://input');
-        $sig_header = $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '';
-
-        if ($signing_secret && $sig_header) {
-            if (!self::verify_signature($payload, $sig_header, $signing_secret)) {
-                status_header(400);
-                echo 'Invalid signature';
-                exit;
-            }
+        $verified = false;
+        if ($signing_secret !== '') {
+            if ($sig_header === '' || !self::verify_signature($payload, $sig_header, $signing_secret)) return [400, 'Invalid signature'];
+            $verified = true;
         }
-        // Hinweis: ohne signing_secret akzeptieren wir den Call (z.B. lokales Testing).
-        // In Produktion immer signing_secret konfigurieren!
-
         $event = json_decode($payload, true);
+        if (!is_array($event)) return [400, 'Invalid payload'];
         $type  = $event['type'] ?? '';
+        if (!$verified && strpos((string) $type, 'checkout.session.') === 0) {
+            $checked = self::fetch_session_for_event($event);
+            if (!is_array($checked)) return $checked === 503 ? [503, 'Stripe unreachable'] : [400, 'Unverified event'];
+            $event['data']['object'] = $checked;
+        }
 
         switch ($type) {
             case 'checkout.session.completed':
@@ -431,9 +445,41 @@ class TIX_Gateway_Stripe {
                 break;
         }
 
-        status_header(200);
-        echo 'OK';
-        exit;
+        return [200, 'OK'];
+    }
+
+    /**
+     * Ohne Webhook-Geheimnis: Session bei Stripe nachfragen und gegen die Bestellung prüfen.
+     * Liefert das Session-Objekt von Stripe, 503 (nicht erreichbar) oder 400 (abgelehnt).
+     */
+    private static function fetch_session_for_event(array $event) {
+        $secret = self::get_secret_key();
+        $sess = $event['data']['object'] ?? [];
+        $sid = is_array($sess) ? (string) ($sess['id'] ?? '') : '';
+        if ($secret === '' || !preg_match('/^cs_[A-Za-z0-9_]+$/', $sid)) return 400;
+        // Vorprüfung ohne Netz: die Session muss die für diese Bestellung gespeicherte sein
+        $claimed = intval($sess['metadata']['tix_order_id'] ?? 0);
+        if (!$claimed || (string) get_option('_tix_stripe_session_' . $claimed, '') !== $sid) return 400;
+        $res = wp_remote_get(self::API_URL . '/checkout/sessions/' . rawurlencode($sid), ['timeout' => 15, 'headers' => ['Authorization' => 'Bearer ' . $secret]]);
+        if (is_wp_error($res)) return 503;
+        $code = wp_remote_retrieve_response_code($res);
+        if ($code >= 500) return 503;
+        $real = json_decode(wp_remote_retrieve_body($res), true);
+        if ($code !== 200 || !is_array($real) || ($real['id'] ?? '') !== $sid) return 400;
+        $order_id = intval($real['metadata']['tix_order_id'] ?? 0);
+        if (!$order_id || $order_id !== $claimed || !self::order_belongs_to_stripe($order_id)) return 400;
+        // Session muss die für diese Bestellung angelegte sein
+        if ((string) get_option('_tix_stripe_session_' . $order_id, '') !== $sid) return 400;
+        $type = (string) ($event['type'] ?? '');
+        if (in_array($type, ['checkout.session.completed', 'checkout.session.async_payment_succeeded'], true)) {
+            global $wpdb;
+            $total = $wpdb->get_var($wpdb->prepare("SELECT total FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+            if (intval($real['amount_total'] ?? -1) !== intval(round(floatval($total) * 100))) return 400;
+            if (strtolower((string) ($real['currency'] ?? '')) !== 'eur') return 400;
+        }
+        if ($type === 'checkout.session.expired' && ($real['status'] ?? '') !== 'expired') return 400;
+        if ($type === 'checkout.session.async_payment_failed' && ($real['payment_status'] ?? '') === 'paid') return 400;
+        return $real;
     }
 
     private static function verify_signature(string $payload, string $sig_header, string $secret): bool {

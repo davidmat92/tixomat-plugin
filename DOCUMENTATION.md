@@ -4798,3 +4798,16 @@ Für die Kundenverwaltung im Studio (Konzept `konzept-studio-kundenverwaltung.md
   - `GET /platform/offers`: fest verknüpft (`data.customer_key`, alle Aliase), über den Hosting-Kurznamen (`data.hosting.kurz`, §99) oder gleiche E-Mail (Inhaber bzw. Lizenz, Groß/klein egal).
 - **Angebot ↔ Kunde:** `POST /platform/customers/{key}/offers {offer_id}` verknüpft (auch nach dem Senden, Verlauf `customer`), `DELETE … {offer_id}` löst. `POST /platform/offers {…, customer_key}` legt direkt aus der Akte an (nur Admins, unbekannt → 400 `tix_invalid_field`). Ändern des Entwurfs und neue Version behalten die Verknüpfung, das Duplikat nicht. Die Angebotsliste liefert `customer_key`.
 - Tests: `tests/test-platform-customers-wp.php` 44/44 (Plattform), 1/1 (Einzel-Seite).
+
+## 101. Webhooks Stripe/PayPal abgesichert (ab 1.38.686, Audit 08.11.)
+- **Stripe** (`TIX_Gateway_Stripe::process_webhook`): Ist ein Webhook-Geheimnis gespeichert, ist der Kopf `Stripe-Signature` Pflicht und muss gültig sein (höchstens 5 Minuten alt), sonst 400. Ohne Geheimnis übernimmt das Plugin Session-Events nie aus dem Payload. Es prüft dann:
+  1. Die Session-ID muss die für die Bestellung gespeicherte sein (`_tix_stripe_session_{id}`), sonst 400 ohne Netzabruf.
+  2. Danach `GET /v1/checkout/sessions/{id}` bei Stripe. Bestellnummer, Zahlart Stripe, Betrag in Cent, EUR sowie `status`/`payment_status` kommen aus der Antwort von Stripe.
+  3. Ohne API-Schlüssel 400, ist Stripe nicht erreichbar 503 (Stripe wiederholt).
+- **PayPal** (`TIX_Gateway_PayPal::process_webhook`): Signaturprüfung über `verify-webhook-signature`. `FAILURE` → 403.
+  - Ohne Webhook-ID oder wenn die Prüfung nicht durchgeht (Fehler, Timeout):
+    - `CHECKOUT.ORDER.APPROVED` capturet nur die eigene, gespeicherte PayPal-Bestellung (`_tix_paypal_order_{id}` = `resource.id`).
+    - `PAYMENT.CAPTURE.COMPLETED` wird per `GET /v2/payments/captures/{id}` nachgeprüft. PayPal nicht erreichbar → 503.
+  - Die Bestellung wird immer über die gespeicherte PayPal-Bestell- bzw. Capture-ID gefunden, nie über `reference_id` aus dem Event. Sie muss PayPal sein, und Betrag und Währung müssen stimmen.
+- **Einstellungen:** Beim Speichern im WP-Admin bleibt `paypal_webhook_id` erhalten (vorher verworfen).
+- Tests: `tests/test-payment-webhooks-wp.php` in zwei Läufen (`secret` 11/11, `nosecret` 13/13; Netz nachgestellt).

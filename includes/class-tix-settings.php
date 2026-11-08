@@ -1377,6 +1377,10 @@ class TIX_Settings {
         // PayPal-Schalter kommt nur aus dem Studio (§96) – beim Speichern im WP-Admin erhalten
         $old_pp = get_option(self::OPTION_KEY, []);
         if (is_array($old_pp) && array_key_exists('paypal_enabled', $old_pp)) $clean['paypal_enabled'] = $old_pp['paypal_enabled'] ? 1 : 0;
+        // Webhook-ID (Studio §96) beim Speichern im WP-Admin nicht verwerfen – ohne sie prüft der PayPal-Webhook nur noch per API nach (Audit 08.11.)
+        $clean['paypal_webhook_id'] = array_key_exists('paypal_webhook_id', (array) $input)
+            ? sanitize_text_field((string) $input['paypal_webhook_id'])
+            : (is_array($old_pp) ? sanitize_text_field((string) ($old_pp['paypal_webhook_id'] ?? '')) : '');
         $clean['bank_transfer_enabled'] = !empty($input['bank_transfer_enabled']) ? 1 : 0;
         $clean['bank_name']     = sanitize_text_field($input['bank_name'] ?? '');
         $clean['bank_iban']     = sanitize_text_field($input['bank_iban'] ?? '');

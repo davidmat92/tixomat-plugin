@@ -201,87 +201,104 @@ class TIX_Gateway_PayPal {
      * Subscribe to events: CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED
      */
     public static function handle_webhook() {
-        $raw = file_get_contents('php://input');
+        $raw = (string) file_get_contents('php://input');
+        $h = [];
+        foreach (['AUTH_ALGO', 'CERT_URL', 'TRANSMISSION_ID', 'TRANSMISSION_SIG', 'TRANSMISSION_TIME'] as $k) $h[strtolower($k)] = (string) ($_SERVER['HTTP_PAYPAL_' . $k] ?? '');
+        list($code, $msg) = self::process_webhook($raw, $h);
+        wp_die(esc_html($msg), '', $code);
+    }
+
+    /**
+     * Webhook verarbeiten (Audit 08.11., testbar). Rückgabe [HTTP-Code, Text].
+     * - Signatur über PayPal (verify-webhook-signature): FAILURE → 403.
+     * - Ohne Webhook-ID oder wenn die Prüfung nicht durchgeht (Fehler/Timeout): Inhalte des Events werden
+     *   nicht übernommen. APPROVED → Capture der eigenen gespeicherten PayPal-Bestellung (API), CAPTURE.COMPLETED →
+     *   Capture per GET /v2/payments/captures/{id} nachprüfen. PayPal nicht erreichbar → 503 (PayPal wiederholt).
+     * - Immer: Bestellung muss PayPal sein; Betrag und Währung müssen stimmen. Die Bestellung wird über die
+     *   gespeicherte PayPal-Bestell-/Capture-ID gefunden, nie über Angaben im Event.
+     */
+    public static function process_webhook(string $raw, array $h): array {
         $data = json_decode($raw, true);
-
-        if (!is_array($data) || empty($data['event_type'])) {
-            wp_die('Invalid payload', '', 400);
+        if (!is_array($data) || empty($data['event_type'])) return [400, 'Invalid payload'];
+        $verified = self::verify_webhook($data, $h);
+        if ($verified === 'failed') {
+            error_log('[TIX PayPal Webhook] Signature verification failed');
+            return [403, 'Signature verification failed'];
         }
-
-        // Verify webhook signature
-        $webhook_id = tix_get_settings('paypal_webhook_id') ?? '';
-        if ($webhook_id) {
-            $verify_response = wp_remote_post(self::api_url() . '/v1/notifications/verify-webhook-signature', [
-                'timeout' => 10,
-                'headers' => [
-                    'Authorization' => 'Bearer ' . (self::get_access_token() ?: ''),
-                    'Content-Type'  => 'application/json',
-                ],
-                'body' => wp_json_encode([
-                    'auth_algo'         => sanitize_text_field($_SERVER['HTTP_PAYPAL_AUTH_ALGO'] ?? ''),
-                    'cert_url'          => esc_url_raw($_SERVER['HTTP_PAYPAL_CERT_URL'] ?? ''),
-                    'transmission_id'   => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_ID'] ?? ''),
-                    'transmission_sig'  => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_SIG'] ?? ''),
-                    'transmission_time' => sanitize_text_field($_SERVER['HTTP_PAYPAL_TRANSMISSION_TIME'] ?? ''),
-                    'webhook_id'        => $webhook_id,
-                    'webhook_event'     => $data,
-                ]),
-            ]);
-
-            if (!is_wp_error($verify_response)) {
-                $verify_body = json_decode(wp_remote_retrieve_body($verify_response), true);
-                if (($verify_body['verification_status'] ?? '') !== 'SUCCESS') {
-                    error_log('[TIX PayPal Webhook] Signature verification failed');
-                    wp_die('Signature verification failed', '', 403);
-                }
-            }
-        }
-
         $event_type = sanitize_text_field($data['event_type']);
-
-        $resource = $data['resource'] ?? [];
-        $purchase_units = $resource['purchase_units'] ?? [];
-        $reference_id = $purchase_units[0]['reference_id'] ?? '';
-
-        // Extract order_id from reference_id format "tix_123"
-        if (!preg_match('/^tix_(\d+)$/', $reference_id, $matches)) {
-            // For PAYMENT.CAPTURE.COMPLETED, reference_id may be in supplementary_data
-            $reference_id = $resource['supplementary_data']['related_ids']['order_id'] ?? '';
-            // Try to find our order via the PayPal order ID
-            wp_die('OK', '', 200);
-        }
-
-        $order_id = intval($matches[1]);
-
-        // Verify order exists in DB
+        $resource = is_array($data['resource'] ?? null) ? $data['resource'] : [];
         global $wpdb;
-        $order_exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
-        ));
-        if (!$order_exists) {
-            wp_die('Order not found', '', 200);
-        }
 
         if ($event_type === 'CHECKOUT.ORDER.APPROVED') {
-            // Capture the payment if not yet captured
-            $pp_order_id = get_option('_tix_paypal_order_' . $order_id);
-            if ($pp_order_id) {
-                $captured = self::capture($pp_order_id, $order_id);
-                if ($captured) {
-                    delete_option('_tix_paypal_order_' . $order_id);
-                }
-            }
-        } elseif ($event_type === 'PAYMENT.CAPTURE.COMPLETED') {
-            // Idempotency: skip if already completed
-            $old_status = $wpdb->get_var($wpdb->prepare(
-                "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
-            ));
-            if ($old_status !== 'completed') {
-                TIX_Native_Checkout::update_order_status($order_id, 'completed', 'paypal');
-            }
+            $pp_id = (string) ($resource['id'] ?? '');
+            $order_id = self::order_for_option('_tix_paypal_order_', $pp_id);
+            if (!$order_id || !self::is_paypal_order($order_id)) return [200, 'OK'];
+            // Capture läuft über die eigene, gespeicherte PayPal-Bestellung: PayPal bucht nur, was wirklich freigegeben ist
+            if (self::capture($pp_id, $order_id)) delete_option('_tix_paypal_order_' . $order_id);
+            return [200, 'OK'];
         }
 
-        wp_die('OK', '', 200);
+        if ($event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+            $cap_id = (string) ($resource['id'] ?? '');
+            if (!preg_match('/^[A-Z0-9]{6,40}$/', $cap_id)) return [400, 'Invalid capture'];
+            $cap = $resource;
+            if ($verified !== 'ok') {
+                $token = self::get_access_token();
+                if (!$token) return [503, 'PayPal unreachable'];
+                $res = wp_remote_get(self::api_url() . '/v2/payments/captures/' . rawurlencode($cap_id), ['timeout' => 15, 'headers' => ['Authorization' => 'Bearer ' . $token]]);
+                if (is_wp_error($res) || wp_remote_retrieve_response_code($res) >= 500) return [503, 'PayPal unreachable'];
+                $cap = json_decode(wp_remote_retrieve_body($res), true);
+                if (wp_remote_retrieve_response_code($res) !== 200 || !is_array($cap) || ($cap['id'] ?? '') !== $cap_id) return [400, 'Unverified event'];
+            }
+            $order_id = self::order_for_option('_tix_paypal_capture_', $cap_id)
+                ?: self::order_for_option('_tix_paypal_order_', (string) ($cap['supplementary_data']['related_ids']['order_id'] ?? ''));
+            if (!$order_id || !self::is_paypal_order($order_id)) return [$verified === 'ok' ? 200 : 400, $verified === 'ok' ? 'OK' : 'Unknown order'];
+            if (($cap['status'] ?? '') !== 'COMPLETED') return [$verified === 'ok' ? 200 : 400, 'Not completed'];
+            $total = $wpdb->get_var($wpdb->prepare("SELECT total FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+            if (strtoupper((string) ($cap['amount']['currency_code'] ?? '')) !== 'EUR'
+                || abs(floatval($cap['amount']['value'] ?? -1) - floatval($total)) > 0.005) {
+                error_log('[TIX PayPal Webhook] Betrag passt nicht zu Bestellung ' . $order_id);
+                return [400, 'Amount mismatch'];
+            }
+            $old_status = $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
+            if ($old_status !== 'completed') TIX_Native_Checkout::update_order_status($order_id, 'completed', 'paypal');
+            return [200, 'OK'];
+        }
+        return [200, 'OK'];
+    }
+
+    /** 'ok' (PayPal bestätigt), 'failed' (PayPal lehnt ab) oder 'unavailable' (keine Webhook-ID, Fehler, Timeout). */
+    private static function verify_webhook(array $data, array $h) {
+        $webhook_id = trim((string) (tix_get_settings('paypal_webhook_id') ?? ''));
+        if ($webhook_id === '') return 'unavailable';
+        $token = self::get_access_token();
+        if (!$token) return 'unavailable';
+        $res = wp_remote_post(self::api_url() . '/v1/notifications/verify-webhook-signature', [
+            'timeout' => 10,
+            'headers' => ['Authorization' => 'Bearer ' . $token, 'Content-Type' => 'application/json'],
+            'body' => wp_json_encode([
+                'auth_algo' => sanitize_text_field($h['auth_algo'] ?? ''), 'cert_url' => esc_url_raw($h['cert_url'] ?? ''),
+                'transmission_id' => sanitize_text_field($h['transmission_id'] ?? ''), 'transmission_sig' => sanitize_text_field($h['transmission_sig'] ?? ''),
+                'transmission_time' => sanitize_text_field($h['transmission_time'] ?? ''), 'webhook_id' => $webhook_id, 'webhook_event' => $data,
+            ]),
+        ]);
+        if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) return 'unavailable';
+        $b = json_decode(wp_remote_retrieve_body($res), true);
+        $st = (string) ($b['verification_status'] ?? '');
+        return $st === 'SUCCESS' ? 'ok' : ($st === 'FAILURE' ? 'failed' : 'unavailable');
+    }
+
+    /** Bestellung über eine gespeicherte PayPal-ID finden (Option `<prefix><order_id>` = $value). */
+    private static function order_for_option($prefix, $value) {
+        global $wpdb;
+        if ($value === '' || !preg_match('/^[A-Za-z0-9-]{6,60}$/', $value)) return 0;
+        $name = $wpdb->get_var($wpdb->prepare("SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_value = %s LIMIT 1", $wpdb->esc_like($prefix) . '%', $value));
+        return ($name && preg_match('/^' . preg_quote($prefix, '/') . '(\d+)$/', $name, $m)) ? intval($m[1]) : 0;
+    }
+
+    private static function is_paypal_order($order_id) {
+        global $wpdb;
+        return $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id)) === 'paypal';
     }
 
     /**
