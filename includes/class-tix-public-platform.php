@@ -32,6 +32,9 @@ class TIX_Public_Platform {
         'support'     => false,
         'muttizettel' => false,
         'wallet'      => false, // Guthaben (TIX_Wallet_Balance, 1.38.432)
+        // Garderobe in der App (1.38.693, User 08.11.): kostenlos, kein Lizenz-Modul. Ohne eigene Wahl des Veranstalters
+        // gilt die Plattform-Vorgabe (TIX_Features::OPT_CLOAKROOM), siehe modules()
+        'cloakroom'   => false,
     ];
 
     public static function init() {
@@ -109,6 +112,7 @@ class TIX_Public_Platform {
         $raw = get_post_meta(intval($oid), self::META_MODULES, true);
         if (is_string($raw) && $raw !== '') $raw = json_decode($raw, true);
         $out = self::MODULE_DEFAULTS;
+        if (class_exists('TIX_Features')) $out['cloakroom'] = get_option(TIX_Features::OPT_CLOAKROOM, '0') === '1';
         if (is_array($raw)) {
             foreach ($out as $k => $v) {
                 if (array_key_exists($k, $raw)) $out[$k] = (bool) $raw[$k];

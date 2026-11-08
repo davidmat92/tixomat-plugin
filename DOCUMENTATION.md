@@ -4863,7 +4863,11 @@ Klasse `TIX_Owner_Access` (`includes/class-tix-owner-access.php`), Routen in `TI
 - Lesen: `GET /app/config` → `features.cloakroom {enabled, can_edit}` (öffentlich; evendis mit `?organizer=` liefert den Plattform-Schalter).
 - Schreiben, wie alle App-Funktionen: Studio `POST /studio/features` bzw. `POST /studio/config {app_features: {cloakroom: bool}}`, Veranstalterbereich `POST /app/config {features: {cloakroom: bool}}`. Rechte: Admin, Einzel-Seite Inhaber (Rolle Veranstalter); evendis nur Plattform-Admin (kein Veranstalter-Modul). Schalten setzt den Stand `updated` der App-Konfig.
 - Die Garderobe selbst (Foto, Nummer, Ort, Erinnerung) läuft nur lokal in den Apps; der Server speichert nichts.
-- Tests: `tests/test-cloakroom-wp.php` 23/23 (Einzel-Seite), 24/24 (Plattform).
+- **evendis je Veranstalter (ab 1.38.693, User-Button 08.11.):** Veranstalter-Modul `cloakroom` in `TIX_Public_Platform::MODULE_DEFAULTS`, wie der Muttizettel, kostenlos.
+  - Wirkt über `modules` je Event (`/public/events`) und `GET /app/config?organizer=`.
+  - Ohne eigene Wahl des Veranstalters (kein Eintrag in `_tix_org_modules`) gilt der Plattform-Schalter als Vorgabe.
+  - Schalten: Inhaber/Team-Admin über `POST /studio/features` im eigenen Bereich, der Admin mit `?organizer=`. `POST /app/config` bleibt auf evendis Admin-Sache.
+- Tests: `tests/test-cloakroom-wp.php` 23/23 (Einzel-Seite), 34/34 (Plattform).
 
 ## 105. Newsletter an Brevo-Listen (ab 1.38.692, User 08.11.)
 Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3 (Spalten `brevo_lists_src` JSON int[], `audience_meta` JSON, `brevo_excl`).

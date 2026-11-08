@@ -45,9 +45,10 @@ class TIX_Features {
         // Marketing (Statistik Stufe 1, F9): eigenes, kostenpflichtiges Modul (Kampagnen, Kurzlinks, Werbe-Anbindungen ab Stufe 2);
         // Vorgabe aus. Die Basis-Statistik (Besucher → Kauf, Quellen) gilt unabhängig davon für alle.
         'marketing'        => ['Marketing (Kampagnen & Werbung)', null],
-        // Garderobe (1.38.691, User 08.11.): Foto der Garderobenmarke nur lokal in der App. Reiner App-Schalter,
-        // kein Lizenz-Modul (nichts zum Draufzahlen), Vorgabe aus; auf evendis schaltet ihn der Plattform-Admin
-        'cloakroom'        => ['Garderobe in der App', null],
+        // Garderobe (1.38.691, User 08.11.): Foto der Garderobenmarke nur lokal in der App. Kein Lizenz-Modul (nichts zum
+        // Draufzahlen), Vorgabe aus. evendis (1.38.693, User-Button): Veranstalter-Modul `cloakroom` wie Muttizettel; der
+        // Plattform-Schalter ist die Vorgabe für Veranstalter ohne eigene Wahl
+        'cloakroom'        => ['Garderobe in der App', 'cloakroom'],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -283,6 +284,7 @@ class TIX_Features {
             $c['enabled'] = (bool) $on;
             update_post_meta($oid, '_tix_org_loyalty', $c);
         }
+        if ($key === 'cloakroom' && class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush(); // modules je Event
         if ($key === 'giftcards' && $on && class_exists('TIX_Giftcards') && method_exists('TIX_Giftcards', 'ensure_organizer_event')) TIX_Giftcards::ensure_organizer_event($oid);
     }
 
@@ -328,6 +330,7 @@ class TIX_Features {
         if ($scope === 'organizer' && !self::FEATURES[$key][1]) return 'Schaltet die Plattform für alle Veranstalter.';
         if ($scope === 'organizer' && $key === 'music' && !$site_on) return 'Auf der Plattform gerade aus.';
         if ($scope === 'platform' && in_array($key, ['loyalty', 'muttizettel'], true)) return 'Schaltet jeder Veranstalter selbst.';
+        if ($scope === 'platform' && $key === 'cloakroom') return 'Vorgabe für Veranstalter ohne eigene Wahl; jeder Veranstalter schaltet selbst.';
         if ($scope === 'platform' && in_array($key, ['music', 'giftcards', 'wallet'], true)) return 'Gilt für die Plattform; Veranstalter schalten ihr eigenes Modul.';
         if (in_array($key, ['awareness_report', 'awareness_alarm'], true) && self::multi() && !self::is_admin()) return 'Dem Plattform-Admin vorbehalten.';
         if ($key === 'degaso' && self::multi()) return 'Kassen-Anbindungen gibt es nur für Einzel-Seiten.';

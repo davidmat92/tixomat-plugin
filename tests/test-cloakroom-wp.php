@@ -1,6 +1,6 @@
 <?php
 /**
- * Integrationstest Garderobe (1.38.691): App-Schalter `cloakroom`, Vorgabe aus, kein Lizenz-Modul.
+ * Integrationstest Garderobe (1.38.691, evendis je Veranstalter ab 1.38.693): App-Schalter `cloakroom`, Vorgabe aus, kein Lizenz-Modul.
  * Lesen über GET /app/config (features), schreiben über Studio (POST /studio/features, /studio/config app_features)
  * und Veranstalterbereich (POST /app/config features). Stellt alles wieder her.
  *
@@ -39,7 +39,7 @@ $keep_cfg = get_option('_tix_app_config', null);
 delete_option(TIX_Features::OPT_CLOAKROOM);
 $admin = get_users(['role' => 'administrator', 'number' => 1]);
 $admin_id = $admin ? intval($admin[0]->ID) : 0;
-$tmp = [];
+$tmp = []; $tmp_posts = [];
 $mk = function ($role) use (&$tmp) {
     $id = wp_insert_user(['user_login' => 'cr_' . $role . '_' . wp_rand(1000, 9999), 'user_pass' => wp_generate_password(20), 'user_email' => 'cr_' . wp_rand(1000, 99999) . '@example.test', 'role' => $role]);
     if (is_wp_error($id)) return 0;
@@ -98,21 +98,47 @@ try {
     wp_set_current_user($admin_id);
     cr_eq('Zustand nach Rechte-Test', $multi, cr_app());
 
-    // evendis: Veranstalter-Abfrage liefert den Plattform-Schalter
+    // evendis (1.38.693): Veranstalter-Modul `cloakroom` wie Muttizettel; Plattform-Schalter = Vorgabe ohne eigene Wahl
     if ($multi) {
-        $oid = get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids']);
-        if ($oid) {
-            wp_set_current_user(0);
-            [, $d] = cr_rest('GET', '/app/config', ['organizer' => (string) $oid[0]]);
-            cr_eq('evendis ?organizer= = Plattform', true, $d['features']['cloakroom']['enabled'] ?? null);
-            wp_set_current_user($admin_id);
-        }
+        $owner = $mk('tix_organizer');
+        $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'CR Veranstalter', 'meta_input' => ['_tix_org_user_id' => $owner]]);
+        $tmp_posts[] = $oid;
+        $app_org = function ($o) { $u = get_current_user_id(); wp_set_current_user(0); [, $d] = cr_rest('GET', '/app/config', ['organizer' => (string) $o]); wp_set_current_user($u); return $d['features']['cloakroom']['enabled'] ?? null; };
+        wp_set_current_user($admin_id);
+        cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => true]]);
+        cr_eq('Ohne eigene Wahl: Plattform-Vorgabe an → Modul an', [true, true], [$app_org($oid), TIX_Public_Platform::modules($oid)['cloakroom'] ?? null]);
+        cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => false]]);
+        cr_eq('Plattform-Vorgabe aus → Modul aus', [false, false], [$app_org($oid), TIX_Public_Platform::modules($oid)['cloakroom'] ?? null]);
+        [, $d] = cr_rest('GET', '/studio/features');
+        cr_eq('Plattform-Studio: Hinweis Vorgabe', true, strpos((string) ($d['features']['cloakroom']['hint'] ?? ''), 'Vorgabe') === 0);
+        wp_set_current_user($owner);
+        [$st, $d] = cr_rest('GET', '/studio/features');
+        cr_eq('Inhaber: eigener Bereich, darf schalten', ['organizer', true, 'organizer'], [$d['scope'] ?? null, $d['features']['cloakroom']['can_edit'] ?? null, $d['features']['cloakroom']['scope'] ?? null]);
+        [$st] = cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => true]]);
+        cr_eq('Inhaber schaltet an: 200', 200, $st);
+        cr_eq('Nur dieser Veranstalter an, Plattform-Vorgabe bleibt aus', [true, true, false], [$app_org($oid), TIX_Public_Platform::modules($oid)['cloakroom'] ?? null, TIX_Features::site_on('cloakroom')]);
+        $raw = json_decode((string) get_post_meta($oid, TIX_Public_Platform::META_MODULES, true), true);
+        cr_eq('Gespeichert in den Veranstalter-Modulen', true, $raw['cloakroom'] ?? null);
+        wp_set_current_user($admin_id);
+        cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => true]]);
+        wp_set_current_user($owner);
+        cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => false]]);
+        cr_eq('Eigene Wahl „aus“ schlägt Plattform-Vorgabe „an“', [false, true], [$app_org($oid), TIX_Features::site_on('cloakroom')]);
+        // Veranstalterbereich: auf evendis gehören die App-Inhalte der Plattform (POST /app/config nur Admin) → /studio/features
+        [$st] = cr_rest('POST', '/app/config', ['features' => ['cloakroom' => true]]);
+        cr_eq('evendis: POST /app/config für Veranstalter gesperrt', 403, $st);
+        [$st] = cr_rest('POST', '/studio/features', ['app_features' => ['cloakroom' => true]]);
+        cr_eq('Veranstalterbereich über /studio/features: eigenes Modul an', [200, true], [$st, $app_org($oid)]);
+        wp_set_current_user($admin_id);
+        [$st] = cr_rest('POST', '/studio/features', ['organizer' => $oid, 'app_features' => ['cloakroom' => false]]);
+        cr_eq('Admin mit ?organizer= schaltet das Modul', [200, false], [$st, $app_org($oid)]);
     }
 } finally {
     if ($keep === null) delete_option(TIX_Features::OPT_CLOAKROOM); else update_option(TIX_Features::OPT_CLOAKROOM, $keep, false);
     if ($keep_cfg === null) delete_option('_tix_app_config'); else update_option('_tix_app_config', $keep_cfg, false);
     require_once ABSPATH . 'wp-admin/includes/user.php';
     foreach ($tmp as $id) wp_delete_user($id);
+    foreach ($tmp_posts as $id) wp_delete_post($id, true);
     wp_set_current_user(0);
 }
 echo ($GLOBALS['t_fails'] ? "FEHLER: {$GLOBALS['t_fails']}" : 'ALLES OK') . " ({$GLOBALS['t_count']} Prüfungen)\n";
