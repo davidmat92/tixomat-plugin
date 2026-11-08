@@ -49,6 +49,9 @@ class TIX_Platform_Customers {
         $p = ['permission_callback' => [__CLASS__, 'perm']];
         register_rest_route(self::NS, '/platform/customers', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list']] + $p);
         register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get']] + $p);
+        register_rest_route(self::NS, '/platform/customers/invite', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_invite']] + $p);
+        register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/owner', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_owner']] + $p);
+        register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/license', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_license']] + $p);
         register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/modules', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_modules']] + $p);
         register_rest_route(self::NS, '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/offers', [
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_link_offer']] + $p,
@@ -367,6 +370,8 @@ class TIX_Platform_Customers {
         $row['partner'] = $c['_partner'] ? array_intersect_key($c['_partner'], array_flip(['id', 'name', 'host', 'sales_enabled', 'pending'])) : null;
         $row['emails'] = self::emails($c);
         $row['modules'] = self::modules_payload($c, $row['organizer']);
+        $row['owner'] = self::owner_payload($c);
+        $row['ready'] = self::ready_payload($c);
         $sc = $oid ? (self::settlement_counts()[$oid] ?? []) : [];
         $row['counts'] = [
             'support_open' => count(self::support_for($c)),
@@ -456,6 +461,174 @@ class TIX_Platform_Customers {
             return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key']))]);
         }
         return new WP_Error('tix_modules_no_license', 'Dieser Kunde hat keine Lizenz auf dieser Plattform – Module schaltet die eigene Seite.', ['status' => 409]);
+    }
+
+    // ═══════════════ Zugang, Einladung, Stammdaten, Startklar (§103) ═══════════════
+
+    /** Inhaber-Zugang: Provision = Konto des Veranstalters, Lizenz = Einladung über die Lizenzprüfung. */
+    public static function owner_payload($c) {
+        if ($c['art'] === 'provision' && $c['organizer_id']) {
+            $u = get_userdata(intval(get_post_meta($c['organizer_id'], '_tix_org_user_id', true)));
+            if (!$u) return ['source' => 'organizer', 'status' => 'missing', 'email' => null, 'last_login' => null];
+            $ll = get_user_meta($u->ID, '_tix_last_login', true) ?: get_user_meta($u->ID, 'last_login', true);
+            return ['source' => 'organizer', 'status' => 'active', 'email' => (string) $u->user_email, 'name' => (string) $u->display_name,
+                'invited_at' => get_user_meta($u->ID, '_tix_invited_at', true) ?: null, 'last_login' => $ll ? (is_numeric($ll) ? gmdate('c', intval($ll)) : (string) $ll) : null];
+        }
+        if ($c['_lic'] && class_exists('TIX_Owner_Access')) {
+            $q = TIX_Owner_Access::queued($c['license_id']);
+            $site_owner = self::site_ready($c)['owner'] ?? null;
+            return ['source' => 'license', 'status' => $q ? $q['status'] : ($site_owner ? 'active' : 'missing'), 'email' => $q['email'] ?? null, 'name' => $q['name'] ?? null,
+                'invited_at' => $q['at'] ?? null, 'done_at' => $q['done_at'] ?? null, 'mailed' => $q['result']['mailed'] ?? null, 'site_has_owner' => $site_owner];
+        }
+        return ['source' => 'none', 'status' => null, 'email' => null];
+    }
+
+    /** Startklar, das die gebundene Seite mit der Lizenzprüfung gemeldet hat. */
+    private static function site_ready($c) {
+        foreach (TIX_License_Server::sites($c['license_id']) as $s) {
+            if ($s->dev || empty($s->ready)) continue;
+            $r = json_decode((string) $s->ready, true);
+            if (is_array($r)) return $r + ['_at' => (string) $s->last_seen, '_host' => (string) $s->host];
+        }
+        return [];
+    }
+
+    /** {items: [{key, ok, label, hint}], ok, source, reported_at} – Zahlung, Rechtstexte, Zugang, Homepage. */
+    public static function ready_payload($c) {
+        $L = ['payment' => 'Zahlung eingerichtet', 'legal' => 'Rechtstexte (Impressum, Datenschutz, AGB)', 'owner' => 'Zugang für den Inhaber', 'homepage' => 'Homepage'];
+        $items = [];
+        $src = 'none'; $at = null;
+        if ($c['_lic']) {
+            $r = self::site_ready($c);
+            $src = 'site'; $at = $r['_at'] ?? null;
+            foreach ($L as $k => $label) {
+                $ok = array_key_exists($k, $r) ? (bool) $r[$k] : null;
+                $items[] = ['key' => $k, 'ok' => $ok, 'label' => $label, 'hint' => $ok === null ? 'Die Seite hat das noch nicht gemeldet (ab Plugin 1.38.688, nächste Lizenzprüfung).' : null];
+            }
+        } elseif ($c['art'] === 'provision' && $c['organizer_id']) {
+            $oid = intval($c['organizer_id']);
+            $src = 'organizer';
+            $pay = class_exists('TIX_Payout_Details') ? (bool) TIX_Payout_Details::complete($oid) : null;
+            $terms = null;
+            if (class_exists('TIX_Org_Approval')) { $pl = TIX_Org_Approval::payload($oid); $terms = !empty($pl['terms']['accepted']); }
+            $owner = self::owner_payload($c);
+            $public = get_post_status($oid) === 'publish' && (!class_exists('TIX_Org_Approval') || TIX_Org_Approval::status($oid) === 'approved');
+            $items = [
+                ['key' => 'payment', 'ok' => $pay, 'label' => 'Auszahlungskonto', 'hint' => $pay ? null : 'Auszahlungsdaten fehlen noch.'],
+                ['key' => 'legal', 'ok' => $terms, 'label' => 'Vermittlungsvertrag angenommen', 'hint' => $terms ? null : 'Der Veranstalter hat den Vertrag noch nicht angenommen.'],
+                ['key' => 'owner', 'ok' => $owner['status'] === 'active', 'label' => 'Zugang für den Inhaber', 'hint' => $owner['status'] === 'active' ? null : 'Kein Konto verknüpft – „Einladen“.'],
+                ['key' => 'homepage', 'ok' => $public, 'label' => 'Veranstalter-Seite online', 'hint' => $public ? null : 'Erst nach der Freigabe öffentlich.'],
+            ];
+        }
+        $known = array_filter($items, function ($i) { return $i['ok'] !== null; });
+        return ['source' => $src, 'reported_at' => $at, 'ok' => $items && count($known) === count($items) && !array_filter($items, function ($i) { return !$i['ok']; }), 'items' => $items];
+    }
+
+    /** POST /platform/customers/{key}/owner {email, name?} – Zugang anlegen bzw. erneut einladen. */
+    public static function rest_owner(WP_REST_Request $req) {
+        $c = self::raw($req['key']);
+        if (!$c) return new WP_Error('tix_not_found', 'Diesen Kunden gibt es nicht.', ['status' => 404]);
+        $b = $req->get_json_params() ?: $req->get_params();
+        $email = sanitize_email((string) ($b['email'] ?? ''));
+        $name = (string) ($b['name'] ?? '');
+        if ($c['art'] === 'bestand') return new WP_Error('tix_customer_bestand', 'Bei KitchenKlub und Mallorca bleibt der Server unverändert – Zugänge legt die Seite selbst an.', ['status' => 409]);
+        if ($c['art'] === 'provision' && $c['organizer_id']) {
+            $oid = intval($c['organizer_id']);
+            $uid = intval(get_post_meta($oid, '_tix_org_user_id', true));
+            $u = $uid ? get_userdata($uid) : null;
+            if (!$u) {
+                if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+                $r = TIX_Owner_Access::invite($email, $name, ['platform' => true]);
+                if (is_wp_error($r)) return $r;
+                update_post_meta($oid, '_tix_org_user_id', $r['user_id']);
+                update_user_meta($r['user_id'], '_tix_invited_at', gmdate('c'));
+                self::flush();
+                return rest_ensure_response(['ok' => true, 'created' => $r['created'], 'mailed' => $r['mailed'], 'owner' => self::owner_payload(self::raw($c['key']))]);
+            }
+            if ($email !== '' && strtolower($email) !== strtolower($u->user_email)) return new WP_Error('tix_owner_exists', 'Der Veranstalter hat schon einen Inhaber (' . $u->user_email . ').', ['status' => 409, 'field' => 'email']);
+            $mailed = TIX_Owner_Access::send_invite($u, $u->display_name, true);
+            update_user_meta($u->ID, '_tix_invited_at', gmdate('c'));
+            return rest_ensure_response(['ok' => true, 'created' => false, 'mailed' => $mailed, 'owner' => self::owner_payload($c)]);
+        }
+        if ($c['_lic']) {
+            if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+            $q = TIX_Owner_Access::queue($c['license_id'], $email, $name);
+            if (is_wp_error($q)) return $q;
+            // Lizenz-E-Mail nachtragen, wenn sie noch auf dem Betrieb steht
+            $le = strtolower((string) $c['_lic']['row']->email);
+            if ($le === '' || preg_match('/@([a-z0-9-]+\.)*evendis\.de$/', $le)) self::license_save($c, ['email' => $email]);
+            $pr = new WP_REST_Request('POST', '/tixomat/v1/license/admin/licenses/' . intval($c['license_id']) . '/ping');
+            $pr->set_param('id', intval($c['license_id']));
+            $ping = TIX_License_Server::rest_admin_ping($pr);
+            self::flush();
+            return rest_ensure_response(['ok' => true, 'queued' => true, 'owner' => self::owner_payload(self::raw($c['key'])),
+                'ping' => is_wp_error($ping) ? null : ($ping->get_data()['sites'] ?? [])]);
+        }
+        return new WP_Error('tix_owner_unavailable', 'Für diesen Kunden gibt es hier keinen Zugang anzulegen.', ['status' => 409]);
+    }
+
+    private static function license_save($c, array $fields) {
+        $r = new WP_REST_Request('POST', '/tixomat/v1/license/admin/licenses/' . intval($c['license_id']));
+        $r->set_param('id', intval($c['license_id']));
+        $r->set_header('Content-Type', 'application/json');
+        $r->set_body(wp_json_encode($fields));
+        return TIX_License_Server::rest_admin_save($r);
+    }
+
+    /** POST /platform/customers/{key}/license {customer?, email?, note?} – Stammdaten der Lizenz; das Hosting-Merkmal bleibt in der Notiz. */
+    public static function rest_license(WP_REST_Request $req) {
+        $c = self::raw($req['key']);
+        if (!$c) return new WP_Error('tix_not_found', 'Diesen Kunden gibt es nicht.', ['status' => 404]);
+        if (!$c['_lic']) return new WP_Error('tix_no_license', 'Dieser Kunde hat keine Lizenz.', ['status' => 409]);
+        $b = $req->get_json_params() ?: $req->get_params();
+        $f = array_intersect_key((array) $b, array_flip(['customer', 'email', 'note']));
+        if (!$f) return new WP_Error('tix_invalid_field', 'Bitte customer, email oder note senden.', ['status' => 400]);
+        if (array_key_exists('email', $f) && $f['email'] !== '' && !is_email((string) $f['email'])) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+        if (array_key_exists('customer', $f) && trim((string) $f['customer']) === '') return new WP_Error('tix_invalid_field', 'Der Kundenname fehlt.', ['status' => 400, 'field' => 'customer']);
+        if (array_key_exists('note', $f) && $c['hosting_kurz']) {
+            $tag = '[kunden-hetzner:' . $c['hosting_kurz'] . ']';
+            if (strpos((string) $f['note'], $tag) === false) $f['note'] = trim($tag . ' ' . (string) $f['note']); // sonst verlöre der Kunde seinen Schlüssel
+        }
+        $r = self::license_save($c, $f);
+        if (is_wp_error($r)) return $r;
+        self::flush();
+        $c2 = self::raw($c['key']);
+        return rest_ensure_response(['ok' => true, 'license' => TIX_License_Server::admin_payload($c2['_lic']['row'])]);
+    }
+
+    /** POST /platform/customers/invite {email, name?, organizer, offer_id?} – Provisionskunde: Konto + Veranstalter + Einladung. */
+    public static function rest_invite(WP_REST_Request $req) {
+        $b = $req->get_json_params() ?: $req->get_params();
+        $email = sanitize_email((string) ($b['email'] ?? ''));
+        $org_name = trim(sanitize_text_field((string) ($b['organizer'] ?? '')));
+        if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
+        if ($org_name === '') return new WP_Error('tix_invalid_field', 'Bitte den Namen des Veranstalters angeben.', ['status' => 400, 'field' => 'organizer']);
+        if (email_exists($email)) return new WP_Error('tix_email_exists', 'Zu dieser E-Mail gibt es schon ein Konto. Bitte den Veranstalter in der Kundenliste suchen.', ['status' => 409, 'field' => 'email']);
+        $offer = null;
+        if (!empty($b['offer_id'])) {
+            $offer = class_exists('TIX_Platform_Offers') ? TIX_Platform_Offers::get(intval($b['offer_id'])) : null;
+            if (!$offer) return new WP_Error('tix_offer_not_found', 'Angebot nicht gefunden.', ['status' => 404, 'field' => 'offer_id']);
+        }
+        $r = TIX_Owner_Access::invite($email, (string) ($b['name'] ?? ''), ['no_mail' => true]);
+        if (is_wp_error($r)) return $r;
+        $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_title' => $org_name, 'post_status' => 'publish', 'post_author' => $r['user_id']], true);
+        if (is_wp_error($oid)) return $oid;
+        update_post_meta($oid, '_tix_org_user_id', $r['user_id']);
+        if (class_exists('TIX_Org_Approval')) TIX_Org_Approval::set_status($oid, 'pending', ['by' => get_current_user_id(), 'note' => 'Eingeladen (Plattform-Studio)', 'notify' => false]);
+        $u = get_userdata($r['user_id']);
+        $mailed = TIX_Owner_Access::send_invite($u, (string) ($b['name'] ?? ''), true);
+        update_user_meta($u->ID, '_tix_invited_at', gmdate('c'));
+        self::flush();
+        $key = self::canonical('v-' . $oid);
+        if ($offer && $key) {
+            $d = TIX_Platform_Offers::data($offer);
+            $d['customer_key'] = $key;
+            $d['history'] = array_slice(array_merge((array) ($d['history'] ?? []), [['at' => gmdate('c'), 'what' => 'customer', 'by' => get_current_user_id(), 'key' => $key]]), -50);
+            TIX_Platform_Offers::update_data($offer->id, $d);
+        }
+        $res = rest_ensure_response(['ok' => true, 'key' => $key, 'organizer_id' => intval($oid), 'user_id' => intval($r['user_id']), 'mailed' => (bool) $mailed]);
+        $res->set_status(201);
+        return $res;
     }
 
     // ═══════════════ Filter ?customer= ═══════════════

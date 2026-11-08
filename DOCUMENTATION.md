@@ -4831,3 +4831,29 @@ Für die Kundenverwaltung im Studio (Konzept `konzept-studio-kundenverwaltung.md
 - **Lizenz-Freischaltung:** `has_app` (Studio) und `homepage.enabled` (site-config) beachten `TIX_Modules::allowed('app'|'website')`.
 - **Kunden-Route:** Lizenzen nur, wenn der Lizenz-Server an ist (`enabled()`). `/platform/offers?customer=` nur für Admins (Vertrieb 403).
 - Tests: platform-customers 45/45, offer-hosting 20/20, domain-move 18/18, license 90/90, mail-transport 46/46 bzw. 14/14, license-create-modules 6/6.
+
+## 103. Inhaber-Zugang, Einladung, Stammdaten, Startklar (ab 1.38.688, Audit 08.11.)
+Klasse `TIX_Owner_Access` (`includes/class-tix-owner-access.php`), Routen in `TIX_Platform_Customers`. Vertrag: `uebergaben/vertrag-platform-customers.md`.
+- **Kundenseite:** `invite($email, $name)` legt ein Konto mit der Rolle `tix_organizer` (Inhaber) an bzw. nutzt ein vorhandenes, setzt das Merkmal `_tix_site_owner` und schickt die Mail „Dein Zugang zu …“ mit dem Link „Passwort festlegen“ (Reset-Schlüssel, 24 h) und der Studio-Adresse. CLI: `wp tixomat inhaber einladen --email= [--name=] [--ohne-mail]` (Ausgabe `ERGEBNIS {user_id, login, created, mailed}`), `wp tixomat inhaber status` (Ausgabe `STARTKLAR {…}`).
+- **Startklar:** `readiness()` = `{payment, legal, owner, homepage}`, nur Ja/Nein.
+  - `payment`: mindestens ein Zahlungsanbieter bereit.
+  - `legal`: Impressum, Datenschutz und AGB verlinkt.
+  - `owner`: ein Inhaber-Konto ist vorhanden.
+  - `homepage`: die Homepage ist eingeschaltet.
+  - Die Werte gehen mit jeder Lizenzprüfung als `ready` an den Lizenz-Server (`tix_license_sites.ready`, DB 5).
+- **Einladung über die Lizenzprüfung** (auch für selbstgehostete Seiten ohne Zugriff des Dienstes):
+  1. Die Plattform merkt die Einladung je Lizenz vor (Option `tix_lic_invite_{id}`: `queued|done|failed`).
+  2. `/license/check` schickt sie an den gebundenen Host mit, zusammen mit der eigenen Signatur `owner_invite_sig` = HMAC(Schlüssel, `tix-invite-v1|host|email|name|nonce|issued_at`).
+  3. Die Seite führt sie einmal je nonce aus (höchstens 2 Tage alt) und meldet `invite_done/ok/mailed` mit der nächsten Prüfung zurück.
+  4. Der Ping nach dem Vormerken löst die Prüfung sofort aus.
+- **Routen** (Plattform-Admins):
+  - `POST /platform/customers/{key}/owner {email, name?}`
+    - Provision: ohne Inhaber wird das Konto angelegt und verknüpft, sonst erneut eingeladen (andere E-Mail → 409 `tix_owner_exists`).
+    - Lizenz: Die Einladung wird vorgemerkt und gepingt. Steht die Lizenz-E-Mail leer bzw. auf evendis.de, wird die neue E-Mail eingetragen.
+    - Bestand → 409 `tix_customer_bestand`.
+  - `POST /platform/customers/{key}/license {customer?, email?, note?}`: Stammdaten. `[kunden-hetzner:<kurz>]` bleibt in der Notiz.
+  - `POST /platform/customers/invite {email, name?, organizer, offer_id?}`: Legt Konto und Veranstalter an (Status `pending`) und schickt die Einladung (201 `{key, organizer_id, user_id, mailed}`). Mit `offer_id` wird das Angebot verknüpft. E-Mail vergeben → 409 `tix_email_exists`.
+- **Akte `GET /platform/customers/{key}`** zusätzlich:
+  - `owner {source, status: missing|queued|done|failed|active, email, invited_at, done_at, …}`
+  - `ready {source: site|organizer|none, reported_at, ok, items[{key, ok (null = noch nicht gemeldet), label, hint}]}`. Bei Provision: Auszahlungskonto, Vermittlungsvertrag, Zugang, Veranstalter-Seite online.
+- Tests: `tests/test-owner-access-wp.php` 23/23 (Plattform, mit dem ganzen Weg über `/license/check`), 8/8 (Einzel-Seite).

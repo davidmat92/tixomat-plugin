@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_License_Server {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '4'; // 4: tix_license_sites.mode (Betriebsart der Seite, Audit 08.11.)
+    const DB_VERSION  = '5'; // 4: tix_license_sites.mode (Betriebsart der Seite, Audit 08.11.), 5: .ready (Startklar)
     const NOTICE_DAYS = 14;  // Hinweis-Stufe vor Ablauf
     const STAGES      = ['active', 'notice', 'locked', 'basis'];
     const LINK_TTL    = 43200; // Download-Link 12 h gültig
@@ -112,6 +112,7 @@ class TIX_License_Server {
             wp varchar(20) NOT NULL DEFAULT '',
             php varchar(20) NOT NULL DEFAULT '',
             mode varchar(20) NOT NULL DEFAULT '',
+            ready text NULL,
             first_seen datetime NOT NULL,
             last_seen datetime NOT NULL,
             last_download datetime NULL,
@@ -462,7 +463,10 @@ class TIX_License_Server {
                 // Betriebene Seiten (enforce) binden auch in Sperre/Basis, damit der Heartbeat sichtbar bleibt
                 if ($state !== 'active' && !empty($lic->enforce)) self::bind_site($lic, $host, $req);
                 // Signatur nur für Hosts, die an die Lizenz gebunden sind (Audit 08.11.)
-                if ($state !== 'active' && self::is_bound($lic, $host)) $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
+                if ($state !== 'active' && self::is_bound($lic, $host)) {
+                    $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
+                    if (class_exists('TIX_Owner_Access')) { TIX_Owner_Access::report($lic, $req); $out = TIX_Owner_Access::add_to_check($out, $lic, $host); }
+                }
             }
         }
         if ($state !== 'active') return rest_ensure_response($out);
@@ -477,6 +481,8 @@ class TIX_License_Server {
         }
         $out['valid']       = true;
         $out['signature']   = self::signature($lic->license_key, $out + ['host' => $host]);
+        // Inhaber-Einladung (§103): Rückmeldung verbuchen, offene Einladung signiert mitschicken
+        if (class_exists('TIX_Owner_Access')) { TIX_Owner_Access::report($lic, $req); $out = TIX_Owner_Access::add_to_check($out, $lic, $host); }
         $out['package_url'] = self::package_url($lic, $host, TIXOMAT_VERSION);
         return rest_ensure_response($out);
     }
@@ -493,6 +499,13 @@ class TIX_License_Server {
             // Betriebsart, die die Seite meldet (selfhosted|managed|none); leer = ältere Seite
             'mode'    => in_array((string) $req->get_param('mode'), ['selfhosted', 'managed', 'none'], true) ? (string) $req->get_param('mode') : '',
         ];
+        // Startklar der Seite (§103): nur bekannte Ja/Nein-Felder
+        $rd = json_decode((string) $req->get_param('ready'), true);
+        if (is_array($rd)) {
+            $clean = [];
+            foreach (['payment', 'legal', 'owner', 'homepage'] as $k) if (array_key_exists($k, $rd)) $clean[$k] = (bool) $rd[$k];
+            $info['ready'] = wp_json_encode($clean);
+        }
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE license_id = %d AND host = %s", $lic->id, $host));
         if ($row) {
             $wpdb->update($t, $info + ['last_seen' => $now], ['id' => $row->id]);
@@ -632,7 +645,7 @@ class TIX_License_Server {
         $sites = [];
         $last = null;
         foreach (self::sites($lic->id) as $s) {
-            $sites[] = ['id' => intval($s->id), 'host' => (string) $s->host, 'dev' => (bool) $s->dev, 'version' => (string) $s->version, 'mode' => (string) ($s->mode ?? ''),
+            $sites[] = ['id' => intval($s->id), 'host' => (string) $s->host, 'dev' => (bool) $s->dev, 'version' => (string) $s->version, 'mode' => (string) ($s->mode ?? ''), 'ready' => !empty($s->ready) ? json_decode((string) $s->ready, true) : null,
                 'first_seen' => (string) $s->first_seen, 'last_seen' => (string) $s->last_seen];
             if (!$s->dev && (!$last || $s->last_seen > $last)) $last = (string) $s->last_seen;
         }
