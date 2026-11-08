@@ -147,14 +147,25 @@ class TIX_Mail_Transport {
 
     // ═══════════════ Versand ═══════════════
 
+    /**
+     * Läuft der Server-Versand wirklich über evendis? (FluentSMTP-Standardverbindung „evendis“ bzw. Absender auf evendis.de.)
+     * Nur dann darf noreply@evendis.de als Absender gesetzt werden – sonst ginge die Mail mit fremdem Absender über
+     * einen anderen Dienst (SPF/DMARC, Audit 08.11.).
+     */
+    public static function evendis_connection() {
+        $fd = self::fluent_default();
+        if ($fd) return (bool) $fd['evendis'];
+        return (bool) preg_match('/@([a-z0-9-]+\.)*evendis\.de$/i', self::site_from());
+    }
+
     public static function filter_from($from) {
         [$mode] = self::choice();
-        return ($mode === 'evendis' || self::$force_evendis) ? self::EVENDIS_FROM : $from;
+        return (($mode === 'evendis' || self::$force_evendis) && self::evendis_connection()) ? self::EVENDIS_FROM : $from;
     }
 
     public static function filter_from_name($name) {
         [$mode] = self::choice();
-        if ($mode === 'evendis' || self::$force_evendis) { $n = self::site_name(); return $n !== '' ? $n : $name; }
+        if (($mode === 'evendis' || self::$force_evendis) && self::evendis_connection()) { $n = self::site_name(); return $n !== '' ? $n : $name; }
         return $name;
     }
 
@@ -268,7 +279,8 @@ class TIX_Mail_Transport {
     }
 
     private static function fallback($code, $msg) {
-        self::$force_evendis = true;
+        // Rückfall mit evendis-Absender nur über eine evendis-Verbindung; sonst Server-Versand mit dem eigenen Absender
+        self::$force_evendis = self::evendis_connection();
         $s = self::state();
         $now = time();
         $s['fallbacks'] = array_values(array_filter((array) ($s['fallbacks'] ?? []), function ($t) use ($now) { return $t > $now - DAY_IN_SECONDS; }));
@@ -291,7 +303,7 @@ class TIX_Mail_Transport {
         $err = (string) ($s['last_error']['message'] ?? '');
         self::$notifying = true; self::$force_evendis = true;
         wp_mail($to, 'Mailversand: eigener Dienst ausgefallen',
-            "Hallo,\n\nder eigene Mailversand von " . self::site_name() . " hat eine Mail nicht angenommen. Damit nichts verloren geht, laufen die Mails jetzt über evendis (noreply@evendis.de).\n\nGrund: " . ($err !== '' ? $err : 'unbekannt') . "\n\nBitte im Studio unter Einstellungen → E-Mail-Versand prüfen und eine Testmail schicken.\n");
+            "Hallo,\n\nder eigene Mailversand von " . self::site_name() . " hat eine Mail nicht angenommen. Damit nichts verloren geht, laufen die Mails jetzt " . (self::evendis_connection() ? 'über evendis (noreply@evendis.de)' : 'über den Mailversand des Servers') . ".\n\nGrund: " . ($err !== '' ? $err : 'unbekannt') . "\n\nBitte im Studio unter Einstellungen → E-Mail-Versand prüfen und eine Testmail schicken.\n");
         self::$notifying = false; self::$force_evendis = false;
     }
 

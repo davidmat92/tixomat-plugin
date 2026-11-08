@@ -175,7 +175,11 @@ tl_eq('/info.license.basis_url Standard', home_url('/app.json'), $d['license']['
 $set('basis');
 tl_eq('Stufe basis', 'basis', TIX_License_Stage::stage());
 [$st, , $code] = tl_rest('GET', '/public/events');
-tl_eq('basis: Katalog 403', 'tix_license_basis', $code);
+tl_eq('basis: Katalog bleibt lesbar (Homepage, Audit 08.11.)', true, $code !== 'tix_license_basis');
+[$st, , $code] = tl_rest('GET', '/public/site-config');
+tl_eq('basis: site-config bleibt lesbar', true, $code !== 'tix_license_basis');
+[$st, , $code] = tl_rest('POST', '/public/newsletter', ['email' => 'a@example.test']);
+tl_eq('basis: Newsletter-Anmeldung gesperrt', 'tix_license_basis', $code);
 [$st, , $code] = tl_rest('POST', '/checkin/scan', ['code' => 'GL-1-XXXX']);
 tl_eq('basis: Einlass 403', 'tix_license_basis', $code);
 [$st] = tl_rest('GET', '/info');

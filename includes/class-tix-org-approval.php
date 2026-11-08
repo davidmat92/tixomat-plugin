@@ -43,7 +43,7 @@ class TIX_Org_Approval {
     const META_HELD   = '_tix_publish_held';
     const OPTION      = 'tix_org_approval_settings';
     const DB_OPTION   = 'tix_org_approval_db';
-    const DB_VERSION  = '1';
+    const DB_VERSION  = '2'; // 2 (Audit 08.11.): Bestand ohne Status nochmals auf „approved“, danach gilt fehlender Status als „pending“
     const ADMIN_SLUG  = 'tix-org-review';
     const ORG_SLUG    = 'tix-org-account';
     const STATUSES    = ['pending', 'approved', 'rejected', 'blocked'];
@@ -109,11 +109,16 @@ class TIX_Org_Approval {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
     }
 
-    /** Status des Veranstalters; außerhalb des Mehr-Veranstalter-Modus immer „approved“. */
+    /**
+     * Status des Veranstalters; außerhalb des Mehr-Veranstalter-Modus immer „approved“.
+     * Ohne gespeicherten Status gilt „pending“ (Audit 08.11.: ein Veranstalter, der an on_insert vorbei entsteht,
+     * ist nie ungeprüft öffentlich). Der Bestand wurde per Migration (DB_VERSION 2) auf „approved“ gesetzt.
+     */
     public static function status($oid) {
         if (!self::multi()) return 'approved';
         $s = (string) get_post_meta(intval($oid), self::META_STATUS, true);
-        return in_array($s, self::STATUSES, true) ? $s : 'approved';
+        if (in_array($s, self::STATUSES, true)) return $s;
+        return get_option(self::DB_OPTION) === self::DB_VERSION ? 'pending' : 'approved';
     }
 
     /** Darf der Veranstalter öffentlich erscheinen und verkaufen? */
@@ -623,7 +628,7 @@ class TIX_Org_Approval {
             if (get_post_meta($oid, self::META_STATUS, true) !== '') continue;
             update_post_meta($oid, self::META_STATUS, 'approved');
             update_post_meta($oid, self::META_INFO, ['decided_at' => time(), 'decided_by' => 0, 'reason' => '', 'forced' => false]);
-            self::log($oid, 'approved', ['by' => 0, 'note' => 'Bestand bei Einführung der Freigabe übernommen']);
+            self::log($oid, 'approved', ['by' => 0, 'note' => get_option(self::DB_OPTION) ? 'Bestand ohne Status übernommen (Migration 2)' : 'Bestand bei Einführung der Freigabe übernommen']);
         }
         $s = self::settings();
         if (!intval($s['terms_page_id']) && (string) $s['terms_url'] === '') {

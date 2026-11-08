@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_License_Server {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '3';
+    const DB_VERSION  = '4'; // 4: tix_license_sites.mode (Betriebsart der Seite, Audit 08.11.)
     const NOTICE_DAYS = 14;  // Hinweis-Stufe vor Ablauf
     const STAGES      = ['active', 'notice', 'locked', 'basis'];
     const LINK_TTL    = 43200; // Download-Link 12 h gültig
@@ -111,6 +111,7 @@ class TIX_License_Server {
             version varchar(20) NOT NULL DEFAULT '',
             wp varchar(20) NOT NULL DEFAULT '',
             php varchar(20) NOT NULL DEFAULT '',
+            mode varchar(20) NOT NULL DEFAULT '',
             first_seen datetime NOT NULL,
             last_seen datetime NOT NULL,
             last_download datetime NULL,
@@ -336,6 +337,26 @@ class TIX_License_Server {
         ]);
     }
 
+    /** Zähler je Schlüssel (z. B. Lizenz + Host), unabhängig von der IP. */
+    private static function limited_key($bucket, $id, $max, $window) {
+        $k = 'tix_lic_rl_' . $bucket . '_' . substr(md5(strtolower($id)), 0, 20);
+        $n = intval(get_transient($k));
+        if ($n >= $max) return true;
+        set_transient($k, $n + 1, $window);
+        return false;
+    }
+
+    public static function is_bound($lic, $host) {
+        global $wpdb;
+        return (bool) $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . self::t('tix_license_sites') . ' WHERE license_id = %d AND host = %s', $lic->id, $host));
+    }
+
+    /** Betriebsart, die die gebundenen Seiten zuletzt gemeldet haben (ohne dev): 'managed'|'selfhosted'|'none'|'' */
+    public static function reported_mode($lic) {
+        foreach (self::sites($lic->id) as $s) if (!$s->dev && !empty($s->mode)) return (string) $s->mode;
+        return '';
+    }
+
     private static function limited($bucket, $max, $window) {
         return class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('lic_' . $bucket, $max, $window);
     }
@@ -395,12 +416,14 @@ class TIX_License_Server {
 
     public static function rest_check(WP_REST_Request $req) {
         self::maybe_migrate_modules();
-        if (self::limited('check', 30, 600)) {
-            return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte später erneut versuchen.', ['status' => 429]);
-        }
         self::maybe_install();
         $lic   = self::get_by_key((string) $req->get_param('key'));
         $host  = self::normalize_host((string) $req->get_param('site'));
+        // Rate-Limit je Schlüssel + Host (Audit 08.11.): auf dem Sammelserver teilen sich viele Seiten eine IP.
+        // Grobe Bremse je IP bleibt für Raten ohne gültigen Schlüssel.
+        if (self::limited_key('check', (string) $req->get_param('key') . '|' . $host, 30, 600) || (!$lic && self::limited('check_ip', 60, 600))) {
+            return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte später erneut versuchen.', ['status' => 429]);
+        }
         $state = self::license_state($lic);
         $msgs  = self::messages();
         $out = [
@@ -436,9 +459,10 @@ class TIX_License_Server {
                 'issued_at'       => time(),
             ];
             if ($host !== '') {
-                $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
                 // Betriebene Seiten (enforce) binden auch in Sperre/Basis, damit der Heartbeat sichtbar bleibt
                 if ($state !== 'active' && !empty($lic->enforce)) self::bind_site($lic, $host, $req);
+                // Signatur nur für Hosts, die an die Lizenz gebunden sind (Audit 08.11.)
+                if ($state !== 'active' && self::is_bound($lic, $host)) $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
             }
         }
         if ($state !== 'active') return rest_ensure_response($out);
@@ -452,6 +476,7 @@ class TIX_License_Server {
             return rest_ensure_response($out);
         }
         $out['valid']       = true;
+        $out['signature']   = self::signature($lic->license_key, $out + ['host' => $host]);
         $out['package_url'] = self::package_url($lic, $host, TIXOMAT_VERSION);
         return rest_ensure_response($out);
     }
@@ -465,6 +490,8 @@ class TIX_License_Server {
             'version' => mb_substr(sanitize_text_field((string) $req->get_param('version')), 0, 20),
             'wp'      => mb_substr(sanitize_text_field((string) $req->get_param('wp')), 0, 20),
             'php'     => mb_substr(sanitize_text_field((string) $req->get_param('php')), 0, 20),
+            // Betriebsart, die die Seite meldet (selfhosted|managed|none); leer = ältere Seite
+            'mode'    => in_array((string) $req->get_param('mode'), ['selfhosted', 'managed', 'none'], true) ? (string) $req->get_param('mode') : '',
         ];
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE license_id = %d AND host = %s", $lic->id, $host));
         if ($row) {
@@ -605,7 +632,7 @@ class TIX_License_Server {
         $sites = [];
         $last = null;
         foreach (self::sites($lic->id) as $s) {
-            $sites[] = ['id' => intval($s->id), 'host' => (string) $s->host, 'dev' => (bool) $s->dev, 'version' => (string) $s->version,
+            $sites[] = ['id' => intval($s->id), 'host' => (string) $s->host, 'dev' => (bool) $s->dev, 'version' => (string) $s->version, 'mode' => (string) ($s->mode ?? ''),
                 'first_seen' => (string) $s->first_seen, 'last_seen' => (string) $s->last_seen];
             if (!$s->dev && (!$last || $s->last_seen > $last)) $last = (string) $s->last_seen;
         }
@@ -684,6 +711,13 @@ class TIX_License_Server {
         }
         $mod_diff = null;
         if (array_key_exists('modules', $p)) {
+            // Nur Liste aus Text-Schlüsseln oder null (= alle); Unbekanntes wird abgelehnt statt still verworfen (Audit 08.11.)
+            if ($p['modules'] !== null && (!is_array($p['modules']) || array_filter($p['modules'], function ($x) { return !is_scalar($x); }))) {
+                return new WP_Error('tix_invalid_field', 'Module bitte als Liste von Schlüsseln oder null (alle).', ['status' => 400, 'field' => 'modules']);
+            }
+            if (is_array($p['modules']) && ($bad = self::unknown_modules(array_map('strval', $p['modules'])))) {
+                return new WP_Error('tix_invalid_field', 'Unbekannte Module: ' . implode(', ', $bad), ['status' => 400, 'field' => 'modules']);
+            }
             $up['modules'] = is_array($p['modules']) && class_exists('TIX_Modules')
                 ? wp_json_encode(array_values(array_intersect(TIX_Modules::keys(), array_map('sanitize_key', $p['modules'])))) : null;
             // Verlauf: welche Module dazu bzw. weg (null = alle)
@@ -856,6 +890,15 @@ class TIX_License_Server {
                     <tr><th>Gültig bis</th><td><input type="date" name="valid_until" value="<?php echo esc_attr(gmdate('Y-m-d', strtotime('+1 year'))); ?>"></td></tr>
                     <tr><th>Websites</th><td><input type="number" name="max_sites" min="1" value="1" style="width:80px;"></td></tr>
                     <tr><th>Notiz</th><td><textarea name="note" rows="2" class="large-text"></textarea></td></tr>
+                    <tr><th>Module</th><td>
+                        <label><input type="radio" name="modules_mode" value="all" checked> Alle Module</label>
+                        <label style="margin-left:14px;"><input type="radio" name="modules_mode" value="select"> Nur diese:</label>
+                        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:12px;">
+                        <?php foreach (TIX_Modules::MODULES as $mk => $mv) : ?>
+                            <label><input type="checkbox" name="modules[]" value="<?php echo esc_attr($mk); ?>"<?php checked($mk === 'awareness'); ?>> <?php echo esc_html($mv[0]); ?></label>
+                        <?php endforeach; ?>
+                        </div>
+                    </td></tr>
                 </table>
                 <p><button class="button button-primary">Lizenz anlegen</button></p>
             </form>

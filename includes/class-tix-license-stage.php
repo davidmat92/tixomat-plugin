@@ -24,7 +24,9 @@ class TIX_License_Stage {
     const LOCKED_ALLOW = '#^/(auth|checkin|license|push|customer/support|support|app/log|invoices/\d+/export)(/|$)#';
 
     /** Im Basis-Modus überhaupt erreichbar (lesend, plus Anmeldung für den Export). */
-    const BASIS_READ  = '#^/(info|license|basis|customer/tickets|me|organizer/export|events/\d+/report/export)(/|$)#';
+    // Homepage (marken-web, Vertrag vertrag-homepage-laufzeit-domain.md) bleibt lesbar: Seiten-Konfiguration, Website-Inhalte,
+    // Events (Online-Verkauf ist in der Basis ohnehin aus, tickets_meta) und Orte (Audit 08.11.)
+    const BASIS_READ  = '#^/(info|license|basis|customer/tickets|me|organizer/export|events/\d+/report/export|public/(site-config|website|events|venues))(/|$)#';
     const BASIS_WRITE = '#^/(auth|license)(/|$)#';
 
     /** Web-Kasse (admin-ajax) – in Sperre und Basis aus. */

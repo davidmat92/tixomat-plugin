@@ -141,7 +141,8 @@ class TIX_License {
             }
         }
         // Module der Lizenz (null = alle); unbekannter Schlüssel ändert die zuletzt bekannte Freischaltung nicht
-        if (array_key_exists('modules', $data) && ($data['status'] ?? '') !== 'invalid') {
+        // Nur mit gültiger Signatur (deckt die Modul-Liste ab, Audit 08.11.) – sonst bleibt der letzte signierte Stand
+        if (array_key_exists('modules', $data) && ($data['status'] ?? '') !== 'invalid' && self::verify($key, $data)) {
             $status['modules'] = is_array($data['modules']) ? array_values(array_map('sanitize_key', $data['modules'])) : null;
             // Schlüsselsatz der Liste (1 = vor dem Modul-Verkauf, neue Schlüssel dort frei)
             $status['modules_v'] = intval($data['modules_v'] ?? 1);

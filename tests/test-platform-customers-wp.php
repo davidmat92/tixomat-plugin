@@ -45,6 +45,8 @@ $L1 = TIX_License_Server::create(['customer' => 'PC Bestand GmbH', 'email' => "b
 $wpdb->insert($wpdb->prefix . 'tix_license_sites', ['license_id' => $L1->id, 'host' => "pcbestand$sfx.de", 'dev' => 0, 'first_seen' => current_time('mysql'), 'last_seen' => current_time('mysql')]);
 $kurz = 'pck' . $sfx;
 $L2 = TIX_License_Server::create(['customer' => 'PC Gehostet', 'email' => "host$sfx@example.test", 'valid_until' => gmdate('Y-m-d', strtotime('+10 days')), 'note' => "[kunden-hetzner:$kurz] Gehostet auf kunden-hetzner, Host $kurz.evendis.de (Betriebsart managed).", 'modules' => 'website,app']); $lics[] = $L2->id;
+$wpdb->insert($wpdb->prefix . 'tix_license_sites', ['license_id' => $L2->id, 'host' => "$kurz.evendis.de", 'dev' => 0, 'mode' => 'managed', 'first_seen' => current_time('mysql'), 'last_seen' => current_time('mysql')]);
+add_filter('pre_http_request', function ($pre, $a, $url) { return strpos($url, '/license/ping') !== false ? ['response' => ['code' => 200, 'message' => ''], 'body' => '{"stage":"active"}', 'headers' => [], 'cookies' => []] : $pre; }, 10, 3);
 $L3 = TIX_License_Server::create(['customer' => 'PC Nur Lizenz', 'email' => "nur$sfx@example.test", 'valid_until' => gmdate('Y-m-d', strtotime('+300 days'))]); $lics[] = $L3->id;
 
 [$st, $r] = pc_rest('GET', '/platform/customers');
@@ -75,11 +77,13 @@ pc_eq('art unbekannt → 400', [400, 'tix_invalid_field'], [$st, $code]);
 [$st, $d] = pc_rest('GET', "/platform/customers/v-$B");
 pc_eq('Akte über Alias v-B → fester Schlüssel l-L1', [200, "l-{$L1->id}", "v-$B"], [$st, $d['customer']['key'] ?? '', $d['customer']['requested_key'] ?? '']);
 pc_eq('Akte: Veranstalter, Lizenz, Partner', [$B, intval($L1->id), "pcbestand$sfx.de"], [$d['customer']['organizer']['id'] ?? 0, $d['customer']['license']['id'] ?? 0, $d['customer']['partner']['host'] ?? '']);
-pc_eq('Akte Bestand: Lizenz gilt (alle), keine Veranstalter-Module', ['license', true, true, true], [$d['customer']['modules']['source'] ?? '', $d['customer']['modules']['all'] ?? null, $d['customer']['modules']['modules']['music'] ?? null, $d['customer']['modules']['editable'] ?? null]);
+pc_eq('Akte Bestand: Lizenz gilt (alle), Seite meldet keine Betriebsart → nicht schaltbar', ['license', true, true, false], [$d['customer']['modules']['source'] ?? '', $d['customer']['modules']['all'] ?? null, $d['customer']['modules']['modules']['music'] ?? null, $d['customer']['modules']['editable'] ?? null]);
 [$st, $d] = pc_rest('GET', "/platform/customers/h-$kurz");
 pc_eq('Akte gehostet: Lizenz-Module, kein Veranstalter', [true, false, null], [$d['customer']['modules']['modules']['app'] ?? null, $d['customer']['modules']['modules']['music'] ?? null, $d['customer']['organizer']]);
 [$st, $m] = pc_rest('POST', "/platform/customers/h-$kurz/modules", ['modules' => ['music' => true, 'app' => false]]);
-pc_eq('Module schalten (gehostet) → Lizenz', [200, true, false], [$st, $m['modules']['modules']['music'] ?? null, $m['modules']['modules']['app'] ?? null]);
+pc_eq('Module schalten (gehostet, Seite managed) → Lizenz + sofortiger Ping', [200, true, false, true], [$st, $m['modules']['modules']['music'] ?? null, $m['modules']['modules']['app'] ?? null, ($m['ping'][0]['ok'] ?? false)]);
+[$st, , $code] = pc_rest('POST', "/platform/customers/l-{$L1->id}/modules", ['modules' => ['music' => false]]);
+pc_eq('Module schalten: Seite prüft keine Lizenz → 409', [409, 'tix_license_not_checked'], [$st, $code]);
 pc_eq('… in der Lizenz gespeichert', ['website', 'music'], TIX_License_Server::license_modules(TIX_License_Server::get($L2->id)));
 [$st, , $code] = pc_rest('POST', "/platform/customers/h-$kurz/modules", ['modules' => ['foo' => true]]);
 pc_eq('Unbekanntes Modul → 400', [400, 'tix_invalid_field'], [$st, $code]);

@@ -531,6 +531,8 @@ class TIX_Studio {
                 || (class_exists('TIX_App_Coupons') && (TIX_App_Coupons::store_url() || TIX_App_Coupons::play_url()))
                 || (class_exists('TIX_Notifications') && TIX_Notifications::push_configured()));
         }
+        // Eigene App nur, wenn die Lizenz sie freischaltet (Audit 08.11.; ohne Lizenz = alles frei)
+        if ($has && class_exists('TIX_Modules') && !TIX_Modules::allowed('app')) $has = false;
         $icon = (string) get_site_icon_url(512);
         return [
             'has_app'     => (bool) $has,

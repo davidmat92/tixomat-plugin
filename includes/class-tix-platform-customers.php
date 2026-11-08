@@ -69,7 +69,7 @@ class TIX_Platform_Customers {
 
     private static function licenses() {
         global $wpdb;
-        if (!class_exists('TIX_License_Server')) return [];
+        if (!class_exists('TIX_License_Server') || !TIX_License_Server::enabled()) return [];
         $t = $wpdb->prefix . 'tix_licenses';
         if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) !== $t) return [];
         $rows = (array) $wpdb->get_results("SELECT * FROM $t ORDER BY id ASC LIMIT 1000");
@@ -390,7 +390,12 @@ class TIX_Platform_Customers {
             foreach ($all as $k) $on[$k] = $keys === null || in_array($k, $keys, true);
             $labels = [];
             if (class_exists('TIX_Modules')) foreach (TIX_Modules::MODULES as $k => $m) $labels[$k] = ['label' => $m[0], 'group' => $m[2]];
-            return ['source' => 'license', 'editable' => true, 'all' => $keys === null, 'modules' => $on, 'labels' => $labels, 'locked' => (object) []];
+            // Schaltbar nur, wenn die Seite die Lizenz wirklich prüft (gemeldete Betriebsart managed/selfhosted, Audit 08.11.)
+            $mode = TIX_License_Server::reported_mode($c['_lic']['row']);
+            $ok = in_array($mode, ['managed', 'selfhosted'], true);
+            return ['source' => 'license', 'editable' => $ok, 'reported_mode' => $mode ?: null,
+                'hint' => $ok ? null : ['code' => 'tix_license_not_checked', 'message' => 'Die Seite prüft keine Lizenz – Module wirken dort erst, wenn sie sich mit Betriebsart „managed“ oder „selfhosted“ meldet.'],
+                'all' => $keys === null, 'modules' => $on, 'labels' => $labels, 'locked' => (object) []];
         }
         if ($c['art'] === 'provision' && $c['organizer_id']) {
             $org_row = $org_row ?: (class_exists('TIX_Platform_Admin') ? TIX_Platform_Admin::org_row($c['organizer_id']) : null);
@@ -410,6 +415,9 @@ class TIX_Platform_Customers {
         $in = $b['modules'] ?? null;
         if (!$all_flag && !is_array($in)) return new WP_Error('tix_invalid_field', 'Bitte Module als {key: true|false} senden.', ['status' => 400, 'field' => 'modules']);
         if ($c['_lic']) {
+            if (empty(self::modules_payload($c)['editable'])) {
+                return new WP_Error('tix_license_not_checked', 'Die Seite prüft keine Lizenz – Module wirken dort nicht.', ['status' => 409]);
+            }
             $known = class_exists('TIX_Modules') ? TIX_Modules::keys() : [];
             if (!$all_flag) {
                 $bad = array_diff(array_keys($in), $known);
@@ -429,8 +437,13 @@ class TIX_Platform_Customers {
             $r->set_body(wp_json_encode(['modules' => $value]));
             $res = TIX_License_Server::rest_admin_save($r);
             if (is_wp_error($res)) return $res;
+            // Seite sofort neu prüfen lassen (sonst bis zu 24 h bis zur nächsten Prüfung)
+            $pr = new WP_REST_Request('POST', '/tixomat/v1/license/admin/licenses/' . intval($c['license_id']) . '/ping');
+            $pr->set_param('id', intval($c['license_id']));
+            $ping = TIX_License_Server::rest_admin_ping($pr);
             self::flush();
-            return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key']))]);
+            return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key'])),
+                'ping' => is_wp_error($ping) ? null : ($ping->get_data()['sites'] ?? [])]);
         }
         if ($c['art'] === 'provision' && $c['organizer_id'] && class_exists('TIX_Platform_Admin')) {
             if ($all_flag) return new WP_Error('tix_invalid_field', '„all“ gibt es nur für Lizenz-Module.', ['status' => 400, 'field' => 'all']);

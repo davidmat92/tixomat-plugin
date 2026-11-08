@@ -36,7 +36,8 @@ class TIX_Site_Brand {
         $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
         $app_cfg = class_exists('TIX_App_Config') ? TIX_App_Config::stored() : [];
         return [
-            'enabled' => array_key_exists('enabled', $st) ? (bool) $st['enabled'] : true,
+            // Homepage nur, wenn die Lizenz „Eigene Website“ freischaltet (Audit 08.11.; ohne Lizenz = alles frei)
+            'enabled' => (array_key_exists('enabled', $st) ? (bool) $st['enabled'] : true) && (!class_exists('TIX_Modules') || TIX_Modules::allowed('website')),
             'key' => (string) ($st['key'] ?? '') ?: (sanitize_key(explode('.', preg_replace('/^www\./', '', $host))[0] ?? '') ?: 'marke'),
             'short_name' => (string) ($st['short_name'] ?? '') ?: null,
             'in_venue' => (string) ($st['in_venue'] ?? '') ?: (($layout === 'club' ? 'im ' : 'beim ') . $name),

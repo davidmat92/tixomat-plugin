@@ -94,7 +94,16 @@ mt_eq('Reply-To = Antwortadresse der Marke', 'hallo@kunde.test', $m['reply_to'][
 [$st, $d] = mt_rest('GET', '/studio/mail-transport');
 mt_eq('Zustand ok nach Versand', ['ok', null], [$d['status']['state'], $d['fallback']]);
 
-// ═══ Ausfall → Rückfall auf evendis ═══
+// ═══ Ausfall → Rückfall auf evendis (nur mit evendis-Verbindung, Audit 08.11.) ═══
+$fl2 = get_option('fluentmail-settings', null);
+$fl_evendis = ['connections' => ['h1' => ['title' => 'evendis (Standard)', 'provider_settings' => ['sender_email' => 'noreply@evendis.de', 'sender_name' => 'XXL', 'provider' => 'sendinblue']]], 'misc' => ['default_connection' => 'h1']];
+$fl_own = ['connections' => ['h2' => ['title' => 'Eigener SMTP', 'provider_settings' => ['sender_email' => 'noreply@kunde.test', 'sender_name' => 'Kunde', 'provider' => 'smtp']]], 'misc' => ['default_connection' => 'h2']];
+update_option('fluentmail-settings', $fl_own);
+$GLOBALS['mt_fail'] = true; $sent = []; $wp = [];
+$ok = wp_mail('gast@example.test', 'Code', 'Dein Code');
+mt_eq('Ausfall ohne evendis-Verbindung: Server-Weg mit eigenem Absender, nie noreply@evendis.de', [true, true], [$ok, ($wp[0]['from'] ?? 'noreply@evendis.de') !== 'noreply@evendis.de']);
+delete_option(TIX_Mail_Transport::STATE);
+update_option('fluentmail-settings', $fl_evendis);
 $GLOBALS['mt_fail'] = true; $sent = []; $wp = [];
 $ok = wp_mail('gast@example.test', 'Code', 'Dein Code');
 mt_eq('Ausfall: Mail geht über WordPress raus, Absender evendis', [true, 1, 1, 'noreply@evendis.de', 'Kunde GmbH'], [$ok, count($sent), count($wp), $wp[0]['from'] ?? null, $wp[0]['name'] ?? null]);
@@ -126,6 +135,7 @@ mt_eq('Testmail: falsche Adresse 400', 400, $st);
 mt_eq('evendis gewählt, Schlüssel bleibt für später', [200, 'evendis', true, true], [$st, $d['mode'], $d['saved'], $d['own']['key_set']]);
 $sent = []; $wp = []; wp_mail('gast@example.test', 'A', 'B');
 mt_eq('evendis: kein eigener Dienst mehr', [0, 'noreply@evendis.de'], [count($sent), $wp[0]['from'] ?? null]);
+if ($fl2 === null) delete_option('fluentmail-settings'); else update_option('fluentmail-settings', $fl2, false);
 [$st, $d] = mt_rest('POST', '/studio/mail-transport/test', ['to' => 'pruef@example.test']);
 mt_eq('Testmail über evendis', [200, 'evendis', 'noreply@evendis.de'], [$st, $d['via'] ?? null, $d['from'] ?? null]);
 for ($i = 0; $i < 5 && $st !== 429; $i++) [$st, $d] = mt_rest('POST', '/studio/mail-transport/test', ['to' => 'pruef@example.test']);

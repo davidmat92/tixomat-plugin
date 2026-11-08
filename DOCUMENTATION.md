@@ -4811,3 +4811,23 @@ Für die Kundenverwaltung im Studio (Konzept `konzept-studio-kundenverwaltung.md
   - Die Bestellung wird immer über die gespeicherte PayPal-Bestell- bzw. Capture-ID gefunden, nie über `reference_id` aus dem Event. Sie muss PayPal sein, und Betrag und Währung müssen stimmen.
 - **Einstellungen:** Beim Speichern im WP-Admin bleibt `paypal_webhook_id` erhalten (vorher verworfen).
 - Tests: `tests/test-payment-webhooks-wp.php` in zwei Läufen (`secret` 11/11, `nosecret` 13/13; Netz nachgestellt).
+
+## 102. Audit Kunden/Lizenz/Module (ab 1.38.687, Audit 08.11.)
+- **Aus Angebot anlegen (§99):**
+  - Module werden vollständig abgeleitet: Positionen und deren `adds`. Eine Katalog-Position mit Modul-Schlüssel übernimmt dieses Modul. App-Module mit Namen in Positionsname oder Notiz („Prämien und Musikwunsch“) werden erkannt, dazu die Vorteile (`awareness`) und immer kostenlos `awareness`. `modules_pick` zählt nur noch die nicht erkannten App-Module.
+  - Abrechnung: `shop_monatlich` monatlich, sonst jährlich. Laufzeit aus `term_months`, sonst 1 Monat (monatlich) bzw. 12 Monate; neu `term_months` in der Antwort.
+  - Kurzname: Ist er vergeben (Kunde `h-<kurz>` oder an einem anderen Angebot), weicht der Vorschlag aus (`…2`), dazu kommt die Warnung `tix_offer_kurz_taken`. Beim Verknüpfen gilt: an einem anderen Angebot → 409 `tix_kurz_taken`.
+- **Akte-Module (§100):** Bei Lizenz-Kunden gilt `editable` nur, wenn eine gebundene Seite die Betriebsart `managed` oder `selfhosted` gemeldet hat (neue Spalte `tix_license_sites.mode`, DB 4, auch in `/license/admin/licenses/{id}.sites[].mode`). Sonst kommt `hint {code: tix_license_not_checked}` und POST antwortet mit 409. Nach dem Speichern löst das Plugin sofort `rest_admin_ping` aus (Antwort `ping[]`).
+- **Lizenz-Server:**
+  - Signatur nur für Hosts, die an die Lizenz gebunden sind.
+  - Die Kundenseite übernimmt Module nur mit gültiger Signatur.
+  - Rate-Limit `/license/check` je Schlüssel + Host (30 in 10 Minuten), je IP nur noch ohne gültigen Schlüssel (60 in 10 Minuten).
+  - `rest_admin_save`: `modules` nur als Liste von Text-Schlüsseln oder null; Unbekanntes → 400.
+  - WP-Admin-Formular „Neue Lizenz“ mit Modulen (Awareness vorgewählt).
+- **Domain-Umzug (§98):** Alle Eingaben (Ziel, aktuelle Adresse, Studio-Adresse) werden vor Schritt 1 geprüft. Der Hinweis `mail_from` liest den Absender aus `tix_studio_brand.mail_from`.
+- **Veranstalter-Freigabe:** Ohne gespeicherten Status gilt jetzt `pending` (vorher `approved`). Die Migration `tix_org_approval_db` 2 setzt den Bestand ohne Status auf `approved`.
+- **Mailversand (§95):** Der Absender `noreply@evendis.de`, auch im Rückfall und im Hinweis an den Inhaber, wird nur gesetzt, wenn der Server-Versand über evendis läuft (`TIX_Mail_Transport::evendis_connection()`: FluentSMTP-Standardverbindung „evendis“ bzw. Absender auf evendis.de). Sonst nutzt der Rückfall den Server-Weg mit dem eigenen Absender.
+- **Basis-Modus:** `GET /public/site-config`, `/public/website`, `/public/events` und `/public/venues` bleiben lesbar (Homepage, Vertrag `vertrag-homepage-laufzeit-domain.md`). Online-Verkauf ist dort weiter aus.
+- **Lizenz-Freischaltung:** `has_app` (Studio) und `homepage.enabled` (site-config) beachten `TIX_Modules::allowed('app'|'website')`.
+- **Kunden-Route:** Lizenzen nur, wenn der Lizenz-Server an ist (`enabled()`). `/platform/offers?customer=` nur für Admins (Vertrieb 403).
+- Tests: platform-customers 45/45, offer-hosting 20/20, domain-move 18/18, license 90/90, mail-transport 46/46 bzw. 14/14, license-create-modules 6/6.

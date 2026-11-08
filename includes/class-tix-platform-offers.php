@@ -800,6 +800,9 @@ class TIX_Platform_Offers {
         elseif (in_array($st, self::STATUSES, true)) { $where[] = 'status = %s'; $args[] = $st; }
         elseif (!$req['all']) { $where[] = "status <> 'replaced'"; }
         $cust = null;
+        if ((string) $req['customer'] !== '' && !self::is_admin_user()) {
+            return new WP_Error('rest_forbidden', 'Den Kundenfilter nutzen nur Plattform-Admins.', ['status' => 403, 'field' => 'customer']);
+        }
         if ((string) $req['customer'] !== '' && class_exists('TIX_Platform_Customers')) {
             // Kundenakte (§100): fest verknüpft, Hosting-Kurzname oder E-Mail des Kunden
             $cust = TIX_Platform_Customers::filter_customer($req['customer']);

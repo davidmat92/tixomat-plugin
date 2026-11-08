@@ -74,8 +74,13 @@ class TIX_Domain_Move {
         if (!empty($s['stripe_webhook_secret_live']) || !empty($s['paypal_webhook_id'])) {
             $out[] = ['code' => 'webhook_url', 'message' => 'Webhooks bei Stripe/PayPal auf die neue Adresse umstellen (Studio → Einstellungen → Zahlungen zeigt sie).'];
         }
-        $mt = get_option('tix_mail_transport', []);
-        $from = is_array($mt) ? (string) ($mt['from'] ?? ($mt['from_email'] ?? '')) : '';
+        // Absender steht in der Studio-Marke (tix_studio_brand.mail_from, §95); ältere Fassung im Transport
+        $b = get_option('tix_studio_brand', []);
+        $from = is_array($b) ? trim((string) ($b['mail_from'] ?? '')) : '';
+        if ($from === '') {
+            $mt = get_option('tix_mail_transport', []);
+            $from = is_array($mt) ? (string) ($mt['from'] ?? ($mt['from_email'] ?? '')) : '';
+        }
         if ($from !== '' && substr(strtolower($from), -strlen('@' . $new)) !== '@' . $new) {
             $out[] = ['code' => 'mail_from', 'message' => "Absender ist noch $from. Für Mails von der neuen Domain den Absender im Studio ändern und bei Brevo bestätigen."];
         }
@@ -112,6 +117,14 @@ class TIX_Domain_Move {
         $dry = !empty($args['dry_run']);
         if (!self::valid_host($to)) return new WP_Error('tix_invalid_field', 'Die neue Domain ist ungültig.', ['field' => 'to']);
         if ($to === $from) return new WP_Error('tix_domain_same', "Die Seite läuft schon auf $to.");
+        // Alle Eingaben prüfen, bevor irgendetwas geändert wird (Audit 08.11.)
+        if ($from === '') return new WP_Error('tix_invalid_field', 'Die aktuelle Adresse der Seite fehlt.', ['field' => 'from']);
+        $su = '';
+        if (!empty($args['studio'])) {
+            $su = esc_url_raw((string) $args['studio']);
+            if (!preg_match('#^https://[^/\s]+#', $su)) return new WP_Error('tix_invalid_field', 'Die Studio-Adresse muss mit https:// beginnen.', ['field' => 'studio']);
+        }
+        if ($replace !== null && !is_callable($replace)) return new WP_Error('tix_invalid_field', 'Ersetzung nicht aufrufbar.');
         $steps = [];
 
         // 1. Adressen in der Datenbank (vor home/siteurl, damit beide Formen erwischt werden)
@@ -145,9 +158,7 @@ class TIX_Domain_Move {
         $steps[] = ['step' => 'website', 'ok' => true, 'detail' => "Website-Adresse live auf $to"];
 
         // 4. Studio-Adresse nur auf Wunsch (sonst bleibt studio.<kunde>.evendis.de)
-        if (!empty($args['studio'])) {
-            $su = esc_url_raw((string) $args['studio']);
-            if (!preg_match('#^https://[^/\s]+#', $su)) return new WP_Error('tix_invalid_field', 'Die Studio-Adresse muss mit https:// beginnen.', ['field' => 'studio']);
+        if ($su !== '') {
             if (!$dry) update_option('tix_studio_url', untrailingslashit($su));
             $steps[] = ['step' => 'studio', 'ok' => true, 'detail' => "Studio-Adresse → $su"];
         }
