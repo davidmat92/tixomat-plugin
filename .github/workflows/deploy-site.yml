@@ -119,6 +119,8 @@ jobs:
                          rm -f k
                          app=$(printf '%s\n' "$envk" | sed -n 's/^APP=\([A-Za-z0-9._-]*\).*/\1/p')
                          dom=$(printf '%s\n' "$envk" | sed -n 's/^DOMAIN=\([A-Za-z0-9.-]*\).*/\1/p')
+                         # Mandanten-Trennung (ops/kunden-hetzner, 08.11.): Webapp gehört k_<kurz> → rsync/tee als dieser Nutzer
+                         wpu=$(printf '%s\n' "$envk" | sed -n 's/^WPU=\(k_[a-z0-9]*\).*/\1/p')
                          [ -n "$app" ] && [ -n "$dom" ] || { echo "::error::APP/DOMAIN in /etc/kunden/$k.env fehlen"; exit 1; }
                          url="https://$dom"; host="$kh" ;;
             # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
@@ -138,6 +140,9 @@ jobs:
           esac
           echo "host=${host:-51.195.61.6}" >> "$GITHUB_OUTPUT"
           echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
+          echo "wpu=${wpu:-}" >> "$GITHUB_OUTPUT"
+          # Mandant: Server-rsync als Kundennutzer (kunden-rsync), Gruppe vom setgid-Ordner (www-data), Rechte wie kunden-rechte
+          if [ -n "${wpu:-}" ]; then echo "rsync_extra=--no-g --chmod=D2750,F640 --rsync-path=/usr/local/bin/kunden-rsync" >> "$GITHUB_OUTPUT"; else echo "rsync_extra=" >> "$GITHUB_OUTPUT"; fi
           echo "mu=/home/runcloud/webapps/$app/wp-content/mu-plugins/" >> "$GITHUB_OUTPUT"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "version=$(sed -n "s/^define('TIXOMAT_VERSION', '\([0-9.]*\)').*/\1/p" tixomat.php)" >> "$GITHUB_OUTPUT"
@@ -150,7 +155,7 @@ jobs:
       - name: Deploy Plugin
         uses: burnett01/rsync-deployments@7.0.1
         with:
-          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules'
+          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules' ${{ steps.target.outputs.rsync_extra }}
           path: ./
           remote_path: ${{ steps.target.outputs.path }}
           remote_host: ${{ steps.target.outputs.host }}
@@ -170,7 +175,7 @@ jobs:
           KEY=$(openssl rand -hex 12)
           echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
           ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@${{ steps.target.outputs.host }} \
-            "mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' > ${{ steps.target.outputs.mu }}zz-tix-oc.php"
+            "${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' | ${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}tee ${{ steps.target.outputs.mu }}zz-tix-oc.php >/dev/null"
           rm -f deploy_key
           sleep 2
           echo "Reset: $(curl -s -m 30 "${{ steps.target.outputs.url }}/?tix_oc=$KEY" | head -c 40)"
