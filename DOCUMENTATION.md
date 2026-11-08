@@ -4857,3 +4857,10 @@ Klasse `TIX_Owner_Access` (`includes/class-tix-owner-access.php`), Routen in `TI
   - `owner {source, status: missing|queued|done|failed|active, email, invited_at, done_at, …}`
   - `ready {source: site|organizer|none, reported_at, ok, items[{key, ok (null = noch nicht gemeldet), label, hint}]}`. Bei Provision: Auszahlungskonto, Vermittlungsvertrag, Zugang, Veranstalter-Seite online.
 - Tests: `tests/test-owner-access-wp.php` 23/23 (Plattform, mit dem ganzen Weg über `/license/check`), 8/8 (Einzel-Seite).
+
+## 104. Garderobe in der App (ab 1.38.691, User 08.11.)
+- App-Schalter `cloakroom` („Garderobe in der App“) in `TIX_Features`, Option `tix_cloakroom_enabled`, **Vorgabe aus**. Kein Lizenz- und kein Paket-Modul (nicht in `LICENSE_MODULE`/`PLAN_MODULE`), also immer `available`.
+- Lesen: `GET /app/config` → `features.cloakroom {enabled, can_edit}` (öffentlich; evendis mit `?organizer=` liefert den Plattform-Schalter).
+- Schreiben, wie alle App-Funktionen: Studio `POST /studio/features` bzw. `POST /studio/config {app_features: {cloakroom: bool}}`, Veranstalterbereich `POST /app/config {features: {cloakroom: bool}}`. Rechte: Admin, Einzel-Seite Inhaber (Rolle Veranstalter); evendis nur Plattform-Admin (kein Veranstalter-Modul). Schalten setzt den Stand `updated` der App-Konfig.
+- Die Garderobe selbst (Foto, Nummer, Ort, Erinnerung) läuft nur lokal in den Apps; der Server speichert nichts.
+- Tests: `tests/test-cloakroom-wp.php` 23/23 (Einzel-Seite), 24/24 (Plattform).

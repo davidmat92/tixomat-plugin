@@ -45,6 +45,9 @@ class TIX_Features {
         // Marketing (Statistik Stufe 1, F9): eigenes, kostenpflichtiges Modul (Kampagnen, Kurzlinks, Werbe-Anbindungen ab Stufe 2);
         // Vorgabe aus. Die Basis-Statistik (Besucher → Kauf, Quellen) gilt unabhängig davon für alle.
         'marketing'        => ['Marketing (Kampagnen & Werbung)', null],
+        // Garderobe (1.38.691, User 08.11.): Foto der Garderobenmarke nur lokal in der App. Reiner App-Schalter,
+        // kein Lizenz-Modul (nichts zum Draufzahlen), Vorgabe aus; auf evendis schaltet ihn der Plattform-Admin
+        'cloakroom'        => ['Garderobe in der App', null],
     ];
 
     /** Neue Schalter (Option, Vorgabe an). */
@@ -57,6 +60,8 @@ class TIX_Features {
     const OPT_ARTIST_PREVIEWS = 'tix_artist_previews_enabled';
     /** Marketing: Vorgabe AUS */
     const OPT_MARKETING = 'tix_marketing_enabled';
+    /** Garderobe: Vorgabe AUS */
+    const OPT_CLOAKROOM = 'tix_cloakroom_enabled';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -123,6 +128,7 @@ class TIX_Features {
                 if (class_exists('TIX_Modules') && !TIX_Modules::allowed('muttizettel')) return false;
                 return self::multi() ? true : self::opt_on(self::OPT_MUTTIZETTEL);
             case 'artist_previews': return get_option(self::OPT_ARTIST_PREVIEWS, '0') === '1';
+            case 'cloakroom': return get_option(self::OPT_CLOAKROOM, '0') === '1';
             case 'assistant': return class_exists('TIX_Assistant') && TIX_Assistant::enabled();
             case 'degaso': return class_exists('TIX_Degaso') && TIX_Degaso::integration_on();
             // P3: auf der Ticketplattform (evendis) frei → Vorgabe an; Einzel-Seiten: gebucht und eingeschaltet
@@ -187,7 +193,7 @@ class TIX_Features {
     }
 
     /** Schlüssel für Apps/Studio (Reihenfolge); `awareness` fasst Stufe 2/3 zusammen. */
-    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews', 'degaso', 'marketing'];
+    const ORDER = ['awareness', 'app_coupons', 'music', 'tips', 'notifications', 'loyalty', 'wallet', 'giftcards', 'party_game', 'sos', 'muttizettel', 'raffles', 'live_now', 'artist_previews', 'cloakroom', 'degaso', 'marketing'];
 
     /**
      * Öffentlich für /app/config und /info: {<key>: {enabled, can_edit}}, `awareness` {enabled, report, alarm, can_edit}
@@ -248,6 +254,10 @@ class TIX_Features {
             case 'assistant': if (class_exists('TIX_Assistant')) TIX_Assistant::set_enabled($on); return;
             case 'degaso': if (class_exists('TIX_Degaso')) TIX_Degaso::set_integration($on); return;
             case 'marketing': update_option(self::OPT_MARKETING, $on ? '1' : '0', false); return;
+            case 'cloakroom':
+                update_option(self::OPT_CLOAKROOM, $on ? '1' : '0', false);
+                if (class_exists('TIX_App_Config') && method_exists('TIX_App_Config', 'touch')) TIX_App_Config::touch();
+                return;
             case 'live_now':
                 $c = (array) TIX_App_Config::stored();
                 $now = isset($c['home']['now']) && is_array($c['home']['now']) ? $c['home']['now'] : [];
