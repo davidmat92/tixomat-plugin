@@ -343,7 +343,7 @@ class TIX_Ticket_Selector {
                     $sale_price = $cat['sale_price'] ?? '';
                     $has_sale   = ($sale_price !== '' && $sale_price !== null && $sale_price !== false);
                     $name       = esc_html($cat['name']);
-                    $desc       = esc_html($cat['desc'] ?? '');
+                    $desc       = nl2br(esc_html(trim((string) ($cat['desc'] ?? '')))); // mehrzeilig (1.38.694)
                     $qty_max    = intval($cat['qty'] ?? 100);
                     $is_offline = !empty($cat['offline_ticket']);
 

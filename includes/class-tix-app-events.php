@@ -774,7 +774,7 @@ class TIX_App_Events {
             }
             $qty = max(0, intval($in['qty'] ?? 0));
             $cat['qty']    = $qty;
-            if (!$has_index || array_key_exists('desc', $in)) $cat['desc'] = sanitize_text_field((string) ($in['desc'] ?? ''));
+            if (!$has_index || array_key_exists('desc', $in)) $cat['desc'] = mb_substr(sanitize_textarea_field((string) ($in['desc'] ?? '')), 0, 500);
             if (!$has_index || array_key_exists('hidden', $in)) $cat['hidden'] = !empty($in['hidden']) ? 1 : 0;
             // Preisphasen nur, wenn die App sie mitschickt (ältere Apps lassen sie unverändert)
             if (array_key_exists('phase_list', $in) && is_array($in['phase_list'])) {

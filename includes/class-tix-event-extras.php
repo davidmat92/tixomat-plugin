@@ -41,8 +41,86 @@ class TIX_Event_Extras {
         return $out;
     }
 
-    /** Programm: {times_tba, stages[{name,color}], days[{date, slots[{time,end,stage,stage_name,title,description}]}]} oder null */
+    /** Programm ausgeblendet (1.38.694, Schalter „Programm anzeigen“ aus): Meta `_tix_timetable_hidden` = '1'. */
+    public static function timetable_hidden($id) {
+        return get_post_meta($id, '_tix_timetable_hidden', true) === '1';
+    }
+
+    /** Programm vorhanden und sichtbar (Website-Reiter, Abschnitte). */
+    public static function timetable_visible($id) {
+        $tt = get_post_meta($id, '_tix_timetable', true);
+        return is_array($tt) && !empty($tt) && !self::timetable_hidden($id);
+    }
+
+    /** Uhrzeiten vor 08:00 können zum Folgetag gehören (Minuten). */
+    const NEXT_DAY_BEFORE = 480;
+
+    /**
+     * Programm-Slots eines Tages einordnen (1.38.694, über Mitternacht): Ein Programmtag kann bis in den
+     * nächsten Morgen laufen. Liegt zwischen zwei Uhrzeiten die größte Lücke des Tages (größer als die Lücke
+     * vom letzten zum ersten Slot über Mitternacht) und sind alle Zeiten davor früher als 08:00, gehören
+     * diese zum Folgetag (z. B. 00:00 nach 23:00). Ein Ende ≤ Beginn endet am Folgetag (23:00–00:00,
+     * 12:30–03:00). Liefert die Slots chronologisch sortiert (bei gleicher Zeit nach Bühne, Slots ohne
+     * Uhrzeit am Ende in ihrer Reihenfolge) mit `start_at`/`end_at` (ISO 8601 mit Zeitzone der Seite,
+     * null ohne Uhrzeit) und `next_day`.
+     */
+    public static function place_slots($date, array $slots) {
+        $min = function ($t) {
+            return preg_match('/^(\d{1,2}):(\d{2})$/', trim((string) $t), $m) ? intval($m[1]) * 60 + intval($m[2]) : null;
+        };
+        $times = [];
+        foreach ($slots as $s) { $v = is_array($s) ? $min($s['time'] ?? '') : null; if ($v !== null) $times[$v] = true; }
+        $times = array_keys($times); sort($times);
+        $anchor = null;
+        if (count($times) >= 2) {
+            $best = -1; $at = 0;
+            for ($i = 0; $i < count($times) - 1; $i++) {
+                $g = $times[$i + 1] - $times[$i];
+                if ($g > $best) { $best = $g; $at = $i; }
+            }
+            $wrap = $times[0] + 1440 - $times[count($times) - 1];
+            if ($best > $wrap && $times[$at] < self::NEXT_DAY_BEFORE) $anchor = $times[$at + 1];
+        }
+        $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+        $iso = function ($days, $m) use ($date, $tz) {
+            try {
+                $d = new DateTime($date . ' 00:00:00', $tz);
+                if ($days) $d->modify('+' . intval($days) . ' day');
+                $d->setTime(intdiv($m, 60), $m % 60);
+                return $d->format('c');
+            } catch (\Throwable $e) { return null; }
+        };
+        $out = [];
+        foreach (array_values($slots) as $i => $s) {
+            if (!is_array($s)) continue;
+            $m = $min($s['time'] ?? '');
+            $off = ($m !== null && $anchor !== null && $m < $anchor) ? 1 : 0;
+            $e = $min($s['end'] ?? '');
+            $s['start_at'] = $m !== null ? $iso($off, $m) : null;
+            $s['end_at'] = ($m !== null && $e !== null) ? $iso($off + ($e <= $m ? 1 : 0), $e) : null;
+            $s['next_day'] = $off === 1;
+            $out[] = ['k' => $m === null ? PHP_INT_MAX : $off * 1440 + $m, 'i' => $i, 's' => $s];
+        }
+        usort($out, function ($a, $b) {
+            if ($a['k'] !== $b['k']) return $a['k'] < $b['k'] ? -1 : 1;
+            $sa = intval($a['s']['stage'] ?? 0); $sb = intval($b['s']['stage'] ?? 0);
+            if ($a['k'] !== PHP_INT_MAX && $sa !== $sb) return $sa < $sb ? -1 : 1;
+            return $a['i'] - $b['i'];
+        });
+        return array_map(function ($x) { return $x['s']; }, $out);
+    }
+
+    /** Zum Speichern: Slots in der Reihenfolge von place_slots, ohne die berechneten Felder. */
+    public static function sort_slots($date, array $slots) {
+        return array_map(function ($s) { unset($s['start_at'], $s['end_at'], $s['next_day']); return $s; }, self::place_slots($date, $slots));
+    }
+
+    /**
+     * Programm: {times_tba, stages[{name,color}], days[{date, slots[{time,end,stage,stage_name,title,description,
+     * start_at,end_at,next_day}]}]} oder null (kein Programm oder ausgeblendet, 1.38.694)
+     */
     public static function timetable($id) {
+        if (self::timetable_hidden($id)) return null;
         $tt = get_post_meta($id, '_tix_timetable', true);
         if (!is_array($tt) || empty($tt)) return null;
         $stages = get_post_meta($id, '_tix_stages', true);
@@ -55,7 +133,7 @@ class TIX_Event_Extras {
         foreach ($tt as $date => $slots) {
             if (!is_array($slots) || empty($slots)) continue;
             $out = [];
-            foreach ($slots as $sl) {
+            foreach (self::place_slots((string) $date, $slots) as $sl) {
                 $si = intval($sl['stage'] ?? 0);
                 $out[] = [
                     'time'        => (string) ($sl['time'] ?? ''),
@@ -64,6 +142,9 @@ class TIX_Event_Extras {
                     'stage_name'  => (string) ($stages[$si]['name'] ?? ''),
                     'title'       => (string) ($sl['title'] ?? ''),
                     'description' => (string) ($sl['desc'] ?? ''),
+                    'start_at'    => $sl['start_at'],
+                    'end_at'      => $sl['end_at'],
+                    'next_day'    => $sl['next_day'],
                 ];
             }
             $days[] = ['date' => (string) $date, 'slots' => $out];

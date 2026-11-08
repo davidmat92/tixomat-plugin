@@ -2122,8 +2122,8 @@ class TIX_Metabox {
                        value="<?php echo esc_attr($cat['qty'] ?? ''); ?>" min="0" placeholder="∞" style="width:100%">
             </td>
             <td>
-                <input type="text" name="tix_tickets[<?php echo $i; ?>][desc]"
-                       value="<?php echo esc_attr($cat['desc'] ?? ''); ?>" placeholder="Optional" style="width:100%">
+                <textarea name="tix_tickets[<?php echo $i; ?>][desc]" rows="2"
+                       placeholder="Optional, z. B. Getränke + Catering inklusive" title="Beschreibung der Kategorie (mehrzeilig), erscheint unter dem Namen in der Ticketauswahl, Kasse und Apps" style="width:100%"><?php echo esc_textarea($cat['desc'] ?? ''); ?></textarea>
             </td>
             <td class="tix-img-cell">
                 <div class="tix-img-wrap">
@@ -2726,6 +2726,14 @@ class TIX_Metabox {
             Erstelle das Veranstaltungsprogramm mit mehreren Bühnen/Räumen. Definiere zuerst die Bühnen, dann die einzelnen Programmslots pro Tag.
         </p>
 
+        <p style="margin-bottom:8px;">
+            <input type="hidden" name="tix_timetable_form" value="1">
+            <label>
+                <input type="checkbox" name="tix_timetable_show" value="1" <?php checked(get_post_meta($post->ID, '_tix_timetable_hidden', true) !== '1'); ?>>
+                Programm anzeigen
+            </label>
+            <span class="description" style="margin-left:6px;">Aus = Programm bleibt gespeichert, erscheint aber nicht auf der Website und in den Apps. Zeiten nach Mitternacht (z. B. 00:00 nach 23:00) zählen zum Folgetag.</span>
+        </p>
         <p style="margin-bottom:14px;">
             <label>
                 <input type="checkbox" name="tix_timetable_times_tba" value="1" <?php checked($times_tba, '1'); ?>>
@@ -4202,6 +4210,7 @@ class TIX_Metabox {
 
         // ── Timetable / Programm speichern ──
         update_post_meta($post_id, '_tix_timetable_times_tba', !empty($_POST['tix_timetable_times_tba']) ? '1' : '');
+        if (!empty($_POST['tix_timetable_form'])) update_post_meta($post_id, '_tix_timetable_hidden', empty($_POST['tix_timetable_show']) ? '1' : '0'); // '0' statt Löschen (Event-Verteilung)
 
         $raw_stages = $_POST['tix_stages'] ?? [];
         $stages = [];
@@ -4239,7 +4248,7 @@ class TIX_Metabox {
                         ];
                     }
                     // Nach Startzeit sortieren
-                    usort($slots, fn($a, $b) => strcmp($a['time'], $b['time']));
+                    $slots = TIX_Event_Extras::sort_slots($day, $slots); // über Mitternacht (1.38.694)
                 }
                 if (!empty($slots)) {
                     $timetable[$day] = $slots;
@@ -4489,7 +4498,7 @@ class TIX_Metabox {
                 'price'          => floatval($ticket['price'] ?? 0),
                 'sale_price'     => $sale,
                 'qty'            => intval($ticket['qty'] ?? 1),
-                'desc'           => sanitize_text_field($ticket['desc'] ?? ''),
+                'desc'           => sanitize_textarea_field($ticket['desc'] ?? ''),
                 'image_id'       => intval($ticket['image_id'] ?? 0),
                 'online'         => (($ticket['sale_mode'] ?? 'online') === 'online') ? '1' : '0',
                 'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',
@@ -5198,6 +5207,7 @@ class TIX_Metabox {
 
         // ── Timetable ──
         update_post_meta($post_id, '_tix_timetable_times_tba', !empty($_POST['tix_timetable_times_tba']) ? '1' : '');
+        if (!empty($_POST['tix_timetable_form'])) update_post_meta($post_id, '_tix_timetable_hidden', empty($_POST['tix_timetable_show']) ? '1' : '0'); // '0' statt Löschen (Event-Verteilung)
 
         $raw_stages = $_POST['tix_stages'] ?? [];
         $stages = [];
@@ -5230,7 +5240,7 @@ class TIX_Metabox {
                             'desc'  => sanitize_text_field($slot['desc'] ?? ''),
                         ];
                     }
-                    usort($slots, fn($a, $b) => strcmp($a['time'], $b['time']));
+                    $slots = TIX_Event_Extras::sort_slots($day, $slots); // über Mitternacht (1.38.694)
                 }
                 if (!empty($slots)) $timetable[$day] = $slots;
             }
@@ -5251,7 +5261,7 @@ class TIX_Metabox {
                     'price'          => floatval($ticket['price'] ?? 0),
                     'sale_price'     => $sale,
                     'qty'            => intval($ticket['qty'] ?? 1),
-                    'desc'           => sanitize_text_field($ticket['desc'] ?? ''),
+                    'desc'           => sanitize_textarea_field($ticket['desc'] ?? ''),
                     'image_id'       => intval($ticket['image_id'] ?? 0),
                     'online'         => (($ticket['sale_mode'] ?? 'online') === 'online') ? '1' : '0',
                     'offline_ticket' => (($ticket['sale_mode'] ?? 'online') === 'offline') ? '1' : '0',

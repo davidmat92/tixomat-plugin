@@ -53,9 +53,10 @@ class TIX_Studio_Editor {
             ksort($tt);
             foreach ($tt as $date => $slots) {
                 if (!is_array($slots)) continue;
+                // 1.38.694: Reihenfolge über Mitternacht, `next_day` = Uhrzeit gehört zum Folgetag (nur Anzeige)
                 $days[(string) $date] = array_values(array_map(function ($s) {
-                    return ['time' => (string) ($s['time'] ?? ''), 'end' => (string) ($s['end'] ?? ''), 'stage' => intval($s['stage'] ?? 0), 'title' => (string) ($s['title'] ?? ''), 'desc' => (string) ($s['desc'] ?? '')];
-                }, $slots));
+                    return ['time' => (string) ($s['time'] ?? ''), 'end' => (string) ($s['end'] ?? ''), 'stage' => intval($s['stage'] ?? 0), 'title' => (string) ($s['title'] ?? ''), 'desc' => (string) ($s['desc'] ?? ''), 'next_day' => !empty($s['next_day'])];
+                }, TIX_Event_Extras::place_slots((string) $date, $slots)));
             }
         }
         // Sponsor
@@ -63,7 +64,7 @@ class TIX_Studio_Editor {
         $simg = $sid ? (string) (wp_get_attachment_image_url($sid, 'large') ?: '') : $m('_tix_ticket_sponsor_image_url');
         $mode = $m('_tix_low_stock_mode') ?: 'global';
         return [
-            'timetable'       => ['times_tba' => $m('_tix_timetable_times_tba') === '1', 'stages' => $stages, 'days' => (object) $days],
+            'timetable'       => ['times_tba' => $m('_tix_timetable_times_tba') === '1', 'hidden' => $m('_tix_timetable_hidden') === '1', 'stages' => $stages, 'days' => (object) $days],
             'low_stock'       => ['mode' => $mode, 'threshold' => $m('_tix_low_stock_threshold') !== '' ? intval($m('_tix_low_stock_threshold')) : null, 'text' => $m('_tix_low_stock_text')],
             'low_stock_global' => function_exists('tix_get_settings') ? intval(tix_get_settings('low_stock_threshold') ?? 10) : 10,
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',
@@ -381,6 +382,11 @@ class TIX_Studio_Editor {
             else {
                 $c = [];
                 if (array_key_exists('times_tba', $t)) $c['times_tba'] = !empty($t['times_tba']);
+                // 1.38.694: Programm ausblenden (true = nicht anzeigen; Website + API liefern es dann nicht)
+                if (array_key_exists('hidden', $t)) {
+                    if (!is_bool($t['hidden']) && !in_array($t['hidden'], [0, 1, '0', '1'], true)) return self::bad('timetable.hidden', 'Bitte an oder aus.');
+                    $c['hidden'] = (bool) $t['hidden'];
+                }
                 $stage_count = null;
                 if (array_key_exists('stages', $t)) {
                     if (!is_array($t['stages'])) return self::bad('timetable.stages', 'Ungültige Bühnen.');
@@ -416,7 +422,7 @@ class TIX_Studio_Editor {
                             $list[] = ['time' => $time !== '' ? sprintf('%05s', $time) : '', 'end' => $end !== '' ? sprintf('%05s', $end) : '', 'stage' => $stage, 'title' => $title, 'desc' => mb_substr(sanitize_text_field((string) ($s['desc'] ?? '')), 0, 500)];
                             if (count($list) > 200) return self::bad("timetable.days.$date", 'Höchstens 200 Programmpunkte je Tag.');
                         }
-                        usort($list, function ($a, $b) { return strcmp($a['time'], $b['time']); });
+                        $list = TIX_Event_Extras::sort_slots($date, $list); // 1.38.694: über Mitternacht
                         if ($list) $days[$date] = $list;
                     }
                     ksort($days);
@@ -488,9 +494,11 @@ class TIX_Studio_Editor {
         if (array_key_exists('timetable', $c)) {
             $t = $c['timetable'];
             if ($t === null) {
-                foreach (['_tix_timetable', '_tix_stages', '_tix_timetable_times_tba'] as $k) delete_post_meta($post_id, $k);
+                foreach (['_tix_timetable', '_tix_stages', '_tix_timetable_times_tba', '_tix_timetable_hidden'] as $k) delete_post_meta($post_id, $k);
             } else {
                 if (array_key_exists('times_tba', $t)) update_post_meta($post_id, '_tix_timetable_times_tba', $t['times_tba'] ? '1' : '');
+                // '0' statt Löschen: die Event-Verteilung gibt nur gesetzte Felder weiter (geteilte Events blenden sonst nie wieder ein)
+                if (array_key_exists('hidden', $t)) update_post_meta($post_id, '_tix_timetable_hidden', $t['hidden'] ? '1' : '0');
                 if (array_key_exists('stages', $t)) update_post_meta($post_id, '_tix_stages', $t['stages']);
                 if (array_key_exists('days', $t)) update_post_meta($post_id, '_tix_timetable', $t['days']);
             }

@@ -17,6 +17,18 @@ class TIX_Timetable {
         add_shortcode('tix_timetable', [__CLASS__, 'shortcode']);
     }
 
+    /** Tages-Etikett für Slots nach Mitternacht (1.38.694), z. B. „So.“ für den Tag nach einem Samstag. */
+    private static function next_day_label($day) {
+        $ts = strtotime($day . ' +1 day');
+        if (!$ts) return '';
+        return ['So.', 'Mo.', 'Di.', 'Mi.', 'Do.', 'Fr.', 'Sa.'][intval(gmdate('w', $ts))];
+    }
+
+    private static function is_next_day(array $slots, $time) {
+        foreach ($slots as $s) if (($s['time'] ?? '') === $time) return !empty($s['next_day']);
+        return false;
+    }
+
     /* ════════════════════════════════════════
        SHORTCODE [tix_timetable]
        ════════════════════════════════════════ */
@@ -32,8 +44,8 @@ class TIX_Timetable {
         $timetable = get_post_meta($post_id, '_tix_timetable', true);
         $times_tba = get_post_meta($post_id, '_tix_timetable_times_tba', true) === '1';
 
-        // Ohne Timetable-Inhalt nichts anzeigen
-        if (!is_array($timetable) || empty($timetable)) {
+        // Ohne Timetable-Inhalt oder ausgeblendet (1.38.694) nichts anzeigen
+        if (!is_array($timetable) || empty($timetable) || TIX_Event_Extras::timetable_hidden($post_id)) {
             return '';
         }
 
@@ -112,16 +124,9 @@ class TIX_Timetable {
 
             <?php // ── Timetable pro Tag ── ?>
             <?php foreach ($days as $idx => $day):
-                $slots = $timetable[$day] ?? [];
-                // Sortierung: Einträge mit Zeit zuerst (aufsteigend), dann ohne Zeit
-                usort($slots, function($a, $b) {
-                    $ta = $a['time'] ?? '';
-                    $tb = $b['time'] ?? '';
-                    if ($ta === '' && $tb === '') return 0;
-                    if ($ta === '') return 1;
-                    if ($tb === '') return -1;
-                    return strcmp($ta, $tb);
-                });
+                // Sortierung über Mitternacht (1.38.694): 00:00 nach 23:00, Einträge ohne Zeit am Ende
+                $slots = TIX_Event_Extras::place_slots((string) $day, (array) ($timetable[$day] ?? []));
+                $next_label = self::next_day_label($day);
             ?>
             <div class="tix-tt-content<?php echo $idx === 0 ? ' active' : ''; ?>" data-day="<?php echo esc_attr($day); ?>">
 
@@ -143,7 +148,7 @@ class TIX_Timetable {
                     // Sammle Zeitslots und zeitlose Einträge getrennt
                     $time_slots = [];
                     $timeless_slots = [];
-                    foreach ($slots as $slot) {
+                    foreach ($slots as $slot) { // schon chronologisch (place_slots)
                         $t = $slot['time'] ?? '';
                         if ($t) {
                             if (!in_array($t, $time_slots)) $time_slots[] = $t;
@@ -151,12 +156,11 @@ class TIX_Timetable {
                             $timeless_slots[] = $slot;
                         }
                     }
-                    sort($time_slots);
 
                     foreach ($time_slots as $time):
                     ?>
                     <div class="tix-tt-grid-row">
-                        <div class="tix-tt-time"><?php echo esc_html($time); ?></div>
+                        <div class="tix-tt-time"><?php echo esc_html($time); ?><?php if (self::is_next_day($slots, $time)): ?> <span class="tix-tt-nextday"><?php echo esc_html($next_label); ?></span><?php endif; ?></div>
                         <?php foreach ($stages as $si => $stage):
                             // Finde Slot für diese Bühne und diese Zeit
                             $match = null;
@@ -215,7 +219,7 @@ class TIX_Timetable {
                     ?>
                         <div class="tix-tt-list-item" data-stage="<?php echo $s_idx; ?>" style="--tt-stage-color: <?php echo esc_attr($s_color); ?>">
                             <?php if ($has_time): ?>
-                                <div class="tix-tt-list-time"><?php echo esc_html($slot['time']); ?><?php if (!empty($slot['end'])): ?> – <?php echo esc_html($slot['end']); ?><?php endif; ?></div>
+                                <div class="tix-tt-list-time"><?php echo esc_html($slot['time']); ?><?php if (!empty($slot['end'])): ?> – <?php echo esc_html($slot['end']); ?><?php endif; ?><?php if (!empty($slot['next_day'])): ?> <span class="tix-tt-nextday"><?php echo esc_html($next_label); ?></span><?php endif; ?></div>
                             <?php endif; ?>
                             <div class="tix-tt-list-info">
                                 <span class="tix-tt-list-title"><?php echo esc_html($slot['title'] ?? ''); ?></span>

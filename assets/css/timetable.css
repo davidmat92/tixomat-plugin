@@ -280,3 +280,16 @@
         grid-template-columns: none;
     }
 }
+
+/* Tages-Etikett für Programmpunkte nach Mitternacht (1.38.694), z. B. „So.“ */
+.tix-tt-nextday {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    line-height: 1.5;
+    vertical-align: middle;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+}

@@ -400,7 +400,7 @@ class TIX_Event_Page {
         $s = tix_get_settings();
         if (empty($s['ep_show_timetable'])) return;
         $timetable = get_post_meta($id, '_tix_timetable', true);
-        if (empty($timetable) || !is_array($timetable)) return;
+        if (empty($timetable) || !is_array($timetable) || TIX_Event_Extras::timetable_hidden($id)) return;
 
         echo do_shortcode('[tix_timetable id="' . intval($id) . '"]');
     }

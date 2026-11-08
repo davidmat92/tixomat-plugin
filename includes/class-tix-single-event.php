@@ -139,7 +139,7 @@ class TIX_Single_Event {
             case 'extra_info':  return (bool) get_post_meta($post_id, '_tix_info_' . $section, true) && TIX_Event_Texts::is_visible($post_id, $section);
             case 'tickets':     return get_post_meta($post_id, '_tix_tickets_enabled', true) === '1';
             case 'faq':         return !empty($s['ep_show_faq']) && !empty(get_post_meta($post_id, '_tix_faq', true));
-            case 'timetable':   return !empty($s['ep_show_timetable']) && !empty(get_post_meta($post_id, '_tix_timetable', true));
+            case 'timetable':   return !empty($s['ep_show_timetable']) && TIX_Event_Extras::timetable_visible($post_id);
             case 'gallery':     $g = get_post_meta($post_id, '_tix_gallery', true); return !empty($s['ep_show_gallery']) && is_array($g) && !empty($g);
             case 'video':       return !empty($s['ep_show_video']) && (bool) get_post_meta($post_id, '_tix_video_url', true);
             case 'location':    return !empty($s['ep_show_location']) && (bool) get_post_meta($post_id, '_tix_location_id', true);

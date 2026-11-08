@@ -349,7 +349,7 @@ class TIX_Event_Templates {
 
         // Timetable
         $timetable = get_post_meta($event_id, '_tix_timetable', true);
-        if (!empty($timetable)) $used_tabs[] = 'timetable';
+        if (!empty($timetable) && !TIX_Event_Extras::timetable_hidden($event_id)) $used_tabs[] = 'timetable';
 
         // Series
         if (get_post_meta($event_id, '_tix_series_enabled', true)) $used_tabs[] = 'series';
