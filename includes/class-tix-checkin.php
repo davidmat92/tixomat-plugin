@@ -206,6 +206,7 @@ class TIX_Checkin {
         if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,40})$/', $code, $m)) { // Audit 2026-11-03 (M3): auch lange Bestands-IDs (UUID)
             $event_id   = intval($m[1]);
             $inner_code = $m[2];
+            if (class_exists('TIX_Site_Move')) $event_id = TIX_Site_Move::guest_event_id($event_id, $inner_code); // Umzug (1.38.702)
 
             // Ticket-Lookup (Code-Teil könnte ein Ticket-Code sein)
             if (class_exists('TIX_Tickets')) {
@@ -509,6 +510,7 @@ class TIX_Checkin {
 
         $event_id = intval($m[1]);
         $guest_id = $m[2];
+        if (class_exists('TIX_Site_Move')) $event_id = TIX_Site_Move::guest_event_id($event_id, $guest_id); // Umzug (1.38.702)
 
         $event = get_post($event_id);
         if (!$event || $event->post_type !== 'event') {

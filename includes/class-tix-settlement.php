@@ -402,6 +402,7 @@ class TIX_Settlement {
                 ['relation' => 'OR',
                     ['key' => '_tix_syndicated', 'compare' => 'NOT EXISTS'],
                     ['key' => '_tix_syndicated', 'value' => '1', 'compare' => '!='],
+                    ['key' => '_tix_moved_at', 'compare' => 'EXISTS'], // umgezogen: Verkäufe vor dem Umzug (1.38.702)
                 ],
                 ['key' => '_tix_date_start', 'value' => $since ? wp_date('Y-m-d', $since_ts - 60 * DAY_IN_SECONDS) : '1970-01-01', 'compare' => '>='],
                 // Demo Club / Vorschau nie abrechnen (1.38.508)
@@ -564,7 +565,7 @@ class TIX_Settlement {
         global $wpdb;
         $event_id = intval($event_id);
         $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-        if (!$oid || get_post_meta($event_id, '_tix_syndicated', true) === '1') return 0;
+        if (!$oid || (get_post_meta($event_id, '_tix_syndicated', true) === '1' && !(class_exists('TIX_Site_Move') && TIX_Site_Move::settles_as_own($event_id)))) return 0;
         if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return 0; // Demo/Vorschau: keine Abrechnung, keine EVR-Nummer (1.38.508)
         if (!$force && get_post_meta($event_id, '_tix_settled_at', true)) return 0;
         $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE event_id = %d AND type = 'event' AND status <> 'void'", $event_id));
@@ -1122,7 +1123,7 @@ class TIX_Settlement {
             ],
         ]);
         foreach ($events as $eid) {
-            if (get_post_meta($eid, '_tix_syndicated', true) === '1') continue;
+            if (get_post_meta($eid, '_tix_syndicated', true) === '1' && !(class_exists('TIX_Site_Move') && TIX_Site_Move::settles_as_own($eid))) continue;
             $g = 0.0; $n2 = 0.0;
             foreach (self::event_orders($eid, true) as $row) {
                 $l = self::order_line($row, $eid, false);

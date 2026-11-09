@@ -4939,3 +4939,11 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - `TIX_Owner_Access::password_block($user, $art)` – wie die Team-Einladung: 6-stelliger Code (7 Tage, `TIX_App_Account::issue_invite_code`) + Knopf `TIX_Studio::url('/passwort/')?email=…&art=…` + Hinweis App „Passwort vergessen“. Ohne Studio (`tix_studio_url` leer) Rückfall auf `wp-login.php?action=rp`.
 - Genutzt von: Co-Veranstalter-Einladung (`TIX_Co_Organizer::notify`, auch Lizenz-Variante über `/syndicate/{id}/co-organizer`) mit `art=co`; Plattform-Einladung `/platform/customers/invite` und Inhaber-Einladung (`TIX_Owner_Access::send_invite`) mit `art=owner` bzw. ohne `art` auf Kundenseiten.
 
+## 112. Umzug Provision/Co → selbstgehostete Seite (ab 1.38.702)
+- Klasse `TIX_Site_Move` (`class-tix-site-move.php`), Vertrag `uebergaben/vertrag-umzug-selbstgehostet.md`.
+- Plattform: `GET|POST|DELETE /platform/customers/{key}/move`, `POST …/move/switch {partner_id}` (Admin); `GET /move/export?part=&page=`, `POST /move/report` mit `X-Tix-Move-Token` (Hash in Option `tix_site_move_<oid>`, 14 Tage).
+- Neue Seite: `wp tixomat umzug importieren --von=<api> --schluessel=<s> [--trocken]`, `status`, `abschliessen`. Herkunft `_tix_moved_from`, Zuordnung `tix_site_move_map`, Stand `tix_site_move_import`. Events mit `_tix_syndicate_remote_id` = Plattform-ID.
+- Einlass: `TIX_Site_Move::local_event_id` / `guest_event_id` lösen alte Plattform-IDs in `GL-`-Codes auf (REST-Scan, Check-in-Seite, Gast-QR-Seite, Ticket-Toggle).
+- Abrechnung: Events mit `_tix_moved_at` zählen trotz `_tix_syndicated` weiter (Verkäufe vor dem Umzug).
+- Test `tests/test-site-move-e2e.php` (zwei Webserver).
+

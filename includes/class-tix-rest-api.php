@@ -1208,6 +1208,8 @@ class TIX_REST_API {
         if (preg_match('/^GL-(\d+)-([A-Z0-9-]{3,40})$/', $code, $m)) {
             $gl_event_id = intval($m[1]);
             $inner_code  = $m[2];
+            // Umzug (1.38.702): alte Plattform-ID im QR → Event dieser Seite
+            if (class_exists('TIX_Site_Move')) { $g = TIX_Site_Move::guest_event_id($gl_event_id, $inner_code); $gl_event_id = $g !== $gl_event_id ? $g : TIX_Site_Move::local_event_id($gl_event_id); }
 
             // Event-ID aus GL-Code verwenden falls nicht gesetzt
             if (!$event_id) $event_id = $gl_event_id;
@@ -1667,7 +1669,7 @@ class TIX_REST_API {
         if (!$tid && $code !== '') {
             $plain = $code;
             $ev = 0;
-            if (preg_match('/^GL-(\d+)-(.+)$/', $code, $m)) { $ev = intval($m[1]); $plain = $m[2]; }
+            if (preg_match('/^GL-(\d+)-(.+)$/', $code, $m)) { $ev = intval($m[1]); $plain = $m[2]; if (class_exists('TIX_Site_Move')) $ev = TIX_Site_Move::guest_event_id($ev, $plain); }
             $t = TIX_Tickets::get_ticket_by_code($plain);
             $tid = is_object($t) ? intval($t->ID ?? 0) : (is_array($t) ? intval($t['ID'] ?? ($t['id'] ?? 0)) : intval($t));
             if (!$tid && $ev) {
