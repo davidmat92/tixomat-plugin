@@ -4960,3 +4960,28 @@ Vertrag: `uebergaben/vertrag-co-durch-plattform.md`. Nur Mehr-Veranstalter-Modus
 - Mitteilungen: Co wie beim Einladen durch den Ersteller; beim Lösen/Ersetzen Feed „Nicht mehr Co-Veranstalter“. Ersteller: Mail + Feed „<Seitenname> hat X als Co-Veranstalter hinzugefügt“, Feed bei Zugriff an/aus und Entfernen.
 - Editor und `rest_invite` des Erstellers schreiben jetzt ebenfalls ins Protokoll (`via: creator`).
 - Test: `tests/test-co-platform-wp.php` (56 Prüfungen Plattform, 1 Einzel-Seite).
+
+## 114. Co-Veranstalter anzeigen, trennen, eigene Kunden-Seiten (ab 1.38.706)
+Vertrag `uebergaben/vertrag-co-anzeigen-trennen.md`. Neue Klasse `TIX_Co_Sites` (`includes/class-tix-co-sites.php`).
+- **Editor (alle Seiten):** zusätzlich `co_organizers[]` mit `kind` (`local` | `remote` | `site`), `origin {type, label, host}`, `site {key, host, name}` und `removable`, dazu `co_organizer_removable` und `co_organizer_site_search`. Auf Lizenzseiten wird der Teil-B-Co-Veranstalter auch bei ausgeschaltetem Schalter angezeigt.
+- **Schalter Teil B:** `tix_settings['co_remote_enabled']`. Eine Option `tix_co_remote_enabled` gibt es nicht.
+- **Trennen:**
+  - `DELETE /events/{id}/co-organizer` gibt es auf allen Seiten.
+  - Auf der Plattform trennt das Teil A. Bei einem geteilten Spiegel geht das nur als Admin und löst Teil B.
+  - Auf einer Lizenzseite wird zuerst `clear` an evendis.de gemeldet. Ohne Antwort kommt 502 `tix_co_remote_unreachable`, mit `?force=1` wird nur lokal getrennt.
+  - `POST /events/{id} {co_organizer:null}` trennt jetzt immer, auch bei ausgeschaltetem Schalter oder nicht mehr geteiltem Event.
+- **Plattform-Admin:**
+  - `DELETE /platform/events/{id}/co-organizer` geht auch bei geteilten Events. Die Plattform meldet die Freigabe dann an die Quelle über `POST /partner/co/{id}/release` (Partner-Zugang und Event-Schlüssel); die Antwort enthält `source_released`.
+  - Die Zeile bekommt `co_removable` und beim Co-Veranstalter `kind`/`origin`/`site`. `POST` auf geteilte Events bleibt 409.
+- **Kunden-Seiten (Register `TIX_Platform_Customers`, Lizenz/Hosting/Partner mit Host):**
+  - Suche: `GET /co-organizer/sites?q=` (Plattform), `GET /syndicate/co-sites?q=` (Partner-Schlüssel, ohne die eigene Seite), `GET /events/{id}/co-organizer/sites?q=` (Lizenzseite).
+  - Verbinden: `site` statt `email` in `POST /events/{id}/co-organizer/invite` (Plattform und Lizenzseite) und in `POST /platform/events/{id}/co-organizer`.
+  - `TIX_Co_Sites::organizer_for` legt beim ersten Verbinden das Profil Art `site` (ohne Konto) an und trägt es beim Partner als `organizer_id` ein. Ohne verbundenen Partner kommt 409 `tix_co_site_not_connected`.
+  - Die Mail geht an die Lizenz-E-Mail.
+- **Kunden-Seite:**
+  - `GET /partner/co-events` liefert zusätzlich die Spiegel geteilter Lizenz-Events mit `M_OID` = eigener Veranstalter (`source_site`, Zugriff aus `_tix_co_remote_access`).
+  - `POST /partner/co-events/{id}/call` leitet bei diesen Events weiter an die Lizenzseite (`TIX_Co_Remote::forward`). Die Event-ID wird dabei auf die Quell-ID umgeschrieben, Storno ist gesperrt.
+  - Der Spiegel auf der Kunden-Seite speichert `_tix_platform_co_source`; `co_list_fields` liefert `source_site`.
+- **Tests:**
+  - `tests/test-co-sites-wp.php`: Plattform 34, Lizenzseite 19, Schalter aus 6.
+  - Regression: Co 46, Plattform 56, Teil B 4/34/17, Teil B mit zwei Seiten über HTTP 37, Umzug mit zwei Seiten 17/10/11/1/1.

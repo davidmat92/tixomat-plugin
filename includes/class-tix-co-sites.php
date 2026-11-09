@@ -1,0 +1,190 @@
+<?php
+if (!defined('ABSPATH')) exit;
+
+/**
+ * Eigene Kunden-Seiten als Co-Veranstalter (1.38.706, Vertrag `uebergaben/vertrag-co-anzeigen-trennen.md`).
+ *
+ * Plattform (evendis.de): Kunden-Seiten = Lizenz-/Hosting-Kunden bzw. Partner aus TIX_Platform_Customers.
+ * Beim Verbinden bekommt die Seite ein Veranstalter-Profil (Art `site`, ohne Konto), das dem Partner zugeordnet wird.
+ * Die Kunden-Seite holt ihre Co-Events über GET /partner/co-events (TIX_Site_Move) und arbeitet per Durchgriff.
+ */
+class TIX_Co_Sites {
+    const NS        = 'tixomat/v1';
+    const KIND      = 'site';
+    const META_KEY  = '_tix_org_site_key';
+    const META_HOST = '_tix_org_site_host';
+
+    public static function init() {
+        add_action('rest_api_init', [__CLASS__, 'routes']);
+    }
+
+    private static function multi() {
+        return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+    }
+
+    public static function routes() {
+        if (!self::multi()) return;
+        register_rest_route(self::NS, '/co-organizer/sites', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_search'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
+        register_rest_route(self::NS, '/syndicate/co-sites', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_partner_search'], 'permission_callback' => [__CLASS__, 'perm_partner']]);
+    }
+
+    // ═══════════════ Register ═══════════════
+
+    private static function host_of($c) {
+        if (!empty($c['_lic']['hosts'])) return (string) $c['_lic']['hosts'][0];
+        if (!empty($c['_partner']['host'])) return (string) $c['_partner']['host'];
+        return '';
+    }
+
+    private static function name_of($c) {
+        $oid = intval($c['organizer_id'] ?? 0);
+        if ($oid) return html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8');
+        if (!empty($c['_lic'])) return (string) $c['_lic']['row']->customer;
+        return (string) ($c['_partner']['name'] ?? '');
+    }
+
+    /** Ist der Kunde eine eigene Seite (Lizenz, Hosting oder Partner)? */
+    private static function is_site($c) {
+        return is_array($c) && (!empty($c['_lic']) || !empty($c['_partner'])) && self::host_of($c) !== '';
+    }
+
+    /** Partner (vollständig) des Kunden oder null. */
+    private static function partner_of($c) {
+        $pid = (string) ($c['partner_id'] ?? '');
+        return $pid !== '' && class_exists('TIX_Partners') ? TIX_Partners::get($pid) : null;
+    }
+
+    private static function ready($c) {
+        $p = self::partner_of($c);
+        return $p && (string) ($p['key_in'] ?? '') !== '' && empty($p['pending']);
+    }
+
+    public static function row($c) {
+        $host = self::host_of($c);
+        $ready = self::ready($c);
+        return ['key' => (string) $c['key'], 'name' => self::name_of($c) ?: $host, 'host' => $host, 'ready' => $ready, 'reason' => $ready ? null : 'not_connected',
+            'message' => $ready ? null : $host . ' ist noch nicht mit ' . self::platform_name() . ' verbunden. Bitte zuerst auf der Seite die Event-Verteilung einrichten.'];
+    }
+
+    public static function platform_name() {
+        return html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8') ?: 'der Plattform';
+    }
+
+    /** Suche; $exclude_oids = Veranstalter, die nicht vorkommen sollen; $exclude_partner = anfragende Seite. */
+    public static function search($q, array $exclude_oids = [], $exclude_partner = '') {
+        if (!class_exists('TIX_Platform_Customers')) return [];
+        $q = mb_strtolower(trim((string) $q));
+        $out = [];
+        foreach (TIX_Platform_Customers::index()['customers'] as $c) {
+            if (!self::is_site($c)) continue;
+            if ($exclude_partner !== '' && (string) ($c['partner_id'] ?? '') === (string) $exclude_partner) continue;
+            if (!empty($c['organizer_id']) && in_array(intval($c['organizer_id']), array_map('intval', $exclude_oids), true)) continue;
+            $r = self::row($c);
+            $hay = mb_strtolower($r['name'] . ' ' . $r['host'] . ' ' . $r['key']);
+            if ($q !== '' && mb_strpos($hay, $q) === false) continue;
+            $out[] = $r;
+        }
+        usort($out, function ($a, $b) { return ($b['ready'] <=> $a['ready']) ?: strcasecmp($a['name'], $b['name']); });
+        return array_slice($out, 0, 10);
+    }
+
+    /**
+     * Veranstalter-Profil der Kunden-Seite finden oder anlegen.
+     * → [int $oid, bool $created, array $site] | WP_Error
+     */
+    public static function organizer_for($key) {
+        $c = class_exists('TIX_Platform_Customers') ? TIX_Platform_Customers::raw($key) : null;
+        if (!self::is_site($c)) return new WP_Error('tix_invalid_field', 'Diese Kunden-Seite gibt es nicht.', ['status' => 400, 'field' => 'site']);
+        $site = ['key' => (string) $c['key'], 'host' => self::host_of($c), 'name' => self::name_of($c) ?: self::host_of($c)];
+        if (!self::ready($c)) {
+            return new WP_Error('tix_co_site_not_connected', $site['host'] . ' ist noch nicht mit ' . self::platform_name() . ' verbunden. Bitte zuerst auf der Seite die Event-Verteilung einrichten.', ['status' => 409, 'host' => $site['host']]);
+        }
+        $p = self::partner_of($c);
+        $oid = intval($p['organizer_id'] ?? 0);
+        $created = false;
+        if (!$oid || get_post_type($oid) !== 'tix_organizer' || get_post_status($oid) === 'trash') {
+            $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_title' => $site['name'], 'post_status' => 'publish'], true);
+            if (is_wp_error($oid)) return $oid;
+            update_post_meta($oid, TIX_Co_Organizer::ORG_KIND, self::KIND);
+            $email = !empty($c['_lic']) ? sanitize_email((string) $c['_lic']['row']->email) : '';
+            if ($email) update_post_meta($oid, '_tix_org_email', $email);
+            $all = get_option(TIX_Partners::OPTION, []);
+            if (isset($all[$p['id']]) && is_array($all[$p['id']])) {
+                $all[$p['id']]['organizer_id'] = intval($oid);
+                update_option(TIX_Partners::OPTION, $all, false);
+            }
+            TIX_Platform_Customers::flush();
+            $created = true;
+        }
+        update_post_meta($oid, self::META_KEY, $site['key']);
+        update_post_meta($oid, self::META_HOST, $site['host']);
+        if (get_post_status($oid) !== 'publish') return new WP_Error('tix_invalid_field', 'Der Veranstalter dieser Seite ist nicht freigegeben.', ['status' => 400, 'field' => 'site']);
+        return [intval($oid), $created, $site];
+    }
+
+    /** Kunden-Seite zum Veranstalter (Profil Art `site` oder einem Partner zugeordnet) oder null. */
+    public static function site_of($oid) {
+        $oid = intval($oid);
+        if (!$oid) return null;
+        $host = (string) get_post_meta($oid, self::META_HOST, true);
+        if ($host !== '') return ['key' => (string) get_post_meta($oid, self::META_KEY, true), 'host' => $host, 'name' => html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8')];
+        if (!class_exists('TIX_Partners') || !self::multi()) return null;
+        foreach (TIX_Partners::all() as $p) {
+            if (intval($p['organizer_id'] ?? 0) !== $oid) continue;
+            $h = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url((string) ($p['api_base'] ?? ''), PHP_URL_HOST)));
+            if ($h === '') continue;
+            $key = class_exists('TIX_Platform_Customers') ? TIX_Platform_Customers::canonical('v-' . $oid) : null;
+            return ['key' => $key ?: 'v-' . $oid, 'host' => $h, 'name' => html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8')];
+        }
+        return null;
+    }
+
+    /** Mail an den Inhaber der Kunden-Seite. */
+    public static function notify($event_id, $oid, $by = '') {
+        $u = TIX_Co_Organizer::owner_user($oid);
+        $to = $u ? (string) $u->user_email : (string) get_post_meta($oid, '_tix_org_email', true);
+        if (!is_email($to)) return false;
+        $site = self::site_of($oid);
+        $title = html_entity_decode((string) get_the_title($event_id), ENT_QUOTES, 'UTF-8');
+        if ($by === '') $by = html_entity_decode((string) get_the_title(intval(get_post_meta($event_id, '_tix_organizer_id', true))), ENT_QUOTES, 'UTF-8') ?: self::platform_name();
+        $where = $site ? $site['host'] : html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8');
+        $access = TIX_Co_Organizer::has_access($event_id) || get_post_meta($event_id, '_tix_co_remote_access', true) === '1';
+        $html = '<p>Hallo,</p><p>' . esc_html($by) . ' hat deine Seite <strong>' . esc_html($where) . '</strong> als Co-Veranstalter von <strong>' . esc_html($title) . '</strong> eingetragen.</p>'
+            . '<p>Das Event erscheint in deinem Studio unter „Events“ mit dem Hinweis „Gemeinsam mit ' . esc_html($by) . '“ (spätestens nach einer Stunde, sofort über „Jetzt abgleichen“).'
+            . ($access ? ' Du kannst es dort bearbeiten, Verkäufe und Gäste sehen und den Einlass machen.' : ' Du wirst beim Event als Mitveranstalter genannt.') . '</p>';
+        $subject = 'Du bist Co-Veranstalter von ' . $title;
+        if ($u && class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'add_user_item')) {
+            TIX_Notifications::add_user_item($u->ID, 'Du bist Co-Veranstalter', $title . ' · gemeinsam mit ' . $by, ['type' => 'message', 'action' => 'staff:event:' . intval($event_id)]);
+        }
+        if (class_exists('TIX_Mail_Layout')) return (bool) TIX_Mail_Layout::send($to, $subject, ['title' => $subject, 'blocks' => [['type' => 'html', 'html' => $html]], 'kind' => 'account'], ['customer' => false]);
+        return (bool) wp_mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+    }
+
+    // ═══════════════ Routen ═══════════════
+
+    public static function rest_search(WP_REST_Request $req) {
+        if (!(TIX_App_Scope::is_admin() || TIX_App_Scope::is_org_manager())) return new WP_Error('rest_forbidden', 'Nur für Inhaber und Team-Admins.', ['status' => 403]);
+        $q = trim(sanitize_text_field((string) $req->get_param('q')));
+        if (mb_strlen($q) < 2) return new WP_Error('tix_invalid_field', 'Bitte mindestens 2 Zeichen eingeben.', ['status' => 400, 'field' => 'q']);
+        $own = TIX_App_Scope::organizer_id_for_user();
+        return rest_ensure_response(['ok' => true, 'items' => self::search($q, $own ? [$own] : [])]);
+    }
+
+    public static function perm_partner(WP_REST_Request $req) {
+        if (!class_exists('TIX_Partners')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+        $p = TIX_Partners::find_by_key((string) $req->get_header('X-Tix-Syndication-Key'));
+        if (!$p) return new WP_Error('unauthorized', 'Ungültiger Partner-Schlüssel.', ['status' => 401]);
+        wp_set_current_user(0);
+        $req->set_param('_partner', $p);
+        return true;
+    }
+
+    /** GET /syndicate/co-sites?q= (Lizenzseite → Plattform): ohne die anfragende Seite und ihren Veranstalter. */
+    public static function rest_partner_search(WP_REST_Request $req) {
+        $p = (array) $req->get_param('_partner');
+        $q = trim(sanitize_text_field((string) $req->get_param('q')));
+        if (mb_strlen($q) < 2) return new WP_Error('tix_invalid_field', 'Bitte mindestens 2 Zeichen eingeben.', ['status' => 400, 'field' => 'q']);
+        $ex = intval($p['organizer_id'] ?? 0);
+        return rest_ensure_response(['ok' => true, 'items' => self::search($q, $ex ? [$ex] : [], (string) ($p['id'] ?? ''))]);
+    }
+}

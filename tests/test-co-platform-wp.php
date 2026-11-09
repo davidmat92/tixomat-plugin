@@ -182,7 +182,8 @@ try {
     cp_eq('Feed Ersteller: entfernt', true, in_array($site . ' hat Cpxtest Neu GmbH als Co-Veranstalter entfernt', cp_feed($ua), true));
     [$st, $d] = cp_rest('DELETE', "/platform/events/$ev/co-organizer");
     cp_eq('nochmal lösen: unchanged', [200, 'unchanged'], [$st, $d['changed'] ?? '']);
-    cp_eq('geteilt lösen: 409', 409, cp_rest('DELETE', "/platform/events/$syn/co-organizer")[0]);
+    $sd = cp_rest('DELETE', "/platform/events/$syn/co-organizer"); // ab 1.38.706 erlaubt (Teil B lösen)
+    cp_eq('geteilt lösen ohne Co: 200 unchanged', [200, 'unchanged'], [$sd[0], $sd[1]['changed'] ?? '']);
     cp_eq('Profil + Konto bleiben', [true, true], [get_post_status($no) === 'publish', (bool) get_user_by('email', $new_email)]);
 } catch (Throwable $e) {
     $GLOBALS['t_fails']++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";

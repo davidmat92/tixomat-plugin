@@ -170,13 +170,32 @@ class TIX_Co_Organizer {
         if (!self::multi()) return class_exists('TIX_Co_Remote') ? TIX_Co_Remote::editor_payload($event_id)
             : ['co_organizer_available' => false, 'co_organizer_mode' => 'remote', 'co_organizer_editable' => false, 'event_role' => null, 'co_organizer' => null];
         $role = self::role($event_id) ?: ($event_id ? null : 'owner');
+        $can = in_array($role, ['owner', 'admin'], true);
+        $entry = $event_id ? self::entry($event_id, $can) : null;
         return [
             'co_organizer_available' => true,
             'co_organizer_mode'      => 'local',
-            'co_organizer_editable'  => in_array($role, ['owner', 'admin'], true),
+            'co_organizer_editable'  => $can,
             'event_role'             => $role,
             'co_organizer'           => $event_id ? self::payload($event_id) : null,
+            'co_organizers'          => $entry ? [$entry] : [],
+            'co_organizer_removable' => $can && $entry !== null,
+            'co_organizer_site_search' => $can && class_exists('TIX_Co_Sites'),
         ];
+    }
+
+    /** Herkunft eines Co-Veranstalters: {kind, origin, site} (1.38.706). */
+    public static function origin_of($oid) {
+        $site = class_exists('TIX_Co_Sites') ? TIX_Co_Sites::site_of($oid) : null;
+        if ($site) return ['kind' => 'site', 'origin' => ['type' => 'site', 'label' => 'eigene Seite ' . $site['host'], 'host' => $site['host']], 'site' => $site];
+        $host = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url(home_url(), PHP_URL_HOST)));
+        return ['kind' => 'local', 'origin' => ['type' => 'platform', 'label' => 'auf ' . $host, 'host' => $host], 'site' => null];
+    }
+
+    /** Eintrag für `co_organizers` (Teil A) oder null. */
+    public static function entry($event_id, $removable) {
+        $p = self::payload($event_id);
+        return $p ? $p + self::origin_of($p['id']) + ['removable' => (bool) $removable] : null;
     }
 
     /** Zusatzfelder für GET /events und /events/{id}: Rolle + „Gemeinsam mit …“. */
@@ -282,6 +301,7 @@ class TIX_Co_Organizer {
         $org = ['TIX_REST_API', 'check_organizer'];
         register_rest_route(self::NS, '/organizers/search', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_search'], 'permission_callback' => $org]);
         register_rest_route(self::NS, '/events/(?P<id>\d+)/co-organizer/invite', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_invite'], 'permission_callback' => $org]);
+        register_rest_route(self::NS, '/events/(?P<id>\d+)/co-organizer', ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_remove'], 'permission_callback' => $org]);
         register_rest_route(self::NS, '/organizer/co-choice', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_choice'], 'permission_callback' => [__CLASS__, 'perm_manager']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_choice'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -376,6 +396,7 @@ class TIX_Co_Organizer {
         $role = self::role($eid);
         if (!in_array($role, ['owner', 'admin'], true)) return self::deny('Einen Co-Veranstalter kann nur der Ersteller des Events einladen.');
         $b = $req->get_json_params() ?: $req->get_params();
+        if (!empty($b['site'])) return self::invite_site($req, $eid, $role, (array) $b);
         $email = sanitize_email((string) ($b['email'] ?? ''));
         if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);
         $org_name = trim(sanitize_text_field((string) ($b['organizer'] ?? '')));
@@ -399,6 +420,51 @@ class TIX_Co_Organizer {
         $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'co_organizer' => self::payload($eid)]);
         $res->set_status(201);
         return $res;
+    }
+
+    /** Teil A: Kunden-Seite verbinden (invite mit `site`). */
+    private static function invite_site(WP_REST_Request $req, $eid, $role, array $b) {
+        $access = array_key_exists('access', $b) ? filter_var($b['access'], FILTER_VALIDATE_BOOLEAN) : true;
+        if ($access && $role !== 'admin' && empty($b['consent'])) {
+            return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
+        }
+        $r = TIX_Co_Sites::organizer_for(sanitize_text_field((string) $b['site']));
+        if (is_wp_error($r)) return $r;
+        [$oid, $created] = $r;
+        $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
+        if ($oid === $main) return new WP_Error('tix_co_self', 'Diese Seite gehört zum Ersteller des Events.', ['status' => 409, 'field' => 'site']);
+        $old = self::ref_id($eid);
+        $old_access = $old ? self::has_access($eid) : null;
+        $linked = self::set($eid, $oid, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0);
+        if ($linked && $old) { self::log_change($eid, 'removed', $old, false, 'creator'); self::notify_removed_co($eid, $old); }
+        if ($linked) self::log_change($eid, 'added', $oid, self::has_access($eid), 'creator');
+        elseif ($old_access !== self::has_access($eid)) self::log_change($eid, 'changed', $oid, self::has_access($eid), 'creator');
+        $mailed = $linked ? TIX_Co_Sites::notify($eid, $oid) : false;
+        $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'co_organizer' => self::payload($eid), 'co_organizers' => [self::entry($eid, true)]]);
+        $res->set_status($linked ? 201 : 200);
+        return $res;
+    }
+
+    /** DELETE /events/{id}/co-organizer (Ersteller/Admin, evendis). */
+    public static function rest_remove(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        $role = self::role($eid);
+        if (!in_array($role, ['owner', 'admin'], true)) return self::deny('Die Verbindung kann nur der Ersteller des Events trennen.');
+        if (get_post_meta($eid, '_tix_syndicated', true)) { // Spiegel einer Partnerseite: nur der Admin, Teil B lösen
+            $was = intval(get_post_meta($eid, TIX_Co_Remote::M_OID, true));
+            $src = $was ? TIX_Co_Remote::release_mirror($eid, $role === 'admin' ? 'platform' : 'creator') : null;
+            return rest_ensure_response(['ok' => true, 'changed' => $was ? 'removed' : 'unchanged', 'co_organizers' => [], 'released' => ['platform' => $was ? true : null, 'source' => $src]]);
+        }
+        $old = self::ref_id($eid);
+        if (!$old) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'co_organizers' => [], 'released' => ['platform' => null, 'source' => null]]);
+        self::clear($eid);
+        $via = $role === 'admin' && intval(get_post_meta($eid, '_tix_organizer_id', true)) !== TIX_App_Scope::organizer_id_for_user() ? 'platform' : 'creator';
+        self::log_change($eid, 'removed', $old, false, $via);
+        self::notify_removed_co($eid, $old);
+        if ($via === 'platform') self::notify_creator($eid, $old, 'removed');
+        if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
+        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'co_organizers' => [], 'released' => ['platform' => true, 'source' => null]]);
     }
 
     // ═══════════════ Mitteilungen ═══════════════
@@ -600,9 +666,12 @@ class TIX_Co_Organizer {
                 $ref = self::ref($r);
                 $co = ['id' => $r, 'name' => html_entity_decode((string) $ref['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $ref['logo'], 'slug' => (string) $ref['slug'],
                     'access' => get_post_meta($event_id, '_tix_co_remote_access', true) === '1', 'status' => self::org_status($r), 'invited_email' => '', 'since' => null, 'consent' => null];
+                $co += self::origin_of($r);
+                if ($co['kind'] === 'local') $co['kind'] = 'remote';
             }
         } else {
             $co = self::payload($event_id);
+            if ($co) $co += self::origin_of($co['id']);
         }
         $img = get_the_post_thumbnail_url($event_id, 'medium');
         return [
@@ -611,6 +680,7 @@ class TIX_Co_Organizer {
             'status' => (string) get_post_status($event_id), 'image' => $img ? (string) $img : '',
             'owner' => self::org_mini(intval(get_post_meta($event_id, '_tix_organizer_id', true))),
             'co_organizer' => $co, 'co_editable' => $lock === null, 'co_locked' => $lock,
+            'co_removable' => $co !== null && ($lock === null || $lock['reason'] === 'source'),
         ];
     }
 
@@ -688,8 +758,14 @@ class TIX_Co_Organizer {
             if ($access === null) return new WP_Error('tix_invalid_field', 'access: true oder false.', ['status' => 400, 'field' => 'access']);
         }
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
-        $created = false; $new_user = null; $name = '';
-        if (!empty($b['organizer_id'])) {
+        $created = false; $new_user = null; $name = ''; $site_oid = 0;
+        if (!empty($b['site'])) {
+            $r = TIX_Co_Sites::organizer_for(sanitize_text_field((string) $b['site']));
+            if (is_wp_error($r)) return $r;
+            [$oid, $created] = $r;
+            $site_oid = $oid;
+            if ($oid === $main) return new WP_Error('tix_co_self', 'Diese Seite gehört zum Ersteller des Events.', ['status' => 409, 'field' => 'site']);
+        } elseif (!empty($b['organizer_id'])) {
             $oid = absint($b['organizer_id']);
             if (!self::org_ok($oid)) return new WP_Error('tix_invalid_field', 'Diesen Veranstalter gibt es nicht oder er ist nicht veröffentlicht.', ['status' => 400, 'field' => 'organizer_id']);
             if ($oid === $main) return new WP_Error('tix_co_self', 'Der Ersteller kann nicht Co-Veranstalter seines eigenen Events sein.', ['status' => 409, 'field' => 'organizer_id']);
@@ -717,7 +793,7 @@ class TIX_Co_Organizer {
         if ($linked) {
             if ($old) { self::log_change($eid, 'removed', $old, false, 'platform'); self::notify_removed_co($eid, $old); }
             self::log_change($eid, 'added', $oid, $now, 'platform');
-            $mailed = self::notify($eid, $oid, $new_user, $name);
+            $mailed = $site_oid ? TIX_Co_Sites::notify($eid, $oid, self::platform_by()) : self::notify($eid, $oid, $new_user, $name);
             self::notify_creator($eid, $oid, 'added');
         } elseif ($changed === 'changed') {
             self::log_change($eid, 'changed', $oid, $now, 'platform');
@@ -729,8 +805,19 @@ class TIX_Co_Organizer {
         return $res;
     }
 
+    private static function platform_by() {
+        return html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+    }
+
     public static function rest_platform_clear(WP_REST_Request $req) {
         $eid = absint($req['id']);
+        $lock = get_post_type($eid) === 'event' ? self::platform_lock($eid) : null;
+        if ($lock && $lock['reason'] === 'source') { // geteiltes Event: Teil B lösen (1.38.706)
+            $was = intval(get_post_meta($eid, TIX_Co_Remote::M_OID, true));
+            $src = $was ? TIX_Co_Remote::release_mirror($eid, 'platform') : null;
+            if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
+            return rest_ensure_response(['ok' => true, 'changed' => $was ? 'removed' : 'unchanged', 'event' => self::platform_event_row($eid), 'source_released' => $src]);
+        }
         $ok = self::platform_event_or_error($eid);
         if (is_wp_error($ok)) return $ok;
         $old = self::ref_id($eid);
@@ -740,7 +827,7 @@ class TIX_Co_Organizer {
         self::notify_removed_co($eid, $old);
         self::notify_creator($eid, $old, 'removed');
         if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
-        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'event' => self::platform_event_row($eid)]);
+        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'event' => self::platform_event_row($eid), 'source_released' => null]);
     }
 
     private static function feed($uid, $title, $body, $eid) {
@@ -749,7 +836,7 @@ class TIX_Co_Organizer {
         }
     }
 
-    private static function notify_removed_co($eid, $oid) {
+    public static function notify_removed_co($eid, $oid) {
         $u = self::owner_user($oid);
         if ($u) self::feed($u->ID, 'Nicht mehr Co-Veranstalter', 'Du bist nicht mehr Co-Veranstalter von ' . html_entity_decode((string) get_the_title($eid), ENT_QUOTES, 'UTF-8') . '.', $eid);
     }
