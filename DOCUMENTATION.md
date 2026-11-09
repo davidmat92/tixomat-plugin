@@ -4985,3 +4985,17 @@ Vertrag `uebergaben/vertrag-co-anzeigen-trennen.md`. Neue Klasse `TIX_Co_Sites` 
 - **Tests:**
   - `tests/test-co-sites-wp.php`: Plattform 34, Lizenzseite 19, Schalter aus 6.
   - Regression: Co 46, Plattform 56, Teil B 4/34/17, Teil B mit zwei Seiten über HTTP 37, Umzug mit zwei Seiten 17/10/11/1/1.
+
+## 115. Eine Line-up-Liste mit Bild, Künstlerseite (ab 1.38.707)
+Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`. Ausgelöst durch Party Schwelm (kitchenklub.de #1171): Tippfehler im Programm („Micha Schue“) führten zu Doppelten ohne bzw. mit Bild, die Kopfbilder kamen in der Zuordnungs-Reihenfolge.
+- **`lineup_acts`** in `GET /public/events/{id}` (Detail), gebaut von `TIX_Lineup_Links::acts`:
+  - Reihenfolge: Programm nach Auftrittszeit (`slots()` über `place_slots`, auch bei ausgeblendetem Programm, dann ohne Zeiten), danach Line-up-Zeilen, danach zugeordnete Künstler ohne Zeile (Headliner zuerst).
+  - Eindeutig über `similar()` (normalisiert, ab 5 Zeichen 1, ab 12 Zeichen 2 Abweichungen) und `artist_id`.
+  - Ein Bild je Act: Act-Foto, sonst Künstlerbild.
+  - `artist_url` = `<Kundenbasis>/kuenstler/{slug}/`, nur bei öffentlichen Künstlern.
+- **Weitere Felder:** `artists` kommt in derselben Reihenfolge (`sort_artists`). `lineup_links` führt Tippfehler zusammen, `link_lineup` ordnet die Zeile über `similar()` dem Künstler zu.
+- **Spiegel:** Die Quelle schickt `_tix_lineup_acts` mit der Verteilung (`push_event`). Der Spiegel liefert diese Liste ohne Künstler-Bezug.
+- **Verteilung:** `TIX_Studio_Editor::after_save` verteilt geteilte Events (`_tix_syndicate = 1`) jetzt auch, wenn sich nur Meta-Felder ändern. Bisher geschah das nur mit dem Feld `syndication`, sodass Programmänderungen nicht auf evendis.de ankamen. `TIX_App_Events` ruft das auch ohne Studio-Felder auf.
+- **Studio:** `GET /artists/{id}/events` und die Verwaltungsliste liefern Titel ohne HTML-Entities.
+- **Künstlerseite:** `GET /public/artists/{slug}` gibt es schon. Die Website-Seite `/kuenstler/{slug}/` bauen die Homepages und evendis-web.
+- **Test:** `tests/test-lineup-acts-wp.php` (Plattform 16, Einzel-Seite 19 mit `setup`/`run`/`cleanup`).

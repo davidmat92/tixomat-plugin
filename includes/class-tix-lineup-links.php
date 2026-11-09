@@ -105,23 +105,125 @@ class TIX_Lineup_Links {
         $add = function ($t) use (&$out, &$seen) {
             $k = self::norm(self::artist($t));
             if ($k === '' || isset($seen[$k])) return;
+            foreach (array_keys($seen) as $o) if (self::similar_norm($k, (string) $o)) return; // Tippfehler = derselbe Act (1.38.707)
             $seen[$k] = true;
             $out[] = $t;
         };
-        $tt = get_post_meta($event_id, '_tix_timetable', true);
-        if (is_array($tt) && $tt) {
-            ksort($tt);
-            foreach ($tt as $slots) {
-                if (!is_array($slots)) continue;
-                foreach ($slots as $sl) {
-                    $t = trim(html_entity_decode(wp_strip_all_tags((string) ($sl['title'] ?? '')), ENT_QUOTES, 'UTF-8'));
-                    if ($t !== '' && mb_strlen($t) <= self::MAX_LEN && count($out) < self::MAX_SLOTS) $add($t);
-                }
-            }
+        foreach (self::slots($event_id) as $sl) {
+            $t = trim(html_entity_decode(wp_strip_all_tags((string) ($sl['title'] ?? '')), ENT_QUOTES, 'UTF-8'));
+            if ($t !== '' && mb_strlen($t) <= self::MAX_LEN && count($out) < self::MAX_SLOTS) $add($t);
         }
         // Line-up-Zeilen dazu (Events mit Programm und Line-up behalten ihre bisherigen Zeilen)
         foreach (self::lineup_lines($event_id) as $l) $add($l);
         return $out;
+    }
+
+    /**
+     * Programm-Slots aller Tage in Auftrittsreihenfolge (über Mitternacht wie `timetable`, 1.38.707), auch bei
+     * ausgeblendetem Programm; je Slot zusätzlich start_at, end_at, next_day, stage_name.
+     */
+    public static function slots($event_id) {
+        $tt = get_post_meta($event_id, '_tix_timetable', true);
+        if (!is_array($tt) || !$tt) return [];
+        ksort($tt);
+        $stages = (array) get_post_meta($event_id, '_tix_stages', true);
+        $out = [];
+        foreach ($tt as $date => $slots) {
+            if (!is_array($slots)) continue;
+            $slots = array_values(array_filter($slots, 'is_array'));
+            $placed = class_exists('TIX_Event_Extras') && method_exists('TIX_Event_Extras', 'place_slots') ? TIX_Event_Extras::place_slots((string) $date, $slots) : $slots;
+            foreach ($placed as $s) {
+                $st = intval($s['stage'] ?? 0);
+                $s['stage_name'] = is_array($stages[$st] ?? null) ? (string) ($stages[$st]['name'] ?? '') : '';
+                $out[] = $s;
+            }
+        }
+        return $out;
+    }
+
+    /** Gleicher Act trotz kleiner Tippfehler? (normalisierte Namen; ab 5 Zeichen 1, ab 12 Zeichen 2 Abweichungen) */
+    public static function similar_norm($a, $b) {
+        if ($a === '' || $b === '') return false;
+        if ($a === $b) return true;
+        $n = min(strlen($a), strlen($b));
+        if ($n < 5 || abs(strlen($a) - strlen($b)) > 2) return false;
+        $max = $n >= 12 ? 2 : 1;
+        return levenshtein(substr($a, 0, 255), substr($b, 0, 255)) <= $max;
+    }
+
+    public static function similar($a, $b) {
+        return self::similar_norm(self::norm(self::artist((string) $a)), self::norm(self::artist((string) $b)));
+    }
+
+    /**
+     * Eine Line-up-Liste (1.38.707, Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`): sortiert, eindeutig, ein Bild je Act.
+     * $links = verknüpfte lineup_links, $artists = TIX_Artists::event_public.
+     */
+    public static function acts($event_id, array $links = null, array $artists = null) {
+        $event_id = intval($event_id);
+        if (get_post_meta($event_id, '_tix_syndicated', true) === '1') { // Spiegel: Liste der Quelle (Künstler gibt es hier nicht)
+            $snap = get_post_meta($event_id, '_tix_lineup_acts', true);
+            if (is_array($snap) && $snap) {
+                return array_values(array_map(function ($a) {
+                    return array_merge((array) $a, ['artist_id' => null, 'artist_slug' => null, 'artist_url' => null]);
+                }, array_filter($snap, 'is_array')));
+            }
+        }
+        if ($artists === null) $artists = class_exists('TIX_Artists') ? TIX_Artists::event_public($event_id) : [];
+        if ($links === null) {
+            $links = self::for_event($event_id);
+            if ($links && class_exists('TIX_Artists')) $links = TIX_Artists::link_lineup($links, $event_id, $artists);
+        }
+        $hidden = class_exists('TIX_Event_Extras') && TIX_Event_Extras::timetable_hidden($event_id);
+        $slots = self::slots($event_id);
+        $by_id = [];
+        foreach ($artists as $a) $by_id[intval($a['id'])] = $a;
+        $base = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');
+        $out = []; $ids = [];
+        $push = function (array $e) use (&$out, &$ids) {
+            if ($e['artist_id'] && isset($ids[$e['artist_id']])) return;
+            if ($e['artist_id']) $ids[$e['artist_id']] = true;
+            $e['position'] = count($out) + 1;
+            $out[] = $e;
+        };
+        foreach ($links as $l) {
+            $line = (string) ($l['name'] ?? '');
+            $slot = null;
+            foreach ($slots as $s) if (self::similar((string) ($s['title'] ?? ''), $line)) { $slot = $s; break; }
+            $aid = intval($l['artist_id'] ?? 0) ?: null;
+            $slug = ($l['artist_slug'] ?? '') !== '' ? (string) $l['artist_slug'] : null;
+            $push(['position' => 0, 'name' => (string) (($l['artist_name'] ?? '') !== '' && $aid ? $l['artist_name'] : self::artist($line)), 'line' => $line,
+                'artist_id' => $aid, 'artist_slug' => $slug, 'artist_url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null,
+                'image' => ($l['picture'] ?? null) ?: null, 'image_thumb' => ($l['picture_thumb'] ?? null) ?: (($l['picture'] ?? null) ?: null), 'image_source' => $l['picture_source'] ?? null,
+                'role' => $aid && isset($by_id[$aid]) ? (string) $by_id[$aid]['role'] : null,
+                'time' => (!$hidden && $slot) ? ((string) ($slot['time'] ?? '') ?: null) : null, 'end' => (!$hidden && $slot) ? ((string) ($slot['end'] ?? '') ?: null) : null,
+                'start_at' => (!$hidden && $slot) ? ($slot['start_at'] ?? null) : null, 'end_at' => (!$hidden && $slot) ? ($slot['end_at'] ?? null) : null,
+                'stage_name' => (!$hidden && $slot) ? ((string) ($slot['stage_name'] ?? '') ?: null) : null, 'next_day' => !$hidden && $slot ? !empty($slot['next_day']) : false,
+                'spotify' => ($l['spotify'] ?? null) ?: null, 'apple_music' => ($l['apple_music'] ?? null) ?: null]);
+        }
+        // Zugeordnete Künstler ohne Zeile: Headliner zuerst
+        $rest = array_values(array_filter($artists, function ($a) use ($ids) { return !isset($ids[intval($a['id'])]); }));
+        usort($rest, function ($a, $b) { return (($a['role'] ?? '') === 'headliner' ? 0 : 1) - (($b['role'] ?? '') === 'headliner' ? 0 : 1); });
+        foreach ($rest as $a) {
+            $pic = ($a['portrait'] ?? null) ?: ($a['cover'] ?? null);
+            $slug = ($a['slug'] ?? '') !== '' ? (string) $a['slug'] : null;
+            $push(['position' => 0, 'name' => (string) $a['name'], 'line' => (string) $a['name'], 'artist_id' => intval($a['id']), 'artist_slug' => $slug,
+                'artist_url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null,
+                'image' => $pic ? ($pic['large'] ?: $pic['medium']) : (($a['image'] ?? null) ?: null), 'image_thumb' => $pic ? ($pic['medium'] ?: $pic['large']) : (($a['image'] ?? null) ?: null),
+                'image_source' => ($pic || !empty($a['image'])) ? (string) (($a['image_source'] ?? '') ?: 'artist') : null, 'role' => (string) ($a['role'] ?? ''),
+                'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false, 'spotify' => null, 'apple_music' => null]);
+        }
+        return $out;
+    }
+
+    /** `artists` in die Reihenfolge der Line-up-Liste bringen (übrige am Ende). */
+    public static function sort_artists(array $artists, array $acts) {
+        $pos = [];
+        foreach ($acts as $a) if (!empty($a['artist_id']) && !isset($pos[intval($a['artist_id'])])) $pos[intval($a['artist_id'])] = intval($a['position']);
+        $i = 0;
+        $rows = array_map(function ($a) use ($pos, &$i) { return ['k' => $pos[intval($a['id'])] ?? (10000 + $i++), 'a' => $a]; }, $artists);
+        usort($rows, function ($x, $y) { return $x['k'] - $y['k']; });
+        return array_map(function ($r) { return $r['a']; }, $rows);
     }
 
     /** Zeilen des Line-up-Felds wie in den Apps; [] bei Fließtext. */

@@ -678,6 +678,7 @@ class TIX_App_Events {
 
         // Verteilung anstoßen, falls kein save_post lief (Studio Stufe 3)
         if ($studio) TIX_Studio_Editor::after_save($post_id, $studio, $post_updated);
+        elseif (!$post_updated && !$is_new && class_exists('TIX_Studio_Editor')) TIX_Studio_Editor::after_save($post_id, [], false); // 1.38.707: Meta-Änderungen geteilter Events verteilen
 
         if ($thumb !== null) {
             if ($thumb === 0) delete_post_thumbnail($post_id);

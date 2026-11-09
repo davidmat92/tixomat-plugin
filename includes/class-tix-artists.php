@@ -394,12 +394,20 @@ class TIX_Artists {
      * gleichen Namens → artist_id, artist_slug (nur öffentlich), artist_name, portrait, cover, credit; ohne Treffer null.
      * Bild: Act-Foto der Zeile, sonst Porträt bzw. Titelbild des Künstlers; picture_source act | artist | null.
      */
+    /** WordPress-Titel ohne HTML-Entities (Studio zeigte „&#8211;“, 1.38.707). */
+    private static function dec($s) {
+        return html_entity_decode((string) $s, ENT_QUOTES, 'UTF-8');
+    }
+
     public static function link_lineup(array $rows, $event_id, $artists = null) {
         $by = [];
         foreach (($artists === null ? self::event_public($event_id) : $artists) as $ar) $by[self::act_key($ar['name'])] = $ar;
         foreach ($rows as &$row) {
             $nm = (string) (($row['artist'] ?? '') !== '' ? $row['artist'] : ($row['name'] ?? ''));
             $ar = $by[self::act_key($nm)] ?? null;
+            if (!$ar && class_exists('TIX_Lineup_Links')) { // kleine Tippfehler im Programm (1.38.707)
+                foreach ($by as $cand) if (TIX_Lineup_Links::similar($nm, (string) $cand['name'])) { $ar = $cand; break; }
+            }
             if (!$ar && ($aid = self::artist_for_line($event_id, $nm))) $ar = self::line_info($aid);
             $row['artist_id'] = $ar ? intval($ar['id']) : null;
             $row['artist_slug'] = $ar ? (($ar['slug'] ?? '') !== '' ? (string) $ar['slug'] : null) : null;
@@ -1195,9 +1203,9 @@ class TIX_Artists {
             if (self::sandbox_org($oid)) continue;
             $by = 0; $role = 'headliner'; $tour = null;
             foreach (self::event_list($eid) as $r) if (intval($r['artist_id']) === $id) { $by = intval($r['by_organizer'] ?? 0); $role = $r['role']; $tour = $r['tour'] ?? null; }
-            $out[] = ['id' => $eid, 'title' => (string) get_the_title($eid), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'city' => self::city($eid),
-                'status' => (string) get_post_status($eid), 'organizer' => ['id' => $oid, 'name' => (string) get_the_title($oid)], 'role' => $role, 'tour' => $tour,
-                'assigned_by' => ['organizer_id' => $by ?: $oid, 'name' => (string) get_the_title($by ?: $oid)]];
+            $out[] = ['id' => $eid, 'title' => self::dec(get_the_title($eid)), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'city' => self::city($eid),
+                'status' => (string) get_post_status($eid), 'organizer' => ['id' => $oid, 'name' => self::dec(get_the_title($oid))], 'role' => $role, 'tour' => $tour,
+                'assigned_by' => ['organizer_id' => $by ?: $oid, 'name' => self::dec(get_the_title($by ?: $oid))]];
         }
         usort($out, function ($a, $b) { return strcmp($a['date_start'], $b['date_start']); });
         return rest_ensure_response(['ok' => true, 'events' => $out]);
@@ -1301,7 +1309,7 @@ class TIX_Artists {
         if (is_wp_error($id)) return $id;
         if (!self::can_manage(self::raw($id))) return new WP_Error('tix_artist_not_manager', 'Löschen kann nur der Verwalter des Künstlers.', ['status' => 403]);
         if (intval($req->get_param('into'))) return self::merge_own($id, intval($req->get_param('into')));
-        $events = array_map(function ($eid) { return ['id' => $eid, 'title' => (string) get_the_title($eid), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'status' => (string) get_post_status($eid)]; },
+        $events = array_map(function ($eid) { return ['id' => $eid, 'title' => self::dec(get_the_title($eid)), 'date_start' => (string) get_post_meta($eid, '_tix_date_start', true), 'status' => (string) get_post_status($eid)]; },
             self::event_ids($id, ['publish', 'future', 'draft', 'pending', 'private']));
         $followers = class_exists('TIX_Artist_Follow') && method_exists('TIX_Artist_Follow', 'count') ? intval(TIX_Artist_Follow::count($id)) : 0;
         if ($events || $followers) return new WP_Error('tix_artist_in_use', $events ? 'Der Künstler steht noch in Events. Entferne ihn dort oder führe ihn mit einem anderen Eintrag zusammen.' : 'Dem Künstler folgen Gäste. Führe ihn mit einem anderen Eintrag zusammen.',

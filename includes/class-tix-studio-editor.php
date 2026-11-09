@@ -367,7 +367,9 @@ class TIX_Studio_Editor {
 
     /** Nach dem Speichern: Verteilung anstoßen, wenn das Speichern selbst kein save_post ausgelöst hat (sonst macht es on_save). */
     public static function after_save($post_id, array $c, $post_updated) {
-        if (!array_key_exists('syndication', $c) || $post_updated || !class_exists('TIX_Syndication_Push')) return;
+        if ($post_updated || !class_exists('TIX_Syndication_Push')) return;
+        // 1.38.707: auch reine Meta-Änderungen (Programm, Line-up …) eines geteilten Events neu verteilen
+        if (!array_key_exists('syndication', $c) && get_post_meta($post_id, '_tix_syndicate', true) !== '1') return;
         TIX_Syndication_Push::on_save($post_id, get_post($post_id));
     }
 

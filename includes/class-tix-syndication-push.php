@@ -269,6 +269,9 @@ class TIX_Syndication_Push {
             }
         }
 
+        // Fertige Line-up-Liste mit Bildern (1.38.707): die Künstler gibt es auf der Plattform nicht
+        if (class_exists('TIX_Lineup_Links')) $all_meta['_tix_lineup_acts'] = TIX_Lineup_Links::acts($post_id);
+
         // Kategorien
         $categories = wp_get_post_terms($post_id, 'event_category', ['fields' => 'names']);
         if (is_wp_error($categories)) $categories = [];

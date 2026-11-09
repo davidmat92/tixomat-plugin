@@ -265,6 +265,11 @@ class TIX_Public_Events {
             // artist_id, artist_slug, portrait, cover, credit; fehlendes Act-Foto vom Künstler
             // Eine Bildquelle (1.38.669): auch ohne Zuordnung ein eigener Künstler gleichen Namens; picture = Act-Foto, sonst Künstlerbild
             if ($out['lineup_links'] && class_exists('TIX_Artists')) $out['lineup_links'] = TIX_Artists::link_lineup($out['lineup_links'], $id, $out['artists'] ?? []);
+            // Eine Line-up-Liste mit Bild je Act (1.38.707, Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`); `artists` in derselben Reihenfolge
+            if (class_exists('TIX_Lineup_Links')) {
+                $out['lineup_acts'] = TIX_Lineup_Links::acts($id, $out['lineup_links'], $out['artists'] ?? []);
+                if (!empty($out['artists'])) $out['artists'] = TIX_Lineup_Links::sort_artists($out['artists'], $out['lineup_acts']);
+            }
             $out['specials']    = self::html($id, '_tix_info_specials');
             $out['extra_info']  = self::html($id, '_tix_info_extra_info');
             $out['gallery']     = self::gallery($id);
