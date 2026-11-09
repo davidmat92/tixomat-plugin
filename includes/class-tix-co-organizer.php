@@ -133,7 +133,7 @@ class TIX_Co_Organizer {
         return !(class_exists('TIX_Org_Approval') && in_array(TIX_Org_Approval::status($oid), ['blocked', 'rejected'], true));
     }
 
-    private static function owner_user($oid) {
+    public static function owner_user($oid) {
         $uid = intval(get_post_meta(intval($oid), '_tix_org_user_id', true));
         return $uid ? get_user_by('id', $uid) : null;
     }

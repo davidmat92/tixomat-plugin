@@ -75,6 +75,7 @@ class TIX_Co_Remote {
     }
 
     public static function editor_payload($event_id) {
+        if ($event_id && class_exists('TIX_Site_Move') && TIX_Site_Move::platform_co_id($event_id)) return TIX_Site_Move::co_editor_payload($event_id);
         $why = $event_id ? self::unavailable_reason($event_id) : 'not_shared';
         $role = current_user_can('manage_options') ? 'admin' : 'owner';
         return ['co_organizer_available' => $why === '', 'co_organizer_mode' => 'remote', 'co_organizer_unavailable_reason' => $why ?: null,
@@ -82,11 +83,13 @@ class TIX_Co_Remote {
     }
 
     public static function list_fields($event_id) {
+        if (class_exists('TIX_Site_Move') && TIX_Site_Move::platform_co_id($event_id)) return TIX_Site_Move::co_list_fields($event_id);
         $d = self::data($event_id);
         return $d ? ['event_role' => current_user_can('manage_options') ? 'admin' : 'owner', 'shared_with' => ['id' => intval($d['organizer_id']), 'name' => (string) $d['name'], 'logo' => (string) ($d['logo'] ?? '')]] : [];
     }
 
     public static function public_ref($event_id) {
+        if (class_exists('TIX_Site_Move') && TIX_Site_Move::platform_co_id($event_id)) return ['id' => 0, 'slug' => '', 'name' => (string) get_post_meta($event_id, '_tix_platform_co_by', true), 'logo' => ''];
         $d = self::data($event_id);
         return $d ? ['id' => 0, 'slug' => '', 'name' => (string) $d['name'], 'logo' => (string) ($d['logo'] ?? '')] : null;
     }
@@ -184,7 +187,7 @@ class TIX_Co_Remote {
      * Darf die Route für Event $sid ausgeführt werden? → true | WP_Error
      * $path ohne /tixomat/v1, $q Query, $b JSON-Body.
      */
-    public static function allowed($method, $path, array $q, array $b, $sid) {
+    public static function allowed($method, $path, array $q, array $b, $sid, $storno = false) {
         $sid = intval($sid);
         $no = function ($m = 'Diese Funktion gibt es für Co-Veranstalter nicht.') { return new WP_Error('tix_co_forbidden', $m, ['status' => 403]); };
         $method = strtoupper($method);
@@ -212,9 +215,9 @@ class TIX_Co_Remote {
             return true;
         }
         // Storno und Erstattung nie über den Durchgriff (User 09.11.: Lizenz-Ersteller → Co darf weder stornieren noch erstatten, auch nicht an der Kasse)
-        if (preg_match('#^/(orders/\d+/(refund|cancel)|pos/orders/\d+/void)$#', $path)) return $no('Stornieren und Erstatten kann bei diesem Event nur der Veranstalter.');
+        if (!$storno && preg_match('#^/(orders/\d+/(refund|cancel)|pos/orders/\d+/void)$#', $path)) return $no('Stornieren und Erstatten kann bei diesem Event nur der Veranstalter.');
         // Bestellungen und Tickets dieses Events
-        if (preg_match('#^/(orders/(\d+)(/detail|/resend-email)?|pos/orders/(\d+)/(email))$#', $path, $m)) {
+        if (preg_match('#^/(orders/(\d+)(/detail|/resend-email|/refund|/cancel)?|pos/orders/(\d+)/(email|void))$#', $path, $m)) {
             if ($method === 'DELETE') return $no();
             $oid = intval($m[2] ?: $m[4]);
             return self::order_of_event($oid, $sid) ? true : $no('Diese Bestellung gehört nicht zu diesem Event.');

@@ -34,7 +34,8 @@ global $wpdb;
 if ($mode === 'setup-plat') {
     if (!TIX_App_Scope::multi()) { echo "nur Plattform\n"; return; }
     $admin = get_users(['role' => 'administrator', 'number' => 1]); wp_set_current_user(intval($admin[0]->ID));
-    $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'SMTEST Veranstalter', 'meta_input' => ['_tix_org_city' => 'Köln', '_tix_org_iban' => 'DE00GEHEIM']]);
+    $owner = wp_insert_user(['user_login' => 'smtest_owner_' . wp_rand(1000, 9999), 'user_pass' => wp_generate_password(20), 'user_email' => 'smowner' . wp_rand(1000, 9999) . '@example.test', 'role' => 'tix_organizer']);
+    $oid = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'SMTEST Veranstalter', 'meta_input' => ['_tix_org_city' => 'Köln', '_tix_org_iban' => 'DE00GEHEIM', '_tix_org_user_id' => $owner]]);
     $loc = wp_insert_post(['post_type' => 'tix_location', 'post_status' => 'publish', 'post_title' => 'SMTEST Halle', 'meta_input' => ['_tix_loc_city' => 'Köln']]);
     $cats = [['name' => 'Regulär', 'price' => 20, 'qty' => 100, 'stock' => 98]];
     $evs = [];
@@ -58,7 +59,8 @@ if ($mode === 'setup-plat') {
     }
     // Co-Event eines anderen Erstellers
     $other = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'SMTEST Ersteller']);
-    $co = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'SMTEST Co-Event', 'meta_input' => ['_tix_organizer_id' => $other, '_tix_date_start' => wp_date('Y-m-d', time() + 30 * DAY_IN_SECONDS)]]);
+    $co = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'SMTEST Co-Event', 'meta_input' => ['_tix_organizer_id' => $other, '_tix_date_start' => wp_date('Y-m-d', time() + 30 * DAY_IN_SECONDS), '_tix_time_start' => '21:00',
+        '_tix_tickets_enabled' => '1', '_tix_ticket_categories' => [['name' => 'Abend', 'price' => 15, 'qty' => 50, 'stock' => 50]], '_tix_guest_list' => [['id' => 'SMCO1', 'name' => 'Co Gast', 'plus' => 0, 'checked_in' => false]]]]);
     TIX_Co_Organizer::set($co, $oid, true, 1);
     if (class_exists('TIX_Newsletter')) $wpdb->insert(TIX_Newsletter::tc(), ['organizer_id' => $oid, 'email' => 'smnl@example.test', 'status' => 'subscribed']);
     $cp = (array) get_option('tix_coupons', []); $cp['SMTEST10'] = ['type' => 'percent', 'amount' => 10, 'organizer_id' => $oid, 'event_ids' => [$evs[0]]]; update_option('tix_coupons', $cp);
@@ -66,7 +68,7 @@ if ($mode === 'setup-plat') {
     $host = sanitize_key((string) wp_parse_url((string) $args[1], PHP_URL_HOST));
     $all = (array) get_option(TIX_Partners::OPTION, []);
     $set = get_option('tix_settings', []);
-    update_option('tix_sm_backup', ['recv' => $set['syndication_receive_enabled'] ?? '__none__', 'partners' => $all, 'oids' => [$oid, $other], 'posts' => array_merge($evs, [$co, $loc]), 'order' => $order], false);
+    update_option('tix_sm_backup', ['owner' => $owner, 'recv' => $set['syndication_receive_enabled'] ?? '__none__', 'partners' => $all, 'oids' => [$oid, $other], 'posts' => array_merge($evs, [$co, $loc]), 'order' => $order], false);
     $all[$host] = ['id' => $host, 'name' => 'SMTEST Neue Seite', 'api_base' => rtrim((string) $args[1], '/'), 'key_in' => (string) ($args[2] ?? 'kin-smtest-' . str_repeat('a', 24)), 'key_out' => (string) ($args[3] ?? 'kout-smtest-' . str_repeat('b', 24)), 'organizer_id' => 0, 'created' => gmdate('c')];
     update_option(TIX_Partners::OPTION, $all, false);
     $set['syndication_receive_enabled'] = 1; update_option('tix_settings', $set);
@@ -155,9 +157,57 @@ if ($mode === 'check-push-plat') {
     sm_eq('kein zweites Event', 1, count(get_posts(['post_type' => 'event', 'post_status' => 'any', 's' => 'SMTEST Party 1', 'fields' => 'ids', 'posts_per_page' => -1])));
     sm_done(); return;
 }
+if ($mode === 'co-kk') { // Schritt 2 auf der neuen Seite; Phase: an | aus | weg
+    $s = json_decode((string) $args[1], true); $phase = (string) ($args[2] ?? 'an');
+    $admin = get_users(['role' => 'administrator', 'number' => 1]); wp_set_current_user(intval($admin[0]->ID));
+    echo "== Neue Seite: Co-Events ($phase)\n";
+    $r = TIX_Site_Move::sync_co_events();
+    $mir = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'trash'], 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => '_tix_platform_co', 'meta_value' => strval($s['co'])]);
+    $m = $mir ? intval($mir[0]) : 0;
+    if ($phase === 'weg') {
+        sm_eq('Abgleich: entfernt, Spiegel im Papierkorb', [true, 1, 'trash'], [!is_wp_error($r), $r['removed'] ?? null, get_post_status($m)]);
+        sm_done(); return;
+    }
+    if ($phase === 'aus') {
+        sm_eq('Zugriff aus: Spiegel bleibt, Durchgriff 403', [true, '0', 403], [!is_wp_error($r), get_post_meta($m, '_tix_platform_co_access', true), sm_rest('GET', "/platform-co/$m/events/{$s['co']}/edit")[0]]);
+        sm_done(); return;
+    }
+    sm_eq('Abgleich: 1 Spiegel angelegt', [true, 1], [!is_wp_error($r), (is_wp_error($r) ? 0 : $r['created'] + $r['updated'])]);
+    if (is_wp_error($r)) { echo '      ' . $r->get_error_message() . "\n"; sm_done(); return; }
+    sm_eq('Spiegel: Titel, Ersteller, Kauf beim Ersteller, nie zurückverteilt', ['SMTEST Co-Event', 'SMTEST Ersteller', '1', '0', '0', true],
+        [get_the_title($m), get_post_meta($m, '_tix_platform_co_by', true), get_post_meta($m, '_tix_extshop_enabled', true), get_post_meta($m, '_tix_tickets_enabled', true), get_post_meta($m, '_tix_syndicate', true), TIX_Syndication_Push::is_system_event($m)]);
+    $lf = TIX_Co_Organizer::list_fields($m);
+    sm_eq('Liste: Rolle co, remote, Basis', ['co', true, "/platform-co/$m"], [$lf['event_role'] ?? null, $lf['remote'] ?? null, $lf['base'] ?? null]);
+    [$st, $d] = sm_rest('GET', '/platform-co/events');
+    sm_eq('/platform-co/events listet den Spiegel', [200, 1], [$st, count(array_filter((array) ($d['items'] ?? []), function ($i) use ($m) { return intval($i['id']) === $m; }))]);
+    [$st, $d] = sm_rest('POST', "/events/$m", ['title' => 'lokal geändert']);
+    sm_eq('Lokales Speichern gesperrt: 409', [409, 'tix_co_platform_event'], [$st, $d['code'] ?? null]);
+    [$st, $d] = sm_rest('GET', "/platform-co/$m/events/{$s['co']}/edit");
+    sm_eq('Durchgriff: Editor-Daten von der Plattform', [200, 'SMTEST Co-Event'], [$st, html_entity_decode((string) ($d['event']['title'] ?? $d['title'] ?? ''), ENT_QUOTES)]);
+    [$st] = sm_rest('POST', "/platform-co/$m/events/{$s['co']}", ['title' => 'SMTEST Co-Event (geändert)']);
+    sm_eq('Durchgriff: Speichern 200', 200, $st);
+    [$st, $d] = sm_rest('POST', "/platform-co/$m/events/{$s['co']}/guestlist", ['name' => 'Neuer Co Gast']);
+    sm_eq('Durchgriff: Gast angelegt', true, $st >= 200 && $st < 300);
+    [$st, $d] = sm_rest('POST', "/platform-co/$m/orders/999999/refund", []);
+    sm_eq('Storno-Route freigegeben (Ersteller = Provisionskunde), fremde Bestellung 403', [403, 'Diese Bestellung gehört nicht zu diesem Event.'], [$st, $d['message'] ?? null]);
+    [$st, $d] = sm_rest('POST', "/platform-co/$m/events/{$s['co']}", ['co_organizer' => null]);
+    sm_eq('Co-Veranstalter ändern: 403', 403, $st);
+    $r = TIX_Site_Move::sync_co_events();
+    sm_eq('Nächster Abgleich übernimmt den neuen Titel', ['SMTEST Co-Event (geändert)', 1], [get_the_title($m), $r['updated'] ?? null]);
+    sm_done(); return;
+}
+if ($mode === 'co-plat') { // Phase aus | weg
+    $s = json_decode((string) $args[1], true);
+    if (($args[2] ?? '') === 'aus') TIX_Co_Organizer::set($s['co'], $s['oid'], false, 0); else TIX_Co_Organizer::clear($s['co']);
+    $names = array_column((array) get_post_meta($s['co'], '_tix_guest_list', true), 'name');
+    echo (in_array('Neuer Co Gast', $names, true) ? 'ok    Plattform: Gast aus dem Durchgriff gespeichert' : 'FAIL  Plattform: Gast fehlt') . "\n";
+    echo "co-plat ok\n"; return;
+}
 if ($mode === 'cleanup-kk') {
     require_once ABSPATH . 'wp-admin/includes/user.php';
     $map = (array) get_option(TIX_Site_Move::OPT_MAP, []);
+    foreach (get_posts(['post_type' => 'event', 'post_status' => ['any', 'trash'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_platform_co']) as $p) wp_delete_post($p, true);
+    delete_option('tix_platform_co_sync');
     foreach (['event', 'tix_ticket', 'tix_location', 'tix_artist', 'tix_organizer'] as $t) foreach (get_posts(['post_type' => $t, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => TIX_Site_Move::META_FROM]) as $p) {
         remove_all_actions('before_delete_post'); wp_delete_post($p, true);
     }
@@ -176,6 +226,7 @@ if ($mode === 'cleanup-plat') {
         foreach ($b['posts'] as $p) wp_delete_post($p, true);
         foreach ($b['oids'] as $o) { delete_option(TIX_Site_Move::OPT . $o); wp_delete_post($o, true); }
         foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 's' => 'SMTEST']) as $p) wp_delete_post($p, true);
+        require_once ABSPATH . 'wp-admin/includes/user.php'; if (!empty($b['owner'])) wp_delete_user($b['owner']);
         $wpdb->delete(TIX_Order::items_table_name(), ['order_id' => $b['order']]); $wpdb->delete(TIX_Order::table_name(), ['id' => $b['order']]);
         if (class_exists('TIX_Newsletter')) $wpdb->delete(TIX_Newsletter::tc(), ['email' => 'smnl@example.test']);
         $cp = (array) get_option('tix_coupons', []); unset($cp['SMTEST10']); update_option('tix_coupons', $cp);

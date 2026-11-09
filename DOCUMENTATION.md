@@ -4946,4 +4946,4 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Einlass: `TIX_Site_Move::local_event_id` / `guest_event_id` lösen alte Plattform-IDs in `GL-`-Codes auf (REST-Scan, Check-in-Seite, Gast-QR-Seite, Ticket-Toggle).
 - Abrechnung: Events mit `_tix_moved_at` zählen trotz `_tix_syndicated` weiter (Verkäufe vor dem Umzug).
 - Test `tests/test-site-move-e2e.php` (zwei Webserver).
-
+- Schritt 2 (ab 1.38.703): Plattform `GET /partner/co-events`, `POST /partner/co-events/{id}/call` (Partner-Schlüssel, als Inhaber des Kunden, Storno erlaubt); neue Seite Spiegel `_tix_platform_co` (Cron `tix_platform_co_sync`, `POST /platform-co/sync`, `wp tixomat umzug co-events`), `GET /platform-co/events`, Durchgriff `GET|POST|DELETE /platform-co/{id}/{route}`, lokales Ändern 409 `tix_co_platform_event`. Spiegel gelten als System-Events (nie verteilt). `TIX_Co_Remote::allowed(…, $storno)`.

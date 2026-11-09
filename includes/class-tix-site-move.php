@@ -11,6 +11,11 @@ if (!defined('ABSPATH')) exit;
  * Neue Seite (Einzel-Seite, WP-CLI):
  *   wp tixomat umzug importieren --von=<plattform-api> --schluessel=<s> [--trocken]
  *   wp tixomat umzug status
+ *
+ * Schritt 2 (1.38.703): Co-Events des Kunden (Ersteller = andere Veranstalter auf der Plattform) auf der neuen Seite.
+ *   Plattform: GET /partner/co-events, POST /partner/co-events/{id}/call   (Header X-Tix-Syndication-Key = Partner-Schlüssel)
+ *   Neue Seite: Anzeige-Spiegel (Meta _tix_platform_co), stündlicher Abgleich, GET /platform-co/events,
+ *               GET|POST|DELETE /platform-co/{id}/{route} (Durchgriff auf die Plattform), wp tixomat umzug co-events
  */
 class TIX_Site_Move {
 
@@ -27,8 +32,17 @@ class TIX_Site_Move {
     /** Plattform-interne Meta, die nicht mitzieht. */
     const SKIP_META_RE = '#^_tix_(settled|settle_|syndicat|source_|partner_|moved_|co_|organizer_id$|location_id$|org_user_id$|org_kind$|org_approval|org_terms|org_payout|org_iban|org_bank|org_fee|org_team|publish_held|edit_lock|thumbnail_id$)#';
 
+    const CO_META   = '_tix_platform_co';
+    const CO_CRON   = 'tix_platform_co_sync';
+
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        add_action(self::CO_CRON, [__CLASS__, 'sync_co_events']);
+        add_action('init', function () {
+            if (self::multi() || !self::co_ready()) return;
+            if (!wp_next_scheduled(self::CO_CRON)) wp_schedule_event(time() + 300, 'hourly', self::CO_CRON);
+        }, 40);
+        add_filter('rest_request_before_callbacks', [__CLASS__, 'guard_co_mirror'], 10, 3);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat umzug', [__CLASS__, 'cli']);
     }
 
@@ -37,7 +51,16 @@ class TIX_Site_Move {
     }
 
     public static function routes() {
-        if (!self::multi()) return;
+        if (!self::multi()) {
+            $o = ['permission_callback' => ['TIX_REST_API', 'check_organizer']];
+            register_rest_route(self::NS, '/platform-co/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_co_list']] + $o);
+            register_rest_route(self::NS, '/platform-co/sync', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_co_sync']] + $o);
+            register_rest_route(self::NS, '/platform-co/(?P<id>\d+)/(?P<path>[A-Za-z0-9/_-]+)', ['methods' => ['GET', 'POST', 'DELETE'], 'callback' => [__CLASS__, 'rest_co_proxy'], 'permission_callback' => [__CLASS__, 'perm_co_proxy']]);
+            return;
+        }
+        $pp = ['permission_callback' => [__CLASS__, 'perm_partner']];
+        register_rest_route(self::NS, '/partner/co-events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_partner_co_events']] + $pp);
+        register_rest_route(self::NS, '/partner/co-events/(?P<id>\d+)/call', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_partner_co_call']] + $pp);
         $p = ['permission_callback' => ['TIX_Platform_Customers', 'perm']];
         $k = '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/move';
         register_rest_route(self::NS, $k, [
@@ -627,6 +650,205 @@ class TIX_Site_Move {
         return ['ok' => true, 'dry_run' => self::$dry, 'organizer' => $man['organizer_name'] ?? '', 'counts' => $n, 'events' => count($events), 'errors' => $errors, 'not_moved' => $man['not_moved'] ?? []];
     }
 
+    // ═══════════════ Schritt 2: Co-Events (Plattform) ═══════════════
+
+    /** Partner über seinen Schlüssel (X-Tix-Syndication-Key), mit zugeordnetem Veranstalter. */
+    public static function perm_partner(WP_REST_Request $req) {
+        if (!self::multi() || !class_exists('TIX_Partners')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+        $p = TIX_Partners::find_by_key((string) $req->get_header('X-Tix-Syndication-Key'));
+        if (!$p) return new WP_Error('unauthorized', 'Ungültiger Partner-Schlüssel.', ['status' => 401]);
+        if (!intval($p['organizer_id'] ?? 0)) return new WP_Error('tix_partner_no_organizer', 'Diese Seite ist keinem Veranstalter zugeordnet.', ['status' => 403]);
+        wp_set_current_user(0);
+        $req->set_param('_partner_oid', intval($p['organizer_id']));
+        return true;
+    }
+
+    /** Co-Events des Veranstalters (Ersteller = andere), nicht im Papierkorb. */
+    private static function partner_co_ids($oid) {
+        return array_values(array_filter(self::co_event_ids($oid), function ($e) use ($oid) {
+            return in_array(get_post_status($e), ['publish', 'draft', 'pending', 'private', 'future'], true) && intval(TIX_Co_Organizer::ref_id($e)) === intval($oid);
+        }));
+    }
+
+    public static function rest_partner_co_events(WP_REST_Request $req) {
+        $oid = intval($req->get_param('_partner_oid'));
+        $items = [];
+        foreach (self::partner_co_ids($oid) as $e) {
+            $creator = intval(get_post_meta($e, '_tix_organizer_id', true));
+            $thumb = get_post_thumbnail_id($e);
+            $price = null;
+            foreach ((array) get_post_meta($e, '_tix_ticket_categories', true) as $c) if (is_array($c) && empty($c['hidden']) && isset($c['price'])) { $p = floatval(($c['sale_price'] ?? '') !== '' ? $c['sale_price'] : $c['price']); $price = $price === null ? $p : min($price, $p); }
+            $items[] = ['id' => $e, 'status' => get_post_status($e), 'title' => html_entity_decode(get_the_title($e), ENT_QUOTES, 'UTF-8'),
+                'content' => (string) get_post_field('post_content', $e), 'excerpt' => (string) get_post_field('post_excerpt', $e),
+                'date_start' => (string) get_post_meta($e, '_tix_date_start', true), 'time_start' => (string) get_post_meta($e, '_tix_time_start', true),
+                'date_end' => (string) get_post_meta($e, '_tix_date_end', true), 'time_end' => (string) get_post_meta($e, '_tix_time_end', true),
+                'location' => (string) get_post_meta($e, '_tix_location', true), 'address' => (string) get_post_meta($e, '_tix_address', true),
+                'image' => $thumb ? (string) wp_get_attachment_image_url($thumb, 'large') : '', 'url' => (string) get_permalink($e),
+                'tickets' => get_post_meta($e, '_tix_tickets_enabled', true) === '1', 'price_from' => $price,
+                'creator' => ['id' => $creator, 'name' => html_entity_decode((string) get_the_title($creator), ENT_QUOTES, 'UTF-8')],
+                'access' => TIX_Co_Organizer::has_access($e)];
+        }
+        return rest_ensure_response(['ok' => true, 'organizer_id' => $oid, 'items' => $items]);
+    }
+
+    /** Durchgriff der neuen Seite: Route für ein Co-Event als Inhaber des Co-Veranstalters (Rechte wie Teil A, Storno erlaubt). */
+    public static function rest_partner_co_call(WP_REST_Request $req) {
+        $oid = intval($req->get_param('_partner_oid'));
+        $eid = absint($req['id']);
+        if (!in_array($eid, self::partner_co_ids($oid), true)) return new WP_Error('tix_co_forbidden', 'Kein gemeinsames Event.', ['status' => 403]);
+        if (!TIX_Co_Organizer::has_access($eid)) return new WP_Error('tix_co_no_access', 'Der Veranstalter hat den Zugriff auf dieses Event ausgeschaltet.', ['status' => 403]);
+        $b = $req->get_json_params();
+        if (!is_array($b)) $b = [];
+        $method = strtoupper((string) ($b['method'] ?? 'GET'));
+        $path = '/' . ltrim((string) ($b['path'] ?? ''), '/');
+        $q = is_array($b['query'] ?? null) ? $b['query'] : [];
+        $body = is_array($b['body'] ?? null) ? $b['body'] : [];
+        if (preg_match('#[^A-Za-z0-9/_-]#', $path)) return new WP_Error('tix_invalid_field', 'Ungültige Route.', ['status' => 400, 'field' => 'path']);
+        $ok = TIX_Co_Remote::allowed($method, $path, $q, $body, $eid, true); // Ersteller ist Provisionskunde → Storno/Erstattung erlaubt (User 09.11.)
+        if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
+        $u = TIX_Co_Organizer::owner_user($oid);
+        if (!$u) return new WP_Error('tix_co_actor', 'Zum Veranstalter gibt es kein Konto auf der Plattform.', ['status' => 409]);
+        wp_set_current_user($u->ID);
+        try {
+            $sub = new WP_REST_Request($method, '/' . self::NS . $path);
+            $sub->set_query_params($q);
+            if ($method !== 'GET' && $body) { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($body)); }
+            $res = rest_do_request($sub);
+            $data = rest_get_server()->response_to_data($res, false);
+            $status = $res->get_status(); $headers = $res->get_headers();
+        } finally {
+            wp_set_current_user(0);
+        }
+        $out = ['ok' => $status < 400, 'status' => $status, 'data' => $data];
+        foreach (['Content-Type', 'Content-Disposition'] as $h) if (!empty($headers[$h])) $out['headers'][$h] = (string) $headers[$h];
+        return rest_ensure_response($out);
+    }
+
+    // ═══════════════ Schritt 2: Co-Events (neue Seite) ═══════════════
+
+    private static function co_ready() {
+        return class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured();
+    }
+
+    private static function co_api($route) {
+        return rtrim((string) tix_get_settings('syndication_api_url'), '/') . $route;
+    }
+
+    private static function co_headers() {
+        return ['X-Tix-Syndication-Key' => (string) tix_get_settings('syndication_api_key'), 'Accept' => 'application/json', 'Content-Type' => 'application/json'];
+    }
+
+    /** Plattform-ID, wenn das Event ein Spiegel eines Plattform-Co-Events ist, sonst 0. */
+    public static function platform_co_id($event_id) {
+        return self::multi() ? 0 : intval(get_post_meta(intval($event_id), self::CO_META, true));
+    }
+
+    public static function co_list_fields($eid) {
+        return ['event_role' => 'co', 'remote' => true, 'base' => '/platform-co/' . intval($eid), 'access' => get_post_meta($eid, '_tix_platform_co_access', true) === '1',
+            'shared_with' => ['id' => 0, 'name' => (string) get_post_meta($eid, '_tix_platform_co_by', true), 'logo' => '']];
+    }
+
+    public static function co_editor_payload($eid) {
+        return ['co_organizer_available' => false, 'co_organizer_mode' => 'platform', 'co_organizer_unavailable_reason' => 'platform_co', 'co_organizer_editable' => false,
+            'event_role' => 'co', 'co_organizer' => null, 'remote_base' => '/platform-co/' . intval($eid)];
+    }
+
+    /** Abgleich: Co-Events der Plattform als Anzeige-Spiegel (Ticketkauf beim Ersteller). → {ok, created, updated, removed} | WP_Error */
+    public static function sync_co_events() {
+        if (self::multi() || !self::co_ready()) return new WP_Error('tix_co_not_ready', 'Keine Verbindung zur Plattform eingerichtet.');
+        $r = wp_remote_get(self::co_api('/partner/co-events'), ['timeout' => 30, 'headers' => self::co_headers()]);
+        if (is_wp_error($r)) return new WP_Error('tix_co_http', $r->get_error_message());
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $d = json_decode((string) wp_remote_retrieve_body($r), true);
+        if ($code === 403 && is_array($d) && ($d['code'] ?? '') === 'tix_partner_no_organizer') return ['ok' => true, 'created' => 0, 'updated' => 0, 'removed' => 0, 'note' => 'no_organizer'];
+        if ($code !== 200 || !is_array($d)) return new WP_Error('tix_co_http', 'HTTP ' . $code . ': ' . (is_array($d) ? (string) ($d['message'] ?? '') : ''));
+        $map = (array) get_option(self::OPT_MAP, []);
+        $org = intval($map['organizer'] ?? 0) ?: intval((get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids']) ?: [0])[0]);
+        $seen = []; $n = ['created' => 0, 'updated' => 0, 'removed' => 0]; $errors = [];
+        foreach ((array) $d['items'] as $it) {
+            $pid = intval($it['id']);
+            $seen[$pid] = true;
+            $have = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future', 'trash'], 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => self::CO_META, 'meta_value' => strval($pid)]);
+            $meta = [self::CO_META => $pid, '_tix_syndicate' => '0', '_tix_platform_co_by' => (string) ($it['creator']['name'] ?? ''),
+                '_tix_platform_co_access' => !empty($it['access']) ? '1' : '0', '_tix_platform_co_url' => (string) $it['url'], '_tix_organizer_id' => $org,
+                '_tix_date_start' => (string) $it['date_start'], '_tix_time_start' => (string) $it['time_start'], '_tix_date_end' => (string) $it['date_end'], '_tix_time_end' => (string) $it['time_end'],
+                '_tix_location' => (string) $it['location'], '_tix_address' => (string) $it['address'], '_tix_tickets_enabled' => '0',
+                '_tix_extshop_enabled' => !empty($it['tickets']) ? '1' : '0', '_tix_extshop_url' => (string) $it['url'], '_tix_extshop_text' => 'Tickets kaufen', '_tix_extshop_mode' => 'replace',
+                '_tix_extshop_price' => $it['price_from'] === null ? '' : (string) $it['price_from']];
+            $post = ['post_type' => 'event', 'post_title' => (string) $it['title'], 'post_content' => (string) $it['content'], 'post_excerpt' => (string) $it['excerpt'],
+                'post_status' => in_array($it['status'], ['publish', 'draft', 'pending', 'private', 'future'], true) ? $it['status'] : 'draft'];
+            if ($have) {
+                $id = intval($have[0]);
+                wp_update_post($post + ['ID' => $id]);
+                foreach ($meta as $k => $v) update_post_meta($id, $k, $v);
+                $n['updated']++;
+            } else {
+                $id = wp_insert_post($post + ['meta_input' => $meta], true);
+                if (is_wp_error($id)) { $errors[] = $id->get_error_message(); continue; }
+                $n['created']++;
+            }
+            if ((string) $it['image'] !== (string) get_post_meta($id, '_tix_platform_co_img', true)) {
+                $att = $it['image'] !== '' ? self::sideload(['url' => $it['image']], $id, $errors) : 0;
+                if ($att) set_post_thumbnail($id, $att); elseif ($it['image'] === '') delete_post_thumbnail($id);
+                update_post_meta($id, '_tix_platform_co_img', (string) $it['image']);
+            }
+        }
+        foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {
+            if (empty($seen[intval(get_post_meta($id, self::CO_META, true))])) { wp_trash_post($id); $n['removed']++; }
+        }
+        update_option('tix_platform_co_sync', ['at' => gmdate('c'), 'counts' => $n, 'errors' => array_slice($errors, 0, 20)], false);
+        return ['ok' => true] + $n + ['errors' => $errors];
+    }
+
+    public static function rest_co_sync() {
+        $r = self::sync_co_events();
+        return is_wp_error($r) ? new WP_Error($r->get_error_code(), $r->get_error_message(), ['status' => 502]) : rest_ensure_response($r);
+    }
+
+    public static function rest_co_list() {
+        $items = [];
+        foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => 200, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {
+            $items[] = ['id' => intval($id), 'platform_id' => self::platform_co_id($id), 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'),
+                'date_start' => (string) get_post_meta($id, '_tix_date_start', true), 'time_start' => (string) get_post_meta($id, '_tix_time_start', true),
+                'image' => (string) get_the_post_thumbnail_url($id, 'large'), 'url' => (string) get_post_meta($id, '_tix_platform_co_url', true)] + self::co_list_fields($id);
+        }
+        return rest_ensure_response(['ok' => true, 'items' => $items, 'sync' => get_option('tix_platform_co_sync', null)]);
+    }
+
+    public static function perm_co_proxy(WP_REST_Request $req) {
+        $c = TIX_REST_API::check_organizer($req);
+        if ($c !== true) return $c;
+        $id = absint($req['id']);
+        if (!self::platform_co_id($id)) return new WP_Error('tix_co_forbidden', 'Kein gemeinsames Event der Plattform.', ['status' => 403]);
+        if (get_post_meta($id, '_tix_platform_co_access', true) !== '1') return new WP_Error('tix_co_no_access', 'Der Veranstalter hat den Zugriff auf dieses Event ausgeschaltet.', ['status' => 403]);
+        return true;
+    }
+
+    /** GET|POST|DELETE /platform-co/{id}/{route} → Antwort der Plattform (gleiches Format wie die Route dort). */
+    public static function rest_co_proxy(WP_REST_Request $req) {
+        $pid = self::platform_co_id(absint($req['id']));
+        $body = $req->get_json_params();
+        $resp = wp_remote_post(self::co_api('/partner/co-events/' . $pid . '/call'), ['timeout' => 25, 'headers' => self::co_headers(),
+            'body' => wp_json_encode(['method' => $req->get_method(), 'path' => '/' . ltrim((string) $req['path'], '/'), 'query' => $req->get_query_params() ?: new stdClass(), 'body' => is_array($body) ? $body : new stdClass()])]);
+        if (is_wp_error($resp)) return new WP_Error('tix_partner_unreachable', 'Die Plattform ist gerade nicht erreichbar.', ['status' => 502]);
+        $code = intval(wp_remote_retrieve_response_code($resp));
+        $env = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($code !== 200 || !is_array($env) || !array_key_exists('status', $env)) {
+            return new WP_Error(is_array($env) && !empty($env['code']) ? (string) $env['code'] : 'tix_co_remote_error', is_array($env) && !empty($env['message']) ? (string) $env['message'] : 'Die Plattform hat die Anfrage abgelehnt.', ['status' => in_array($code, [401, 403, 404, 409, 429], true) ? $code : 502]);
+        }
+        $res = new WP_REST_Response($env['data'], intval($env['status']));
+        foreach ((array) ($env['headers'] ?? []) as $h => $v) if (in_array($h, ['Content-Type', 'Content-Disposition'], true)) $res->header($h, (string) $v);
+        return $res;
+    }
+
+    /** Spiegel nicht lokal ändern (sonst überschreibt der nächste Abgleich die Änderung). */
+    public static function guard_co_mirror($response, $handler, WP_REST_Request $req) {
+        if ($response instanceof WP_Error || self::multi() || $req->get_method() === 'GET') return $response;
+        if (!preg_match('#^/' . preg_quote(self::NS, '#') . '/(?:events|studio/events|pos/events|checkin)/(\d+)(/|$)#', $req->get_route(), $m)) return $response;
+        if (!self::platform_co_id(intval($m[1]))) return $response;
+        return new WP_Error('tix_co_platform_event', 'Dieses Event gehört ' . (get_post_meta(intval($m[1]), '_tix_platform_co_by', true) ?: 'einem anderen Veranstalter') . ' auf evendis. Änderungen bitte über den gemeinsamen Zugang.', ['status' => 409, 'base' => '/platform-co/' . intval($m[1])]);
+    }
+
     // ═══════════════ WP-CLI ═══════════════
 
     /**
@@ -634,7 +856,7 @@ class TIX_Site_Move {
      *
      * ## OPTIONS
      * <aktion>
-     * : importieren | status | abschliessen
+     * : importieren | status | abschliessen | co-events
      *
      * [--von=<api>]
      * : REST-Basis der Plattform, z. B. https://evendis.de/wp-json/tixomat/v1
@@ -659,7 +881,13 @@ class TIX_Site_Move {
             WP_CLI::success('Umzug auf dieser Seite abgeschlossen (weitere Importe gesperrt).');
             return;
         }
-        if ($a !== 'importieren') WP_CLI::error('Aktion: importieren | status | abschliessen');
+        if ($a === 'co-events') {
+            $r = self::sync_co_events();
+            if (is_wp_error($r)) WP_CLI::error($r->get_error_message());
+            WP_CLI::success(sprintf('Co-Events: %d neu, %d aktualisiert, %d entfernt.', $r['created'], $r['updated'], $r['removed']));
+            return;
+        }
+        if ($a !== 'importieren') WP_CLI::error('Aktion: importieren | status | abschliessen | co-events');
         if (empty($assoc['von']) || empty($assoc['schluessel'])) WP_CLI::error('--von und --schluessel angeben.');
         $r = self::import((string) $assoc['von'], (string) $assoc['schluessel'], !empty($assoc['trocken']));
         if (is_wp_error($r)) WP_CLI::error($r->get_error_message());
