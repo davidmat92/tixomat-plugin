@@ -572,6 +572,7 @@ class TIX_Settings {
             'partner_autoconnect'         => 1, // Plattform: Tixomat-Seiten dürfen sich koppeln (Verkauf erst nach Freigabe)
             // Partner-API (Quelle): Verkauf geteilter Events über die Plattform
             'partner_api_enabled'         => 0,
+            'co_remote_enabled'           => 0, // Co-Veranstalter per Durchgriff (Teil B), bis zur Freigabe aus
             'channel_fee_mode'            => 'customer', // Gebühr im evendis-Kanal: customer | split | organizer (wer trägt sie)
             'partner_api_key'             => '',
             // ── Mein-Konto Styling ──
@@ -1398,6 +1399,7 @@ class TIX_Settings {
         $clean['syndication_shared_key_enabled'] = !empty($input['syndication_shared_key_enabled']) ? 1 : 0;
         $clean['partner_autoconnect']        = !empty($input['partner_autoconnect']) ? 1 : 0;
         $clean['partner_api_enabled']        = !empty($input['partner_api_enabled']) ? 1 : 0;
+        $clean['co_remote_enabled']          = !empty($input['co_remote_enabled']) ? 1 : 0;
         $clean['channel_fee_mode']           = in_array($input['channel_fee_mode'] ?? '', ['customer', 'split', 'organizer'], true) ? $input['channel_fee_mode'] : (string) (get_option(self::OPTION_KEY, [])['channel_fee_mode'] ?? 'customer');
         $clean['partner_api_key']            = sanitize_text_field($input['partner_api_key'] ?? '');
 
@@ -7517,6 +7519,9 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <?php self::checkbox_row('partner_api_enabled', 'Verkauf über die Plattform erlauben', $s, 'Schaltet die Partner-API frei (Angebot, Bestellung, Status für die Plattform).'); ?>
+                                            </div>
+                                            <div class="tix-field tix-field-full">
+                                                <?php self::checkbox_row('co_remote_enabled', 'Co-Veranstalter über die Plattform erlauben', $s, 'Ein Co-Veranstalter bearbeitet geteilte Events im Studio der Plattform; die Daten bleiben auf dieser Seite. Braucht den Verkauf über die Plattform.'); ?>
                                             </div>
                                             <?php self::text_row('partner_api_key', 'Partner-Schlüssel (von der Plattform)', $s, 'tix_pout_...'); ?>
                                             <div class="tix-field">

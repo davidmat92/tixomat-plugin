@@ -2,7 +2,7 @@
 /**
  * Integrationstest Co-Veranstalter Teil B – Durchgriff (1.38.697).
  * Einzel-Seite (Lizenzseite) in drei Läufen, weil tix_get_settings() je Prozess zwischenspeichert:
- *   wp eval-file …/test-co-remote-wp.php setup   (Einstellungen setzen)
+ *   wp eval-file …/test-co-remote-wp.php setup   (Einstellungen setzen; `setup off` = Schalter co_remote_enabled aus)
  *   wp eval-file …/test-co-remote-wp.php run     (Prüfungen)
  *   wp eval-file …/test-co-remote-wp.php cleanup (Einstellungen zurück)
  * Plattform: ein Lauf (`run`). HTTP zur Gegenseite wird per pre_http_request nachgestellt.
@@ -45,7 +45,7 @@ if (!$multi) {
         update_option('tix_co_test_backup', ['had' => is_array($s), 'settings' => $s], false);
         $s = is_array($s) ? $s : [];
         $s = array_merge($s, ['syndication_enabled' => 1, 'syndication_api_url' => 'https://plat.test/wp-json/tixomat/v1', 'syndication_api_key' => str_repeat('s', 32),
-            'partner_api_enabled' => 1, 'partner_api_key' => str_repeat('p', 32)]);
+            'partner_api_enabled' => 1, 'partner_api_key' => str_repeat('p', 32), 'co_remote_enabled' => ($args[1] ?? '') === 'off' ? 0 : 1]);
         update_option('tix_settings', $s);
         echo "setup ok\n"; return;
     }
@@ -65,6 +65,26 @@ if (!$multi) {
         $other = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Cxtest anderes Event', 'meta_input' => ['_tix_date_start' => '2027-03-01']]);
         $tmp = [$sid, $other];
         wp_set_current_user($admin_id);
+        if (!TIX_Co_Remote::enabled()) { // Schalter aus (Vorgabe): nichts von Teil B erreichbar
+            echo "== Schalter aus\n";
+            [, $d] = cx_rest('GET', "/events/$sid/edit");
+            cx_eq('Editor: nicht verfügbar, Grund disabled', [false, 'disabled'], [$d['event']['co_organizer_available'] ?? null, $d['event']['co_organizer_unavailable_reason'] ?? null]);
+            [$st, , $c] = cx_rest('POST', "/events/$sid/co-organizer/invite", ['email' => 'x@example.test', 'consent' => true]);
+            cx_eq('Einladen: 409 tix_co_remote_unavailable', [409, 'tix_co_remote_unavailable'], [$st, $c]);
+            update_post_meta($sid, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'Alt', 'access' => true]);
+            update_post_meta($sid, '_tix_co_token_hash', hash('sha256', str_repeat('t', 48)));
+            wp_set_current_user(0);
+            $r = new WP_REST_Request('POST', "/tixomat/v1/partner/co/$sid");
+            $r->set_header('X-Tix-Partner-Id', 'plat.test'); $r->set_header('X-Tix-Partner-Key', str_repeat('p', 32)); $r->set_header('X-Tix-Co-Token', str_repeat('t', 48));
+            $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode(['method' => 'GET', 'path' => "/events/$sid/edit"]));
+            cx_eq('Durchgriff: 404 (Route aus)', 404, rest_do_request($r)->get_status());
+            wp_set_current_user($admin_id);
+            $GLOBALS['cx_reply'] = function () { return [200, ['ok' => true, 'co_organizer' => null]]; };
+            [$st] = cx_rest('POST', "/events/$sid", ['co_organizer' => null]);
+            cx_eq('Entfernen geht trotzdem (Meldung clear, Meta weg)', [200, true, ''], [$st, in_array('clear', array_map(function ($c) { return $c['body']['action'] ?? null; }, $GLOBALS['cx_calls']), true), get_post_meta($sid, '_tix_co_token_hash', true)]);
+            echo ($GLOBALS['t_fails'] ? "FEHLER: {$GLOBALS['t_fails']}" : 'ALLES OK') . " ({$GLOBALS['t_count']} Prüfungen)\n";
+            return;
+        }
         [, $d] = cx_rest('GET', "/events/$sid/edit");
         cx_eq('Editor: verfügbar, remote', [true, 'remote', null], [$d['event']['co_organizer_available'] ?? null, $d['event']['co_organizer_mode'] ?? null, array_key_exists('co_organizer', $d['event'] ?? []) ? $d['event']['co_organizer'] : 'x']);
         [, $d] = cx_rest('GET', "/events/$other/edit");

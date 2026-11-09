@@ -4925,4 +4925,6 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - evendis: Spiegel-Meta `_tix_co_remote_oid`, `_tix_co_remote_access`, `_tix_co_remote_token`; Routen `GET /co-remote/events` und `GET|POST|DELETE /co-remote/{id}/{route}` (Weiterleitung).
 - Keine Bild-Uploads über den Durchgriff.
 - Kein Storno, keine Erstattung über den Durchgriff (ab 1.38.698, User 09.11.): `orders/{id}/refund|cancel` und `pos/orders/{id}/void` → 403 `tix_co_forbidden`. Auf evendis.de-Events (Teil A) bleiben beide erlaubt.
-- Test `tests/test-co-remote-wp.php`: Einzel-Seite in drei Läufen (`setup`, `run`, `cleanup`), Plattform `run`.
+- Schalter `co_remote_enabled` (ab 1.38.699, nur Lizenzseite, Vorgabe aus): aus → `unavailable_reason` = `disabled`, Einladen 409, `/partner/co/{id}` 404; Entfernen bleibt möglich. Freischalten je Seite nach Freigabe (WP-Admin oder `tix_settings[co_remote_enabled]=1`).
+- Test `tests/test-co-remote-wp.php`: Einzel-Seite in drei Läufen (`setup [off]`, `run`, `cleanup`), Plattform `run`.
+- Zwei-Seiten-Test `tests/test-co-remote-e2e.php` über echtes HTTP zwischen zwei lokalen Webservern (Modi `setup-kk`, `setup-plat`, `push-kk`, `run`, `cleanup-kk`, `cleanup-plat`): Verteilung, Einladung, Profil, `/co-remote/events`, Bearbeiten/Speichern, Gästeliste, Check-in, Kasse ohne Storno/Erstattung, Zugriff aus/an, Entfernen + alter Schlüssel 401. 37 Prüfungen.

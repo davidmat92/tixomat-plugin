@@ -38,11 +38,17 @@ class TIX_Co_Remote {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
     }
 
+    /** Lizenzseite: Schalter „Co-Veranstalter über die Plattform erlauben“ (co_remote_enabled, Vorgabe aus). */
+    public static function enabled() {
+        return !empty(tix_get_settings('co_remote_enabled'));
+    }
+
     // ═══════════════ Lizenzseite ═══════════════
 
     /** Grund, warum es hier keinen Co-Veranstalter gibt, oder '' (verfügbar). */
     public static function unavailable_reason($event_id) {
         if (self::multi()) return 'platform';
+        if (!self::enabled()) return 'disabled';
         if (!class_exists('TIX_Syndication_Push') || !TIX_Syndication_Push::is_configured()) return 'not_connected';
         if (!class_exists('TIX_Partners') || !TIX_Partners::source_api_enabled()) return 'no_partner_api';
         $event_id = intval($event_id);
@@ -89,11 +95,13 @@ class TIX_Co_Remote {
     public static function check(array $body, $post_id, $is_new) {
         if ($is_new) return new WP_Error('tix_co_remote_invite', 'Den Co-Veranstalter bitte nach dem ersten Speichern per E-Mail einladen.', ['status' => 400, 'field' => 'co_organizer']);
         if (!self::is_editor()) return new WP_Error('tix_co_forbidden', 'Den Co-Veranstalter kann nur der Veranstalter ändern.', ['status' => 403]);
-        $why = self::unavailable_reason($post_id);
-        if ($why !== '') return new WP_Error('tix_co_remote_unavailable', 'Co-Veranstalter gibt es nur für Events, die auf evendis.de geteilt sind.', ['status' => 409, 'reason' => $why]);
         $v = $body['co_organizer'];
         $d = self::data($post_id);
-        if ($v === null || $v === false || $v === '' || $v === 0) {
+        $clear = ($v === null || $v === false || $v === '' || $v === 0);
+        $why = self::unavailable_reason($post_id);
+        // Entfernen geht auch bei ausgeschaltetem Schalter (sonst bliebe ein Co-Veranstalter auf evendis.de verknüpft)
+        if ($why !== '' && !($clear && $d && $why === 'disabled')) return new WP_Error('tix_co_remote_unavailable', 'Co-Veranstalter gibt es nur für Events, die auf evendis.de geteilt sind.', ['status' => 409, 'reason' => $why]);
+        if ($clear) {
             if (!$d) return null;
             $r = self::send($post_id, ['action' => 'clear']);
             if (is_wp_error($r)) return $r;
@@ -228,7 +236,7 @@ class TIX_Co_Remote {
     }
 
     public static function perm_partner_co(WP_REST_Request $req) {
-        if (self::multi() || !class_exists('TIX_Partner_API')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+        if (self::multi() || !self::enabled() || !class_exists('TIX_Partner_API')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
         $a = TIX_Partner_API::check_auth($req);
         if ($a !== true) return $a;
         $sid = absint($req['id']);
