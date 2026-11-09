@@ -4902,3 +4902,10 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
   - Website: Reihenfolge wie oben, nach Mitternacht Etikett des Folgetags (`<span class="tix-tt-nextday">So.</span>`).
 - **Ticket-Beschreibung:** `desc` je Kategorie mehrzeilig (Editor `sanitize_textarea_field`, max. 500 Zeichen; WP-Admin Textfeld). Website-Ticketauswahl zeigt Zeilenumbrüche (`nl2br`). API wie bisher `categories[].description`.
 - Test `tests/test-timetable-midnight-wp.php` (28 Prüfungen, Einzel-Seite und Plattform).
+
+## 107. Bestell-Tabellen: Selbstheilung (ab 1.38.695, Fund XXL 09.11.)
+- Problem: `TIX_Order::create_tables()` lief nur in der Versions-Migration (`admin_init`). Seiten, die nur per WP-CLI/REST eingerichtet wurden (ohne wp-admin-Besuch), hatten keine `tix_orders`/`_items`/`_notes` (Fund mallorca-festival-xxl).
+- Jetzt `TIX_Order::maybe_install()` auf `init` (Priorität 4) und im Aktivierungs-Hook: eigene Option `tix_order_db` = `TIX_Order::DB_VER` ('1'), unabhängig von `tix_db_version`. Fehlt die Option, werden die drei Tabellen geprüft und bei Bedarf per dbDelta angelegt; die Option wird erst gesetzt, wenn alle drei da sind. Danach pro Anfrage nur ein (autoload) Options-Abruf.
+- Neue Tabellenänderungen: `DB_VER` erhöhen.
+- `tix_db_version` auf einer neuen Seite: Die Migration ab 0 setzt u. a. `wpautop` auf `_tix_info_*` ohne `<p>`. Die Website wendet `wpautop` bei der Ausgabe ohnehin an; auf neuen Seiten die Version daher setzen (Tabellen vorher anlegen, Rewrite-Regeln leeren).
+- Test `tests/test-order-tables-heal-wp.php` (9 Prüfungen, Einzel-Seite und Plattform).

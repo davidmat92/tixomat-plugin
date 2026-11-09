@@ -24,6 +24,33 @@ class TIX_Order {
     public static function table_name()      { global $wpdb; return $wpdb->prefix . 'tix_orders'; }
     public static function items_table_name() { global $wpdb; return $wpdb->prefix . 'tix_order_items'; }
 
+    const DB_VER    = '1';
+    const DB_OPTION = 'tix_order_db';
+
+    public static function notes_table_name() { global $wpdb; return $wpdb->prefix . 'tix_order_notes'; }
+
+    /** Alle drei Bestell-Tabellen vorhanden? */
+    public static function tables_exist() {
+        global $wpdb;
+        foreach ([self::table_name(), self::items_table_name(), self::notes_table_name()] as $t) {
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) !== $t) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Legt fehlende Tabellen an (eigene DB-Version, unabhängig von tix_db_version).
+     * Pro Anfrage nur ein Options-Abruf; die Option wird erst gesetzt, wenn alle Tabellen da sind.
+     */
+    public static function maybe_install() {
+        if (get_option(self::DB_OPTION) === self::DB_VER) return;
+        if (!self::tables_exist()) {
+            self::create_tables();
+            if (!self::tables_exist()) return; // nächster Aufruf versucht es erneut
+        }
+        update_option(self::DB_OPTION, self::DB_VER, true);
+    }
+
     /**
      * Erstellt die Tabellen bei Plugin-Aktivierung / Version-Update.
      */
@@ -346,6 +373,9 @@ class TIX_Order {
     // ══════════════════════════════════════
 
     public static function init() {
+        // Selbstheilung (1.38.695): Tabellen auch auf Seiten anlegen, die nur per WP-CLI/REST eingerichtet
+        // wurden (die Versions-Migration läuft nur auf admin_init).
+        add_action('init', [__CLASS__, 'maybe_install'], 4);
         // Frontend-Checkout (items sind hier garantiert vorhanden)
         add_action('woocommerce_checkout_order_processed', [__CLASS__, 'on_wc_order_created'], 20, 1);
         // Blocks-Checkout

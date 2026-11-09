@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Tixomat – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.694
+ * Version: 1.38.695
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.694');
+define('TIXOMAT_VERSION', '1.38.695');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -972,6 +972,7 @@ if (tix_get_settings('table_reservation_enabled')) {
 
 // ── DB-Tabellen bei Aktivierung ──
 register_activation_hook(__FILE__, function() {
+    TIX_Order::maybe_install();
     TIX_Seatmap::create_table();
     if (class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
         TIX_Ticket_DB::create_table();
