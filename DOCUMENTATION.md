@@ -4949,3 +4949,14 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Schritt 2 (ab 1.38.703): Plattform `GET /partner/co-events`, `POST /partner/co-events/{id}/call` (Partner-Schlüssel, als Inhaber des Kunden, Storno erlaubt); neue Seite Spiegel `_tix_platform_co` (Cron `tix_platform_co_sync`, `POST /platform-co/sync`, `wp tixomat umzug co-events`), `GET /platform-co/events`, Durchgriff `GET|POST|DELETE /platform-co/{id}/{route}`, lokales Ändern 409 `tix_co_platform_event`. Spiegel gelten als System-Events (nie verteilt). `TIX_Co_Remote::allowed(…, $storno)`.
 - Ab 1.38.704: Import im Ruhemodus (`TIX_Site_Move::QUIET_HOOKS`, `pre_wp_mail`, `pre_http_request` nur Plattform- und Bild-Hosts); Ergebnis `reported`, `platform_status`, `blocked`; Plattform `GET /move/status` (Umzugs-Schlüssel); `wp tixomat umzug status --von --schluessel` speichert den Plattform-Stand.
 
+
+## 113. Co-Veranstalter durch den Plattform-Admin (ab 1.38.705)
+Vertrag: `uebergaben/vertrag-co-durch-plattform.md`. Nur Mehr-Veranstalter-Modus, Rechte `manage_options` (`TIX_Platform_Customers::perm`).
+- `GET /platform/events?q=&organizer_id=&co_organizer_id=&scope=upcoming|past|all&page=&per_page=` – plattformweite Event-Suche; Zeile mit `owner {id,name,key}`, `co_organizer`, `co_editable`, `co_locked {reason: source|trash, site, message}`.
+- `GET /platform/customers/{key}/co` – `own_events`, `shared_events`, `log` (Meta `_tix_org_co_log` am Veranstalter, je 50, Einträge `what added|changed|removed`, `role owner|co`, `other`, `access`, `by`, `via platform|creator`).
+- `POST /platform/events/{id}/co-organizer` `{organizer_id, access?}` oder `{email, organizer, name, access?}` (wie `rest_invite`, `find_or_create` mit `via: platform`); 201 neu verknüpft, 200 geändert/unverändert, `changed added|changed|unchanged`. Admin-Zustimmung wird als `consent.by` gespeichert.
+- `DELETE /platform/events/{id}/co-organizer` – lösen, Profil + Konto bleiben.
+- Geteilte Events (`_tix_syndicated`, auch umgezogene) → 409 `tix_co_source`: Co-Veranstalter legt die Quelle an (Teil B). Papierkorb → 409 `tix_co_trash`.
+- Mitteilungen: Co wie beim Einladen durch den Ersteller; beim Lösen/Ersetzen Feed „Nicht mehr Co-Veranstalter“. Ersteller: Mail + Feed „<Seitenname> hat X als Co-Veranstalter hinzugefügt“, Feed bei Zugriff an/aus und Entfernen.
+- Editor und `rest_invite` des Erstellers schreiben jetzt ebenfalls ins Protokoll (`via: creator`).
+- Test: `tests/test-co-platform-wp.php` (56 Prüfungen Plattform, 1 Einzel-Seite).
