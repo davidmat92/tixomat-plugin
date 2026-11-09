@@ -18,6 +18,8 @@ class TIX_Syndication_Receive {
         '_tix_syndicated', '_tix_source_url', '_tix_source_site', '_tix_source_id', '_tix_source_checkout',
         '_tix_source_partner', '_tix_source_api', '_tix_partner_sales', '_tix_syndicated_image_url', '_tix_source_placeholder_id',
         '_tix_organizer_id', '_tix_location_id',
+        // Co-Veranstalter (1.38.696): IDs des Senders gelten hier nicht (sonst Zugriff für einen fremden Veranstalter gleicher ID)
+        '_tix_co_organizer_id', '_tix_co_organizer_ref', '_tix_co_organizer_access', '_tix_co_organizer_consent', '_tix_co_organizer_since',
     ];
 
     public static function init() {

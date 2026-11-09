@@ -337,7 +337,9 @@ class TIX_App_Events {
           // 1.38.455: info_labels, faq, video, charity, box_office_desc, info_order
           + (class_exists('TIX_Event_Texts') ? TIX_Event_Texts::editor_payload($id) : [])
           // Künstler (1.38.517, nur evendis): artists + artist_suggestions
-          + (class_exists('TIX_Artists') ? TIX_Artists::editor_payload($id) : []);
+          + (class_exists('TIX_Artists') ? TIX_Artists::editor_payload($id) : [])
+          // Co-Veranstalter (1.38.696, nur evendis): co_organizer, event_role, co_organizer_editable
+          + (class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::editor_payload($id) : []);
     }
 
     // ──────────────────────────────────────────
@@ -454,6 +456,9 @@ class TIX_App_Events {
         // Künstler (1.38.517, nur evendis): Feld `artists` [{artist_id, role, tour}]
         $artists = class_exists('TIX_Artists') ? TIX_Artists::check($body, $is_new ? 0 : $post_id) : null;
         if (is_wp_error($artists)) return $artists;
+        // Co-Veranstalter (1.38.696): Feld `co_organizer`
+        $co = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::check($body, $post_id, $is_new) : null;
+        if (is_wp_error($co)) return $co;
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
         // Eventbild per image_id (1.38.505, z. B. Flyer aus POST /ai/extract): eigenes Bild bzw. vorläufiger Flyer, null/0 entfernt
@@ -640,6 +645,7 @@ class TIX_App_Events {
         if ($studio) TIX_Studio_Editor::apply($post_id, $studio);
         if ($texts) TIX_Event_Texts::apply($post_id, $texts);
         if ($artists !== null) TIX_Artists::apply($post_id, $artists);
+        if ($co) TIX_Co_Organizer::apply($post_id, $co);
 
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {

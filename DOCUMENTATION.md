@@ -4909,3 +4909,11 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Neue Tabellenänderungen: `DB_VER` erhöhen.
 - `tix_db_version` auf einer neuen Seite: Die Migration ab 0 setzt u. a. `wpautop` auf `_tix_info_*` ohne `<p>`. Die Website wendet `wpautop` bei der Ausgabe ohnehin an; auf neuen Seiten die Version daher setzen (Tabellen vorher anlegen, Rewrite-Regeln leeren).
 - Test `tests/test-order-tables-heal-wp.php` (9 Prüfungen, Einzel-Seite und Plattform).
+
+## 108. Co-Veranstalter, Teil A (ab 1.38.696, User 09.11.)
+- Vertrag: `uebergaben/vertrag-co-veranstalter.md` (Editor-Felder, Suche, Einladung, Rechte, Etikett, Wahl Studio/Lizenz, Plattform). Klasse `TIX_Co_Organizer` (`class-tix-co-organizer.php`), nur im Mehr-Veranstalter-Modus.
+- Daten: `_tix_co_organizer_ref` (immer), `_tix_co_organizer_access`, `_tix_co_organizer_id` nur mit Zugriff (alle bestehenden Scope-Abfragen bleiben unverändert), `_tix_co_organizer_consent`, `_tix_co_organizer_since`; Veranstalter `_tix_org_kind=co`, `_tix_org_co_choice`.
+- Rechte: Der Co-Veranstalter arbeitet wie am eigenen Event. Gesperrt (Filter `rest_request_before_callbacks`): löschen, wiederherstellen, archivieren, duplizieren, Co ändern, Export mit Käuferdaten. Erlaubt beim Export: Gästeliste und Einlass.
+- Neue Routen: `GET /organizers/search`, `POST /events/{id}/co-organizer/invite`, `GET|POST /organizer/co-choice`, `GET /platform/co-organizers`, `POST /platform/customers/{key}/convert`. Kundenart `co`.
+- Event-Verteilung übernimmt die Co-Meta des Senders nicht mehr (`PROTECTED_META`).
+- Test `tests/test-co-organizer-wp.php`.

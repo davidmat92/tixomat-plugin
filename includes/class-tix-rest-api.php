@@ -2863,6 +2863,8 @@ class TIX_REST_API {
         $event['demo'] = class_exists('TIX_Sales') && TIX_Sales::is_demo_organizer(intval(get_post_meta($id, '_tix_organizer_id', true)));
         // KI-Schutz (1.38.505): {flagged, reason, checked_at, approved}
         $event['guard'] = class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info') ? TIX_Content_Guard::guard_info($id) : null;
+        // Co-Veranstalter (1.38.696, nur evendis): event_role + shared_with („Gemeinsam mit …“)
+        if (class_exists('TIX_Co_Organizer')) $event += TIX_Co_Organizer::list_fields($id);
 
         return $event;
     }

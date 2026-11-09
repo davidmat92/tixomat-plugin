@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Platform_Customers {
 
     const NS = 'tixomat/v1';
-    const ARTS = ['provision', 'hosted', 'bestand', 'license'];
+    const ARTS = ['provision', 'hosted', 'bestand', 'license', 'co'];
     const KEY_RE = '/^(h-[a-z][a-z0-9]{1,15}|[lv]-\d{1,20}|p-[a-z0-9_-]{1,60})$/';
     const EXPIRING_DAYS = 30;
 
@@ -154,7 +154,7 @@ class TIX_Platform_Customers {
         foreach ($orgs as $oid) {
             if (isset($used_org[$oid])) continue;
             $key = 'v-' . $oid;
-            $customers[$key] = ['key' => $key, 'art' => 'provision', 'organizer_id' => $oid, 'license_id' => null, 'hosting_kurz' => null,
+            $customers[$key] = ['key' => $key, 'art' => (class_exists('TIX_Co_Organizer') && TIX_Co_Organizer::is_co_kind($oid)) ? 'co' : 'provision', 'organizer_id' => $oid, 'license_id' => null, 'hosting_kurz' => null,
                 'partner_id' => null, '_lic' => null, '_partner' => null];
             $alias[$key] = $key;
         }
@@ -327,12 +327,14 @@ class TIX_Platform_Customers {
             'license' => $lic,
             'events' => $ev ? ['all' => $ev[0], 'upcoming' => $ev[1]] : null,
             'attention' => self::attention($c),
+            // Co-Veranstalter (1.38.696): {choice, requested_at, message, shared_events} oder null
+            'co' => ($oid && class_exists('TIX_Co_Organizer')) ? TIX_Co_Organizer::customer_info($oid) : null,
         ];
     }
 
     public static function rest_list(WP_REST_Request $req) {
         $art = (string) $req->get_param('art');
-        if ($art !== '' && $art !== 'all' && !in_array($art, self::ARTS, true)) return new WP_Error('tix_invalid_field', 'art: provision, hosted, bestand oder license.', ['status' => 400, 'field' => 'art']);
+        if ($art !== '' && $art !== 'all' && !in_array($art, self::ARTS, true)) return new WP_Error('tix_invalid_field', 'art: provision, hosted, bestand, license oder co.', ['status' => 400, 'field' => 'art']);
         $q = mb_strtolower(trim((string) $req->get_param('q')));
         $att = filter_var($req->get_param('attention'), FILTER_VALIDATE_BOOLEAN);
         $counts = array_fill_keys(array_merge(['all'], self::ARTS, ['attention']), 0);
@@ -402,7 +404,7 @@ class TIX_Platform_Customers {
                 'hint' => $ok ? null : ['code' => 'tix_license_not_checked', 'message' => 'Die Seite prüft keine Lizenz – Module wirken dort erst, wenn sie sich mit Betriebsart „managed“ oder „selfhosted“ meldet.'],
                 'all' => $keys === null, 'modules' => $on, 'labels' => $labels, 'locked' => (object) []];
         }
-        if ($c['art'] === 'provision' && $c['organizer_id']) {
+        if (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id']) {
             $org_row = $org_row ?: (class_exists('TIX_Platform_Admin') ? TIX_Platform_Admin::org_row($c['organizer_id']) : null);
             return ['source' => 'organizer', 'editable' => true, 'all' => false, 'modules' => $org_row['modules'] ?? (object) [],
                 'labels' => class_exists('TIX_Plan') ? array_map(function ($l) { return ['label' => $l]; }, TIX_Plan::LABELS) : (object) [],
@@ -450,7 +452,7 @@ class TIX_Platform_Customers {
             return rest_ensure_response(['ok' => true, 'modules' => self::modules_payload(self::raw($c['key'])),
                 'ping' => is_wp_error($ping) ? null : ($ping->get_data()['sites'] ?? [])]);
         }
-        if ($c['art'] === 'provision' && $c['organizer_id'] && class_exists('TIX_Platform_Admin')) {
+        if (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id'] && class_exists('TIX_Platform_Admin')) {
             if ($all_flag) return new WP_Error('tix_invalid_field', '„all“ gibt es nur für Lizenz-Module.', ['status' => 400, 'field' => 'all']);
             $r = new WP_REST_Request('POST', '/tixomat/v1/platform/organizers/' . intval($c['organizer_id']) . '/modules');
             $r->set_param('id', intval($c['organizer_id']));
@@ -467,7 +469,7 @@ class TIX_Platform_Customers {
 
     /** Inhaber-Zugang: Provision = Konto des Veranstalters, Lizenz = Einladung über die Lizenzprüfung. */
     public static function owner_payload($c) {
-        if ($c['art'] === 'provision' && $c['organizer_id']) {
+        if (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id']) {
             $u = get_userdata(intval(get_post_meta($c['organizer_id'], '_tix_org_user_id', true)));
             if (!$u) return ['source' => 'organizer', 'status' => 'missing', 'email' => null, 'last_login' => null];
             $ll = get_user_meta($u->ID, '_tix_last_login', true) ?: get_user_meta($u->ID, 'last_login', true);
@@ -505,7 +507,7 @@ class TIX_Platform_Customers {
                 $ok = array_key_exists($k, $r) ? (bool) $r[$k] : null;
                 $items[] = ['key' => $k, 'ok' => $ok, 'label' => $label, 'hint' => $ok === null ? 'Die Seite hat das noch nicht gemeldet (ab Plugin 1.38.688, nächste Lizenzprüfung).' : null];
             }
-        } elseif ($c['art'] === 'provision' && $c['organizer_id']) {
+        } elseif (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id']) {
             $oid = intval($c['organizer_id']);
             $src = 'organizer';
             $pay = class_exists('TIX_Payout_Details') ? (bool) TIX_Payout_Details::complete($oid) : null;
@@ -532,7 +534,7 @@ class TIX_Platform_Customers {
         $email = sanitize_email((string) ($b['email'] ?? ''));
         $name = (string) ($b['name'] ?? '');
         if ($c['art'] === 'bestand') return new WP_Error('tix_customer_bestand', 'Bei KitchenKlub und Mallorca bleibt der Server unverändert – Zugänge legt die Seite selbst an.', ['status' => 409]);
-        if ($c['art'] === 'provision' && $c['organizer_id']) {
+        if (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id']) {
             $oid = intval($c['organizer_id']);
             $uid = intval(get_post_meta($oid, '_tix_org_user_id', true));
             $u = $uid ? get_userdata($uid) : null;

@@ -612,7 +612,7 @@ class TIX_Metabox {
         $time_doors = get_post_meta($post->ID, '_tix_time_doors', true);
         $location_id = intval(get_post_meta($post->ID, '_tix_location_id', true));
         $organizer_id = intval(get_post_meta($post->ID, '_tix_organizer_id', true));
-        $co_organizer_id = intval(get_post_meta($post->ID, '_tix_co_organizer_id', true));
+        $co_organizer_id = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::ref_id($post->ID) : intval(get_post_meta($post->ID, '_tix_co_organizer_id', true));
 
         // CPT-Listen laden
         $locations = get_posts(['post_type' => 'tix_location', 'posts_per_page' => -1, 'orderby' => 'title', 'order' => 'ASC', 'post_status' => 'publish']);
@@ -4108,8 +4108,14 @@ class TIX_Metabox {
         // Co-Veranstalter
         $co_org_id = intval($_POST['tix_co_organizer_id'] ?? 0);
         if ($co_org_id && $co_org_id !== $org_id) {
-            update_post_meta($post_id, '_tix_co_organizer_id', $co_org_id);
-            update_post_meta($post_id, '_tix_co_organizer', get_the_title($co_org_id));
+            if (class_exists('TIX_Co_Organizer')) {
+                TIX_Co_Organizer::set($post_id, $co_org_id, null, get_current_user_id()); // Zugriff bleibt, wie er ist (neu: an)
+            } else {
+                update_post_meta($post_id, '_tix_co_organizer_id', $co_org_id);
+                update_post_meta($post_id, '_tix_co_organizer', get_the_title($co_org_id));
+            }
+        } elseif (class_exists('TIX_Co_Organizer')) {
+            TIX_Co_Organizer::clear($post_id);
         } else {
             delete_post_meta($post_id, '_tix_co_organizer_id');
             delete_post_meta($post_id, '_tix_co_organizer');
