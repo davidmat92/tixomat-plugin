@@ -87,8 +87,13 @@ if ($mode === 'run-kk') {
     $r = TIX_Site_Move::import($api, $s['token'], true);
     sm_eq('Trockenlauf: zählt, legt nichts an', [2, 1, 2, 1, 0], [$r['counts']['events'] ?? null, $r['counts']['orders'] ?? null, $r['counts']['tickets'] ?? null, $r['counts']['coupons'] ?? null,
         count(get_posts(['post_type' => 'event', 'post_status' => 'any', 'meta_key' => TIX_Site_Move::META_FROM, 'fields' => 'ids', 'posts_per_page' => -1]))]);
+    $probe = function ($new, $old, $post) { if ($post && $post->post_type === 'event' && $new === 'publish') { wp_mail('gast@example.test', 'Test', 'darf nicht raus'); wp_remote_get('https://push.example.test/send'); } };
+    add_action('transition_post_status', $probe, 50, 3);
     $r = TIX_Site_Move::import($api, $s['token']);
+    remove_action('transition_post_status', $probe, 50);
     sm_eq('Import: ohne Fehler', [], is_wp_error($r) ? [$r->get_error_message()] : $r['errors']);
+    sm_eq('Import: gemeldet, Plattform-Status imported', [true, 'imported', 'imported'], [$r['reported'] ?? null, $r['platform_status'] ?? null, get_option(TIX_Site_Move::OPT_IMPORT)['platform_status'] ?? null]);
+    sm_eq('Ruhemodus: Mails und fremdes HTTP gesperrt, Hooks danach wieder da', [true, true, 35], [($r['blocked']['mails'] ?? 0) >= 2, ($r['blocked']['http'] ?? 0) >= 2, has_action('save_post_event', ['TIX_Syndication_Push', 'on_save'])]);
     sm_eq('Import: Zahlen', [1, 1, 2, 1, 2, 1, 1, 1], [$r['counts']['organizer'], $r['counts']['locations'], $r['counts']['events'], $r['counts']['orders'], $r['counts']['tickets'], $r['counts']['newsletter'], $r['counts']['coupons'], 0 + ($r['counts']['artists'] === 0)]);
     $map = (array) get_option(TIX_Site_Move::OPT_MAP);
     $e1 = intval($map['events'][$s['events'][0]] ?? 0);

@@ -4947,3 +4947,5 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Abrechnung: Events mit `_tix_moved_at` zählen trotz `_tix_syndicated` weiter (Verkäufe vor dem Umzug).
 - Test `tests/test-site-move-e2e.php` (zwei Webserver).
 - Schritt 2 (ab 1.38.703): Plattform `GET /partner/co-events`, `POST /partner/co-events/{id}/call` (Partner-Schlüssel, als Inhaber des Kunden, Storno erlaubt); neue Seite Spiegel `_tix_platform_co` (Cron `tix_platform_co_sync`, `POST /platform-co/sync`, `wp tixomat umzug co-events`), `GET /platform-co/events`, Durchgriff `GET|POST|DELETE /platform-co/{id}/{route}`, lokales Ändern 409 `tix_co_platform_event`. Spiegel gelten als System-Events (nie verteilt). `TIX_Co_Remote::allowed(…, $storno)`.
+- Ab 1.38.704: Import im Ruhemodus (`TIX_Site_Move::QUIET_HOOKS`, `pre_wp_mail`, `pre_http_request` nur Plattform- und Bild-Hosts); Ergebnis `reported`, `platform_status`, `blocked`; Plattform `GET /move/status` (Umzugs-Schlüssel); `wp tixomat umzug status --von --schluessel` speichert den Plattform-Stand.
+

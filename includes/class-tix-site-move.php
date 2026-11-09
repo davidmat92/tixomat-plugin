@@ -71,6 +71,7 @@ class TIX_Site_Move {
         register_rest_route(self::NS, $k . '/switch', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_switch']] + $p);
         register_rest_route(self::NS, '/move/export', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => [__CLASS__, 'perm_token']]);
         register_rest_route(self::NS, '/move/report', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_report'], 'permission_callback' => [__CLASS__, 'perm_token']]);
+        register_rest_route(self::NS, '/move/status', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_token_status'], 'permission_callback' => [__CLASS__, 'perm_token']]);
     }
 
     // ═══════════════ Plattform: Umzug verwalten ═══════════════
@@ -395,6 +396,12 @@ class TIX_Site_Move {
         return rest_ensure_response(['ok' => true, 'part' => $part, 'page' => $page, 'has_more' => (bool) $more, 'items' => $items]);
     }
 
+    /** GET /move/status (Umzugs-Schlüssel) → {ok, status, imported_at, switched_at} – für den Rückweg auf der neuen Seite. */
+    public static function rest_token_status(WP_REST_Request $req) {
+        $m = self::record(intval($req->get_param('_move_oid')));
+        return rest_ensure_response(['ok' => true, 'status' => $m['status'] ?? null, 'imported_at' => $m['imported_at'] ?? null, 'switched_at' => $m['switched_at'] ?? null]);
+    }
+
     public static function rest_report(WP_REST_Request $req) {
         $oid = intval($req->get_param('_move_oid'));
         $m = self::record($oid);
@@ -484,6 +491,8 @@ class TIX_Site_Move {
         if (isset($done[$img['url']])) return $done[$img['url']];
         $have = get_posts(['post_type' => 'attachment', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => '_tix_moved_src', 'meta_value' => $img['url']]);
         if ($have) return $done[$img['url']] = intval($have[0]);
+        $ih = strtolower((string) wp_parse_url((string) $img['url'], PHP_URL_HOST));
+        if (self::$quiet !== null && $ih !== '' && !in_array($ih, self::$allow_hosts, true)) self::$allow_hosts[] = $ih;
         require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/file.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -516,8 +525,62 @@ class TIX_Site_Move {
         return intval($id);
     }
 
+    private static $quiet = null;
+    private static $allow_hosts = [];
+    private static $blocked = ['mails' => 0, 'http' => 0];
+
+    /** Hooks, die beim Anlegen Mails, Pushes oder Verteilungen auslösen würden – während des Imports aus. */
+    const QUIET_HOOKS = [ // [Hook, Klasse, Methode, Priorität, Argumente]
+        ['transition_post_status', 'TIX_Mail_Follow', 'on_publish', 20, 3], ['transition_post_status', 'TIX_Promoter_Notify', 'on_publish', 20, 3],
+        ['transition_post_status', 'TIX_Artists', 'on_publish', 30, 3], ['transition_post_status', 'TIX_Register_Event', 'check_first_event', 10, 3],
+        ['transition_post_status', 'TIX_Syndication_Push', 'on_status_change', 10, 3], ['save_post_event', 'TIX_Syndication_Push', 'on_save', 35, 2],
+        ['save_post_event', 'TIX_Syndication_Push', 'apply_default', 1, 3], ['wp_after_insert_post', 'TIX_Day_Alerts', 'on_after_insert', 20, 4],
+        ['added_post_meta', 'TIX_Organizer_Notifications', 'handle_ticket_meta_change', 10, 4], ['wp_insert_post', 'TIX_Org_Approval', 'on_insert', 10, 3],
+        ['wp_insert_post', 'TIX_Org_Approval', 'process_queue', 999, 1], ['added_post_meta', 'TIX_Org_Approval', 'on_meta', 10, 4], ['updated_post_meta', 'TIX_Org_Approval', 'on_meta', 10, 4],
+    ];
+
+    /** Ruhemodus: keine Mails, keine Pushes, kein HTTP außer zur Plattform und zu Bild-Adressen. */
+    private static function quiet($on) {
+        if ($on) {
+            self::$quiet = [];
+            foreach (self::QUIET_HOOKS as [$hook, $cls, $fn, $prio, $n]) {
+                if (class_exists($cls) && has_action($hook, [$cls, $fn]) === $prio) { remove_action($hook, [$cls, $fn], $prio); self::$quiet[] = [$hook, $cls, $fn, $prio, $n]; }
+            }
+            add_filter('pre_wp_mail', [__CLASS__, 'block_mail'], 1, 2);
+            add_filter('pre_http_request', [__CLASS__, 'block_http'], 1, 3);
+            return;
+        }
+        remove_filter('pre_wp_mail', [__CLASS__, 'block_mail'], 1);
+        remove_filter('pre_http_request', [__CLASS__, 'block_http'], 1);
+        foreach ((array) self::$quiet as [$hook, $cls, $fn, $prio, $n]) add_action($hook, [$cls, $fn], $prio, $n);
+        self::$quiet = null;
+    }
+
+    public static function block_mail($r, $atts) {
+        self::$blocked['mails']++;
+        return false; // nicht senden
+    }
+
+    public static function block_http($pre, $args, $url) {
+        $h = strtolower((string) wp_parse_url((string) $url, PHP_URL_HOST));
+        if ($h !== '' && in_array($h, self::$allow_hosts, true)) return $pre;
+        self::$blocked['http']++;
+        return new WP_Error('tix_move_quiet', 'Während des Umzugs gesperrt: ' . $h);
+    }
+
     /** Import auf der neuen Seite. → Ergebnis-Array */
     public static function import($api, $token, $dry = false) {
+        self::$allow_hosts = [strtolower((string) wp_parse_url((string) $api, PHP_URL_HOST))];
+        self::$blocked = ['mails' => 0, 'http' => 0];
+        self::quiet(true);
+        try {
+            return self::import_run($api, $token, $dry);
+        } finally {
+            self::quiet(false);
+        }
+    }
+
+    private static function import_run($api, $token, $dry) {
         if (self::multi()) return new WP_Error('tix_move_platform', 'Der Import läuft nur auf der neuen (Einzel-)Seite.');
         $state = (array) get_option(self::OPT_IMPORT, []);
         if (($state['status'] ?? '') === 'done') return new WP_Error('tix_move_done', 'Auf dieser Seite ist schon ein Umzug abgeschlossen.');
@@ -645,9 +708,14 @@ class TIX_Site_Move {
             $rep = wp_remote_post(self::url('/move/report'), ['timeout' => 30,
                 'headers' => ['X-Tix-Move-Token' => self::$token, 'Content-Type' => 'application/json'],
                 'body' => wp_json_encode(['counts' => $n, 'events' => (object) $events, 'errors' => array_slice($errors, 0, 50), 'site' => home_url('/')])]);
-            if (is_wp_error($rep) || intval(wp_remote_retrieve_response_code($rep)) !== 200) $errors[] = 'Rückmeldung an die Plattform fehlgeschlagen (' . (is_wp_error($rep) ? $rep->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($rep)) . ').';
+            $reported = !is_wp_error($rep) && intval(wp_remote_retrieve_response_code($rep)) === 200;
+            if (!$reported) $errors[] = 'Rückmeldung an die Plattform fehlgeschlagen (' . (is_wp_error($rep) ? $rep->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($rep)) . ').';
+            $pst = $reported ? (string) (json_decode((string) wp_remote_retrieve_body($rep), true)['move']['status'] ?? '') : '';
+            $st = (array) get_option(self::OPT_IMPORT, []);
+            $st['reported'] = $reported; $st['platform_status'] = $pst ?: null; $st['platform_checked_at'] = gmdate('c');
+            update_option(self::OPT_IMPORT, $st, false);
         }
-        return ['ok' => true, 'dry_run' => self::$dry, 'organizer' => $man['organizer_name'] ?? '', 'counts' => $n, 'events' => count($events), 'errors' => $errors, 'not_moved' => $man['not_moved'] ?? []];
+        return ['ok' => true, 'dry_run' => self::$dry, 'reported' => self::$dry ? null : $reported, 'platform_status' => self::$dry ? null : ($pst ?: null), 'blocked' => self::$blocked, 'organizer' => $man['organizer_name'] ?? '', 'counts' => $n, 'events' => count($events), 'errors' => $errors, 'not_moved' => $man['not_moved'] ?? []];
     }
 
     // ═══════════════ Schritt 2: Co-Events (Plattform) ═══════════════
@@ -870,6 +938,16 @@ class TIX_Site_Move {
     public static function cli($args, $assoc) {
         $a = $args[0] ?? 'status';
         if ($a === 'status') {
+            if (!empty($assoc['von']) && !empty($assoc['schluessel'])) { // Stand auf der Plattform abfragen und merken
+                self::$api = untrailingslashit((string) $assoc['von']); self::$token = (string) $assoc['schluessel'];
+                $r = wp_remote_get(self::url('/move/status'), ['timeout' => 20, 'headers' => ['X-Tix-Move-Token' => self::$token, 'Accept' => 'application/json']]);
+                $d = is_wp_error($r) ? null : json_decode((string) wp_remote_retrieve_body($r), true);
+                if (is_array($d) && !empty($d['ok'])) {
+                    $st = (array) get_option(self::OPT_IMPORT, []);
+                    $st['platform_status'] = $d['status']; $st['platform_switched_at'] = $d['switched_at']; $st['platform_checked_at'] = gmdate('c');
+                    update_option(self::OPT_IMPORT, $st, false);
+                } else WP_CLI::warning('Plattform-Status nicht abrufbar (' . (is_wp_error($r) ? $r->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($r)) . ').');
+            }
             WP_CLI::log(wp_json_encode(['import' => get_option(self::OPT_IMPORT, null), 'map' => array_map('count', array_filter((array) get_option(self::OPT_MAP, []), 'is_array'))], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
             return;
         }
