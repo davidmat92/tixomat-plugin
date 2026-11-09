@@ -20,6 +20,7 @@ class TIX_Syndication_Receive {
         '_tix_organizer_id', '_tix_location_id',
         // Co-Veranstalter (1.38.696): IDs des Senders gelten hier nicht (sonst Zugriff für einen fremden Veranstalter gleicher ID)
         '_tix_co_organizer_id', '_tix_co_organizer_ref', '_tix_co_organizer_access', '_tix_co_organizer_consent', '_tix_co_organizer_since',
+        '_tix_co_remote', '_tix_co_token_hash', '_tix_co_remote_oid', '_tix_co_remote_access', '_tix_co_remote_token', // Teil B: evendis setzt diese selbst
     ];
 
     public static function init() {

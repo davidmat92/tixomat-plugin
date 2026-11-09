@@ -4917,3 +4917,11 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Neue Routen: `GET /organizers/search`, `POST /events/{id}/co-organizer/invite`, `GET|POST /organizer/co-choice`, `GET /platform/co-organizers`, `POST /platform/customers/{key}/convert`. Kundenart `co`.
 - Event-Verteilung übernimmt die Co-Meta des Senders nicht mehr (`PROTECTED_META`).
 - Test `tests/test-co-organizer-wp.php`.
+
+## 109. Co-Veranstalter, Teil B: Durchgriff auf Lizenzseiten (ab 1.38.697)
+- Klasse `TIX_Co_Remote` (`class-tix-co-remote.php`), Vertrag Teil B in `uebergaben/vertrag-co-veranstalter.md`.
+- Lizenzseite: Einladung nur per E-Mail. Meldung an evendis `POST /syndicate/{remote_id}/co-organizer`. Event-Schlüssel als Hash in `_tix_co_token_hash`, Angaben in `_tix_co_remote`.
+- `POST /partner/co/{id}` (Partner-Zugang + `X-Tix-Co-Token`) führt eine freigegebene Route nur für dieses Event aus (`TIX_Co_Remote::allowed`). Ausgeführt wird als technisches Konto `co-evendis-{id}` ohne Rolle; die Rolle `tix_organizer` gilt nur während der Anfrage (Filter `get_user_metadata`).
+- evendis: Spiegel-Meta `_tix_co_remote_oid`, `_tix_co_remote_access`, `_tix_co_remote_token`; Routen `GET /co-remote/events` und `GET|POST|DELETE /co-remote/{id}/{route}` (Weiterleitung).
+- Keine Bild-Uploads über den Durchgriff.
+- Test `tests/test-co-remote-wp.php`: Einzel-Seite in drei Läufen (`setup`, `run`, `cleanup`), Plattform `run`.

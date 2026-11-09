@@ -456,11 +456,11 @@ class TIX_App_Events {
         // Künstler (1.38.517, nur evendis): Feld `artists` [{artist_id, role, tour}]
         $artists = class_exists('TIX_Artists') ? TIX_Artists::check($body, $is_new ? 0 : $post_id) : null;
         if (is_wp_error($artists)) return $artists;
-        // Co-Veranstalter (1.38.696): Feld `co_organizer`
-        $co = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::check($body, $post_id, $is_new) : null;
-        if (is_wp_error($co)) return $co;
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
+        // Co-Veranstalter (1.38.696): Feld `co_organizer` – als letzte Prüfung, weil Lizenzseiten dabei evendis.de benachrichtigen (Teil B)
+        $co = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::check($body, $post_id, $is_new) : null;
+        if (is_wp_error($co)) return $co;
         // Eventbild per image_id (1.38.505, z. B. Flyer aus POST /ai/extract): eigenes Bild bzw. vorläufiger Flyer, null/0 entfernt
         $thumb = self::check_image_id($body);
         if (is_wp_error($thumb)) return $thumb;
