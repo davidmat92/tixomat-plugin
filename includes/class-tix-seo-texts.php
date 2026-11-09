@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
  * - Sparten: Term-Meta der Taxonomie `event_category` (`_tix_intro`, `_tix_image_id`),
  *   gepflegt unter Events → Kategorien.
  * - Städte: Site-Option `tix_city_texts` {slug: {name, intro, image_id}}, gepflegt unter
- *   Tixomat → Städte-Texte (Städte kommender Events + frei ergänzbar).
+ *   evendis → Städte-Texte (Städte kommender Events + frei ergänzbar).
  * - Ausgabe: GET /public/categories und /public/cities um `intro`, `image` (und `slug`) ergänzt.
  */
 class TIX_SEO_Texts {

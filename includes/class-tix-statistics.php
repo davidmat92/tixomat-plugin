@@ -28,7 +28,7 @@ class TIX_Statistics {
     public static function add_menu() {
         add_submenu_page(
             'tixomat',
-            'Tixomat Statistiken',
+            'evendis Statistiken',
             'Statistiken',
             'manage_options',
             'tix-statistics',
@@ -1917,7 +1917,7 @@ class TIX_Statistics {
         ];
         ?>
         <div class="wrap tix-settings-wrap">
-            <h1>Tixomat &ndash; Statistiken</h1>
+            <h1>Statistiken</h1>
 
             <!-- Filter -->
             <div class="tix-stats-filters">

@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Tixomat – Event & Ticket Management
+ * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.699
+ * Version: 1.38.700
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.699');
+define('TIXOMAT_VERSION', '1.38.700');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -113,7 +113,7 @@ add_action('admin_init', function() {
 function tix_breakdance_svg_sprite_fix() {
     if (!defined('__BREAKDANCE_VERSION')) return;
     echo "\n<style id=\"tix-breakdance-svg-fix\">\n"
-       . "/* Tixomat: Breakdance Inline-SVG-Sprites verstecken (sonst 150px Leerraum) */\n"
+       . "/* Breakdance Inline-SVG-Sprites verstecken (sonst 150px Leerraum) */\n"
        . "svg.breakdance-global-gradients-sprite,\n"
        . "svg[class*=\"breakdance-global\"][aria-hidden=\"true\"]:not([width]):not([height]) {\n"
        . "    position: absolute !important;\n"
@@ -424,7 +424,7 @@ function tix_branding_footer() {
         $html .= '<style>.tix-branding{margin-top:16px;padding-top:12px;text-align:center!important;width:100%;font-size:.8rem;opacity:.45;transition:opacity .2s}.tix-branding:hover{opacity:.7}.tix-branding a{color:inherit;text-decoration:none}.tix-branding a:hover{text-decoration:underline}</style>';
         $css = true;
     }
-    $html .= '<div class="tix-branding">Ticketsystem von 🧡 <a href="https://tixomat.de" target="_blank" rel="noopener">Tixomat</a></div>';
+    $html .= '<div class="tix-branding">Ticketsystem von 🧡 <a href="https://evendis.de" target="_blank" rel="noopener">evendis</a></div>';
     return $html;
 }
 
@@ -450,7 +450,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-seating.php'; // Modul „Saalpl
 require_once TIXOMAT_PATH . 'includes/class-tix-ticket-db.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-supabase.php'; // nur noch Weiche zum Datenspiegel
 require_once TIXOMAT_PATH . 'includes/class-tix-mirror.php'; // lädt class-tix-mirror-*.php
-TIX_Mirror::init(); // Datenspiegel (Supabase): Postausgang, Erstbefüllung, Löschweg – Tixomat → Datenspiegel
+TIX_Mirror::init(); // Datenspiegel (Supabase): Postausgang, Erstbefüllung, Löschweg – evendis → Datenspiegel
 require_once TIXOMAT_PATH . 'includes/class-tix-sync-airtable.php';
 
 // ── Gewinnspiel-System ──
@@ -486,11 +486,11 @@ require_once TIXOMAT_PATH . 'includes/class-tix-coupons.php';
 TIX_Coupons::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-app-coupons.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-wallet-balance.php';
-TIX_Wallet_Balance::init(); // Guthaben (Phase 1): Geldbörsen, Buchungsbuch, Aufladen über die Kasse – Tixomat → Guthaben
+TIX_Wallet_Balance::init(); // Guthaben (Phase 1): Geldbörsen, Buchungsbuch, Aufladen über die Kasse – evendis → Guthaben
 require_once TIXOMAT_PATH . 'includes/class-tix-wallet-pay.php';
 TIX_Wallet_Pay::init(); // Guthaben Phase 2: Bezahlen per QR (Geräte-Schlüssel, Scan, Abbuchen, Freigabe, Storno)
 require_once TIXOMAT_PATH . 'includes/class-tix-app-sos.php';
-TIX_App_Sos::init(); // Menüpunkt „SOS“ in der App (nav.sos in /app/config, /app/sos) – Tixomat → Awareness
+TIX_App_Sos::init(); // Menüpunkt „SOS“ in der App (nav.sos in /app/config, /app/sos) – evendis → Awareness
 TIX_App_Coupons::init(); // Gutscheine nur in der App / in der App bewerben (/public/app-coupons, /organizer/coupons)
 
 // ── Migration (Domain-zu-Domain Transfer) ──
@@ -608,7 +608,7 @@ TIX_Notifications::init(); // App-Benachrichtigungen: Glocke/Feed, Veranstalter-
 require_once TIXOMAT_PATH . 'includes/class-tix-retention.php';
 TIX_Retention::init(); // Löschfristen: Warteliste/Vorverkaufs-Alarm 30 Tage, Support 2 Jahre, Musikwünsche 30 Tage nach dem Event (1.38.536)
 require_once TIXOMAT_PATH . 'includes/class-tix-fcm.php';
-TIX_FCM::init(); // Android-Push über Firebase (FCM HTTP v1, Dienstkonto als Option, IPv4), Tixomat → App-Push, wp tixomat push (1.38.527)
+TIX_FCM::init(); // Android-Push über Firebase (FCM HTTP v1, Dienstkonto als Option, IPv4), evendis → App-Push, wp tixomat push (1.38.527)
 require_once TIXOMAT_PATH . 'includes/class-tix-recurrence.php';
 TIX_Recurrence::init(); // Wiederkehrende Events: Termine wöchentlich/alle 2 Wochen bis 8 Wochen im Voraus (Cron)
 require_once TIXOMAT_PATH . 'includes/class-tix-day-alerts.php';
@@ -744,7 +744,7 @@ TIX_Lineup_Links::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-apple-music.php';
 TIX_Apple_Music::init(); // „Bekannt für“: Apple Music Top-Songs je Act (MusicKit-Schlüssel, ohne Schlüssel leer)
 require_once TIXOMAT_PATH . 'includes/class-tix-party-rooms.php';
-TIX_Party_Rooms::init(); // Partyspiel „Mehrere Handys“: Räume mit Code, ohne Konto (Schalter Tixomat → Partyspiel)
+TIX_Party_Rooms::init(); // Partyspiel „Mehrere Handys“: Räume mit Code, ohne Konto (Schalter evendis → Partyspiel)
 // evendis.de (Next.js) nach Änderungen sofort neu aufbauen lassen (nur mit Schlüssel)
 require_once TIXOMAT_PATH . 'includes/class-tix-web-revalidate.php';
 TIX_Web_Revalidate::init();
@@ -1158,7 +1158,7 @@ if (is_admin() && !wp_doing_ajax()) {
         $log = get_transient('tix_sync_log_' . $post->ID);
         if (!$log || !is_array($log)) return;
         delete_transient('tix_sync_log_' . $post->ID);
-        echo '<div class="notice notice-success is-dismissible tix-sync-notice"><p><strong>Tixomat – Sync:</strong></p><ul>';
+        echo '<div class="notice notice-success is-dismissible tix-sync-notice"><p><strong>Sync:</strong></p><ul>';
         foreach ($log as $entry) echo '<li>' . esc_html($entry) . '</li>';
         echo '</ul></div>';
     });
@@ -1624,7 +1624,7 @@ TIX_Mail_Layout::init();                                            // ein Layou
 require_once TIXOMAT_PATH . 'includes/class-tix-mail-transport.php';
 TIX_Mail_Transport::init();                                         // Mailversand: über evendis oder eigener Dienst (Brevo), Rückfall evendis (1.38.674)
 require_once TIXOMAT_PATH . 'includes/class-tix-mail-gallery.php';
-TIX_Mail_Gallery::init();                                           // Tixomat → E-Mails, GET /studio/mails (1.38.471)
+TIX_Mail_Gallery::init();                                           // evendis → E-Mails, GET /studio/mails (1.38.471)
 require_once TIXOMAT_PATH . 'includes/class-tix-emails.php';
 TIX_Emails::init();
 
@@ -1685,7 +1685,7 @@ add_action('plugins_loaded', function() {
 add_filter('cron_schedules', function($schedules) {
     $schedules['tix_every_10min'] = [
         'interval' => 600,
-        'display'  => 'Alle 10 Minuten (Tixomat)',
+        'display'  => 'Alle 10 Minuten (evendis)',
     ];
     return $schedules;
 });

@@ -109,7 +109,7 @@ class TIX_Organizer_Landing {
         $keep = [];
         foreach ((array) $_GET as $k => $v) if (is_string($v) && preg_match('/^[a-z0-9_]{1,40}$/', (string) $k) && $k !== self::QUERY_VAR) $keep[$k] = rawurlencode(mb_substr(sanitize_text_field(wp_unslash($v)), 0, 120));
         if (!isset($keep['utm_source'])) $keep += ['utm_source' => 'veranstalter-link', 'utm_medium' => $slug];
-        wp_redirect(add_query_arg($keep, $url), 301, 'Tixomat');
+        wp_redirect(add_query_arg($keep, $url), 301, 'evendis');
         exit;
     }
 
@@ -124,7 +124,7 @@ class TIX_Organizer_Landing {
         $sub = $m[1];
         if (in_array($sub, ['www', 'veranstalter', 'domains', 'api', 'admin', 'app'], true)) return;
         $org = self::get_organizer_by_slug($sub);
-        wp_redirect($org ? self::public_page_url($sub) : TIX_Customer_URL::base() . '/', 301, 'Tixomat');
+        wp_redirect($org ? self::public_page_url($sub) : TIX_Customer_URL::base() . '/', 301, 'evendis');
         exit;
     }
 
@@ -555,7 +555,7 @@ class TIX_Organizer_Landing {
                 <div class="row full">
                     <div class="status-box status-off">
                         Landingpage-Feature auf dieser Seite nicht aktiv.<br>
-                        (Aktivierbar in Tixomat-Einstellungen → <em>landing_pages_enabled</em>, oder automatisch auf evendis.de)
+                        (Aktivierbar in den Einstellungen → <em>landing_pages_enabled</em>, oder automatisch auf evendis.de)
                     </div>
                 </div>
             <?php endif; ?>

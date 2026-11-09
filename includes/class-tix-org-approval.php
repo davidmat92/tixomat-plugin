@@ -28,7 +28,7 @@ if (!defined('ABSPATH')) exit;
  *            Steuer-Status, Auszahlungsdaten (TIX_Payout_Details). Hängt nicht an der Freigabe; ohne Auszahlungsdaten
  *            wird wie bisher nicht ausgezahlt. Für den Veranstalter bleiben es Aufgaben (`requirements`, `missing`).
  *
- * Admin: Tixomat → Veranstalter-Prüfung (`tix-org-review`), Veranstalter: „Mein Konto“
+ * Admin: evendis → Veranstalter-Prüfung (`tix-org-review`), Veranstalter: „Mein Konto“
  * (`tix-org-account`) + Hinweis auf allen Seiten. REST: `GET /organizer/approval`,
  * `POST /organizer/approval/terms`, `POST /organizer/approval/resubmit`, zusätzlich `approval`
  * im Veranstalter-Objekt von `/me`.
@@ -843,7 +843,7 @@ class TIX_Org_Approval {
             if ($page === self::ADMIN_SLUG) return;
             $n = self::count_pending();
             if ($n) {
-                printf('<div class="notice notice-warning"><p><strong>%d Veranstalter %s auf Freigabe.</strong> <a href="%s">Tixomat → Veranstalter-Prüfung</a></p></div>',
+                printf('<div class="notice notice-warning"><p><strong>%d Veranstalter %s auf Freigabe.</strong> <a href="%s">evendis → Veranstalter-Prüfung</a></p></div>',
                     $n, $n === 1 ? 'wartet' : 'warten', esc_url(admin_url('admin.php?page=' . self::ADMIN_SLUG)));
             }
             return;

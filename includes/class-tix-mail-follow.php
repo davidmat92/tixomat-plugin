@@ -201,7 +201,7 @@ class TIX_Mail_Follow {
     }
 
     private static function redirect($oid, $state) {
-        wp_redirect(add_query_arg('follow', $state, self::page_url($oid)), 302, 'Tixomat');
+        wp_redirect(add_query_arg('follow', $state, self::page_url($oid)), 302, 'evendis');
         exit;
     }
 
@@ -230,7 +230,7 @@ class TIX_Mail_Follow {
     public static function rest_unfollow(WP_REST_Request $req) {
         $oid = intval($req['id']);
         $token = preg_replace('/[^A-Za-z0-9]/', '', (string) $req->get_param('token'));
-        wp_redirect(self::unsubscribe_url($oid, $token), 302, 'Tixomat');
+        wp_redirect(self::unsubscribe_url($oid, $token), 302, 'evendis');
         exit;
     }
 

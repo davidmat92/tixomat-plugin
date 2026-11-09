@@ -2921,7 +2921,7 @@ class TIX_Metabox {
             (function waitForSortable(triesLeft){
                 if (!window.jQuery || !window.jQuery.fn || !window.jQuery.fn.sortable) {
                     if (triesLeft > 0) return setTimeout(function(){ waitForSortable(triesLeft - 1); }, 100);
-                    console.warn('[Tixomat] jQuery UI Sortable nicht verfügbar — Drag&Drop für Acts deaktiviert.');
+                    console.warn('[evendis] jQuery UI Sortable nicht verfügbar — Drag&Drop für Acts deaktiviert.');
                     return;
                 }
                 var $ = window.jQuery;
@@ -3139,7 +3139,7 @@ class TIX_Metabox {
             <p class="description" style="margin-bottom:16px">
                 Verwende diese Links in deinen Social-Media-Posts, Newslettern und Werbung.
                 Jeder Klick wird automatisch dem Kanal zugeordnet &ndash; du siehst unter
-                <strong>Tixomat &rarr; Kampagnen</strong>, welcher Kanal Besucher und Tickets bringt.
+                <strong>evendis &rarr; Kampagnen</strong>, welcher Kanal Besucher und Tickets bringt.
             </p>
 
             <div id="tix-campaign-links" style="display:grid;gap:8px;max-width:700px">

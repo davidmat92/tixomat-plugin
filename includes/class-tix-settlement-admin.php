@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * Admin-Seite „Tixomat → Auszahlungen“ (nur Mehr-Veranstalter-Modus).
+ * Admin-Seite „evendis → Auszahlungen“ (nur Mehr-Veranstalter-Modus).
  *
  *  - Fällige Abrechnungen mit Summe, je Zeile Freigeben / Zurückstellen / Neu berechnen / PDF
  *  - Kopierhilfe je freigegebener Abrechnung (Empfänger, IBAN, BIC, Betrag, Verwendungszweck),

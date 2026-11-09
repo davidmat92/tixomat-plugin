@@ -14,7 +14,7 @@
  * Eigene Tabelle wp_tix_site_views (anders als wp_tix_campaign_views,
  * die für aggregierte Event-Pageviews bleibt).
  *
- * Settings unter Tixomat → Einstellungen → Tracking.
+ * Settings unter evendis → Einstellungen → Tracking.
  *
  * @since 1.38.143
  */

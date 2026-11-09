@@ -114,7 +114,7 @@ class TIX_Degaso_Pos {
         $o = TIX_Degaso::register_call('POST', '/orderArticles', $s['tse_cash'], ['table' => 'Abendkasse', 'employee' => (string) $s['tse_employee'], 'articles' => $lines, 'dontPrint' => true]);
         $oid = $o['ok'] ? self::order_id($o['data']) : '';
         if ($oid === '') return self::unavailable($o, 'Bestellung');
-        $free = 'Tixomat ' . ($sale['event_title'] ?? '') . (floatval($sale['discount'] ?? 0) > 0 ? ' · Rabatt/Gutschein ' . number_format(floatval($sale['discount']), 2, ',', '.') . ' €' : '');
+        $free = 'Ticket ' . ($sale['event_title'] ?? '') . (floatval($sale['discount'] ?? 0) > 0 ? ' · Rabatt/Gutschein ' . number_format(floatval($sale['discount']), 2, ',', '.') . ' €' : '');
         $p = TIX_Degaso::register_call('POST', '/payOrder', $s['tse_cash'], ['orderId' => $oid, 'payedArticels' => $lines, 'total' => number_format($total, 2, '.', ''), 'payment' => $pay, 'freeText' => mb_substr(trim($free), 0, 120)]);
         if (!$p['ok'] && $p['status'] === 0) { // Antwort verloren: payOrder ist wiederholbar (201 = schon bezahlt)
             $p = TIX_Degaso::register_call('POST', '/payOrder', $s['tse_cash'], ['orderId' => $oid, 'payedArticels' => $lines, 'total' => number_format($total, 2, '.', ''), 'payment' => $pay]);
@@ -160,7 +160,7 @@ class TIX_Degaso_Pos {
         $s = TIX_Degaso::settings();
         $neg = array_map(function ($l) { $l['price'] = number_format(-floatval($l['price']), 2, '.', ''); return $l; }, (array) $rc['lines']);
         $r = TIX_Degaso::register_call('POST', '/payOrder', (string) ($rc['cash'] ?: $s['tse_cash']), ['orderId' => $rc['order_id'], 'payedArticels' => $neg,
-            'total' => number_format(-floatval($rc['total']), 2, '.', ''), 'payment' => $rc['payment'], 'isStorno' => true, 'freeText' => 'Storno Tixomat']);
+            'total' => number_format(-floatval($rc['total']), 2, '.', ''), 'payment' => $rc['payment'], 'isStorno' => true, 'freeText' => 'Storno Ticket']);
         return $r['ok'];
     }
 

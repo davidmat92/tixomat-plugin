@@ -18,7 +18,7 @@
  *   kuenstler    → /kuenstler/*         (Künstler-Seiten, seit 1.38.518; im Mehr-Veranstalter-Modus automatisch mit „veranstalter“)
  *   marke        → Marken-Homepage (seit 1.38.530): /, /events/*, /line-up/*, /kuenstler/*, /faq/*, /u16/*, /muttizettel/*,
  *                  /kontakt/*, /support/*; seit 1.38.531 nur mit dem Schalter `tix_app_links_ios_marke` (Vorgabe aus – die
- *                  Store-Apps bis KK 1.0.2/Mallorca 1.0.1 werten nur ?tix_sp_ticket aus), Tixomat → App-Push bzw.
+ *                  Store-Apps bis KK 1.0.2/Mallorca 1.0.1 werten nur ?tix_sp_ticket aus), evendis → App-Push bzw.
  *                  `wp tixomat app-links ios-marke on|off`
  *   ref          → / mit ?ref=… (Promoter-Link der Startseite, seit 1.38.661) – eigener Schalter `tix_app_links_ios_ref`
  *                  (Vorgabe aus, `wp tixomat app-links ios-ref on|off`), erst wenn die Apps ref/coupon auswerten.
@@ -29,7 +29,7 @@
  *
  * Android App Links (seit 1.38.530): /.well-known/assetlinks.json aus der Option `tix_android_app_links`
  * {package, fingerprints[]} (SHA-256 des Upload- bzw. App-Signaturschlüssels), leer = 404.
- * Einstellen: Tixomat → App-Push oder `wp tixomat app-links android-set <package> <fp>[,<fp>…]`.
+ * Einstellen: evendis → App-Push oder `wp tixomat app-links android-set <package> <fp>[,<fp>…]`.
  * Beispiel evendis: wp option update tix_app_link_paths '["events","veranstalter","suche","start_p"]' --format=json
  *          KitchenKlub: wp option update tix_app_link_paths '["events"]' --format=json
  *
@@ -221,7 +221,7 @@ class TIX_App_Links {
         exit;
     }
 
-    /** Abschnitt „App-Links“ für die Seite Tixomat → App-Push. */
+    /** Abschnitt „App-Links“ für die Seite evendis → App-Push. */
     public static function render_admin_section() {
         $a = self::android();
         $ids = self::ids();

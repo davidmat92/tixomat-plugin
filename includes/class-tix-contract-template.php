@@ -765,7 +765,7 @@ class TIX_Contract_Template {
             <label><input type="radio" name="terms_source" value="template" <?php checked(($s['terms_source'] ?? 'page') === 'template'); ?>> Vorlage im Plugin mit Platzhaltern, automatische Versionen</label>
         </td></tr>
         <tr><th>Stammdaten evendis</th><td>
-            <p class="description">Firma, Anschrift und USt-IdNr. kommen aus Tixomat → Einstellungen → Rechnungen (<?php echo esc_html($disp['evendis_firma'] ?: '–'); ?> · <?php echo esc_html($disp['evendis_anschrift'] ?: '–'); ?> · <?php echo esc_html($disp['evendis_ust_id'] ?: '–'); ?>).</p>
+            <p class="description">Firma, Anschrift und USt-IdNr. kommen aus evendis → Einstellungen → Rechnungen (<?php echo esc_html($disp['evendis_firma'] ?: '–'); ?> · <?php echo esc_html($disp['evendis_anschrift'] ?: '–'); ?> · <?php echo esc_html($disp['evendis_ust_id'] ?: '–'); ?>).</p>
             <p><label>Vertreten durch<br><input type="text" name="contract[evendis_vertreten_durch]" value="<?php echo esc_attr($c['evendis_vertreten_durch']); ?>" class="regular-text" placeholder="z. B. die Geschäftsführerin …"></label></p>
             <p><label>Register (optional)<br><input type="text" name="contract[evendis_register]" value="<?php echo esc_attr($c['evendis_register']); ?>" class="regular-text" placeholder="Amtsgericht …, HRB …"></label></p>
             <?php if ($miss) : ?><p style="color:#b91c1c;"><strong>Stammdaten fehlen:</strong> <?php echo esc_html(implode(', ', $miss)); ?> – bis dahin kann niemand zustimmen.</p><?php endif; ?>

@@ -135,7 +135,7 @@ class TIX_Awareness {
 
     public static function add_metabox() {
         add_meta_box('tix_awareness', 'Awareness', [__CLASS__, 'render_metabox'], 'event', 'normal', 'default');
-        // Vorgabe je Veranstalter (Mehr-Veranstalter-Modus); im Ein-Veranstalter-Betrieb gilt Tixomat → Awareness
+        // Vorgabe je Veranstalter (Mehr-Veranstalter-Modus); im Ein-Veranstalter-Betrieb gilt evendis → Awareness
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
             add_meta_box('tix_awareness_org', 'Awareness (Vorgabe für deine Events)', [__CLASS__, 'render_organizer_box'], 'tix_organizer', 'normal', 'default');
         }

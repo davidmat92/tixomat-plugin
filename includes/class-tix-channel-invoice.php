@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) exit;
  *  - Gutschrift: schon berechnet, inzwischen storniert/erstattet (`channel_credit_id` = 0).
  * Tabelle `{prefix}tix_channel_invoices` (Nummer `KG-JJJJ-NNNN`, je Partner und Monat eine Rechnung,
  * Status open | sent | paid | void). Cron `tix_channel_invoice_cron` täglich: am Monatsanfang für den
- * Vormonat. Admin Tixomat → Kanal-Gebühren: Einstellungen (Satz, Vorgabe neue Partner, Zahlungsziel,
+ * Vormonat. Admin evendis → Kanal-Gebühren: Einstellungen (Satz, Vorgabe neue Partner, Zahlungsziel,
  * Zahlweise), Rechnungen (PDF, senden, bezahlt, stornieren), „Abrechnungslauf jetzt“.
  * Nur auf Plattformen mit Partner-Verzeichnis.
  */
@@ -289,7 +289,7 @@ class TIX_Channel_Invoice {
                     else echo 'Gespeichert.'; ?></p></div>
             <?php endif; ?>
             <p>Gebühr für Verkäufe geteilter Events über evendis.de und die evendis-App. Die Quelle kassiert, evendis stellt monatlich eine Rechnung (Anfang des Monats für den Vormonat; Stornos/Erstattungen bereits berechneter Bestellungen werden gutgeschrieben).
-               Schalter je Partner unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-partners')); ?>">Tixomat → Partner</a>.</p>
+               Schalter je Partner unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-partners')); ?>">evendis → Partner</a>.</p>
 
             <h2>Einstellungen</h2>
             <form method="post" action="<?php echo $post; ?>" style="max-width:720px;">

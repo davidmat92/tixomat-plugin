@@ -90,7 +90,7 @@ class TIX_Staff_Push {
         add_action(self::CRON, [__CLASS__, 'cron_digest']);
         add_action(self::CRON_INSTANT, [__CLASS__, 'flush_instant']);
         add_filter('cron_schedules', function ($s) {
-            $s['tix_5min'] = ['interval' => 5 * MINUTE_IN_SECONDS, 'display' => 'Alle 5 Minuten (Tixomat)'];
+            $s['tix_5min'] = ['interval' => 5 * MINUTE_IN_SECONDS, 'display' => 'Alle 5 Minuten (evendis)'];
             return $s;
         });
         add_action('init', function () {

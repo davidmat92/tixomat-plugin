@@ -113,9 +113,9 @@ class TIX_App_Compat {
             if ($ev['status'] === 'ok') continue;
             $date = date_i18n('d.m.Y', strtotime($ev['deadline']));
             if ($ev['status'] === 'grace') {
-                echo '<div class="notice notice-warning"><p><strong>Tixomat:</strong> Deine App (' . esc_html($app) . ') braucht Tixomat ' . esc_html($r['min']) . ' (installiert: ' . esc_html(TIXOMAT_VERSION) . '). Bitte bis ' . esc_html($date) . ' aktualisieren.' . $how . '</p></div>';
+                echo '<div class="notice notice-warning"><p><strong>evendis:</strong> Deine App (' . esc_html($app) . ') braucht die Plugin-Version ' . esc_html($r['min']) . ' (installiert: ' . esc_html(TIXOMAT_VERSION) . '). Bitte bis ' . esc_html($date) . ' aktualisieren.' . $how . '</p></div>';
             } else {
-                echo '<div class="notice notice-error"><p><strong>Tixomat:</strong> Die Frist für das Update auf ' . esc_html($r['min']) . ' ist am ' . esc_html($date) . ' abgelaufen. Deine App (' . esc_html($app) . ') zeigt deinen Gästen jetzt einen Update-Hinweis.' . $how . '</p></div>';
+                echo '<div class="notice notice-error"><p><strong>evendis:</strong> Die Frist für das Update auf ' . esc_html($r['min']) . ' ist am ' . esc_html($date) . ' abgelaufen. Deine App (' . esc_html($app) . ') zeigt deinen Gästen jetzt einen Update-Hinweis.' . $how . '</p></div>';
             }
         }
     }

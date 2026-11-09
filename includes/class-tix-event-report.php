@@ -2,7 +2,7 @@
 /**
  * TIX_Event_Report — Detail-Bericht pro Event mit Export (CSV/XLSX/PDF)
  *
- * Admin-Seite: Tixomat → Event-Bericht
+ * Admin-Seite: evendis → Event-Bericht
  * URL: /wp-admin/admin.php?page=tix-event-report&event_id=X
  *
  * Features:

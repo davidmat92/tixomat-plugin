@@ -101,7 +101,7 @@
             var ics = [
                 'BEGIN:VCALENDAR',
                 'VERSION:2.0',
-                'PRODID:-//Tixomat//Event//DE',
+                'PRODID:-//evendis//Event//DE',
                 'BEGIN:VEVENT',
                 'DTSTART:' + dtStart,
                 'DTEND:' + dtEnd,

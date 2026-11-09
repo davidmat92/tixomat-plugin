@@ -291,7 +291,7 @@ class TIX_Support_Mail {
 
     public static function cron_schedules($s) {
         if (!isset($s['tix_every_2min'])) {
-            $s['tix_every_2min'] = ['interval' => 120, 'display' => 'Alle 2 Minuten (Tixomat)'];
+            $s['tix_every_2min'] = ['interval' => 120, 'display' => 'Alle 2 Minuten (evendis)'];
         }
         return $s;
     }

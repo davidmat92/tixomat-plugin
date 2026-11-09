@@ -463,7 +463,7 @@ class TIX_Venues {
         $url = self::NOMINATIM . '?' . http_build_query(['format' => 'json', 'limit' => 1, 'q' => $query], '', '&', PHP_QUERY_RFC3986);
         $res = wp_remote_get($url, [
             'timeout'    => 5,
-            'user-agent' => 'Tixomat/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1') . ' (' . home_url() . ')',
+            'user-agent' => 'evendis/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1') . ' (' . home_url() . ')',
             'headers'    => ['Accept-Language' => 'de'],
         ]);
         if (is_wp_error($res) || intval(wp_remote_retrieve_response_code($res)) !== 200) return null;

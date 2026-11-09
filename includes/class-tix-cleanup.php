@@ -352,7 +352,7 @@ class TIX_Cleanup {
         if (!is_array($list) || !$list) return;
         delete_transient('tix_trash_blocked_' . get_current_user_id());
         foreach ($list as $e) {
-            printf('<div class="notice notice-error is-dismissible"><p><strong>Tixomat:</strong> „%s“ hat %d verkaufte Tickets und wurde nicht in den Papierkorb gelegt. Tickets und Bestellungen müssen erhalten bleiben – nimm das Event stattdessen offline (Entwurf) oder archiviere es.</p></div>',
+            printf('<div class="notice notice-error is-dismissible"><p><strong>evendis:</strong> „%s“ hat %d verkaufte Tickets und wurde nicht in den Papierkorb gelegt. Tickets und Bestellungen müssen erhalten bleiben – nimm das Event stattdessen offline (Entwurf) oder archiviere es.</p></div>',
                 esc_html($e['title']), intval($e['sold']));
         }
     }
@@ -402,7 +402,7 @@ class TIX_Cleanup {
         delete_transient('tix_delete_blocked_' . get_current_user_id());
 
         printf(
-            '<div class="notice notice-warning is-dismissible"><p><strong>Tixomat:</strong> Das Produkt „%s" gehört zum Event „<a href="%s">%s</a>" und kann nicht direkt gelöscht werden. Lösche das Produkt über den Event-Editor oder lösche zuerst das Event.</p></div>',
+            '<div class="notice notice-warning is-dismissible"><p><strong>evendis:</strong> Das Produkt „%s" gehört zum Event „<a href="%s">%s</a>" und kann nicht direkt gelöscht werden. Lösche das Produkt über den Event-Editor oder lösche zuerst das Event.</p></div>',
             esc_html($data['product']),
             esc_url(get_edit_post_link($data['event_id'])),
             esc_html($data['event'])
@@ -570,7 +570,7 @@ class TIX_Cleanup {
         }
 
         printf(
-            '<div class="notice notice-success is-dismissible"><p><strong>Tixomat:</strong> %s</p></div>',
+            '<div class="notice notice-success is-dismissible"><p><strong>evendis:</strong> %s</p></div>',
             esc_html($msg)
         );
     }

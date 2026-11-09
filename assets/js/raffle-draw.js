@@ -748,7 +748,7 @@
 
         ctx.save();
         ctx.globalAlpha = alpha * 0.6;
-        drawCentered('tixomat.de', H * 0.57, W * 0.02, COLORS.text, '500');
+        drawCentered('evendis.de', H * 0.57, W * 0.02, COLORS.text, '500');
         ctx.restore();
 
         ctx.restore();

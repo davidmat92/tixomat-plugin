@@ -19,7 +19,7 @@ class TIX_Notif_Schedule {
     const MAX = 300;
 
     public static function init() {
-        add_filter('cron_schedules', function ($s) { $s['tix_5min'] = ['interval' => 300, 'display' => 'Alle 5 Minuten (Tixomat)']; return $s; });
+        add_filter('cron_schedules', function ($s) { $s['tix_5min'] = ['interval' => 300, 'display' => 'Alle 5 Minuten (evendis)']; return $s; });
         add_action('init', function () { if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 120, 'tix_5min', self::CRON); }, 54);
         add_action(self::CRON, [__CLASS__, 'run']);
         add_action('rest_api_init', [__CLASS__, 'routes']);

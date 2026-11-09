@@ -244,7 +244,7 @@ class TIX_Organizer_Notifications {
             </div>
             <button type="button" class="tix-notify-add" id="tix-notify-add-pushover">+ Pushover-Endpunkt hinzufügen</button>
             <p style="font-size:12px;color:#64748b;margin-top:12px;line-height:1.5;">
-                Du brauchst für jede Konfiguration einen <strong>User-Key</strong> (pro Gerät/Account) und einen <strong>App-Token</strong> (pro App). Beides bekommst du auf <a href="https://pushover.net" target="_blank" rel="noopener">pushover.net</a>. Lege eine eigene Tixomat-App an — das Icon erscheint dann auf den Push-Nachrichten.
+                Du brauchst für jede Konfiguration einen <strong>User-Key</strong> (pro Gerät/Account) und einen <strong>App-Token</strong> (pro App). Beides bekommst du auf <a href="https://pushover.net" target="_blank" rel="noopener">pushover.net</a>. Lege eine eigene App an — das Icon erscheint dann auf den Push-Nachrichten.
             </p>
 
             <details style="margin-top:10px;font-size:12px;">
@@ -524,7 +524,7 @@ class TIX_Organizer_Notifications {
         $body = [
             'token'   => $app_token,
             'user'    => $user_key,
-            'title'   => mb_substr($payload['title']   ?? 'Tixomat', 0, 250),
+            'title'   => mb_substr($payload['title']   ?? get_bloginfo('name'), 0, 250),
             'message' => mb_substr($payload['message'] ?? '',       0, 1024),
         ];
         if (!empty($payload['url']))       $body['url']       = $payload['url'];
@@ -916,7 +916,7 @@ class TIX_Organizer_Notifications {
         if (!$org) return;
 
         $payload = [
-            'title'         => '✅ Test-Push von Tixomat',
+            'title'         => '✅ Test-Push von evendis',
             'message'       => "<b>" . esc_html($org->post_title) . "</b>\n\nDeine Pushover-Konfiguration funktioniert! Du erhältst ab jetzt Benachrichtigungen für Bestellungen und Support-Anfragen deiner Events.",
             'url'           => admin_url('post.php?post=' . $org_id . '&action=edit'),
             'url_title'     => 'Konfiguration öffnen',

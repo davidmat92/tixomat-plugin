@@ -68,7 +68,7 @@ class TIX_AI_Writer {
         if (!current_user_can('manage_options')) return;
         $n = get_option(self::NOTICE_OPT);
         if (!is_array($n) || empty($n['model'])) return;
-        echo '<div class="notice notice-warning"><p><strong>Tixomat KI:</strong> Das Modell <code>' . esc_html($n['model']) . '</code> ist nicht mehr verfügbar. Es wird <code>' . esc_html($n['fallback']) . '</code> verwendet. Bitte unter Einstellungen → KI ein aktuelles Modell wählen.</p></div>';
+        echo '<div class="notice notice-warning"><p><strong>KI-Assistent:</strong> Das Modell <code>' . esc_html($n['model']) . '</code> ist nicht mehr verfügbar. Es wird <code>' . esc_html($n['fallback']) . '</code> verwendet. Bitte unter Einstellungen → KI ein aktuelles Modell wählen.</p></div>';
     }
 
     /** OpenAI-Modelle erkennen */

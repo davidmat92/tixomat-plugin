@@ -129,7 +129,7 @@ class TIX_Weather {
         $url = add_query_arg(array_map('rawurlencode', $q), 'https://' . self::HOST . '/weather');
         $r = wp_remote_get($url, [
             'timeout'    => 8,
-            'user-agent' => 'Tixomat/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1') . ' (+' . home_url('/') . ')',
+            'user-agent' => 'evendis/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1') . ' (+' . home_url('/') . ')',
             'headers'    => ['Accept' => 'application/json'],
         ]);
         $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));

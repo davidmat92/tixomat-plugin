@@ -267,7 +267,7 @@ class TIX_Mirror {
     // ═══════════════ Cron ═══════════════
 
     public static function cron_schedules($s) {
-        if (!isset($s[self::SCHEDULE])) $s[self::SCHEDULE] = ['interval' => MINUTE_IN_SECONDS, 'display' => 'Jede Minute (Tixomat)'];
+        if (!isset($s[self::SCHEDULE])) $s[self::SCHEDULE] = ['interval' => MINUTE_IN_SECONDS, 'display' => 'Jede Minute (evendis)'];
         return $s;
     }
 
@@ -587,7 +587,7 @@ class TIX_Mirror {
             . "Bestellungen und Check-ins laufen normal weiter; der Rückstand wird nachgeschickt, sobald Supabase wieder antwortet.\n"
             . "Status: " . admin_url('admin.php?page=tix-mirror') . "\n";
         self::set_state(['alert_at' => time()]);
-        wp_mail($to, '[Tixomat] Datenspiegel: Rückstand auf ' . self::site(), $body);
+        wp_mail($to, '[evendis] Datenspiegel: Rückstand auf ' . self::site(), $body);
     }
 
     // ═══════════════ Kennzahlen ═══════════════

@@ -4,7 +4,7 @@
  *
  * Bis Datenspiegel Paket 1 schickte diese Klasse nur Tickets als flache Zeile in eine
  * Tabelle des ALTEN Supabase-Projekts. Sie ist durch den Datenspiegel (TIX_Mirror,
- * Tixomat → Datenspiegel) ersetzt und bleibt nur als Weiche für alte Aufrufer
+ * evendis → Datenspiegel) ersetzt und bleibt nur als Weiche für alte Aufrufer
  * (Admin-Knöpfe „Verbindung testen“ / „Alle jetzt synchronisieren“).
  * Das alte Projekt wird nicht mehr beschrieben.
  *

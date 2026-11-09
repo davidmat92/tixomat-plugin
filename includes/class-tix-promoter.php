@@ -742,7 +742,7 @@ class TIX_Promoter {
             $coupon->set_product_ids($product_ids);
         }
 
-        $coupon->set_description('Tixomat Promoter-Code');
+        $coupon->set_description('Promoter-Code');
         $coupon->save();
 
         return $coupon->get_id();

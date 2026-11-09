@@ -93,7 +93,7 @@ class TIX_Calendar {
 
         $ics  = "BEGIN:VCALENDAR\r\n";
         $ics .= "VERSION:2.0\r\n";
-        $ics .= "PRODID:-//Tixomat//Event//DE\r\n";
+        $ics .= "PRODID:-//evendis//Event//DE\r\n";
         $ics .= "CALSCALE:GREGORIAN\r\n";
         $ics .= "METHOD:PUBLISH\r\n";
         $ics .= "BEGIN:VEVENT\r\n";

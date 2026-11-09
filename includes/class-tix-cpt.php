@@ -150,10 +150,10 @@ class TIX_CPT {
     // ── Admin Menu ──
     public static function register_admin_menu() {
 
-        // Top-Level: Tixomat → Dashboard als Startseite
+        // Top-Level: evendis → Dashboard als Startseite
         add_menu_page(
-            'Tixomat',
-            'Tixomat',
+            'evendis',
+            'evendis',
             'edit_posts',
             'tixomat',
             [TIX_Dashboard::class, 'render_page'],
@@ -193,7 +193,7 @@ class TIX_CPT {
 
         $wp_admin_bar->add_node([
             'id'    => 'tixomat',
-            'title' => '<span class="ab-icon dashicons dashicons-calendar-alt" style="font:normal 20px/1 dashicons;padding:4px 0;"></span> Tixomat',
+            'title' => '<span class="ab-icon dashicons dashicons-calendar-alt" style="font:normal 20px/1 dashicons;padding:4px 0;"></span> evendis',
             'href'  => admin_url('admin.php?page=tixomat'),
         ]);
 
@@ -562,7 +562,7 @@ class TIX_CPT {
                         </label>
                         <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
                             Sonst gilt die zentrale Gebühr: <?php echo esc_html($mo_gpct); ?> % + <?php echo esc_html($mo_gfix); ?> € je Ticket
-                            <?php echo !empty($mo_global['gateway_fee_included']) ? '(inkl. Zahlung)' : ''; ?> – änderbar unter Tixomat → Einstellungen → Gebühren.
+                            <?php echo !empty($mo_global['gateway_fee_included']) ? '(inkl. Zahlung)' : ''; ?> – änderbar unter evendis → Einstellungen → Gebühren.
                             Nur Plattform-Admins sehen und ändern diese Höhe. Gilt für neue Bestellungen.
                         </p>
                         <div id="tix-fee-custom-fields" style="display:<?php echo $mo_custom ? 'flex' : 'none'; ?>;gap:18px;margin:10px 0 0 26px;">

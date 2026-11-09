@@ -111,7 +111,7 @@ class TIX_Admin_Only {
         if ($base === '') return;
         $q = $_GET ? '?' . http_build_query(wp_unslash($_GET)) : '';
         if ($q !== '' && strpos($path, '?') !== false) $q = '&' . substr($q, 1);
-        wp_redirect($base . $path . $q, 301, 'Tixomat');
+        wp_redirect($base . $path . $q, 301, 'evendis');
         exit;
     }
 
@@ -339,7 +339,7 @@ class TIX_Admin_Only {
         $desc  = self::seo_description($post);
         $url   = is_front_page() ? home_url('/') : (string) get_permalink($post);
         $img   = has_post_thumbnail($post) ? (string) get_the_post_thumbnail_url($post, 'large') : self::media_url('konzert');
-        echo "\n<!-- Tixomat: SEO der Infoseite -->\n";
+        echo "\n<!-- SEO der Infoseite -->\n";
         if ($desc !== '') echo '<meta name="description" content="' . esc_attr($desc) . "\">\n";
         if (!has_action('wp_head', 'rel_canonical')) echo '<link rel="canonical" href="' . esc_url($url) . "\">\n";
         $og = ['og:type' => 'website', 'og:locale' => 'de_DE', 'og:site_name' => get_bloginfo('name'), 'og:title' => $title, 'og:description' => $desc, 'og:url' => $url, 'og:image' => $img];

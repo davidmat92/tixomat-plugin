@@ -9,7 +9,7 @@ if (!defined('ABSPATH')) exit;
  *
  * Einstellung je Aussteller (`accounting` in tix_invoice_config bzw. _tix_invoice_config am Veranstalter):
  *   {provider: none|lexoffice, key (verschlüsselt, AES-256-GCM wie die IBAN), use_site_key (nur Einzel-Seite: Schlüssel aus
- *    Tixomat → Rechnungen/Lexoffice), category_id (Lexoffice-Kategorie „Einnahmen“, Vorgabe siehe CATEGORY), since (Datum)}
+ *    evendis → Rechnungen/Lexoffice), category_id (Lexoffice-Kategorie „Einnahmen“, Vorgabe siehe CATEGORY), since (Datum)}
  * Übergabe im Hintergrund nach dem Anlegen (tix_invoice_created), Wiederholung stündlich bis 5 Versuche; Status in
  * tix_invoices.export_* (pending | done | error | skipped). Belege ohne USt (B/BK, Mehrzweck-Gutschein) werden nicht
  * übergeben (skipped) – Buchung mit dem Steuerberater klären.

@@ -275,6 +275,6 @@ class TIX_License_Stage {
         $stage = self::stage();
         if ($stage === 'active') return;
         $cls = $stage === 'notice' ? 'notice-info' : 'notice-error';
-        echo '<div class="notice ' . esc_attr($cls) . '"><p><strong>Tixomat:</strong> ' . esc_html(self::message($stage)) . '</p></div>';
+        echo '<div class="notice ' . esc_attr($cls) . '"><p><strong>evendis:</strong> ' . esc_html(self::message($stage)) . '</p></div>';
     }
 }

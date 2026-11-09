@@ -15,7 +15,7 @@ class TIX_Frontend {
     public static function cron_interval($schedules) {
         $schedules['tix_every_10min'] = [
             'interval' => 600,
-            'display'  => 'Alle 10 Minuten (Tixomat)',
+            'display'  => 'Alle 10 Minuten (evendis)',
         ];
         return $schedules;
     }
@@ -193,7 +193,7 @@ class TIX_Frontend {
         if (defined('WPSEO_VERSION') || class_exists('RankMath')) return;
 
         ?>
-        <!-- Tixomat: Open Graph -->
+        <!-- Open Graph -->
         <meta property="og:type" content="website" />
         <meta property="og:title" content="<?php echo esc_attr($title); ?>" />
         <meta property="og:url" content="<?php echo esc_url($url); ?>" />
@@ -223,7 +223,7 @@ class TIX_Frontend {
         <?php if ($price_range): ?>
         <meta property="event:price" content="<?php echo esc_attr(wp_strip_all_tags($price_range)); ?>" />
         <?php endif; ?>
-        <!-- /Tixomat: Open Graph -->
+        <!-- /Open Graph -->
         <?php
     }
 
@@ -373,7 +373,7 @@ class TIX_Frontend {
             $schema['offers'] = $offer;
         }
 
-        echo "\n<!-- Tixomat: JSON-LD -->\n";
+        echo "\n<!-- JSON-LD -->\n";
         echo '<script type="application/ld+json">' . wp_json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . '</script>' . "\n";
     }
 
@@ -383,7 +383,7 @@ class TIX_Frontend {
     public static function register_dashboard_widget() {
         wp_add_dashboard_widget(
             'tix_dashboard_widget',
-            'Tixomat – Übersicht',
+            'evendis – Übersicht',
             [__CLASS__, 'render_dashboard_widget']
         );
     }

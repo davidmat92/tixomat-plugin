@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Contract – Vermittlungsvertrag komplett digital (nur Mehr-Veranstalter-Modus, evendis). Baut auf TIX_Org_Approval auf.
  *
- * 1. Eingefrorene Fassungen: Beim Anheben der Vertragsversion (Tixomat → Veranstalter-Prüfung → Einstellungen) wird der
+ * 1. Eingefrorene Fassungen: Beim Anheben der Vertragsversion (evendis → Veranstalter-Prüfung → Einstellungen) wird der
  *    Wortlaut der Vertragsseite als Schnappschuss gespeichert (Option tix_contract_snapshots: version → {title, url, html,
  *    text, sha256, frozen_at, by}); fehlt er bei einer Zustimmung, wird er dann angelegt. Eine eingefrorene Fassung ändert
  *    sich nicht mehr – neuer Wortlaut = neue Version.

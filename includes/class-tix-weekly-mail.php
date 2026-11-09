@@ -166,7 +166,7 @@ class TIX_Weekly_Mail {
     }
 
     private static function redirect($state) {
-        wp_redirect(add_query_arg('newsletter', $state, self::customer_base() . '/'), 302, 'Tixomat');
+        wp_redirect(add_query_arg('newsletter', $state, self::customer_base() . '/'), 302, 'evendis');
         exit;
     }
 

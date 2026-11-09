@@ -214,7 +214,7 @@ class TIX_Admin_Shell {
             <!-- ── Brand ── -->
             <div class="tix-shell-brand">
                 <a href="<?php echo esc_url(home_url('/')); ?>" style="display:inline-block;text-decoration:none;">
-                    <img src="<?php echo esc_url($logo_url); ?>" alt="Tixomat" class="tix-shell-logo-img">
+                    <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>" class="tix-shell-logo-img">
                 </a>
                 <?php if (!$is_organizer) : ?>
                     <div class="tix-shell-version">v<?php echo esc_html(TIXOMAT_VERSION); ?></div>

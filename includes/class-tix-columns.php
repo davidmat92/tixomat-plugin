@@ -782,7 +782,7 @@ class TIX_Columns {
         if (!empty($parts)) $msg .= ' Mitgelöscht: ' . implode(', ', $parts) . '.';
 
         printf(
-            '<div class="notice notice-success is-dismissible"><p><strong>Tixomat:</strong> %s</p></div>',
+            '<div class="notice notice-success is-dismissible"><p><strong>evendis:</strong> %s</p></div>',
             esc_html($msg)
         );
     }
@@ -1257,7 +1257,7 @@ class TIX_Columns {
 
         foreach ($messages as $key => $msg) {
             if (isset($_GET[$key]) && intval($_GET[$key]) > 0) {
-                printf('<div class="notice notice-success is-dismissible"><p><strong>Tixomat:</strong> ' . $msg . '</p></div>', intval($_GET[$key]));
+                printf('<div class="notice notice-success is-dismissible"><p><strong>evendis:</strong> ' . $msg . '</p></div>', intval($_GET[$key]));
             }
         }
     }

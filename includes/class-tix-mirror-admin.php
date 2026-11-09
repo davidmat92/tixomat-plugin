@@ -1,6 +1,6 @@
 <?php
 /**
- * Tixomat – Datenspiegel: Status-Seite (Tixomat → Datenspiegel)
+ * Tixomat – Datenspiegel: Status-Seite (evendis → Datenspiegel)
  *
  * Spiegel an/aus, Zugang, Rückstand, letzter Abgleich, Fehler, Erstbefüllung.
  * Der Schlüssel wird nie angezeigt; ein leeres Feld beim Speichern behält ihn.

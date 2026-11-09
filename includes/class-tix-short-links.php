@@ -330,7 +330,7 @@ class TIX_Short_Links {
         if (!preg_match('#^/go/([A-Za-z0-9-]{1,32})/?$#', $p, $m)) return;
         $url = self::resolve($m[1], isset($_GET['qr']) && $_GET['qr'] === '1', (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), isset($_GET['e']) ? absint($_GET['e']) : 0);
         nocache_headers();
-        wp_redirect($url ?: self::base() . "/", 302, "Tixomat");
+        wp_redirect($url ?: self::base() . "/", 302, "evendis");
         exit;
     }
 

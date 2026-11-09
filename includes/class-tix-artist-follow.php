@@ -349,7 +349,7 @@ class TIX_Artist_Follow {
     }
 
     private static function redirect($aid, $state) {
-        wp_redirect(add_query_arg('follow', $state, self::page_url($aid)), 302, 'Tixomat');
+        wp_redirect(add_query_arg('follow', $state, self::page_url($aid)), 302, 'evendis');
         exit;
     }
 
@@ -366,7 +366,7 @@ class TIX_Artist_Follow {
     /** GET …/unfollow?token= → nur zur Abmeldeseite (Mail-Scanner öffnen Links) */
     public static function rest_unfollow(WP_REST_Request $req) {
         $aid = intval($req['id']);
-        wp_redirect(self::unsubscribe_url($aid, preg_replace('/[^A-Za-z0-9]/', '', (string) $req->get_param('token'))), 302, 'Tixomat');
+        wp_redirect(self::unsubscribe_url($aid, preg_replace('/[^A-Za-z0-9]/', '', (string) $req->get_param('token'))), 302, 'evendis');
         exit;
     }
 

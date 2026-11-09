@@ -912,7 +912,7 @@ class TIX_Settings {
     public static function add_menu() {
         add_submenu_page(
             'tixomat',
-            'Tixomat Einstellungen',
+            'evendis Einstellungen',
             'Einstellungen',
             'manage_options',
             'tix-settings',
@@ -2623,7 +2623,7 @@ class TIX_Settings {
         $ok = self::OPTION_KEY;
         ?>
         <div class="wrap tix-settings-wrap">
-            <h1>Tixomat – Einstellungen <span style="font-size:12px;font-weight:400;opacity:0.5;">v<?php echo TIXOMAT_VERSION; ?></span></h1>
+            <h1>Einstellungen <span style="font-size:12px;font-weight:400;opacity:0.5;">v<?php echo TIXOMAT_VERSION; ?></span></h1>
 
             <?php // ── Permanent-Banner für Wallet (NEU) — bis konfiguriert ── ?>
             <?php if (empty($s['wallet_enabled'])): ?>
@@ -4069,7 +4069,7 @@ class TIX_Settings {
                                         <h3>Supabase (Datenspiegel)</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <p class="tix-field-desc">Events, Kunden, Bestellungen, Tickets, Check-ins und Stornos werden als zweite Speicherung nach Supabase gespiegelt. Zugang, Status, Rückstand und Erstbefüllung stehen unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-mirror')); ?>">Tixomat → Datenspiegel</a>.</p>
+                                        <p class="tix-field-desc">Events, Kunden, Bestellungen, Tickets, Check-ins und Stornos werden als zweite Speicherung nach Supabase gespiegelt. Zugang, Status, Rückstand und Erstbefüllung stehen unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-mirror')); ?>">evendis → Datenspiegel</a>.</p>
                                         <?php if (class_exists('TIX_Mirror')) : $tix_ms = TIX_Mirror::state(); ?>
                                             <p class="tix-field-desc">Stand: <?php echo TIX_Mirror::active() ? 'an' : 'aus / nicht eingerichtet'; ?> · Rückstand <?php echo (int) TIX_Mirror::pending_count(); ?><?php echo $tix_ms['last_ok'] ? ' · zuletzt ' . esc_html(wp_date('d.m.Y H:i', (int) $tix_ms['last_ok'])) : ''; ?></p>
                                         <?php endif; ?>
@@ -4139,7 +4139,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten', $s, 'Ersetzt das Breakdance/Theme-Template durch das Tixomat Event-Template. Header/Footer des Themes bleiben erhalten. Alternativ: <code>[tix_event_page]</code> Shortcode in Breakdance einbetten.'); ?>
+                                                <?php self::checkbox_row('ep_template_enabled', 'Eigenes Template für Event-Einzelseiten', $s, 'Ersetzt das Breakdance/Theme-Template durch das eigene Event-Template. Header/Footer des Themes bleiben erhalten. Alternativ: <code>[tix_event_page]</code> Shortcode in Breakdance einbetten.'); ?>
                                             </div>
                                             <?php self::checkbox_row('ep_hero_auto', 'Hero-Bild: Auto-Höhe', $s, 'Bild nimmt seine natürliche Höhe ein statt einer fixen Höhe.'); ?>
                                             <?php if (empty($s['ep_hero_auto'])): ?>
@@ -4485,7 +4485,7 @@ class TIX_Settings {
                                                 <p class="tix-settings-hint">Schriftgr&ouml;&szlig;en: &uuml;ber Typografie-Tab steuerbar (Event Cards &amp; Suche)</p>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Tixomat bindet dann keine weiteren Schriften ein – du bindest sie selbst in dein Theme ein (z. B. per @font-face). Google Fonts lädt die Seite in keinem Fall.'); ?>
+                                                <?php self::checkbox_row('tix_card_font_self_host', 'Schriften selbst hosten (DSGVO)', $s, 'Das Plugin bindet dann keine weiteren Schriften ein – du bindest sie selbst in dein Theme ein (z. B. per @font-face). Google Fonts lädt die Seite in keinem Fall.'); ?>
                                             </div>
                                         </div>
                                     </div>
@@ -5450,7 +5450,7 @@ class TIX_Settings {
                                         <h3>Globale Schriftarten</h3>
                                     </div>
                                     <div class="tix-card-body">
-                                        <p class="tix-field-hint" style="color:#6b7280;font-size:12px;margin:0 0 12px;">Sora, DM Sans, Inter und Outfit liefert Tixomat selbst aus (keine Verbindung zu Google, DSGVO-freundlich). Jede andere Schrift holt Tixomat einmal auf diesen Server und liefert sie von hier aus (Tixomat → Schriften) – Besucher laden nie bei Google.</p>
+                                        <p class="tix-field-hint" style="color:#6b7280;font-size:12px;margin:0 0 12px;">Sora, DM Sans, Inter und Outfit liefert das Plugin selbst aus (keine Verbindung zu Google, DSGVO-freundlich). Jede andere Schrift holt das Plugin einmal auf diesen Server und liefert sie von hier aus (evendis → Schriften) – Besucher laden nie bei Google.</p>
                                         <div class="tix-field-grid">
                                             <?php
                                             $fonts = ['Sora', 'DM Sans', 'Inter', 'Outfit', 'Poppins', 'Montserrat', 'Open Sans', 'Roboto', 'Lato', 'Nunito', 'Raleway', 'Playfair Display', 'Oswald', 'Source Sans 3', 'Work Sans', 'Manrope', 'Plus Jakarta Sans', 'Figtree'];
@@ -6449,7 +6449,7 @@ class TIX_Settings {
                                                     'Erm&ouml;glicht den segmentierten CSV-Export von Kundendaten f&uuml;r Mailchimp, Brevo etc.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <p class="tix-settings-hint">Nach Aktivierung erscheint unter <strong>Tixomat &rarr; Marketing Export</strong> die Export-Seite mit Filter-Optionen.</p>
+                                                <p class="tix-settings-hint">Nach Aktivierung erscheint unter <strong>evendis &rarr; Marketing Export</strong> die Export-Seite mit Filter-Optionen.</p>
                                             </div>
                                         </div>
                                     </div>
@@ -6477,7 +6477,7 @@ class TIX_Settings {
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
-                                                    Nach Aktivierung erscheint unter <strong>Tixomat &rarr; Kampagnen</strong> das Analytics-Dashboard.
+                                                    Nach Aktivierung erscheint unter <strong>evendis &rarr; Kampagnen</strong> das Analytics-Dashboard.
                                                     Im Event-Editor wird ein Tab &bdquo;Kampagnen&ldquo; mit fertigem Link-Generator angezeigt.
                                                 </p>
                                             </div>
@@ -7132,10 +7132,10 @@ class TIX_Settings {
                                         <p class="tix-field-hint" style="margin:0 0 18px;color:#6b7280;font-size:13px;">
                                             <?php if (class_exists('TIX_Fees') && TIX_Fees::multi()) : ?>
                                             Mehr-Veranstalter-Modus: Die Gebühr oben gilt für alle Veranstalter. Jeder Veranstalter wählt nur, wer sie trägt
-                                            (er allein, geteilt mit dem Kunden oder der Kunde) – im Veranstalter-Bereich, in der App oder hier unter <strong>Tixomat → Veranstalter</strong>.
+                                            (er allein, geteilt mit dem Kunden oder der Kunde) – im Veranstalter-Bereich, in der App oder hier unter <strong>evendis → Veranstalter</strong>.
                                             <?php else : ?>
                                             Pro Veranstalter können individuelle Gebühren definiert werden, die die globalen Einstellungen überschreiben.
-                                            Bearbeite dazu den jeweiligen Veranstalter unter <strong>Tixomat → Veranstalter</strong>.
+                                            Bearbeite dazu den jeweiligen Veranstalter unter <strong>evendis → Veranstalter</strong>.
                                             <?php endif; ?>
                                         </p>
                                         <?php
@@ -7248,7 +7248,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <p class="tix-field-hint" style="margin:0 0 16px;color:#6b7280;font-size:13px;">
                                             Kunden zahlen auf das Konto der Plattform. Nach dem Event wird je Veranstalter automatisch eine Abrechnung erstellt;
-                                            jede Auszahlung gibst du unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-payouts')); ?>">Tixomat → Auszahlungen</a> frei.
+                                            jede Auszahlung gibst du unter <a href="<?php echo esc_url(admin_url('admin.php?page=tix-payouts')); ?>">evendis → Auszahlungen</a> frei.
                                             Zahlungsgebühren (tatsächliche Anbietergebühr, sonst der Satz oben) werden dem Veranstalter weiterberechnet, sofern sie nicht der Kunde trägt.
                                             Geteilte Events (Partner) sind nicht Teil der Abrechnung.
                                         </p>
@@ -7560,7 +7560,7 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint" style="margin-top:0;">
-                                                    Events von externen Tixomat-Installationen empfangen. Verteilte Events werden automatisch erstellt und bei Klick auf „Tickets" zur Quellseite weitergeleitet.
+                                                    Events von anderen Seiten mit evendis-Plugin empfangen. Verteilte Events werden automatisch erstellt und bei Klick auf „Tickets" zur Quellseite weitergeleitet.
                                                 </p>
                                             </div>
                                             <div class="tix-field tix-field-full">
@@ -7578,10 +7578,10 @@ class TIX_Settings {
                                                 <p class="tix-settings-hint">Diesen Key dem Sender mitteilen. Er wird als Authentifizierungs-Header gesendet.</p>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('partner_autoconnect', 'Kopplung neuer Tixomat-Seiten erlauben', $s, 'Seiten können sich per „Mit Plattform verbinden“ selbst koppeln. Partner und Veranstalter werden angelegt, der Ticketverkauf über die App startet erst nach deiner Freigabe unter Tixomat → Partner (Mail an die Admin-Adresse).'); ?>
+                                                <?php self::checkbox_row('partner_autoconnect', 'Kopplung neuer Seiten erlauben', $s, 'Seiten können sich per „Mit Plattform verbinden“ selbst koppeln. Partner und Veranstalter werden angelegt, der Ticketverkauf über die App startet erst nach deiner Freigabe unter evendis → Partner (Mail an die Admin-Adresse).'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('syndication_shared_key_enabled', 'Gemeinsamen Empfangs-Key akzeptieren (alt)', $s, 'Aus = nur noch Quellen mit eigenem Schlüssel aus Tixomat → Partner. Quelle nennt sich beim gemeinsamen Key selbst – empfohlen: aus, sobald alle Quellen Partner sind.'); ?>
+                                                <?php self::checkbox_row('syndication_shared_key_enabled', 'Gemeinsamen Empfangs-Key akzeptieren (alt)', $s, 'Aus = nur noch Quellen mit eigenem Schlüssel aus evendis → Partner. Quelle nennt sich beim gemeinsamen Key selbst – empfohlen: aus, sobald alle Quellen Partner sind.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
                                                 <p class="tix-settings-hint">
@@ -7859,7 +7859,7 @@ class TIX_Settings {
                                                 <?php self::checkbox_row('organizer_auto_publish', 'Events automatisch ver&ouml;ffentlichen', $s, 'Wenn aktiviert, werden vom Veranstalter erstellte Events sofort ver&ouml;ffentlicht. Andernfalls werden sie als Entwurf gespeichert und m&uuml;ssen vom Admin freigegeben werden.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('organizer_fullscreen', 'Fullscreen-Modus f&uuml;r Veranstalter-Dashboard', $s, 'Zeigt das Veranstalter-Dashboard im Fullscreen-Modus ohne WordPress-Theme-Elemente (Header, Footer, Sidebar). Das Dashboard &uuml;bernimmt die gesamte Seite mit eigenem Tixomat-Branding.'); ?>
+                                                <?php self::checkbox_row('organizer_fullscreen', 'Fullscreen-Modus f&uuml;r Veranstalter-Dashboard', $s, 'Zeigt das Veranstalter-Dashboard im Fullscreen-Modus ohne WordPress-Theme-Elemente (Header, Footer, Sidebar). Das Dashboard &uuml;bernimmt die gesamte Seite mit eigenem Branding.'); ?>
                                             </div>
                                         </div>
                                     </div>
@@ -8133,7 +8133,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('myaccount_restyle', 'Tixomat-Design f&uuml;r WooCommerce &bdquo;Mein Konto&ldquo;', $s, '&Uuml;bernimmt das Tixomat-Design (Farben, Ecken, Schrift) f&uuml;r den gesamten WooCommerce &bdquo;Mein Konto&ldquo;-Bereich unter <code>/mein-konto/</code>.'); ?>
+                                                <?php self::checkbox_row('myaccount_restyle', 'Eigenes Design f&uuml;r WooCommerce &bdquo;Mein Konto&ldquo;', $s, '&Uuml;bernimmt das Design des Plugins (Farben, Ecken, Schrift) f&uuml;r den gesamten WooCommerce &bdquo;Mein Konto&ldquo;-Bereich unter <code>/mein-konto/</code>.'); ?>
                                             </div>
                                         </div>
                                     </div>
@@ -8150,7 +8150,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('branding_enabled', '&quot;Ticketsystem von Tixomat&quot; unter Shortcodes anzeigen', $s); ?>
+                                                <?php self::checkbox_row('branding_enabled', '&quot;Ticketsystem von evendis&quot; unter Shortcodes anzeigen', $s); ?>
                                             </div>
                                         </div>
                                     </div>
@@ -8209,7 +8209,7 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('fullscreen_admin', 'Fullscreen-Modus f&uuml;r Tixomat-Seiten', $s, 'Blendet die WordPress-Oberfl&auml;che (Admin-Bar, Sidebar, Footer) aus und zeigt stattdessen eine eigene Tixomat-Navigation. Deaktivieren f&uuml;r die klassische WordPress-Ansicht.'); ?>
+                                                <?php self::checkbox_row('fullscreen_admin', 'Fullscreen-Modus f&uuml;r die Plugin-Seiten', $s, 'Blendet die WordPress-Oberfl&auml;che (Admin-Bar, Sidebar, Footer) aus und zeigt stattdessen eine eigene Navigation. Deaktivieren f&uuml;r die klassische WordPress-Ansicht.'); ?>
                                             </div>
                                             <div class="tix-field tix-field-full" style="margin-top:12px;">
                                                 <label class="tix-field-label">Custom Logo</label>
@@ -8226,7 +8226,7 @@ class TIX_Settings {
                                                         <button type="button" class="button-link" style="color:#ef4444;margin-left:8px;" onclick="document.getElementById('tix-admin-logo-url').value='';this.parentNode.remove();">Entfernen</button>
                                                     </div>
                                                 <?php endif; ?>
-                                                <p class="tix-field-hint">Ersetzt das Tixomat-Logo in Sidebar, Login-Seite und Dashboard. Empfohlen: transparentes PNG, max. 500px breit.</p>
+                                                <p class="tix-field-hint">Ersetzt das evendis-Logo in Sidebar, Login-Seite und Dashboard. Empfohlen: transparentes PNG, max. 500px breit.</p>
                                             </div>
                                         </div>
                                         <script>
@@ -8931,7 +8931,7 @@ class TIX_Settings {
                                             try {
                                                 importData = JSON.parse(e.target.result);
                                                 if(!importData._tix_export || !importData.tix_settings){
-                                                    info.innerHTML = '<span style="color:#dc2626;">Ung\u00fcltige Datei: Kein g\u00fcltiger Tixomat-Export.</span>';
+                                                    info.innerHTML = '<span style="color:#dc2626;">Ung\u00fcltige Datei: Kein g\u00fcltiger Einstellungs-Export.</span>';
                                                     btn.disabled = true;
                                                     preview.style.display = '';
                                                     return;
@@ -9193,7 +9193,7 @@ class TIX_Settings {
                                         <div class="tix-field-grid">
                                             <?php self::text_row('wallet_apple_pass_type_id', 'Pass Type Identifier', $s, 'pass.de.tixomat.ticket'); ?>
                                             <?php self::text_row('wallet_apple_team_id', 'Apple Team Identifier', $s, 'ABC1234567'); ?>
-                                            <?php self::text_row('wallet_apple_org_name', 'Organisations-Name', $s, 'Tixomat GmbH'); ?>
+                                            <?php self::text_row('wallet_apple_org_name', 'Organisations-Name', $s, 'Muster GmbH'); ?>
                                         </div>
 
                                         <h4 style="margin:18px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;">Zertifikate (Server-Pfade)</h4>
@@ -9264,7 +9264,7 @@ class TIX_Settings {
                                                     <?php else: ?>
                                                         <div id="tix-aw-pv-logo" style="height:30px;width:80px;background:rgba(255,255,255,0.12);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:<?php echo esc_attr($s['wallet_apple_label_color'] ?? '#cbd5e1'); ?>;">LOGO</div>
                                                     <?php endif; ?>
-                                                    <div style="margin-left:auto;text-align:right;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;opacity:0.85;" id="tix-aw-pv-org"><?php echo esc_html($s['wallet_apple_org_name'] ?? 'Tixomat'); ?></div>
+                                                    <div style="margin-left:auto;text-align:right;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;opacity:0.85;" id="tix-aw-pv-org"><?php echo esc_html($s['wallet_apple_org_name'] ?? 'evendis'); ?></div>
                                                 </div>
 
                                                 <!-- Strip Image (optional) -->
@@ -9361,7 +9361,7 @@ class TIX_Settings {
                                                 pv.querySelectorAll('.tix-aw-pv-label').forEach(function(el){ el.style.color = v; });
                                             });
                                             bind('wallet_apple_org_name', function(v){
-                                                var el = document.getElementById('tix-aw-pv-org'); if (el) el.textContent = v || 'Tixomat';
+                                                var el = document.getElementById('tix-aw-pv-org'); if (el) el.textContent = v || 'evendis';
                                             });
                                             bind('wallet_apple_logo_url', function(v){
                                                 var el = document.getElementById('tix-aw-pv-logo'); if (!el) return;
@@ -9455,7 +9455,7 @@ class TIX_Settings {
                                                     <?php endif; ?>
                                                     <div style="color:#fff;flex:1;min-width:0;">
                                                         <div style="font-size:11px;opacity:0.7;text-transform:uppercase;letter-spacing:0.04em;">Event-Ticket</div>
-                                                        <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="tix-gw-pv-orgline">Tixomat</div>
+                                                        <div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="tix-gw-pv-orgline">evendis</div>
                                                     </div>
                                                 </div>
 

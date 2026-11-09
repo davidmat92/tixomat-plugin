@@ -288,7 +288,7 @@ class TIX_Promoter_Auth {
         if (empty($_GET['tix_pauth'])) return;
         // Promoter-Bereich im Studio (1.38.651): alte Links aus Mails weiterleiten, dort anmelden (Token statt WP-Cookie)
         if (class_exists('TIX_Promoter_Portal')) {
-            wp_redirect(add_query_arg('legacy', rawurlencode(sanitize_text_field((string) $_GET['tix_pauth'])), TIX_Promoter_Portal::url('anmelden/')), 302, 'Tixomat');
+            wp_redirect(add_query_arg('legacy', rawurlencode(sanitize_text_field((string) $_GET['tix_pauth'])), TIX_Promoter_Portal::url('anmelden/')), 302, 'evendis');
             exit;
         }
 

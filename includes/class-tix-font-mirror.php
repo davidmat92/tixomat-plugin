@@ -174,7 +174,7 @@ class TIX_Font_Mirror {
         $files = count($local);
         $css = preg_replace_callback($re, function ($mm) use ($local) { return 'url(' . $local[$mm[1]] . ')'; }, $css);
         $file = self::slug($src) . '-' . $k . '.css';
-        if (@file_put_contents($d['path'] . '/' . $file, "/* Lokal gespiegelt von " . esc_url_raw($src) . " (Tixomat) */\n" . $css) === false) return self::fail($k, 'CSS nicht gespeichert');
+        if (@file_put_contents($d['path'] . '/' . $file, "/* Lokal gespiegelt von " . esc_url_raw($src) . " */\n" . $css) === false) return self::fail($k, 'CSS nicht gespeichert');
         $m = self::map();
         $m[$k] = ['src' => $src, 'css' => $file, 'files' => $files, 'at' => time()];
         update_option(self::MAP, $m, false);
@@ -352,7 +352,7 @@ class TIX_Font_Mirror {
         if (!current_user_can('manage_options') || !self::enabled()) return;
         $bad = array_filter(self::map(), function ($r) { return !empty($r['error']) && intval($r['tries'] ?? 0) >= 3; });
         if (!$bad) return;
-        printf('<div class="notice notice-warning"><p><strong>Schriften:</strong> %d Google-Schrift(en) konnten nicht lokal gespeichert werden – dort wird weiter von Google geladen. <a href="%s">Tixomat → Schriften</a></p></div>',
+        printf('<div class="notice notice-warning"><p><strong>Schriften:</strong> %d Google-Schrift(en) konnten nicht lokal gespeichert werden – dort wird weiter von Google geladen. <a href="%s">evendis → Schriften</a></p></div>',
             count($bad), esc_url(admin_url('admin.php?page=tix-fonts')));
     }
 }

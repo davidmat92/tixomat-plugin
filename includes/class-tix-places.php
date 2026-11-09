@@ -18,7 +18,7 @@ if (!defined('ABSPATH')) exit;
  * Schutz (auch ohne Anmeldung nutzbar, z. B. Kasse, Registrierung): Session-Token Pflicht, Limits je IP (60/min,
  * angemeldet 120/min), je Session (40 Vorschläge), gesamt je Tag (Option `tix_places_daily_limit`, Vorgabe 2000;
  * Cache-Treffer zählen nicht), Herkunft (Origin/Referer, falls gesendet) nur eigene Hosts, Antwort-Cache
- * (Vorschläge 1 Tag, Details 7 Tage). Zählung je Tag in `tix_places_stats` (Admin: Tixomat → Ortssuche).
+ * (Vorschläge 1 Tag, Details 7 Tage). Zählung je Tag in `tix_places_stats` (Admin: evendis → Ortssuche).
  */
 class TIX_Places {
 

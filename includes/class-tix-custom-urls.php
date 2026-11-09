@@ -174,7 +174,7 @@ class TIX_Custom_URLs {
 <body>
     <div class="tix-login">
         <div class="tix-login-logo">
-            <img src="<?php echo esc_url($logo_url); ?>" alt="Tixomat">
+            <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
         </div>
         <div class="tix-login-card">
             <h1 class="tix-login-title">Anmelden</h1>

@@ -4928,3 +4928,9 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Schalter `co_remote_enabled` (ab 1.38.699, nur Lizenzseite, Vorgabe aus): aus → `unavailable_reason` = `disabled`, Einladen 409, `/partner/co/{id}` 404; Entfernen bleibt möglich. Freischalten je Seite nach Freigabe (WP-Admin oder `tix_settings[co_remote_enabled]=1`).
 - Test `tests/test-co-remote-wp.php`: Einzel-Seite in drei Läufen (`setup [off]`, `run`, `cleanup`), Plattform `run`.
 - Zwei-Seiten-Test `tests/test-co-remote-e2e.php` über echtes HTTP zwischen zwei lokalen Webservern (Modi `setup-kk`, `setup-plat`, `push-kk`, `run`, `cleanup-kk`, `cleanup-plat`): Verteilung, Einladung, Profil, `/co-remote/events`, Bearbeiten/Speichern, Gästeliste, Check-in, Kasse ohne Storno/Erstattung, Zugriff aus/an, Entfernen + alter Schlüssel 401. 37 Prüfungen.
+
+## 110. Ohne „Tixomat“ in sichtbaren Texten (ab 1.38.700)
+- User 09.11.2026: „Tixomat“ ist nur noch Projektname. Alles Sichtbare (WP-Admin, Hinweise, Frontend, Mails, PDFs, ICS, DATEV, Bons, Brevo-Namen, Breakdance-Bausteine, Plugin-Name) heißt „evendis“ oder kommt ohne Namen aus.
+- Bleibt technisch: Namespace `tixomat/v1`, Slugs, Optionen/Meta, Klassen, `TIXOMAT_*`, `wp tixomat`, Mail-Header `X-Tixomat-Support`, IMAP-Ordner-Vorgabe `Tixomat-Verarbeitet`, Kommentare.
+- Brevo: eigene Listen heißen „evendis · …“; alte „Tixomat · …“-Listen werden weiter erkannt.
+- Neue Texte: nie „Tixomat“ schreiben; Versionen als „Plugin-Version 1.38.x“.

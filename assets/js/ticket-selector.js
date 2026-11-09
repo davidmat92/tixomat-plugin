@@ -24,7 +24,7 @@
                         '<h3 style="margin:0 0 8px;font-size:18px;color:#1e293b;">Weiterleitung</h3>' +
                         '<p style="color:#6b7280;font-size:14px;margin:0 0 20px;">Du wirst zu <strong>' + sourceSite + '</strong> weitergeleitet um deine Tickets zu kaufen.</p>' +
                         '<a href="' + sourceUrl + '" target="_blank" rel="noopener" style="display:inline-block;padding:12px 28px;background:var(--tix-primary, #FF5500);color:#fff;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;">Weiter zu ' + sourceSite + ' →</a>' +
-                        '<p style="margin:16px 0 0;font-size:11px;color:#9ca3af;">Powered by Tixomat</p>' +
+                        '<p style="margin:16px 0 0;font-size:11px;color:#9ca3af;">Powered by evendis</p>' +
                     '</div>';
 
                 overlay.addEventListener('click', function(e) {

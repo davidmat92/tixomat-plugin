@@ -146,7 +146,7 @@ class TIX_Assistant {
     }
 
     private static function brand_name() {
-        return html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8') ?: 'Tixomat';
+        return html_entity_decode((string) get_bloginfo('name'), ENT_QUOTES, 'UTF-8') ?: 'evendis';
     }
 
     private static function default_preset() {

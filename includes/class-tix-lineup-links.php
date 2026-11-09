@@ -228,7 +228,7 @@ class TIX_Lineup_Links {
     }
 
     private static function http_get($url, $args, $service) {
-        $res = wp_remote_get($url, $args + ['timeout' => 8, 'user-agent' => 'Tixomat/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1')]);
+        $res = wp_remote_get($url, $args + ['timeout' => 8, 'user-agent' => 'evendis/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1')]);
         if (is_wp_error($res)) return false;
         $code = intval(wp_remote_retrieve_response_code($res));
         if ($code === 429 || $code >= 500 || $code === 403) {
@@ -496,7 +496,7 @@ class TIX_Lineup_Links {
             echo '<p class="description">Keine Künstler erkannt. Im Line-up je Zeile ein Name (z. B. „Floor 1: DJ Name“); Fließtext wird nicht verlinkt.</p>';
             return;
         }
-        echo '<p class="description">Links werden automatisch gesucht (Apple Music immer, Spotify mit Zugangsdaten unter Tixomat → Künstler-Links). Felder leer = automatisch; eigener Link = festhalten; „Kein Link“ = nichts anzeigen.</p>';
+        echo '<p class="description">Links werden automatisch gesucht (Apple Music immer, Spotify mit Zugangsdaten unter evendis → Künstler-Links). Felder leer = automatisch; eigener Link = festhalten; „Kein Link“ = nichts anzeigen.</p>';
         wp_enqueue_media();
         echo '<table class="widefat striped"><thead><tr><th>Foto</th><th>Künstler</th><th>Spotify</th><th>Apple Music</th><th>Kein Link</th></tr></thead><tbody>';
         foreach ($rows as $i => $r) {

@@ -2,7 +2,7 @@
 /**
  * TIX Order Admin – Bestellverwaltung für native Orders (ohne WooCommerce)
  *
- * Admin-Seite unter Tixomat → Bestellungen mit Listenansicht + Detailansicht.
+ * Admin-Seite unter evendis → Bestellungen mit Listenansicht + Detailansicht.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -2933,7 +2933,7 @@ window.addEventListener('load', function() {
         $bank_bic    = trim((string) ($s['bank_bic'] ?? ''));
         $bank_name   = trim((string) ($s['bank_name'] ?? ''));
         if ($bank_iban === '' || $bank_holder === '') {
-            wp_send_json_error(['message' => 'Bank-Daten fehlen in Tixomat-Einstellungen (Zahlungsanbieter → Bankverbindung).']);
+            wp_send_json_error(['message' => 'Bank-Daten fehlen in den Einstellungen (Zahlungsanbieter → Bankverbindung).']);
         }
 
         $amount   = number_format(floatval($order->total), 2, ',', '.') . ' €';

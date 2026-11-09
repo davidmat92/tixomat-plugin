@@ -512,10 +512,10 @@ class TIX_Meta_Ads {
                     <ol class="tix-meta-steps">
                         <li>Öffne den <a href="https://business.facebook.com/events_manager" target="_blank">Meta Events Manager</a></li>
                         <li>Klicke auf <strong>"Datenquellen verbinden"</strong> → <strong>"Web"</strong></li>
-                        <li>Wähle <strong>"Meta Pixel"</strong> und vergib einen Namen (z.B. "Tixomat")</li>
+                        <li>Wähle <strong>"Meta Pixel"</strong> und vergib einen Namen (z.B. "evendis")</li>
                         <li>Kopiere die <strong>Pixel-ID</strong> (16-stellige Zahl)</li>
                         <li>Füge sie unter <a href="<?php echo admin_url('admin.php?page=tix-settings'); ?>">Einstellungen → Meta Ads</a> ein</li>
-                        <li>Tixomat trackt automatisch: PageView, ViewContent, AddToCart, InitiateCheckout, Purchase</li>
+                        <li>Das Plugin trackt automatisch: PageView, ViewContent, AddToCart, InitiateCheckout, Purchase</li>
                     </ol>
                 </div>
 
@@ -804,7 +804,7 @@ class TIX_Meta_Ads {
                 ],
                 'steps' => [
                     'Meta Ads Manager → "Erstellen" → Kampagnenziel: <strong>"Umsatz"</strong> (nicht Reichweite!)',
-                    'Conversion-Event: "Purchase" (über deinen Tixomat-Pixel)',
+                    'Conversion-Event: "Purchase" (über deinen Pixel)',
                     'Anzeigengruppe: Zielgruppe wie oben, <strong>Advantage+ Placements</strong> (Meta optimiert wo es am besten performt)',
                     'Mindestens <strong>2 der 3 Varianten gleichzeitig</strong> schalten (A/B-Test!)',
                     'Für jede Variante: 1080x1080 Bild (Feed) PLUS 1080x1920 (Stories) — gleiches Motiv, anderes Format',

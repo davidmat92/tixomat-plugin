@@ -285,7 +285,7 @@ class TIX_Newsletter {
     /** Brevo meldet Abmeldungen, harte Bounces und Spam-Beschwerden an /public/nl/hook/<geheim> */
     private static function ensure_webhook($org, array $s) {
         $secret = $s['hook_secret'] !== '' ? $s['hook_secret'] : wp_generate_password(32, false, false);
-        $r = self::brevo($s['api_key'], 'POST', '/webhooks', ['url' => rest_url(self::NS . '/public/nl/hook/' . $secret), 'description' => 'Tixomat Newsletter', 'events' => ['unsubscribed', 'hardBounce', 'spam'], 'type' => 'marketing']);
+        $r = self::brevo($s['api_key'], 'POST', '/webhooks', ['url' => rest_url(self::NS . '/public/nl/hook/' . $secret), 'description' => 'evendis Newsletter', 'events' => ['unsubscribed', 'hardBounce', 'spam'], 'type' => 'marketing']);
         $id = !is_wp_error($r) && in_array($r[0], [200, 201], true) ? intval($r[1]['id'] ?? 0) : 0;
         self::save_settings($org, ['hook_secret' => $secret, 'webhook_id' => $id]);
     }
@@ -519,7 +519,7 @@ class TIX_Newsletter {
         foreach ($raw as $id => $l) {
             $name = (string) ($l['name'] ?? '');
             $fid = intval($l['folderId'] ?? 0);
-            if (strpos($name, 'Tixomat · ') === 0 || ($s['folder_id'] && $fid === intval($s['folder_id']))) continue;
+            if (strpos($name, 'evendis · ') === 0 || strpos($name, 'Tixomat · ') === 0 || ($s['folder_id'] && $fid === intval($s['folder_id']))) continue;
             $out[] = ['id' => $id, 'name' => $name, 'count' => intval($l['uniqueSubscribers'] ?? $l['totalSubscribers'] ?? 0), 'folder' => $fid ? (string) ($folders[$fid] ?? '') : ''];
         }
         set_transient($ck, $out, 5 * MINUTE_IN_SECONDS);
@@ -894,7 +894,7 @@ class TIX_Newsletter {
     /** Brevo-Kampagne anlegen bzw. aktualisieren → Brevo-ID oder WP_Error */
     private static function push_campaign(array $c, array $s, array $extra = []) {
         global $wpdb;
-        $body = array_merge(['name' => 'Tixomat · ' . $c['name'] . ' (#' . $c['id'] . ')', 'subject' => $c['subject'], 'previewText' => $c['preheader'],
+        $body = array_merge(['name' => 'evendis · ' . $c['name'] . ' (#' . $c['id'] . ')', 'subject' => $c['subject'], 'previewText' => $c['preheader'],
             'sender' => ['id' => $s['sender_id']], 'htmlContent' => self::html($c), 'inlineImageActivation' => false, 'mirrorActive' => false], $extra);
         if ($c['brevo_campaign']) {
             $r = self::brevo($s['api_key'], 'PUT', '/emailCampaigns/' . intval($c['brevo_campaign']), $body);
@@ -991,7 +991,7 @@ class TIX_Newsletter {
     /** Ordner „Tixomat“ in Brevo (für die Empfänger-Listen) */
     private static function folder($org, array $s) {
         if ($s['folder_id']) return $s['folder_id'];
-        $r = self::brevo($s['api_key'], 'POST', '/contacts/folders', ['name' => 'Tixomat']);
+        $r = self::brevo($s['api_key'], 'POST', '/contacts/folders', ['name' => 'evendis']);
         $id = !is_wp_error($r) && $r[0] === 201 ? intval($r[1]['id'] ?? 0) : 0;
         if ($id) self::save_settings($org, ['folder_id' => $id]);
         return $id;
@@ -1030,13 +1030,13 @@ class TIX_Newsletter {
             if ($rec) {
                 $json = [];
                 foreach ($rec as $em => $fn) $json[] = ['email' => $em] + ($fn !== '' ? ['attributes' => ['FIRSTNAME' => $fn]] : []);
-                $res = self::import_list($org, $s, 'Tixomat · Kampagne #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), $json);
+                $res = self::import_list($org, $s, 'evendis · Kampagne #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), $json);
                 if (!is_array($res)) return self::fail($c, $res);
                 list($list, $proc) = $res;
             }
             if ($ids && $cnt['_exclude']) {
                 // eigene Abmeldungen auch für Brevo-Listen: Ausschluss-Liste
-                $res = self::import_list($org, $s, 'Tixomat · Ausschluss #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), array_map(function ($e) { return ['email' => $e]; }, $cnt['_exclude']));
+                $res = self::import_list($org, $s, 'evendis · Ausschluss #' . $c['id'] . ' · ' . wp_date('d.m.Y H:i'), array_map(function ($e) { return ['email' => $e]; }, $cnt['_exclude']));
                 if (!is_array($res)) { if ($list) self::brevo($s['api_key'], 'DELETE', '/contacts/lists/' . $list); return self::fail($c, $res); }
                 list($excl, $eproc) = $res;
             }

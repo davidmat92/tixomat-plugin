@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) exit;
  *   - Kanonischer Ort (`_tix_venue_canonical`, 0/leer = selbst): öffentlich zählt für Gäste ein Ort, auch wenn mehrere
  *     Veranstalter ihn angelegt haben. Automatisch zusammengeführt wird bei gleicher `place_id` oder bei Koordinaten
  *     unter 50 m bzw. gleicher normalisierter Adresse UND ähnlichem Namen. Grenzfälle (nur Name oder nur Adresse
- *     bzw. Nähe) landen als Vorschlag in WP-Admin „Tixomat → Orte zusammenführen“. Ähnlichkeit per Trigrammen,
+ *     bzw. Nähe) landen als Vorschlag in WP-Admin „evendis → Orte zusammenführen“. Ähnlichkeit per Trigrammen,
  *     Grenzwert `tix_venue_merge_threshold` (Vorgabe 0.6).
  *   - WP-CLI: `wp tixomat venues-merge [--dry-run]` (alle Orte einmal prüfen, Liste ausgeben),
  *     `wp tixomat locations-assign [--dry-run]` (Zuordnung wie die Selbstheilung).
@@ -419,7 +419,7 @@ class TIX_Locations {
         $r = self::check_all($dry);
         WP_CLI::log(($dry ? '[Probelauf] ' : '') . 'Automatisch zusammengeführt: ' . count($r['merged']));
         foreach ($r['merged'] as $m) WP_CLI::log(sprintf('  #%d %s  ⇄  #%d %s  (%s)', $m['a'], $m['a_title'], $m['b'], $m['b_title'], $m['reason']));
-        WP_CLI::log('Vorschläge (Tixomat → Orte zusammenführen): ' . count($r['suggested']));
+        WP_CLI::log('Vorschläge (evendis → Orte zusammenführen): ' . count($r['suggested']));
         foreach ($r['suggested'] as $m) WP_CLI::log(sprintf('  #%d %s  ?  #%d %s  (%s)', $m['a'], $m['a_title'], $m['b'], $m['b_title'], $m['reason']));
     }
 

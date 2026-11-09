@@ -3,7 +3,7 @@
  * Tixomat – Eigenes Ticket-System
  *
  * Erstellt und verwaltet tix_ticket-Posts.
- * Aktivierung über Einstellung: Tixomat → Einstellungen → Features → Ticket-System.
+ * Aktivierung über Einstellung: evendis → Einstellungen → Features → Ticket-System.
  *
  * @since 1.19.0
  */
@@ -1085,7 +1085,7 @@ class TIX_Tickets {
                         }
                     } catch (\Throwable $e) {
                         // Custom-DB-Fehler darf Ticket-Erstellung nicht blockieren
-                        error_log('Tixomat: Custom-DB-Fehler bei Ticket ' . $code . ': ' . $e->getMessage());
+                        error_log('evendis: Custom-DB-Fehler bei Ticket ' . $code . ': ' . $e->getMessage());
                     }
                 }
 
@@ -1104,7 +1104,7 @@ class TIX_Tickets {
             }
         } catch (\Throwable $e) {
             // Fehler darf WooCommerce-Bestellverarbeitung nicht blockieren
-            error_log('Tixomat: Ticket-Erstellung fehlgeschlagen für Order ' . $order_id . ': ' . $e->getMessage());
+            error_log('evendis: Ticket-Erstellung fehlgeschlagen für Order ' . $order_id . ': ' . $e->getMessage());
         }
     }
 
@@ -4422,7 +4422,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         }
 
         // ── Diagnostic: Zeige welche Version + Toggles aktiv sind ──
-        console.info('%c Tixomat Ticket-Template ', 'background:#111;color:#fff;padding:2px 6px;border-radius:3px', {
+        console.info('%c Ticket-Template ', 'background:#111;color:#fff;padding:2px 6px;border-radius:3px', {
             version:    <?php echo wp_json_encode($ht_version); ?>,
             htmlClass:  document.documentElement.className,
             seasonal:   <?php echo !empty($ht_seasonal_enabled) ? 'true' : 'false'; ?>,
@@ -4551,7 +4551,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
             var ics = [
                 'BEGIN:VCALENDAR',
                 'VERSION:2.0',
-                'PRODID:-//Tixomat//Ticket//DE',
+                'PRODID:-//evendis//Ticket//DE',
                 'CALSCALE:GREGORIAN',
                 'METHOD:PUBLISH',
                 'BEGIN:VEVENT',

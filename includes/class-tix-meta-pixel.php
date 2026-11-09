@@ -488,7 +488,7 @@ class TIX_Meta_Pixel {
                 'event_source_url' => home_url(),
                 'user_data'     => [
                     'client_ip_address' => self::get_client_ip(),
-                    'client_user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Tixomat Test',
+                    'client_user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'evendis Test',
                 ],
             ]],
         ];

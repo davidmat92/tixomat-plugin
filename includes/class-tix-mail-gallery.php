@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Mail_Gallery – Vorschau aller Mail-Arten im Layout der Seite (1.38.471).
  *
- * WP-Admin „Tixomat → E-Mails“: Einstellungen der Mail-Marke (Kopf hell/Markenfarbe, Logo für farbigen Kopf, Name,
+ * WP-Admin „evendis → E-Mails“: Einstellungen der Mail-Marke (Kopf hell/Markenfarbe, Logo für farbigen Kopf, Name,
  * Support-Postfach, Absender, Feedback), Galerie mit Vorschau und „Test an mich senden“.
  * REST (Rechte wie Studio-Marke):
  *   GET /studio/mails                 → {ok, brand, mails: [{key, label, group, subject}]}

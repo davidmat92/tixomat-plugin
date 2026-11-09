@@ -141,7 +141,7 @@ class TIX_Embed {
     ?>
     <div class="tix-embed-powered">
         <a href="<?php echo esc_url(home_url()); ?>" target="_blank" rel="noopener">
-            Powered by Tixomat
+            Powered by evendis
         </a>
     </div>
 </div>

@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Marketing_Export – Segmentierter CSV-Export für Mailchimp / Brevo.
  *
- * Admin-Seite unter Tixomat → Marketing Export.
+ * Admin-Seite unter evendis → Marketing Export.
  * Filter: Event, Zeitraum, VIP-Status, Min-Umsatz, Newsletter-Optin.
  * CSV-Format: Email, Vorname, Nachname, VIP, Events, Letzte_Bestellung, Gesamtumsatz, Newsletter
  *

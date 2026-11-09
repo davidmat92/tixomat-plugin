@@ -51,7 +51,7 @@ class TIX_Invoice_Export {
         $from = $from !== '' ? $from : $first;
         $to = $to !== '' ? $to : $last;
         $wj = substr($from, 0, 4) . '0101';
-        $head = ['"EXTF"', '700', '21', '"Buchungsstapel"', '13', current_time('YmdHis') . '000', '', '"TX"', '"Tixomat"', '""',
+        $head = ['"EXTF"', '700', '21', '"Buchungsstapel"', '13', current_time('YmdHis') . '000', '', '"TX"', '"evendis"', '""',
             $cfg['consultant'] !== '' ? $cfg['consultant'] : '', $cfg['client'] !== '' ? $cfg['client'] : '', $wj, (string) $len,
             str_replace('-', '', $from), str_replace('-', '', $to), self::q('Rechnungen ' . $from . ' bis ' . $to), '""', '1', '0', '0', '"EUR"',
             '', '""', '', '', '', '""', '', '', '""'];

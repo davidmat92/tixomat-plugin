@@ -1444,7 +1444,7 @@ class TIX_Support {
         $base = $root . '/support';
         if (!file_exists($base)) wp_mkdir_p($base);
         if (!file_exists($root . '/.htaccess') || strpos((string) @file_get_contents($root . '/.htaccess'), 'RewriteRule') === false) {
-            @file_put_contents($root . '/.htaccess', "# Tixomat: kein Direktabruf (Auslieferung nur über geprüfte Links)\n<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule .* - [F,L]\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder deny,allow\nDeny from all\n</IfModule>\nOptions -Indexes\n");
+            @file_put_contents($root . '/.htaccess', "# Kein Direktabruf (Auslieferung nur über geprüfte Links)\n<IfModule mod_rewrite.c>\nRewriteEngine On\nRewriteRule .* - [F,L]\n</IfModule>\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nOrder deny,allow\nDeny from all\n</IfModule>\nOptions -Indexes\n");
         }
         if (!file_exists($root . '/index.php')) @file_put_contents($root . '/index.php', "<?php // Silence is golden.\n");
         // Prüfdatei nur im Webroot-Rückfall: https://<seite>/wp-content/uploads/tix-private/probe.txt muss 403 liefern
@@ -1470,7 +1470,7 @@ class TIX_Support {
         if (!current_user_can('manage_options') || empty(tix_get_settings('support_enabled')) || self::private_outside()) return;
         $screen = function_exists('get_current_screen') ? get_current_screen() : null;
         if ($screen && strpos((string) $screen->id, 'tix') === false) return;
-        echo '<div class="notice notice-warning"><p><strong>Tixomat:</strong> Support-Anhänge liegen im Webroot (<code>wp-content/uploads/tix-private</code>) und sind nur per <code>.htaccess</code> geschützt. '
+        echo '<div class="notice notice-warning"><p><strong>evendis:</strong> Support-Anhänge liegen im Webroot (<code>wp-content/uploads/tix-private</code>) und sind nur per <code>.htaccess</code> geschützt. '
            . 'Prüfen: <code>' . esc_html(content_url('uploads/tix-private/probe.txt')) . '</code> muss 403 liefern. Besser außerhalb des Webroots: automatisch <code>' . esc_html(rtrim(dirname(dirname(rtrim(ABSPATH, '/'))), '/') . '/tix-private/' . basename(rtrim(ABSPATH, '/'))) . '</code>, sobald PHP dort schreiben darf (RunCloud: Webapp → Settings → PHP → <code>open_basedir</code> um <code>:' . esc_html(rtrim(dirname(dirname(rtrim(ABSPATH, '/'))), '/') . '/tix-private') . '</code> ergänzen), oder eigener Ordner per Konstante <code>TIX_PRIVATE_DIR</code> bzw. Option <code>tix_private_dir</code>.</p></div>';
     }
 
@@ -3148,7 +3148,7 @@ class TIX_Support {
             'userName'     => is_user_logged_in() ? wp_get_current_user()->display_name : '',
         ]);
         ?>
-        <!-- Tixomat Chat Widget -->
+        <!-- Chat Widget -->
         <div id="tix-sp-chat-widget">
             <button type="button" id="tix-sp-chat-toggle" class="tix-sp-chat-btn" aria-label="Support-Chat öffnen">
                 <span class="tix-sp-chat-btn-icon">💬</span>

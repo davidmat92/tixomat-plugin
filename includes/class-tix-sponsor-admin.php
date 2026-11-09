@@ -128,7 +128,7 @@ class TIX_Sponsor_Admin {
         // Coupon-Code: wenn gesetzt, muss er im Gutschein-System existieren
         if ($coupon !== '') {
             if (!class_exists('TIX_Coupons') || !TIX_Coupons::find_by_code($coupon)) {
-                wp_send_json_error('Gutschein-Code „' . $coupon . '" existiert nicht. Bitte zuerst unter Tixomat → Gutscheine anlegen.');
+                wp_send_json_error('Gutschein-Code „' . $coupon . '" existiert nicht. Bitte zuerst unter evendis → Gutscheine anlegen.');
             }
         }
 
@@ -355,7 +355,7 @@ class TIX_Sponsor_Admin {
                         <div style="grid-column:1 / -1;">
                             <label style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:#0f172a;display:block;margin-bottom:4px;">Gutschein-Code für Kunden</label>
                             <input type="text" id="tix-sp-coupon-code" style="width:100%;padding:9px;border:1px solid #d1d5db;border-radius:6px;text-transform:uppercase;font-family:ui-monospace,Menlo,Consolas,monospace;" placeholder="z.B. ACME50" maxlength="50">
-                            <small style="color:#64748b;font-size:11px;">Optional. Code muss <a href="<?php echo esc_url(admin_url('admin.php?page=tix-coupons')); ?>" target="_blank">unter Tixomat → Gutscheine</a> existieren. Er wird im Sponsor-Dashboard angezeigt — der Sponsor kann ihn an seine Kunden weitergeben (z.B. „50&nbsp;% Rabatt im regulären Ticket-Verkauf").</small>
+                            <small style="color:#64748b;font-size:11px;">Optional. Code muss <a href="<?php echo esc_url(admin_url('admin.php?page=tix-coupons')); ?>" target="_blank">unter evendis → Gutscheine</a> existieren. Er wird im Sponsor-Dashboard angezeigt — der Sponsor kann ihn an seine Kunden weitergeben (z.B. „50&nbsp;% Rabatt im regulären Ticket-Verkauf").</small>
                         </div>
                     </div>
                     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">

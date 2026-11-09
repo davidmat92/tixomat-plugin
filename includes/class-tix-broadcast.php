@@ -2,7 +2,7 @@
 /**
  * TIX Broadcast — Rundmail an Kunden.
  *
- * Admin-Seite: Tixomat → 📣 Rundmail
+ * Admin-Seite: evendis → 📣 Rundmail
  *   - Empfaenger: einzelnes Event (Dropdown mit Kaeuferzahl) ODER "Alle Kunden" (1 Klick)
  *   - Status-Filter (Default: completed + processing + on-hold = alle Zahler)
  *   - Live-Empfaengerzahl, Betreff + Nachricht (Platzhalter {vorname})

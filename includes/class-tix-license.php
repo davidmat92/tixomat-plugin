@@ -192,7 +192,7 @@ class TIX_License {
         $s = self::status();
         $latest = (string) ($s['latest']['version'] ?? TIXOMAT_VERSION);
         return (object) [
-            'name'          => 'Tixomat – Event & Ticket Management',
+            'name'          => 'evendis – Event & Ticket Management',
             'slug'          => 'tixomat',
             'version'       => $latest,
             'author'        => 'evendis',
@@ -202,7 +202,7 @@ class TIX_License {
             'last_updated'  => (string) ($s['latest']['released_at'] ?? ''),
             'download_link' => self::valid() ? (string) ($s['package_url'] ?? '') : '',
             'sections'      => [
-                'description' => '<p>Tixomat by evendis – Ticketing auf deiner eigenen Website.</p>',
+                'description' => '<p>evendis – Ticketing auf deiner eigenen Website.</p>',
                 'changelog'   => '<p>Version ' . esc_html($latest) . '. Was neu ist, steht auf <a href="https://' . esc_attr(self::UPDATE_HOST) . '/" target="_blank" rel="noopener">' . esc_html(self::UPDATE_HOST) . '</a>.</p>',
             ],
         ];
@@ -243,9 +243,9 @@ class TIX_License {
         $latest = (string) ($s['latest']['version'] ?? '');
         ?>
         <div class="wrap">
-            <h1>Tixomat-Lizenz</h1>
+            <h1>evendis-Lizenz</h1>
             <?php if (!empty($_GET['saved'])) : ?><div class="notice notice-success is-dismissible"><p>Gespeichert und geprüft.</p></div><?php endif; ?>
-            <p>Mit gültiger Lizenz bekommst du Updates direkt hier im WordPress-Backend. Ohne Lizenz läuft Tixomat weiter, nur ohne Updates.</p>
+            <p>Mit gültiger Lizenz bekommst du Updates direkt hier im WordPress-Backend. Ohne Lizenz läuft das Plugin weiter, nur ohne Updates.</p>
             <table class="form-table">
                 <tr><th>Status</th><td><strong style="color:<?php echo $valid ? '#047857' : '#b45309'; ?>"><?php echo esc_html($valid ? 'Gültig' : 'Nicht gültig'); ?></strong>
                     <?php if (!empty($s['message'])) echo ' – ' . esc_html($s['message']); ?>
@@ -281,11 +281,11 @@ class TIX_License {
         $s = self::status();
         if (!self::valid()) {
             $why = !empty($s['message']) ? $s['message'] : 'Kein gültiger Lizenzschlüssel.';
-            echo '<div class="notice notice-warning"><p><strong>Tixomat:</strong> ' . esc_html($why) . ' Tixomat läuft weiter, nur Updates gibt es ohne gültige Lizenz nicht. → ' . $link . '</p></div>';
+            echo '<div class="notice notice-warning"><p><strong>evendis:</strong> ' . esc_html($why) . ' Das Plugin läuft weiter, nur Updates gibt es ohne gültige Lizenz nicht. → ' . $link . '</p></div>';
             return;
         }
         if (!empty($s['expires_at']) && strtotime($s['expires_at']) - time() < 30 * DAY_IN_SECONDS) {
-            echo '<div class="notice notice-info"><p><strong>Tixomat:</strong> Deine Lizenz läuft am ' . esc_html(date_i18n('d.m.Y', strtotime($s['expires_at']))) . ' ab. Danach gibt es keine Updates mehr. → ' . $link . '</p></div>';
+            echo '<div class="notice notice-info"><p><strong>evendis:</strong> Deine Lizenz läuft am ' . esc_html(date_i18n('d.m.Y', strtotime($s['expires_at']))) . ' ab. Danach gibt es keine Updates mehr. → ' . $link . '</p></div>';
         }
     }
 }

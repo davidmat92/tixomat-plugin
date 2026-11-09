@@ -18,7 +18,7 @@ class TIX_Settlement_Organizer {
     }
 
     public static function admin_menu() {
-        if (!TIX_Settlement::multi() || current_user_can('manage_options')) return; // Admins: Tixomat → Auszahlungen
+        if (!TIX_Settlement::multi() || current_user_can('manage_options')) return; // Admins: evendis → Auszahlungen
         add_submenu_page('tixomat', 'Auszahlungen', 'Auszahlungen', 'read', self::SLUG, [__CLASS__, 'render_page']);
     }
 
@@ -43,7 +43,7 @@ class TIX_Settlement_Organizer {
     public static function render_page() {
         if (!self::allowed()) {
             echo '<div class="wrap"><h1>Auszahlungen</h1><p>Diese Seite ist nur für Veranstalter (Inhaber oder Team-Admin) verfügbar.'
-               . (current_user_can('manage_options') ? ' Als Admin findest du alle Abrechnungen unter <a href="' . esc_url(admin_url('admin.php?page=tix-payouts')) . '">Tixomat → Auszahlungen</a>.' : '') . '</p></div>';
+               . (current_user_can('manage_options') ? ' Als Admin findest du alle Abrechnungen unter <a href="' . esc_url(admin_url('admin.php?page=tix-payouts')) . '">evendis → Auszahlungen</a>.' : '') . '</p></div>';
             return;
         }
         $oid = self::oid();

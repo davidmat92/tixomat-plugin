@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Campaign_Analytics – Kampagnen-Dashboard mit Auswertung.
  *
- * Admin-Seite unter Tixomat → Kampagnen.
+ * Admin-Seite unter evendis → Kampagnen.
  * Zeigt: Kanäle, Besucher, Tickets, Umsatz, Conversion-Rate.
  *
  * @since 1.28.92

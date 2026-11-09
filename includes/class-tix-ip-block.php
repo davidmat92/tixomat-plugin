@@ -2,7 +2,7 @@
 /**
  * TIX IP-Block — einfache IP-Sperrliste gegen Bot-/Abuse-Traffic.
  *
- * Admin: Tixomat → 🛡️ IP-Sperren (eine IP pro Zeile, optional Praefix mit
+ * Admin: evendis → 🛡️ IP-Sperren (eine IP pro Zeile, optional Praefix mit
  * abschliessendem Punkt, z.B. "84.143." sperrt das ganze /16-artige Praefix).
  *
  * Wirkung: Gesperrte IPs bekommen auf Frontend + AJAX sofort 403.

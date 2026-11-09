@@ -161,7 +161,7 @@ class TIX_Degaso {
             } else {
                 $res = wp_remote_post(self::base() . $path, [
                     'timeout' => 8, 'headers' => ['Content-Type' => 'application/json', 'Accept' => 'application/json'],
-                    'body' => wp_json_encode($body), 'user-agent' => 'Tixomat/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1'),
+                    'body' => wp_json_encode($body), 'user-agent' => 'evendis/' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '1'),
                 ]);
                 if (is_wp_error($res)) { $status = 0; $json = null; }
                 else { $status = intval(wp_remote_retrieve_response_code($res)); $json = json_decode((string) wp_remote_retrieve_body($res), true); }
@@ -389,7 +389,7 @@ class TIX_Degaso {
         }
         if ($must) {
             if ($r['reason'] === 'network') self::queue_add(['op' => 'pay', 'code' => $code, 'amount' => $amount, 'pid' => $pid, 'ref' => (string) $ref]);
-            else self::log('conflict', $code, 'Bestellung ' . $ref . ': ' . self::fail_msg($r['reason']) . ' ' . self::eur($amount) . ' nur in Tixomat abgebucht.');
+            else self::log('conflict', $code, 'Bestellung ' . $ref . ': ' . self::fail_msg($r['reason']) . ' ' . self::eur($amount) . ' nur im Ticketsystem abgebucht.');
             return ['ok' => true, 'balance' => max(0, round($local - $amount, 2))];
         }
         return ['ok' => false, 'message' => self::fail_msg($r['reason']) . ($r['reason'] === 'network' ? ' Bitte gleich nochmal versuchen.' : ''), 'balance' => $local];

@@ -11,7 +11,7 @@
  *       organizer_id (zugeordneter tix_organizer auf der Plattform),
  *       sales_enabled (Verkauf über die Plattform erlaubt), terms_url, created
  *   ] ]
- *   Verwaltung: Tixomat → Partner (nur Admins).
+ *   Verwaltung: evendis → Partner (nur Admins).
  *
  * Quelle (Sender, z. B. kitchenklub.de):
  *   Einstellungen `syndication_api_url` (Plattform), `syndication_api_key` (= key_in),
@@ -23,7 +23,7 @@
  *   {site_url, api_base, name, organizer, nonce}. Die Plattform prüft per Rückruf
  *   GET {api_base}/partner/connect-verify?nonce=…, dass die Anfrage wirklich von dieser Seite kommt,
  *   legt Partner + Veranstalter an – Verkauf AUS – und mailt dem Admin. Freigabe mit einem Klick unter
- *   Tixomat → Partner („Freigeben“). Bis dahin werden die Events nur angezeigt („Tickets beim
+ *   evendis → Partner („Freigeben“). Bis dahin werden die Events nur angezeigt („Tickets beim
  *   Veranstalter“). Erneutes Verbinden derselben Seite erzeugt neue Schlüssel und behält
  *   Freigabe und Veranstalter. Auf der Plattform per `partner_autoconnect` (Vorgabe an) abschaltbar.
  *
@@ -269,7 +269,7 @@ class TIX_Partners {
             $pending = !empty($all[$id]['pending']);
             wp_mail($admin,
                 ($pending ? 'Freigabe nötig – neuer Partner: ' : 'Partner neu verbunden: ') . $all[$id]['name'],
-                "Eine Tixomat-Seite hat sich für geteilte Events gekoppelt.\n\n"
+                "Eine Seite mit evendis-Plugin hat sich für geteilte Events gekoppelt.\n\n"
                 . 'Seite: ' . $site . "\n"
                 . 'Name: ' . $all[$id]['name'] . "\n"
                 . 'Veranstalter: ' . ($org_id ? get_the_title($org_id) . ' (#' . $org_id . ')' : '–') . "\n"
@@ -321,7 +321,7 @@ class TIX_Partners {
         return intval($id);
     }
 
-    /** Tixomat → Partner → „Freigeben“: Verkauf über die App einschalten. */
+    /** evendis → Partner → „Freigeben“: Verkauf über die App einschalten. */
     public static function handle_approve() {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         check_admin_referer('tix_partner_approve');
@@ -456,13 +456,13 @@ class TIX_Partners {
         // Plattform: gekoppelte Partner, die auf Freigabe warten
         $waiting = array_filter(self::all(), function ($p) { return !empty($p['pending']); });
         if ($waiting) {
-            printf('<div class="notice notice-warning"><p><strong>Partner warten auf Freigabe:</strong> %s – <a href="%s">Tixomat → Partner</a></p></div>',
+            printf('<div class="notice notice-warning"><p><strong>Partner warten auf Freigabe:</strong> %s – <a href="%s">evendis → Partner</a></p></div>',
                 esc_html(implode(', ', array_column($waiting, 'name'))), esc_url(admin_url('admin.php?page=tix-partners')));
         }
     }
 
     // ──────────────────────────────────────────
-    //  Admin: Tixomat → Partner
+    //  Admin: evendis → Partner
     // ──────────────────────────────────────────
 
     public static function admin_menu() {
@@ -492,7 +492,7 @@ class TIX_Partners {
                 <div class="notice notice-warning"><p>Der Empfang verteilter Events ist in den Einstellungen (Event-Verteilung → Empfang) ausgeschaltet.</p></div>
             <?php endif; ?>
 
-            <p style="max-width:860px;">Quellseiten (andere Tixomat-Installationen) teilen Events mit dieser Seite. Jede Quelle meldet sich mit ihrem eigenen Schlüssel.
+            <p style="max-width:860px;">Quellseiten (andere Seiten mit evendis-Plugin) teilen Events mit dieser Seite. Jede Quelle meldet sich mit ihrem eigenen Schlüssel.
             Ist „Verkauf über diese Seite“ an, verkauft die App Tickets für geteilte Events dieser Quelle: Bestellung und Zahlung laufen beim Veranstalter (Quelle),
             die Tickets werden hier gespiegelt und erscheinen unter „Meine Tickets“. Der Einlass erfolgt bei der Quelle.</p>
 
@@ -529,7 +529,7 @@ class TIX_Partners {
                                 <input type="number" name="channel_fee_percent" step="0.01" min="0" max="20" style="width:80px;" value="<?php echo esc_attr((string) ($p['channel_fee_percent'] ?? '')); ?>" placeholder="<?php echo esc_attr($cfs['percent']); ?>"> % +
                                 <input type="number" name="channel_fee_fixed" step="0.01" min="0" max="5" style="width:80px;" value="<?php echo esc_attr((string) ($p['channel_fee_fixed'] ?? '')); ?>" placeholder="<?php echo esc_attr($cfs['fixed']); ?>"> € je Ticket
                             </div>
-                            <p class="description">Leer = Vorgabe unter Tixomat → Kanal-Gebühren. Wer sie trägt, wählt die Quelle (Gäste, halb-halb oder Veranstalter). Abrechnung per Monatsrechnung. Bestandspartner (KitchenKlub, Mallorca): aus.</p></td></tr>
+                            <p class="description">Leer = Vorgabe unter evendis → Kanal-Gebühren. Wer sie trägt, wählt die Quelle (Gäste, halb-halb oder Veranstalter). Abrechnung per Monatsrechnung. Bestandspartner (KitchenKlub, Mallorca): aus.</p></td></tr>
                         <tr><th><label for="tpterms">AGB des Veranstalters</label></th><td>
                             <input id="tpterms" name="terms_url" type="url" class="regular-text" style="width:100%;" value="<?php echo esc_attr($p['terms_url']); ?>" placeholder="https://kitchenklub.de/agb">
                             <p class="description">Optional; sonst wird der AGB-Link aus dem Angebot der Quelle genutzt.</p></td></tr>

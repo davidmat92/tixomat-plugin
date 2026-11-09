@@ -89,7 +89,7 @@ class TIX_Organizer_Shell {
     <meta charset="<?php bloginfo('charset'); ?>">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
-    <title>Tixomat &ndash; Veranstalter Dashboard</title>
+    <title>Veranstalter-Dashboard</title>
     <?php wp_head(); ?>
     <style>
         /* Fullscreen Reset */
@@ -104,7 +104,7 @@ class TIX_Organizer_Shell {
     <!-- ── Top Bar ── -->
     <header class="tix-ofs-header">
         <div class="tix-ofs-brand">
-            <img src="<?php echo esc_url($logo_url); ?>" alt="Tixomat" class="tix-ofs-logo">
+            <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>" class="tix-ofs-logo">
         </div>
         <div class="tix-ofs-user">
             <span class="tix-ofs-user-name"><?php echo esc_html($user->display_name); ?></span>

@@ -1116,7 +1116,7 @@ class TIX_Promoter_Admin {
         ];
         ?>
         <div class="wrap tix-settings-wrap">
-            <h1>Tixomat &ndash; Promoter</h1>
+            <h1>Promoter</h1>
 
             <div class="tix-settings-grid">
                 <div class="tix-app tix-settings-app" id="tix-promoter-app">

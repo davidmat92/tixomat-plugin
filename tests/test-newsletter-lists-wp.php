@@ -154,7 +154,7 @@ nll_eq('Gemischt versendet: Status, Empfänger 4', [200, 'sent', 4], [$st, $row[
 nll_eq('Import: eigene Empfänger, Ausschluss = Abmeldung + anonymisierte (nicht die Brevo-Sperre)', [["gast_$sfx@example.test"], ["hashed_$sfx@example.test", "unsub_$sfx@example.test"]],
     [array_column((array) ($imp[0]['jsonBody'] ?? []), 'email'), (function ($x) { sort($x); return $x; })(array_column((array) ($imp[1]['jsonBody'] ?? []), 'email'))]);
 nll_eq('Kampagne: listIds = eigene Liste + gewählte, exclusionListIds', [[$own_list, 2, 3], [$excl], true], [$camp['recipients']['listIds'] ?? null, $camp['recipients']['exclusionListIds'] ?? null, $own_list > 0 && $excl > 0 && $own_list !== $excl]);
-nll_eq('Listen-Namen der Ausschluss-Liste', true, strpos((string) ($GLOBALS['ml']['lists'][$excl]['name'] ?? ''), 'Tixomat · Ausschluss #' . $C['id']) === 0);
+nll_eq('Listen-Namen der Ausschluss-Liste', true, strpos((string) ($GLOBALS['ml']['lists'][$excl]['name'] ?? ''), 'evendis · Ausschluss #' . $C['id']) === 0);
 nll_eq('Gemischt: Fußzeile wie bisher', true, strpos((string) $camp['htmlContent'], 'für den Newsletter von') !== false);
 [$st, $r] = nll_rest('GET', '/marketing/newsletter/campaigns/' . $C['id']);
 nll_eq('Versand-Nachweis: Listen mit Name und Größe', [['id' => 2, 'name' => 'Stammgäste', 'count' => 6], ['id' => 3, 'name' => 'VIP', 'count' => 2]], $r['campaign']['sent_lists'] ?? null);

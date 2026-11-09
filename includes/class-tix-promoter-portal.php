@@ -441,7 +441,7 @@ class TIX_Promoter_Portal {
         $post = get_queried_object();
         $is_page = $post instanceof WP_Post && has_shortcode((string) $post->post_content, 'tix_promoter_dashboard');
         if ($legacy === '' && !$is_page) return;
-        wp_redirect($legacy !== '' ? add_query_arg('legacy', rawurlencode($legacy), self::url('anmelden/')) : self::url(), 302, 'Tixomat');
+        wp_redirect($legacy !== '' ? add_query_arg('legacy', rawurlencode($legacy), self::url('anmelden/')) : self::url(), 302, 'evendis');
         exit;
     }
 }

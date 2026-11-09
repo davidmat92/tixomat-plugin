@@ -227,7 +227,7 @@
         var cssClass = type === 'error' ? 'notice-error' : 'notice-success';
         var $notice = $(
             '<div class="notice tix-notice ' + cssClass + '">' +
-                '<p><strong>Tixomat:</strong> ' + esc(msg) + '</p>' +
+                '<p><strong>evendis:</strong> ' + esc(msg) + '</p>' +
                 '<button type="button" class="notice-dismiss"><span class="screen-reader-text">Ausblenden</span></button>' +
             '</div>'
         );

@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Invoice_Admin – WP-Admin „Tixomat → Rechnungen“ (1.38.487, Phase 3): Schalter, Aussteller-Status, Liste, Export,
+ * TIX_Invoice_Admin – WP-Admin „evendis → Rechnungen“ (1.38.487, Phase 3): Schalter, Aussteller-Status, Liste, Export,
  * Senden. Nutzt dieselben REST-Routen wie das Studio (intern über rest_do_request), damit Zahlen überall gleich sind.
  */
 class TIX_Invoice_Admin {
@@ -141,7 +141,7 @@ class TIX_Invoice_Admin {
                 <p><?php echo esc_html($cfg['issuer']['name'] ?? '') ?: '<em>kein Name</em>'; ?> · <?php echo esc_html(implode(', ', (array) ($cfg['issuer']['address_lines'] ?? []))); ?><br>
                     <?php echo esc_html(trim(($cfg['issuer']['tax_id'] ? 'Steuernr. ' . $cfg['issuer']['tax_id'] : '') . ' ' . ($cfg['issuer']['vat_id'] ? 'USt-IdNr. ' . $cfg['issuer']['vat_id'] : ''))); ?></p>
                 <?php if (empty($cfg['issuer']['complete'])): ?>
-                    <p style="color:#b91c1c;">Es fehlt: <?php echo esc_html(implode(', ', array_map(function ($m) use ($missing) { return $missing[$m] ?? $m; }, (array) ($cfg['issuer']['missing'] ?? [])))); ?>. Firmendaten unter Tixomat → Einstellungen → Rechnungen bzw. im Studio.</p>
+                    <p style="color:#b91c1c;">Es fehlt: <?php echo esc_html(implode(', ', array_map(function ($m) use ($missing) { return $missing[$m] ?? $m; }, (array) ($cfg['issuer']['missing'] ?? [])))); ?>. Firmendaten unter evendis → Einstellungen → Rechnungen bzw. im Studio.</p>
                 <?php endif; ?>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <input type="hidden" name="action" value="tix_invoices_settings"><?php wp_nonce_field('tix_invoices_settings'); ?>

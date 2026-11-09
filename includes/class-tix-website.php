@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) exit;
  *   /public/site-config        zusätzlich `website` (veröffentlicht, aufbereitet) und `domain`
  * Abschnitte hinter einem App-Schalter (TIX_Features) kommen mit available:false, wenn er aus ist.
  *
- * Website-Paket (1.38.528): Option `tix_website_enabled` je Seite ('1'|'0', Vorgabe aus; Admin-Schalter Tixomat → Marken-Website),
+ * Website-Paket (1.38.528): Option `tix_website_enabled` je Seite ('1'|'0', Vorgabe aus; Admin-Schalter evendis → Marken-Website),
  * im Studio als `GET /studio/config` → `website {enabled}`. Beim Update einmalig an auf den Seiten mit Homepage (AUTO_HOSTS).
  * Nur Anzeige-Schalter für das Studio – die Routen oben bleiben unverändert erreichbar.
  */

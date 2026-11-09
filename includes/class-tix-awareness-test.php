@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) exit;
  *   wp tix awareness test-event [--minutes=60] [--testers=<login,login|ID>] [--organizer=<id>]
  *   wp tix awareness test-event --cleanup     Test-Events, ihre Hinweise, Dienste und Tester-Freigaben entfernen
  *   wp tix awareness tester <login|ID|E-Mail> [--off]
- * Admin: Tixomat → Awareness → „Test-Modus“. Abgelaufene Test-Events räumt der tägliche Cron nach 24 h selbst weg.
+ * Admin: evendis → Awareness → „Test-Modus“. Abgelaufene Test-Events räumt der tägliche Cron nach 24 h selbst weg.
  */
 class TIX_Awareness_Test {
 

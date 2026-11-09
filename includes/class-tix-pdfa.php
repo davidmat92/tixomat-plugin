@@ -227,7 +227,7 @@ class TIX_PDFA {
     private static function srgb_icc() {
         $s15 = function ($v) { return pack('N', (int) round($v * 65536) & 0xFFFFFFFF); };
         $xyz = function ($x, $y, $z) use ($s15) { return 'XYZ ' . "\0\0\0\0" . $s15($x) . $s15($y) . $s15($z); };
-        $desc_txt = "sRGB IEC61966-2.1 (Tixomat)";
+        $desc_txt = "sRGB IEC61966-2.1 (evendis)";
         $desc = 'desc' . "\0\0\0\0" . pack('N', strlen($desc_txt) + 1) . $desc_txt . "\0" . pack('N', 0) . pack('N', 0) . pack('n', 0) . pack('C', 0) . str_repeat("\0", 67);
         $cprt = 'text' . "\0\0\0\0" . "No copyright, use freely\0";
         $curv = 'curv' . "\0\0\0\0" . pack('N', 1) . pack('n', 0x0233) . "\0\0";
@@ -333,7 +333,7 @@ class TIX_PDFA {
         $oi = $add(sprintf('<</Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (sRGB IEC61966-2.1) /Info (sRGB IEC61966-2.1) /DestOutputProfile %d 0 R>>', $icc));
         // XMP
         $title = (string) $this->meta['title']; $author = (string) $this->meta['author'];
-        $producer = 'Tixomat ' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '');
+        $producer = 'evendis ' . (defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '');
         $x = function ($s) { return htmlspecialchars((string) $s, ENT_XML1 | ENT_QUOTES, 'UTF-8'); };
         $xmp = '<?xpacket begin="' . "\xEF\xBB\xBF" . '" id="W5M0MpCehiHzreSzNTczkc9d"?>' . "\n"
             . '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' . "\n"

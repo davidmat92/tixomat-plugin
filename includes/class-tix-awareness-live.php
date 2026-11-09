@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * TIX_Awareness_Live – Awareness Stufen 2–3 (Konzept §3 B4/B8/B9, §5, §6).
  *
- * Schalter (Tixomat → Awareness, Option `tix_awareness_flags`, beide Vorgabe AUS):
+ * Schalter (evendis → Awareness, Option `tix_awareness_flags`, beide Vorgabe AUS):
  *   report_enabled – Stufe 2: Support-Thema „Awareness“ (anonym ohne E-Mail), Feedback „Hast du dich sicher gefühlt?“
  *   alarm_live     – Stufe 3: „Hilfe vor Ort“ (stiller Alarm) – erst nach der Rechtsprüfung einschalten
  *
@@ -732,7 +732,7 @@ class TIX_Awareness_Live {
         return $r->taken_at ? round(max(0, strtotime($r->taken_at) - strtotime($r->created)) / 60, 1) : null;
     }
 
-    /** Tabelle auf Tixomat → Awareness (nur Admins). */
+    /** Tabelle auf evendis → Awareness (nur Admins). */
     public static function render_admin_alerts() {
         if (!current_user_can('manage_options')) return;
         $rows = self::admin_rows(0, 100);

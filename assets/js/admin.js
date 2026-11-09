@@ -1424,17 +1424,17 @@
             var retries = placesRetryCount[modalId] || 0;
             if (retries < 20) {
                 placesRetryCount[modalId] = retries + 1;
-                console.log('Tixomat: Google Places API nicht bereit, Retry ' + (retries + 1) + '/20 für #' + modalId);
+                console.log('evendis: Google Places API nicht bereit, Retry ' + (retries + 1) + '/20 für #' + modalId);
                 setTimeout(function() { initPlacesInModal(modalId); }, 500);
             } else {
-                console.error('Tixomat: Google Places API konnte nicht geladen werden. API-Key in Einstellungen prüfen.');
+                console.error('evendis: Google Places API konnte nicht geladen werden. API-Key in Einstellungen prüfen.');
             }
             return;
         }
 
         var input = document.querySelector('#' + modalId + ' .tix-places-autocomplete');
         if (!input) {
-            console.warn('Tixomat: Autocomplete-Input nicht gefunden in #' + modalId);
+            console.warn('evendis: Autocomplete-Input nicht gefunden in #' + modalId);
             return;
         }
 
@@ -1452,9 +1452,9 @@
             });
 
             placesInstances[modalId] = autocomplete;
-            console.log('Tixomat: Google Places Autocomplete initialisiert für #' + modalId);
+            console.log('evendis: Google Places Autocomplete initialisiert für #' + modalId);
         } catch(e) {
-            console.error('Tixomat: Google Places init error', e);
+            console.error('evendis: Google Places init error', e);
         }
     }
 

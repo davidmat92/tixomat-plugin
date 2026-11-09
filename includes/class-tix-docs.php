@@ -17,7 +17,7 @@ class TIX_Docs {
     public static function add_menu() {
         add_submenu_page(
             'tixomat',
-            'Tixomat Dokumentation',
+            'evendis Dokumentation',
             'Dokumentation',
             'manage_options',
             'tix-docs',
@@ -28,7 +28,7 @@ class TIX_Docs {
     public static function render() {
         ?>
         <div class="wrap tix-settings-wrap">
-            <h1>Tixomat &ndash; Dokumentation</h1>
+            <h1>Dokumentation</h1>
 
             <div class="tix-settings-grid">
                 <div class="tix-app tix-docs-app">
@@ -427,7 +427,7 @@ class TIX_Docs {
 
             // ── WC Product Meta ──
             self::meta_card('WooCommerce-Produkt-Meta <small>(auf von EH erstellten Produkten)</small>', 'dashicons-cart', [
-                ['_tix_parent_event_id', 'Referenz zum Eltern-Tixomat-Event', 'Zahl'],
+                ['_tix_parent_event_id', 'Referenz zum Eltern-evendis-Event', 'Zahl'],
                 ['_tix_category_index', 'Index der Ticket-Kategorie im Event', 'Zahl'],
                 ['_available_checkins_per_ticket', 'Erlaubte Check-ins pro Ticket', 'Zahl'],
             ]);
@@ -607,7 +607,7 @@ class TIX_Docs {
                 'examples' => ['[tix_countdown]', '[tix_countdown id="123" label="Countdown läuft!"]'],
             ],
             'tix_checkout' => [
-                'desc' => 'Kompletter Checkout-Flow (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die WC-Kasse mit Tixomat-Design. Mehrstufig, mit Countdown + Newsletter-Opt-In.',
+                'desc' => 'Kompletter Checkout-Flow (Rechnungsdaten, Warenkorb, Zahlung). Ersetzt die WC-Kasse mit evendis-Design. Mehrstufig, mit Countdown + Newsletter-Opt-In.',
                 'params' => [],
                 'examples' => ['[tix_checkout]'],
             ],
@@ -628,7 +628,7 @@ class TIX_Docs {
                 'examples' => ['[tix_events count="6"]', '[tix_events organizer="128" count="3"]'],
             ],
             'tix_homepage' => [
-                'desc' => 'Komplette Tixomat-Homepage mit Sektionen (Hero, Empfehlungen, kommende Events, Verlauf, etc.). Konfigurierbar via Homepage-Baukasten in den Einstellungen.',
+                'desc' => 'Komplette evendis-Homepage mit Sektionen (Hero, Empfehlungen, kommende Events, Verlauf, etc.). Konfigurierbar via Homepage-Baukasten in den Einstellungen.',
                 'params' => [],
                 'examples' => ['[tix_homepage]'],
             ],
@@ -686,7 +686,7 @@ class TIX_Docs {
             'tix_support'        => ['desc' => 'Kunden-Support-Interface (Anfrage stellen, Status ansehen).', 'params' => [], 'examples' => ['[tix_support]']],
             'tix_feedback'       => ['desc' => 'Post-Event-Feedback-Formular mit Sterne-Rating + freiem Text.', 'params' => [['id', '', 'Event-ID.']], 'examples' => ['[tix_feedback id="123"]']],
             'tix_share'          => ['desc' => 'Share-Buttons (WhatsApp, Facebook, E-Mail, Copy-Link) für aktuelle Event-Seite.', 'params' => [], 'examples' => ['[tix_share]']],
-            'tix_cta_button'     => ['desc' => 'Call-to-Action-Button mit Tixomat-Styling. Nutzt konfigurierte Primärfarbe.', 'params' => [['text', '', 'Button-Text.'], ['url', '', 'Ziel-URL.']], 'examples' => ['[tix_cta_button text="Jetzt Tickets!" url="/events/xyz/"]']],
+            'tix_cta_button'     => ['desc' => 'Call-to-Action-Button mit evendis-Styling. Nutzt konfigurierte Primärfarbe.', 'params' => [['text', '', 'Button-Text.'], ['url', '', 'Ziel-URL.']], 'examples' => ['[tix_cta_button text="Jetzt Tickets!" url="/events/xyz/"]']],
             'tix_table_reservation' => ['desc' => 'Tischreservierungs-Modul (zu Event, mit Personen-Anzahl + Zusatzwünschen).', 'params' => [['id', '(auto)', 'Event-ID.']], 'examples' => ['[tix_table_reservation]']],
             'tix_table_button'   => ['desc' => 'Button der ein Modal mit Tischreservierung öffnet.', 'params' => [['id', '(auto)', 'Event-ID.'], ['text', 'Tisch reservieren', 'Button-Text.']], 'examples' => ['[tix_table_button]']],
             'tix_ticket_modal'   => ['desc' => 'Ticketauswahl als Modal-Popup (lazy-loaded). Ideal für Homepage oder Side-Widgets.', 'params' => [['id', '', 'Event-ID.'], ['text', 'Tickets kaufen', 'Trigger-Text.']], 'examples' => ['[tix_ticket_modal id="123"]']],
@@ -753,7 +753,7 @@ class TIX_Docs {
         <div class="tix-pane" data-pane="functions">
 
             <p class="description">
-                <strong>&Uuml;bersicht aller automatischen Funktionen</strong>, die Tixomat im Hintergrund f&uuml;r dich &uuml;bernimmt.
+                <strong>&Uuml;bersicht aller automatischen Funktionen</strong>, die das Plugin im Hintergrund f&uuml;r dich &uuml;bernimmt.
                 Du musst nichts davon manuell einrichten &ndash; alles passiert automatisch, sobald du ein Event erstellst oder bearbeitest.
             </p>
 
@@ -817,7 +817,7 @@ class TIX_Docs {
                 '<strong>Follow-up:</strong> Nach dem Event wird eine Dankes-E-Mail versendet (z.B. mit Feedback-Link, Zeitpunkt konfigurierbar).',
                 '<strong>Warenkorb-Recovery:</strong> Wenn ein Kunde den Checkout verl&auml;sst, ohne zu kaufen, erh&auml;lt er nach einer einstellbaren Verz&ouml;gerung eine Erinnerungs-E-Mail.',
                 '<strong>Ticket-Transfer:</strong> Der neue Ticket-Inhaber erh&auml;lt automatisch eine Benachrichtigung.',
-                'Alle E-Mails nutzen das Tixomat-Design mit konfigurierbarem Logo, Markenname und Footer-Text.',
+                'Alle E-Mails nutzen das evendis-Design mit konfigurierbarem Logo, Markenname und Footer-Text.',
             ]);
 
             // ── Ticket-System ──
@@ -986,7 +986,7 @@ class TIX_Docs {
 
             // ── Statistik-Dashboard ──
             self::function_card('Statistik-Dashboard', 'dashicons-chart-area', [
-                'Eigene Admin-Seite unter <strong>Tixomat &rarr; Statistiken</strong> mit umfassender Datenanalyse.',
+                'Eigene Admin-Seite unter <strong>evendis &rarr; Statistiken</strong> mit umfassender Datenanalyse.',
                 '<strong>8 Tabs:</strong> &Uuml;bersicht, Umsatz, Tickets, Events, Check-in, Warenk&ouml;rbe, Newsletter, Rabatte.',
                 '<strong>KPI-Cards</strong> mit Trend-Vergleich zur Vorperiode (prozentualer Anstieg/R&uuml;ckgang).',
                 'Interaktive <strong>Charts</strong> (Chart.js) f&uuml;r alle Metriken &ndash; Linien-, Balken- und Donut-Diagramme.',
@@ -1017,7 +1017,7 @@ class TIX_Docs {
 
             // ── Support-System ──
             self::function_card('Support-System (CRM + Kunden-Portal)', 'dashicons-format-chat', [
-                '<strong>Admin-Dashboard</strong> unter Tixomat &rarr; Support mit 4 Tabs: Anfragen, Kunden-Suche, Statistiken, E-Mail-Eingang.',
+                '<strong>Admin-Dashboard</strong> unter evendis &rarr; Support mit 4 Tabs: Anfragen, Kunden-Suche, Statistiken, E-Mail-Eingang.',
                 '<strong>Kunden-Suche</strong> erkennt automatisch E-Mail, Bestellnr. (#12345) und 12-stellige Ticket-Codes. Tickets k&ouml;nnen direkt ge&ouml;ffnet werden.',
                 '<strong>Anfragen-System</strong> (CPT <code>tix_support_ticket</code>) mit 4 Status: Offen, In Bearbeitung, Gel&ouml;st, Geschlossen.',
                 '<strong>Nachrichten-Thread</strong> mit 3 Typen: Kundennachricht, Admin-Antwort, Interne Notiz.',
@@ -1057,7 +1057,7 @@ class TIX_Docs {
 
             // ── Warenkorb & Mini-Cart ──
             self::function_card('Warenkorb &amp; Mini-Cart', 'dashicons-cart', [
-                '<strong>Warenkorb-Shortcode</strong> <code>[tix_cart]</code> &ndash; Eigenst&auml;ndige Warenkorb-Seite im Tixomat-Design (gleiche CSS-Variablen wie Checkout).',
+                '<strong>Warenkorb-Shortcode</strong> <code>[tix_cart]</code> &ndash; Eigenst&auml;ndige Warenkorb-Seite im evendis-Design (gleiche CSS-Variablen wie Checkout).',
                 '<strong>Mini-Cart Drawer</strong> &ndash; Slide-in von rechts mit hellem Design, Artikel&uuml;bersicht, Mengensteuerung und &bdquo;Zur Kasse&ldquo;-Button.',
                 'Trigger per <code>class="tix-minicart-trigger"</code> oder <code>data-tix-minicart</code> Attribut auf beliebigen Elementen.',
                 '<strong>Live-Badge</strong> <code>.tix-minicart-count</code> zeigt Artikelanzahl und wird per <strong>WooCommerce Fragments</strong> bei jedem AJAX-Add-to-Cart aktualisiert.',
@@ -1088,7 +1088,7 @@ class TIX_Docs {
 
             // ── Admin Shell / Fullscreen ──
             self::function_card('Admin Shell / Fullscreen-Modus', 'dashicons-fullscreen-alt', [
-                '<strong>Fullscreen-UI:</strong> Versteckt WordPress-Chrome (Admin-Bar, Sidebar, Footer) auf allen Tixomat-Seiten.',
+                '<strong>Fullscreen-UI:</strong> Versteckt WordPress-Chrome (Admin-Bar, Sidebar, Footer) auf allen evendis-Seiten.',
                 '<strong>Eigene Sidebar-Navigation:</strong> Linke Sidebar mit Logo, Gruppen (Events, Ticketing, Verwaltung, Einstellungen, Hilfe).',
                 '<strong>Organizer-Modus:</strong> Veranstalter erhalten eine reduzierte Sidebar (Dashboard, Meine Events, Ticketing, Verwaltung, Einstellungen). Admin-Bar wird f&uuml;r Organizer komplett ausgeblendet.',
                 '<strong>URL-Rewriting:</strong> <code>wp-admin</code>-URLs werden kosmetisch durch den Organizer-Slug ersetzt (<code>history.replaceState</code>).',
@@ -1105,7 +1105,7 @@ class TIX_Docs {
                 '<strong>Rolle &amp; Capabilities:</strong> <code>tix_organizer</code> erh&auml;lt <code>edit_posts</code>, <code>publish_posts</code>, <code>delete_posts</code>, <code>edit_others_posts</code>, <code>upload_files</code>.',
                 '<strong>Event-Ownership:</strong> <code>pre_get_posts</code> filtert Events nach <code>_tix_organizer_id</code> &ndash; Organizer sehen nur eigene Events.',
                 '<strong>Capability Mapping:</strong> <code>map_meta_cap</code> stellt sicher, dass Organizer nur eigene Events bearbeiten k&ouml;nnen.',
-                '<strong>Admin-Men&uuml;:</strong> Alle WP-Men&uuml;s entfernt au&szlig;er Tixomat, Upload, Profil.',
+                '<strong>Admin-Men&uuml;:</strong> Alle WP-Men&uuml;s entfernt au&szlig;er evendis, Upload, Profil.',
                 '<strong>Login-Redirect:</strong> Organizer werden nach Login zu <code>tix-organizer-dashboard</code> weitergeleitet.',
                 '<strong>Erlaubte Post-Types:</strong> <code>event</code>, <code>tix_location</code>, <code>tix_ticket</code>, <code>tix_seatmap</code>, <code>tix_ticket_tpl</code>, <code>tix_subscriber</code>.',
                 '<strong>Auto-Assign:</strong> Neue Events erhalten automatisch <code>_tix_organizer_id</code>.',
@@ -1123,14 +1123,14 @@ class TIX_Docs {
                 '<strong>Settings:</strong> <code>login_slug</code> und <code>organizer_slug</code> im Tab <strong>Erweitert</strong>.',
                 '<strong>URL-Intercept:</strong> Per <code>init</code>-Hook wird der URL-Pfad geparst und auf die Custom-Seiten gemappt.',
                 '<strong>wp-login.php Redirect:</strong> Automatische Weiterleitung von <code>wp-login.php</code> zur Custom-Login-URL.',
-                '<strong>Gebrandete Login-Seite:</strong> Tixomat-Logo, Hintergrund <code>#FAF8F4</code>, orangener Button.',
+                '<strong>Gebrandete Login-Seite:</strong> evendis-Logo, Hintergrund <code>#FAF8F4</code>, orangener Button.',
                 '<strong>Login-Verarbeitung:</strong> POST wird direkt mit <code>wp_signon()</code> verarbeitet, Organizer-spezifischer Redirect nach Login.',
                 'Datei: <code>class-tix-custom-urls.php</code>.',
             ]);
 
             // ── REST API ──
             self::function_card('REST API <small>(tixomat/v1)</small>', 'dashicons-rest-api', [
-                '<strong>24 Endpoints</strong> im Namespace <code>tixomat/v1</code> f&uuml;r die Tixomat-App (iOS/Android).',
+                '<strong>24 Endpoints</strong> im Namespace <code>tixomat/v1</code> f&uuml;r die evendis-App (iOS/Android).',
                 '<strong>Auth:</strong> WordPress Application Passwords (Basic Auth) oder <code>X-Tix-Token</code> / <code>Bearer</code> Header.',
                 '<strong>Gruppen:</strong> Discovery, Events, Check-in, G&auml;steliste, Tickets, POS, Auth, Customer.',
                 'Details im Tab <strong>REST API</strong>.',
@@ -1203,7 +1203,7 @@ class TIX_Docs {
             </p>
 
             <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
-                <strong><?php echo count($actions); ?> Tixomat-AJAX-Actions</strong> registriert (Stand: Live-Scan).
+                <strong><?php echo count($actions); ?> evendis-AJAX-Actions</strong> registriert (Stand: Live-Scan).
                 Spalte <em>Zugriff</em>: <code>Admin</code> = nur für eingeloggte User, <code>Public</code> = auch nopriv.
             </div>
 
@@ -1399,8 +1399,8 @@ is_bot (UA-basiert), created_at</pre>
                 <div class="tix-card-body">
                     <ul style="margin:0;padding-left:20px;line-height:1.8;font-size:13px;">
                         <li><strong>Veranstalter-Edit-Seite</strong> — Block <em>Landingpage</em> direkt unter dem Titel: Admin-Freischaltung (nur <code>manage_options</code>) + Slug-Verwaltung mit Live-Check.</li>
-                        <li><strong>Tixomat → Meine Landingpage</strong> — Self-Service-Seite für den Veranstalter (sichtbar wenn <code>_tix_org_user_id</code> gesetzt oder Admin mit <code>?org=ID</code>). Logo/Hero/Farben/CTA/Social/Analytics.</li>
-                        <li><strong>Tixomat → Einstellungen → Landingpages</strong> — Admin-only. Footer-Credit-Override.</li>
+                        <li><strong>evendis → Meine Landingpage</strong> — Self-Service-Seite für den Veranstalter (sichtbar wenn <code>_tix_org_user_id</code> gesetzt oder Admin mit <code>?org=ID</code>). Logo/Hero/Farben/CTA/Social/Analytics.</li>
+                        <li><strong>evendis → Einstellungen → Landingpages</strong> — Admin-only. Footer-Credit-Override.</li>
                     </ul>
                 </div>
             </div>
@@ -1531,14 +1531,14 @@ is_bot (UA-basiert), created_at</pre>
             <?php
             // ── Aktivierung ──
             self::function_card('Aktivierung &amp; Einrichtung', 'dashicons-admin-plugins', [
-                'Unter <strong>Tixomat &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Promoter-System&ldquo;</strong> aktivieren.',
+                'Unter <strong>evendis &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Promoter-System&ldquo;</strong> aktivieren.',
                 'Das Plugin erstellt automatisch 4 Datenbank-Tabellen: <code>tixomat_promoters</code>, <code>tixomat_promoter_events</code>, <code>tixomat_promoter_commissions</code>, <code>tixomat_promoter_payouts</code>.',
                 'Neue WP-Rolle <code>tix_promoter</code> wird registriert (nur Lese-Rechte).',
                 'Falls die Tabellen nicht erstellt werden: Plugin deaktivieren und wieder aktivieren.',
             ]);
 
             // ── Admin-Backend ──
-            self::function_card('Admin-Backend <small>(Tixomat &rarr; Promoter)</small>', 'dashicons-admin-users', [
+            self::function_card('Admin-Backend <small>(evendis &rarr; Promoter)</small>', 'dashicons-admin-users', [
                 '<strong>Tab &bdquo;Promoter&ldquo;</strong> &ndash; Promoter anlegen, bearbeiten, deaktivieren. Jeder Promoter wird mit einem WordPress-Benutzer verkn&uuml;pft und erh&auml;lt einen eindeutigen Promoter-Code.',
                 '<strong>Tab &bdquo;Events&ldquo;</strong> &ndash; Promoter einem Event zuordnen mit individueller Provision (Prozent oder Festbetrag), optionalem K&auml;ufer-Rabatt und Promo-Code. Bei Promo-Code wird automatisch ein WooCommerce-Coupon erstellt.',
                 '<strong>Tab &bdquo;Provisionen&ldquo;</strong> &ndash; Alle berechneten Provisionen mit Filtern nach Promoter, Event, Zeitraum und Status (ausstehend, genehmigt, bezahlt, storniert).',
@@ -1620,7 +1620,7 @@ is_bot (UA-basiert), created_at</pre>
             <?php
             // ── Aktivierung ──
             self::function_card('Aktivierung &amp; Einrichtung', 'dashicons-admin-plugins', [
-                'Unter <strong>Tixomat &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Veranstalter-Dashboard&ldquo;</strong> aktivieren.',
+                'Unter <strong>evendis &rarr; Einstellungen &rarr; Features</strong> den Schalter <strong>&bdquo;Veranstalter-Dashboard&ldquo;</strong> aktivieren.',
                 'Neue WP-Rolle <code>tix_organizer</code> wird automatisch registriert (Rechte: <code>read</code>, <code>upload_files</code>).',
                 'Einen <strong>tix_organizer</strong> CPT-Eintrag anlegen und unter &bdquo;Verkn&uuml;pfter Benutzer&ldquo; den WP-User zuweisen.',
                 'Shortcode <code>[tix_organizer_dashboard]</code> auf einer beliebigen WordPress-Seite einf&uuml;gen (z.B. <code>/veranstalter/</code>).',
@@ -1720,7 +1720,7 @@ is_bot (UA-basiert), created_at</pre>
         <div class="tix-pane" data-pane="datamodel">
 
             <p class="description">
-                Live-Scan der registrierten Tixomat-Datentypen. Quellen: <code>get_post_types()</code>, <code>get_taxonomies()</code>, <code>SHOW TABLES</code>.
+                Live-Scan der registrierten evendis-Datentypen. Quellen: <code>get_post_types()</code>, <code>get_taxonomies()</code>, <code>SHOW TABLES</code>.
                 Immer aktuell — zeigt exakt was auf dieser Installation aktiv ist.
             </p>
 
@@ -1804,7 +1804,7 @@ is_bot (UA-basiert), created_at</pre>
                 </div>
                 <div class="tix-card-body">
                     <?php if (empty($tables)): ?>
-                        <p style="color:#94a3b8;">Keine Tixomat-Tabellen gefunden.</p>
+                        <p style="color:#94a3b8;">Keine evendis-Tabellen gefunden.</p>
                     <?php endif; ?>
                     <?php foreach ($tables as $t):
                         $cols = $wpdb->get_results("DESCRIBE `" . esc_sql($t) . "`");
@@ -2168,11 +2168,11 @@ is_bot (UA-basiert), created_at</pre>
 
             <p class="description">
                 <strong>REST-API-Endpunkte</strong> — Auto-Scan aus <code>rest_get_server()->get_routes()</code>.
-                Filtert nur Tixomat-Routes. Basis-URL: <code><?php echo esc_html(get_rest_url()); ?></code>
+                Filtert nur evendis-Routes. Basis-URL: <code><?php echo esc_html(get_rest_url()); ?></code>
             </p>
 
             <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:#075985;">
-                <strong><?php echo count($tix_routes); ?> Tixomat-REST-Endpoints</strong> registriert.
+                <strong><?php echo count($tix_routes); ?> evendis-REST-Endpoints</strong> registriert.
             </div>
 
             <div class="tix-card">
@@ -2182,7 +2182,7 @@ is_bot (UA-basiert), created_at</pre>
                 </div>
                 <div class="tix-card-body">
                     <?php if (empty($tix_routes)): ?>
-                        <p style="color:#94a3b8;">Keine Tixomat-REST-Routes registriert. Prüfe ob <code>TIX_REST_API::init()</code> geladen ist.</p>
+                        <p style="color:#94a3b8;">Keine evendis-REST-Routes registriert. Prüfe ob <code>TIX_REST_API::init()</code> geladen ist.</p>
                     <?php endif; ?>
                     <?php foreach ($tix_routes as $route => $handlers):
                         // handlers kann ein Array von Route-Definitionen sein

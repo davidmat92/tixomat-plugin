@@ -207,7 +207,7 @@ class TIX_Event_Homepage {
         if (empty($s['hp_enabled'])) {
             if (current_user_can('manage_options')) {
                 return '<div style="padding:16px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:13px;text-align:center;">'
-                     . '[tix_homepage] ist deaktiviert. Aktiviere in <em>Tixomat → Einstellungen → Event-Homepage → Layout → „Event-Homepage aktivieren"</em>.'
+                     . '[tix_homepage] ist deaktiviert. Aktiviere in <em>evendis → Einstellungen → Event-Homepage → Layout → „Event-Homepage aktivieren"</em>.'
                      . '<br><span style="font-size:11px;opacity:0.7;">(Dieser Hinweis ist nur für Admins sichtbar.)</span></div>';
             }
             return '';
@@ -1563,7 +1563,7 @@ class TIX_Event_Homepage {
         $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=' . urlencode($lat) . '&lon=' . urlencode($lng) . '&accept-language=de';
         $resp = wp_remote_get($url, [
             'timeout'    => 5,
-            'user-agent' => 'Tixomat/' . TIXOMAT_VERSION . ' (WordPress Plugin)',
+            'user-agent' => 'evendis/' . TIXOMAT_VERSION . ' (WordPress Plugin)',
         ]);
         if (is_wp_error($resp)) { set_transient($key, '', 300); return ''; }
 

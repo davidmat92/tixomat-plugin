@@ -97,7 +97,7 @@ class TIX_Sync_Airtable {
         }
 
         if (isset($result['error'])) {
-            error_log('[Tixomat Airtable] Sync-Fehler: ' . ($result['error']['message'] ?? json_encode($result['error'])));
+            error_log('[evendis Airtable] Sync-Fehler: ' . ($result['error']['message'] ?? json_encode($result['error'])));
         }
 
         return false;
@@ -200,7 +200,7 @@ class TIX_Sync_Airtable {
         $response = wp_remote_request($url, $args);
 
         if (is_wp_error($response)) {
-            error_log('[Tixomat Airtable] ' . $response->get_error_message());
+            error_log('[evendis Airtable] ' . $response->get_error_message());
             return null;
         }
 
@@ -212,7 +212,7 @@ class TIX_Sync_Airtable {
         }
 
         // Fehler loggen
-        error_log('[Tixomat Airtable] HTTP ' . $code . ': ' . wp_remote_retrieve_body($response));
+        error_log('[evendis Airtable] HTTP ' . $code . ': ' . wp_remote_retrieve_body($response));
         return $json ?: ['error' => ['message' => 'HTTP ' . $code]];
     }
 

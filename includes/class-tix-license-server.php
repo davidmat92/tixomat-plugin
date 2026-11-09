@@ -5,7 +5,7 @@ if (!defined('ABSPATH')) exit;
  * TIX_License_Server – Lizenzen für den Selbstbetrieb („Tixomat by evendis“, Paket 2b).
  *
  * Läuft nur, wenn die Option `tix_license_server` = '1' ist (veranstalter.evendis.de).
- * Tabellen `{prefix}tix_licenses` + `{prefix}tix_license_sites`, Admin Tixomat → Lizenzen.
+ * Tabellen `{prefix}tix_licenses` + `{prefix}tix_license_sites`, Admin evendis → Lizenzen.
  * REST (öffentlich, begrenzt):
  *   POST /license/check   {key, site, version, wp, php} → Status + neueste Version + signierter Download-Link
  *   GET  /license/package ?l&h&v&e&sig                → ZIP der hier laufenden Plugin-Version
@@ -366,7 +366,7 @@ class TIX_License_Server {
         return [
             'active'     => 'Lizenz gültig.',
             'invalid'    => 'Dieser Lizenzschlüssel ist unbekannt.',
-            'expired'    => 'Die Lizenz ist abgelaufen. Tixomat läuft weiter, Updates gibt es nach der Verlängerung.',
+            'expired'    => 'Die Lizenz ist abgelaufen. Das Plugin läuft weiter, Updates gibt es nach der Verlängerung.',
             'suspended'  => 'Die Lizenz ist pausiert. Bitte melde dich bei uns.',
             'revoked'    => 'Die Lizenz wurde beendet.',
             'site_limit' => 'Der Schlüssel ist schon für eine andere Website aktiv. Bitte melde dich bei uns, wenn du umziehst.',
@@ -615,7 +615,7 @@ class TIX_License_Server {
                 $zip->addFile($path, 'tixomat/' . $rel);
             }
         }
-        $zip->addFromString('tixomat/self-hosted.flag', "Tixomat im Selbstbetrieb – Updates über die Lizenz (Tixomat → Lizenz).\n");
+        $zip->addFromString('tixomat/self-hosted.flag', "evendis im Selbstbetrieb – Updates über die Lizenz (evendis → Lizenz).\n");
         if (!$zip->close() || !@rename($tmp, $file)) {
             @unlink($tmp);
             return new WP_Error('tix_license_zip', 'Das Update-Paket konnte nicht gespeichert werden.', ['status' => 500]);
@@ -848,7 +848,7 @@ class TIX_License_Server {
         <div class="wrap">
             <h1>Lizenzen (Selbstbetrieb)</h1>
             <?php if (isset($notes[$msg])) : ?><div class="notice notice-<?php echo $msg === 'error' ? 'error' : 'success'; ?> is-dismissible"><p><?php echo esc_html($notes[$msg]); ?></p></div><?php endif; ?>
-            <p>Je Lizenz eine Website (Staging/Test-Adressen zählen nicht). Ohne gültige Lizenz läuft Tixomat beim Kunden weiter, nur ohne Updates.
+            <p>Je Lizenz eine Website (Staging/Test-Adressen zählen nicht). Ohne gültige Lizenz läuft das Plugin beim Kunden weiter, nur ohne Updates.
                Update-Paket = diese Installation (<?php echo esc_html(TIXOMAT_VERSION); ?>).</p>
 
             <?php if ($id && ($lic = self::get($id))) : $st = self::license_state($lic); ?>

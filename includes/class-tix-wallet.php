@@ -380,7 +380,7 @@ class TIX_Wallet {
                     ['key' => 'addr',     'label' => 'Adresse',     'value' => $t['venue_addr']],
                     ['key' => 'venue_b',  'label' => 'Venue',       'value' => $t['venue_name']],
                     ['key' => 'code',     'label' => 'Ticket-Code', 'value' => $t['code']],
-                    ['key' => 'powered',  'label' => 'Powered by',  'value' => 'Tixomat'],
+                    ['key' => 'powered',  'label' => 'Powered by',  'value' => 'evendis'],
                 ],
             ],
             'barcodes' => [

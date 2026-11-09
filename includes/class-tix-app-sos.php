@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) exit;
  *   GET  /app/config/edit → zusätzlich `nav_sos` (immer, auch wenn aus – für den Schalter im Editor)
  *   GET  /app/sos         → live für die SOS-Seite: laufendes Event, Awareness-Angaben, Team im Dienst, Melden
  *
- * Admin: Tixomat → Awareness, Abschnitt „SOS in der App“.
+ * Admin: evendis → Awareness, Abschnitt „SOS in der App“.
  */
 class TIX_App_Sos {
 

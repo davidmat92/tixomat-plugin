@@ -119,11 +119,11 @@ class TIX_Settings_IO {
             <?php elseif ($msg === 'import_failed'): ?>
                 <div class="notice notice-error"><p>Import fehlgeschlagen. Datei ungültig oder beschädigt.</p></div>
             <?php elseif ($msg === 'import_invalid'): ?>
-                <div class="notice notice-error"><p>Datei-Format ungültig. Bitte eine gültige Tixomat-Settings-JSON hochladen.</p></div>
+                <div class="notice notice-error"><p>Datei-Format ungültig. Bitte eine gültige Einstellungs-JSON hochladen.</p></div>
             <?php endif; ?>
 
             <p style="color:#64748b;font-size:14px;line-height:1.6;max-width:720px;">
-                Exportiere alle Plugin-Einstellungen (Farben, Typografie, Checkboxen, Design, Templates, Integrationen) als JSON und importiere sie auf einer anderen Tixomat-Installation. <strong>Nicht enthalten:</strong> Bestellungen, Tickets, Kunden, Events, Veranstalter, WP-Benutzer — das sind Daten, keine Konfiguration.
+                Exportiere alle Plugin-Einstellungen (Farben, Typografie, Checkboxen, Design, Templates, Integrationen) als JSON und importiere sie auf einer anderen Seite mit evendis-Plugin. <strong>Nicht enthalten:</strong> Bestellungen, Tickets, Kunden, Events, Veranstalter, WP-Benutzer — das sind Daten, keine Konfiguration.
             </p>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px;">
@@ -203,7 +203,7 @@ class TIX_Settings_IO {
             </div>
 
             <div style="margin-top:30px;padding:16px 20px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1e3a8a;line-height:1.6;">
-                <strong>Hinweis für Site-Migration:</strong> Exportiere zuerst auf der Quell-Site mit aktivem <em>„API-Keys mitnehmen"</em>-Toggle (nur wenn du die Zugangsdaten kopieren willst), dann importiere auf der Ziel-Site. Eine Neu-Installation des Plugins ist nicht nötig — das Ziel muss nur Tixomat installiert haben.
+                <strong>Hinweis für Site-Migration:</strong> Exportiere zuerst auf der Quell-Site mit aktivem <em>„API-Keys mitnehmen"</em>-Toggle (nur wenn du die Zugangsdaten kopieren willst), dann importiere auf der Ziel-Site. Eine Neu-Installation des Plugins ist nicht nötig — das Ziel muss nur das Plugin installiert haben.
             </div>
         </div>
         <?php

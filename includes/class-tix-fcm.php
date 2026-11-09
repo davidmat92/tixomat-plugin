@@ -2,7 +2,7 @@
 /**
  * TIX_FCM – Android-Push über Firebase Cloud Messaging (HTTP v1), 1.38.527.
  *
- * - Zugang: Firebase-Dienstkonto-JSON in der Option `_tix_fcm_service_account` (trägt der User selbst ein: Tixomat → App-Push
+ * - Zugang: Firebase-Dienstkonto-JSON in der Option `_tix_fcm_service_account` (trägt der User selbst ein: evendis → App-Push
  *   oder `wp tixomat push fcm-import <datei>`; wird nie ausgegeben). Projekt-ID aus dem JSON.
  * - OAuth-Zugriffstoken per JWT (RS256, Scope firebase.messaging) bei oauth2.googleapis.com, gecacht bis kurz vor Ablauf.
  * - Nachricht: notification {title, body} + data (nur Zeichenketten, wie bei APNs) + android.priority high,
@@ -329,7 +329,7 @@ class TIX_FCM {
         if ($cmd === 'test') {
             $uid = intval($assoc['user'] ?? 0);
             if (!$uid || !class_exists('TIX_Notifications')) WP_CLI::error('Aufruf: wp tixomat push test --user=<id> [--title=…] [--body=…]');
-            $n = TIX_Notifications::push_to_user($uid, (string) ($assoc['title'] ?? 'Test'), (string) ($assoc['body'] ?? 'Testnachricht von Tixomat'), ['action' => '']);
+            $n = TIX_Notifications::push_to_user($uid, (string) ($assoc['title'] ?? 'Test'), (string) ($assoc['body'] ?? 'Testnachricht von evendis'), ['action' => '']);
             WP_CLI::success('Gesendet an ' . $n . ' Gerät(e).');
             return;
         }

@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) exit;
  * Lebenszeit: 6 h nach der letzten Aktivität, höchstens 12 h nach dem Erstellen; beendete Räume 10 Minuten.
  * Cron `tix_party_rooms_cleanup` stündlich (plus einmalig 10 Minuten nach dem Beenden) löscht Räume samt Tokens.
  *
- * Schalter: Option `tix_party` {enabled} (Standard an), Tixomat → Partyspiel. Aus → /party/config enabled:false,
+ * Schalter: Option `tix_party` {enabled} (Standard an), evendis → Partyspiel. Aus → /party/config enabled:false,
  * alle anderen Routen 404 `party_disabled`.
  */
 class TIX_Party_Rooms {

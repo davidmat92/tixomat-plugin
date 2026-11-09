@@ -42,7 +42,7 @@ class TIX_Partner_Broker {
     }
 
     public static function cron_schedules($s) {
-        $s['tix_quarter_hour'] = ['interval' => 15 * MINUTE_IN_SECONDS, 'display' => 'Alle 15 Minuten (Tixomat)'];
+        $s['tix_quarter_hour'] = ['interval' => 15 * MINUTE_IN_SECONDS, 'display' => 'Alle 15 Minuten (evendis)'];
         return $s;
     }
 

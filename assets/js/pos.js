@@ -119,7 +119,7 @@
             dots += '<div class="pos-pin-dot' + (i < state.pin.length ? ' filled' : '') + '"></div>';
         }
         return '<div class="pos-screen active"><div class="pos-pin">' +
-            '<img class="pos-pin-logo-img" src="' + (cfg.logoUrl || '') + '" alt="Tixomat POS">' +
+            '<img class="pos-pin-logo-img" src="' + (cfg.logoUrl || '') + '" alt="Kasse">' +
             '<div class="pos-pin-title">PIN eingeben</div>' +
             '<div class="pos-pin-dots" id="pos-pin-dots">' + dots + '</div>' +
             '<div class="pos-pin-error" id="pos-pin-error"></div>' +
