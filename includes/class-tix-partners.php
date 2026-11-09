@@ -45,6 +45,7 @@ class TIX_Partners {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action('admin_post_tix_partner_connect', [__CLASS__, 'handle_connect']);
         add_action('admin_notices', [__CLASS__, 'connect_notice']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat partner', [__CLASS__, 'cli']);
     }
 
     public static function register_routes() {
@@ -255,7 +256,8 @@ class TIX_Partners {
             'created'       => $existing['created'] ?? current_time('mysql'),
             'auto'          => 1,
             'connected'     => current_time('mysql'),
-            'pending'       => $existing ? intval($existing['pending'] ?? 0) : 1,
+            // Eigene Kunden-Seiten (Lizenz mit Hosting-Kurzname, Kundenakte h-…) sind sofort verbunden (1.38.708); Verkauf bleibt aus
+            'pending'       => self::hosted_customer($host) ? 0 : ($existing ? intval($existing['pending'] ?? 0) : 1),
             // Neukunden: Gebühr im Kanal nach Vorgabe; bekannte Partner behalten ihren Stand
             'channel_fee'         => $existing ? intval($existing['channel_fee'] ?? 0) : ((class_exists('TIX_Channel_Fee') && TIX_Channel_Fee::settings()['new_partners']) ? 1 : 0),
             'channel_fee_percent' => $existing ? (string) ($existing['channel_fee_percent'] ?? '') : '',
@@ -287,7 +289,20 @@ class TIX_Partners {
             'sales'      => (bool) $all[$id]['sales_enabled'],
             'pending'    => !empty($all[$id]['pending']),
             'reconnect'  => (bool) $existing,
+            'hosted'     => self::hosted_customer($host) !== null,
         ]);
+    }
+
+    /** Kundenakte (h-…) zum Host, wenn er zu einer Lizenz mit Hosting-Kurzname gehört, sonst null. */
+    public static function hosted_customer($host) {
+        $host = preg_replace('/^www\./', '', strtolower((string) $host));
+        if ($host === '' || !class_exists('TIX_Platform_Customers')) return null;
+        TIX_Platform_Customers::flush();
+        foreach (TIX_Platform_Customers::index()['customers'] as $c) {
+            if (empty($c['hosting_kurz']) || empty($c['_lic']['hosts'])) continue;
+            if (in_array($host, (array) $c['_lic']['hosts'], true)) return (string) $c['key'];
+        }
+        return null;
     }
 
     /** Veranstalter auf der Plattform aus den Angaben der Quelle anlegen. */
@@ -398,8 +413,30 @@ class TIX_Partners {
         if (!current_user_can('manage_options')) wp_die('Keine Berechtigung.');
         if (!isset($_POST['tix_connect_nonce']) || !wp_verify_nonce($_POST['tix_connect_nonce'], 'tix_partner_connect')) wp_die('Sitzung abgelaufen.');
         $back = admin_url('admin.php?page=tix-settings');
-        $platform = self::platform_rest(wp_unslash($_POST['tix_connect_platform'] ?? ''));
+        $r = self::connect(wp_unslash($_POST['tix_connect_platform'] ?? ''));
+        if (is_wp_error($r)) {
+            set_transient('tix_partner_connect_result', ['ok' => false, 'msg' => $r->get_error_message()], 300);
+            wp_safe_redirect($back);
+            exit;
+        }
+        set_transient('tix_partner_connect_result', [
+            'ok'  => true,
+            'msg' => sprintf('Verbunden mit %s als „%s“. %s Events mit Häkchen „Auf Plattform veröffentlichen“ werden jetzt verteilt.',
+                self::host($r['platform']), (string) $r['name'],
+                !empty($r['sales']) ? 'Ticketverkauf über die App ist aktiv.' : 'Ticketverkauf über die App startet nach Freigabe durch den Betreiber; bis dahin werden die Events angezeigt.'),
+        ], 300);
+        wp_safe_redirect($back);
+        exit;
+    }
 
+    const OPT_CONNECT = 'tix_partner_connection';
+
+    /**
+     * Quelle mit der Plattform koppeln (Admin-Formular und WP-CLI, 1.38.708).
+     * → {ok, partner_id, name, platform, pending, sales, reconnect, hosted} | WP_Error (Code wie die Plattform bzw. tix_connect_unreachable/tix_connect_keys)
+     */
+    public static function connect($platform_input = '') {
+        $platform = self::platform_rest($platform_input);
         $nonce = wp_generate_password(48, false);
         set_transient('tix_partner_connect_nonce', $nonce, 10 * MINUTE_IN_SECONDS);
         $terms = (string) tix_get_settings('terms_url');
@@ -416,13 +453,14 @@ class TIX_Partners {
             ]),
         ]);
         delete_transient('tix_partner_connect_nonce');
-        $code = is_wp_error($resp) ? 0 : intval(wp_remote_retrieve_response_code($resp));
-        $data = is_wp_error($resp) ? [] : (array) json_decode(wp_remote_retrieve_body($resp), true);
-        if ($code !== 200 || empty($data['ok']) || strlen((string) ($data['key_in'] ?? '')) < 20 || strlen((string) ($data['key_out'] ?? '')) < 20) {
-            $msg = is_wp_error($resp) ? $resp->get_error_message() : (string) ($data['message'] ?? ('HTTP ' . $code));
-            set_transient('tix_partner_connect_result', ['ok' => false, 'msg' => $msg], 300);
-            wp_safe_redirect($back);
-            exit;
+        if (is_wp_error($resp)) return new WP_Error('tix_connect_unreachable', 'Plattform nicht erreichbar (' . self::host($platform) . '): ' . $resp->get_error_message());
+        $code = intval(wp_remote_retrieve_response_code($resp));
+        $data = (array) json_decode(wp_remote_retrieve_body($resp), true);
+        if ($code !== 200 || empty($data['ok'])) {
+            return new WP_Error((string) ($data['code'] ?? '') ?: ($code === 404 ? 'tix_connect_no_route' : 'tix_connect_http'), (string) ($data['message'] ?? ('HTTP ' . $code)), ['status' => $code]);
+        }
+        if (strlen((string) ($data['key_in'] ?? '')) < 20 || strlen((string) ($data['key_out'] ?? '')) < 20) {
+            return new WP_Error('tix_connect_keys', 'Die Plattform hat keine gültigen Schlüssel geliefert.');
         }
         $s = get_option('tix_settings', []);
         if (!is_array($s)) $s = [];
@@ -435,14 +473,70 @@ class TIX_Partners {
         update_option('tix_settings', $s);
         // Bereits markierte Events (Häkchen „Auf Plattform veröffentlichen“) gleich verteilen
         wp_schedule_single_event(time() + 5, 'tix_syndication_push_all');
-        set_transient('tix_partner_connect_result', [
-            'ok'  => true,
-            'msg' => sprintf('Verbunden mit %s als „%s“. %s Events mit Häkchen „Auf Plattform veröffentlichen“ werden jetzt verteilt.',
-                self::host($platform), (string) $data['name'],
-                !empty($data['sales']) ? 'Ticketverkauf über die App ist aktiv.' : 'Ticketverkauf über die App startet nach Freigabe durch den Betreiber; bis dahin werden die Events angezeigt.'),
-        ], 300);
-        wp_safe_redirect($back);
-        exit;
+        $out = ['ok' => true, 'partner_id' => (string) ($data['partner_id'] ?? ''), 'name' => (string) ($data['name'] ?? ''), 'platform' => $s['syndication_api_url'],
+            'pending' => !empty($data['pending']), 'sales' => !empty($data['sales']), 'reconnect' => !empty($data['reconnect']), 'hosted' => !empty($data['hosted'])];
+        update_option(self::OPT_CONNECT, $out + ['at' => gmdate('c')], false);
+        return $out;
+    }
+
+    /**
+     * Gilt der eigene Schlüssel bei der Plattform? → true | false (401) | null (nicht prüfbar, z. B. ältere Plattform).
+     */
+    public static function key_valid() {
+        $api = (string) tix_get_settings('syndication_api_url');
+        $key = (string) tix_get_settings('syndication_api_key');
+        if ($api === '' || strlen($key) < 20) return false;
+        $r = wp_remote_get(rtrim($api, '/') . '/syndicate/co-sites?q=--', ['timeout' => 15, 'headers' => ['Accept' => 'application/json', 'X-Tix-Syndication-Key' => $key]]);
+        if (is_wp_error($r)) return null;
+        $c = intval(wp_remote_retrieve_response_code($r));
+        if ($c === 200) return true;
+        if ($c === 401) return false;
+        return null;
+    }
+
+    /** Status dieser Seite als Quelle. */
+    public static function connection_status() {
+        $o = get_option(self::OPT_CONNECT, []);
+        $api = (string) tix_get_settings('syndication_api_url');
+        return ['configured' => $api !== '' && strlen((string) tix_get_settings('syndication_api_key')) >= 20 && !empty(tix_get_settings('syndication_enabled')),
+            'platform' => $api !== '' ? $api : null, 'platform_host' => self::host($api) ?: null,
+            'partner_id' => is_array($o) && ($o['partner_id'] ?? '') !== '' && (string) ($o['platform'] ?? '') === $api ? (string) $o['partner_id'] : null,
+            'pending' => is_array($o) && isset($o['pending']) ? (bool) $o['pending'] : null, 'sales' => is_array($o) && isset($o['sales']) ? (bool) $o['sales'] : null,
+            'partner_api' => self::source_api_enabled(), 'connected_at' => is_array($o) ? ($o['at'] ?? null) : null];
+    }
+
+    /**
+     * Kopplung mit der Plattform (Quelle).
+     *
+     * ## OPTIONS
+     * <aktion>
+     * : verbinden | status
+     *
+     * [--plattform=<url>]
+     * : Plattform, z. B. evendis.de oder https://evendis.de/wp-json/tixomat/v1 (Vorgabe: bisherige bzw. evendis.de)
+     *
+     * [--neu]
+     * : auch bei gültigem Schlüssel neu koppeln (neue Schlüssel)
+     */
+    public static function cli($args, $assoc) {
+        $a = $args[0] ?? 'status';
+        if ($a === 'status') { WP_CLI::line(wp_json_encode(self::connection_status())); return; }
+        if ($a !== 'verbinden') WP_CLI::error('tix_cli_usage Aktion: verbinden | status');
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) WP_CLI::error('tix_connect_platform Diese Seite ist selbst die Plattform.');
+        $cur = self::connection_status();
+        $want = isset($assoc['plattform']) ? self::platform_rest($assoc['plattform']) : ($cur['platform'] ?: self::platform_rest(''));
+        if (empty($assoc['neu']) && $cur['configured'] && rtrim((string) $cur['platform'], '/') === rtrim($want, '/')) {
+            $v = self::key_valid();
+            if ($v !== false) {
+                WP_CLI::line('ERGEBNIS ' . wp_json_encode(['ok' => true, 'partner_id' => $cur['partner_id'], 'pending' => $cur['pending'], 'sales' => $cur['sales'],
+                    'reconnect' => false, 'schon_verbunden' => true, 'schluessel_geprueft' => $v === true]));
+                return;
+            }
+        }
+        $r = self::connect($want);
+        if (is_wp_error($r)) WP_CLI::error($r->get_error_code() . ' ' . $r->get_error_message());
+        WP_CLI::line('ERGEBNIS ' . wp_json_encode(['ok' => true, 'partner_id' => $r['partner_id'], 'pending' => $r['pending'], 'sales' => $r['sales'],
+            'reconnect' => $r['reconnect'], 'schon_verbunden' => false, 'hosted' => $r['hosted']]));
     }
 
     public static function connect_notice() {

@@ -4999,3 +4999,11 @@ Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`. Ausgelöst durch Party Sc
 - **Studio:** `GET /artists/{id}/events` und die Verwaltungsliste liefern Titel ohne HTML-Entities.
 - **Künstlerseite:** `GET /public/artists/{slug}` gibt es schon. Die Website-Seite `/kuenstler/{slug}/` bauen die Homepages und evendis-web.
 - **Test:** `tests/test-lineup-acts-wp.php` (Plattform 16, Einzel-Seite 19 mit `setup`/`run`/`cleanup`).
+
+## 116. Kunden-Seite per WP-CLI koppeln (ab 1.38.708)
+Vertrag `uebergaben/vertrag-partner-verbinden-cli.md`.
+- **Kopplung:** `TIX_Partners::connect()` ist der gemeinsame Kern von Formular und CLI.
+- **CLI:** `wp tixomat partner verbinden [--plattform=] [--neu]` ist idempotent: Der Schlüssel wird über `GET /syndicate/co-sites` geprüft. Das Ergebnis kommt als Zeile `ERGEBNIS {…}`, Fehler als `Error: <code> …`.
+- **Status:** `wp tixomat partner status` gibt JSON aus, gespeichert in der Option `tix_partner_connection`.
+- **Plattform:** `TIX_Partners::hosted_customer($host)`. Partner von Seiten mit Lizenz und Hosting-Kurznamen sind sofort `pending: 0`, `sales_enabled` bleibt aus. Die Antwort enthält dazu `hosted`.
+- **Test:** `tests/test-partner-connect-e2e.php` mit zwei Seiten über HTTP: eigene Kunden-Seite sofort bereit, die Co-Suche meldet `ready`, idempotent, `--neu`, `tix_connect_unreachable`, `tix_connect_verify`, ohne Hosting `pending`.
