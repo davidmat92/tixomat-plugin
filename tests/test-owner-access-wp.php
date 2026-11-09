@@ -18,6 +18,15 @@ $users[] = $r['user_id'] ?? 0;
 $u = get_userdata($r['user_id'] ?? 0);
 oa_eq('Einladen: Konto neu, Rolle Inhaber, Merkmal, Mail mit Passwort-Link', [true, true, '1', 1, true],
     [$r['created'] ?? null, $u && in_array('tix_organizer', $u->roles, true), (string) get_user_meta($u->ID, TIX_Owner_Access::OWNER_META, true), count($GLOBALS['oa_mails']), strpos((string) ($GLOBALS['oa_mails'][0]['message'] ?? ''), 'action=rp') !== false]);
+$sf = function () { return 'https://studio.example.test'; };
+add_filter('pre_option_' . TIX_Studio::OPTION, $sf);
+$GLOBALS['oa_mails'] = [];
+$ok = TIX_Owner_Access::send_invite($u, 'Ina Inhaber', true);
+remove_filter('pre_option_' . TIX_Studio::OPTION, $sf);
+$m = (string) ($GLOBALS['oa_mails'][0]['message'] ?? '');
+oa_eq('Mit Studio: Code + /passwort/?email=…&art=owner statt WordPress-Link', [true, true, true, false],
+    [$ok, (bool) preg_match('/letter-spacing:6px;">\d{6}</', $m), strpos($m, 'studio.example.test/passwort/?email=') !== false && strpos($m, 'art=owner') !== false, strpos($m, 'action=rp') !== false]);
+$GLOBALS['oa_mails'] = [1];
 $r2 = TIX_Owner_Access::invite("INH$sfx@example.test", '', ['no_mail' => true]);
 oa_eq('Zweites Mal: vorhandenes Konto, keine Mail', [false, $r['user_id'], false, 1], [$r2['created'], $r2['user_id'], $r2['mailed'], count($GLOBALS['oa_mails'])]);
 oa_eq('Ungültige E-Mail → 400', 'tix_invalid_field', TIX_Owner_Access::invite('kein')->get_error_code());

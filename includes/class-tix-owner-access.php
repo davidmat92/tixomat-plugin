@@ -49,18 +49,45 @@ class TIX_Owner_Access {
         return ['user_id' => intval($user->ID), 'login' => (string) $user->user_login, 'created' => $created, 'mailed' => (bool) $mailed];
     }
 
-    /** Mail mit Link „Passwort festlegen“ (WordPress-Reset-Schlüssel, 24 h) und Adresse des Studios. */
+    const INVITE_TTL = 7 * DAY_IN_SECONDS;
+
+    /**
+     * Abschnitt „Passwort festlegen“ für Einladungs-Mails (1.38.701, wie die Team-Einladung): 6-stelliger Code (7 Tage)
+     * und Knopf ins Studio (`/passwort/?email=…[&art=…]`) plus Hinweis auf die App.
+     * Ohne Studio Rückfall auf den WordPress-Link (wp-login.php?action=rp). Der Code steht nur in der Mail, nie im Link.
+     * → ['html' => string, 'url' => string]
+     */
+    public static function password_block(WP_User $user, $art = '') {
+        $studio = class_exists('TIX_Studio') && TIX_Studio::active();
+        $code = $studio && class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'issue_invite_code') ? TIX_App_Account::issue_invite_code($user->user_email, self::INVITE_TTL) : '';
+        if ($code === '') {
+            $key = get_password_reset_key($user);
+            if (is_wp_error($key)) return ['html' => '', 'url' => ''];
+            $set = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
+            return ['html' => '<p>Lege jetzt dein Passwort fest – der Link gilt 24 Stunden.</p><p><a href="' . esc_url($set) . '">Passwort festlegen</a></p>', 'url' => $set];
+        }
+        $q = ['email' => $user->user_email];
+        if ($art !== '') $q['art'] = sanitize_key($art);
+        $url = add_query_arg($q, TIX_Studio::url('/passwort/'));
+        $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (string) (TIX_Studio::app_info()['name'] ?? '') : '';
+        $h  = '<p>Leg jetzt dein Passwort fest – mit diesem Code:</p>';
+        $h .= '<p style="text-align:center;margin:20px 0;"><span style="display:inline-block;padding:14px 22px;border-radius:12px;background:#F2F3F7;font:700 28px/1 ui-monospace,Menlo,monospace;letter-spacing:6px;">' . esc_html($code) . '</span></p>';
+        $h .= '<p style="text-align:center;margin:20px 0;"><a href="' . esc_url($url) . '" style="display:inline-block;padding:12px 22px;background:#2C2F3F;color:#fff;border-radius:10px;text-decoration:none;font-weight:700;">Passwort festlegen</a></p>';
+        $h .= '<p>Oder in der App' . ($app ? ' ' . esc_html($app) : '') . ': Veranstalter-Anmeldung → „Passwort vergessen“ → diese E-Mail-Adresse (' . esc_html($user->user_email) . ') und den Code eingeben.</p>';
+        $h .= '<p style="color:#64748b;font-size:13px;">Der Code gilt 7 Tage und nur für dich. Gib ihn nie weiter – auch nicht an uns.</p>';
+        return ['html' => $h, 'url' => $url];
+    }
+
+    /** Mail „Dein Zugang zu …“ mit Code + Link „Passwort festlegen“ im Studio (seit 1.38.701, vorher WordPress-Reset-Link). */
     public static function send_invite($user, $name = '', $platform = false) {
-        $key = get_password_reset_key($user);
-        if (is_wp_error($key)) return false;
+        $pw = self::password_block($user, $platform ? 'owner' : '');
+        if ($pw['html'] === '') return false;
         $site = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
-        $set = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
         $studio = class_exists('TIX_Studio') && TIX_Studio::active() ? TIX_Studio::url('/') : admin_url();
         $hello = $name !== '' ? 'Hallo ' . esc_html(strtok($name, ' ')) . ',' : 'Hallo,';
         $what = $platform ? 'dein Zugang als Veranstalter auf ' . esc_html($site) . ' ist angelegt.' : 'dein Zugang zu ' . esc_html($site) . ' ist eingerichtet.';
-        $html = '<p>' . $hello . '</p><p>' . $what . ' Lege jetzt dein Passwort fest – der Link gilt 24 Stunden.</p>'
-            . '<p><a href="' . esc_url($set) . '">Passwort festlegen</a></p>'
-            . '<p>Danach meldest du dich hier an: <a href="' . esc_url($studio) . '">' . esc_html(preg_replace('#^https?://#', '', untrailingslashit($studio))) . '</a><br>Benutzername: ' . esc_html($user->user_login) . '</p>';
+        $html = '<p>' . $hello . '</p><p>' . $what . '</p>' . $pw['html']
+            . '<p>Danach meldest du dich hier an: <a href="' . esc_url($studio) . '">' . esc_html(preg_replace('#^https?://#', '', untrailingslashit($studio))) . '</a><br>E-Mail: ' . esc_html($user->user_email) . '</p>';
         $subject = 'Dein Zugang zu ' . $site;
         if (class_exists('TIX_Mail_Layout')) {
             return (bool) TIX_Mail_Layout::send($user->user_email, $subject, ['title' => $subject, 'blocks' => [['type' => 'html', 'html' => $html]], 'kind' => 'account'], ['customer' => false]);

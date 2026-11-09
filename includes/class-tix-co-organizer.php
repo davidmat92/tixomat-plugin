@@ -395,13 +395,9 @@ class TIX_Co_Organizer {
         $html = '<p>' . $hello . '</p><p>' . esc_html($by) . ' hat dich als Co-Veranstalter von <strong>' . esc_html($title) . '</strong> eingetragen.</p>';
         if ($access) $html .= '<p>Im Studio siehst du das Event unter „Events“ mit dem Hinweis „Gemeinsam mit ' . esc_html($by) . '“. Du kannst es dort bearbeiten, Verkäufe und Gäste sehen und den Einlass machen.</p>';
         else $html .= '<p>Du wirst beim Event als Mitveranstalter genannt.</p>';
-        if ($new_user) {
-            $key = get_password_reset_key($new_user);
-            if (!is_wp_error($key)) {
-                $set = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($new_user->user_login), 'login');
-                $html .= '<p>Für dich wurde ein Zugang angelegt. Lege jetzt dein Passwort fest – der Link gilt 24 Stunden.</p><p><a href="' . esc_url($set) . '">Passwort festlegen</a></p>'
-                    . '<p>Benutzername: ' . esc_html($new_user->user_login) . '</p>';
-            }
+        if ($new_user) { // wie die Team-Einladung: Code + Passwort im Studio festlegen (1.38.701)
+            $pw = TIX_Owner_Access::password_block($new_user, 'co');
+            if ($pw['html'] !== '') $html .= '<p>Für dich wurde ein Zugang angelegt (E-Mail: ' . esc_html($new_user->user_email) . ').</p>' . $pw['html'];
         }
         $html .= '<p>Zum Studio: <a href="' . esc_url($studio) . '">' . esc_html(preg_replace('#^https?://#', '', untrailingslashit($studio))) . '</a></p>';
         $subject = 'Du bist Co-Veranstalter von ' . $title;

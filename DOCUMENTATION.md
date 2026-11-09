@@ -4934,3 +4934,8 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - Bleibt technisch: Namespace `tixomat/v1`, Slugs, Optionen/Meta, Klassen, `TIXOMAT_*`, `wp tixomat`, Mail-Header `X-Tixomat-Support`, IMAP-Ordner-Vorgabe `Tixomat-Verarbeitet`, Kommentare.
 - Brevo: eigene Listen heißen „evendis · …“; alte „Tixomat · …“-Listen werden weiter erkannt.
 - Neue Texte: nie „Tixomat“ schreiben; Versionen als „Plugin-Version 1.38.x“.
+
+## 111. Einladungen: Passwort im Studio festlegen (ab 1.38.701)
+- `TIX_Owner_Access::password_block($user, $art)` – wie die Team-Einladung: 6-stelliger Code (7 Tage, `TIX_App_Account::issue_invite_code`) + Knopf `TIX_Studio::url('/passwort/')?email=…&art=…` + Hinweis App „Passwort vergessen“. Ohne Studio (`tix_studio_url` leer) Rückfall auf `wp-login.php?action=rp`.
+- Genutzt von: Co-Veranstalter-Einladung (`TIX_Co_Organizer::notify`, auch Lizenz-Variante über `/syndicate/{id}/co-organizer`) mit `art=co`; Plattform-Einladung `/platform/customers/invite` und Inhaber-Einladung (`TIX_Owner_Access::send_invite`) mit `art=owner` bzw. ohne `art` auf Kundenseiten.
+

@@ -106,7 +106,18 @@ try {
     $mail = 'co_neu_' . wp_rand(1000, 999999) . '@example.test';
     co_eq('Einladen ohne Veranstalter-Name 400', 400, co_rest('POST', "/events/$ev/co-organizer/invite", ['email' => $mail, 'consent' => true])[0]);
     co_eq('Einladen eigene E-Mail 409', 409, co_rest('POST', "/events/$ev/co-organizer/invite", ['email' => get_userdata($ua)->user_email, 'consent' => true])[0]);
+    $GLOBALS['co_mails'] = [];
+    $mf = function ($r, $a) { $GLOBALS['co_mails'][] = $a; return true; };
+    $sf = function () { return 'https://studio.example.test'; };
+    add_filter('pre_wp_mail', $mf, 1, 2);
+    add_filter('pre_option_' . TIX_Studio::OPTION, $sf);
     [$st, $d] = co_rest('POST', "/events/$ev/co-organizer/invite", ['email' => $mail, 'organizer' => 'Coxtest Neu', 'name' => 'Jan Test', 'consent' => true]);
+    remove_filter('pre_wp_mail', $mf, 1);
+    remove_filter('pre_option_' . TIX_Studio::OPTION, $sf);
+    $cm = ''; foreach ($GLOBALS['co_mails'] as $cmail) if (strpos((string) ($cmail['subject'] ?? ''), 'Co-Veranstalter') !== false) $cm = (string) $cmail['message'];
+    if ($cm === '') echo 'Mails: ' . implode(' | ', array_map(function ($x) { return $x['to'] . ': ' . $x['subject']; }, $GLOBALS['co_mails'])) . "\n";
+    co_eq('Einladungs-Mail: Code + Studio-Link mit art=co, kein WordPress-Link', [true, true, false],
+        [(bool) preg_match('/letter-spacing:6px;">\d{6}</', $cm), strpos($cm, 'studio.example.test/passwort/?email=') !== false && strpos($cm, 'art=co') !== false, strpos($cm, 'action=rp') !== false]);
     $nu = get_user_by('email', $mail); if ($nu) $tmp_u[] = $nu->ID;
     $no = intval($d['co_organizer']['id'] ?? 0); if ($no) $tmp_p[] = $no;
     co_eq('Einladen neu: 201, angelegt, invited', [201, true, 'invited'], [$st, $d['created'] ?? null, $d['co_organizer']['status'] ?? null]);
