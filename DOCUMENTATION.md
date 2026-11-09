@@ -4924,4 +4924,5 @@ Vertrag: `uebergaben/vertrag-newsletter-brevo-listen.md`. `TIX_Newsletter`, DB 3
 - `POST /partner/co/{id}` (Partner-Zugang + `X-Tix-Co-Token`) führt eine freigegebene Route nur für dieses Event aus (`TIX_Co_Remote::allowed`). Ausgeführt wird als technisches Konto `co-evendis-{id}` ohne Rolle; die Rolle `tix_organizer` gilt nur während der Anfrage (Filter `get_user_metadata`).
 - evendis: Spiegel-Meta `_tix_co_remote_oid`, `_tix_co_remote_access`, `_tix_co_remote_token`; Routen `GET /co-remote/events` und `GET|POST|DELETE /co-remote/{id}/{route}` (Weiterleitung).
 - Keine Bild-Uploads über den Durchgriff.
+- Kein Storno, keine Erstattung über den Durchgriff (ab 1.38.698, User 09.11.): `orders/{id}/refund|cancel` und `pos/orders/{id}/void` → 403 `tix_co_forbidden`. Auf evendis.de-Events (Teil A) bleiben beide erlaubt.
 - Test `tests/test-co-remote-wp.php`: Einzel-Seite in drei Läufen (`setup`, `run`, `cleanup`), Plattform `run`.

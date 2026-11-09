@@ -106,6 +106,11 @@ if (!$multi) {
         cx_eq('Durchgriff: Export Bestellungen 403', 403, $co('GET', '/organizer/export', ['type' => 'orders', 'event_id' => $sid])[1]['status'] ?? 0);
         cx_eq('Durchgriff: Bestellungen ohne event_id 403', 403, $co('GET', '/orders')[1]['status'] ?? 0);
         cx_eq('Durchgriff: Bestellungen dieses Events freigegeben', true, ($co('GET', '/orders', ['event_id' => $sid])[1]['data']['code'] ?? '') !== 'tix_co_forbidden');
+        foreach (['POST /orders/123/refund', 'POST /orders/123/cancel', 'POST /pos/orders/123/void'] as $rt) {
+            [$mt, $pt] = explode(' ', $rt);
+            $r = TIX_Co_Remote::allowed($mt, $pt, [], [], $sid);
+            cx_eq("Durchgriff: $rt gesperrt", 'tix_co_forbidden', is_wp_error($r) ? $r->get_error_code() : $r);
+        }
         cx_eq('Durchgriff: Gästeliste 200', 200, $co('GET', "/events/$sid/guestlist")[1]['status'] ?? 0);
         cx_eq('Durchgriff: unbekannte Route 403', 403, $co('GET', '/team')[1]['status'] ?? 0);
         [, $d] = $co('POST', "/events/$sid", [], ['title' => 'Cxtest Lizenz-Event neu']);

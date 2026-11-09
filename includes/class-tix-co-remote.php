@@ -203,8 +203,10 @@ class TIX_Co_Remote {
             if ($path === '/notifications/broadcast' && ($b['target'] ?? 'event') !== 'event') return $no('Nachrichten nur an die Käufer dieses Events.');
             return true;
         }
+        // Storno und Erstattung nie über den Durchgriff (User 09.11.: Lizenz-Ersteller → Co darf weder stornieren noch erstatten, auch nicht an der Kasse)
+        if (preg_match('#^/(orders/\d+/(refund|cancel)|pos/orders/\d+/void)$#', $path)) return $no('Stornieren und Erstatten kann bei diesem Event nur der Veranstalter.');
         // Bestellungen und Tickets dieses Events
-        if (preg_match('#^/(orders/(\d+)(/detail|/resend-email|/refund|/cancel)?|pos/orders/(\d+)/(email|void))$#', $path, $m)) {
+        if (preg_match('#^/(orders/(\d+)(/detail|/resend-email)?|pos/orders/(\d+)/(email))$#', $path, $m)) {
             if ($method === 'DELETE') return $no();
             $oid = intval($m[2] ?: $m[4]);
             return self::order_of_event($oid, $sid) ? true : $no('Diese Bestellung gehört nicht zu diesem Event.');
