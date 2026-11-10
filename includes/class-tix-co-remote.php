@@ -264,10 +264,15 @@ class TIX_Co_Remote {
     }
 
     /** Geldempfänger/Anteile an die Plattform melden (1.38.713; owner 'creator' | 'o:{ID}', shares je Beteiligtem seit 1.38.716) → Antwort | WP_Error */
-    public static function send_money($event_id, $owner, $shares) {
+    public static function send_money($event_id, $owner, $shares, $via = 'creator') {
         $shares = is_array($shares) ? $shares : [];
         $share = round(array_sum(array_diff_key($shares, [(string) $owner => 0])), 2);
-        return self::send($event_id, ['action' => 'money', 'owner' => (string) $owner, 'shares' => (object) $shares, 'share' => $share]);
+        return self::send($event_id, ['action' => 'money', 'owner' => (string) $owner, 'shares' => (object) $shares, 'share' => $share, 'via' => $via === 'platform' ? 'platform' : 'creator']);
+    }
+
+    /** Zustimmung des Erstellers (Lizenzseite) an die Plattform (1.38.717) → Antwort | WP_Error */
+    public static function send_consent($event_id, $accept, $version, $by_name) {
+        return self::send($event_id, ['action' => 'consent', 'accept' => (bool) $accept, 'version' => (string) $version, 'by_name' => (string) $by_name]);
     }
 
     /** POST /events/{id}/co-organizer/invite auf der Lizenzseite. */
@@ -319,8 +324,9 @@ class TIX_Co_Remote {
             'token_hash' => hash('sha256', $token)];
         self::put($eid, $d);
         if (!$access && class_exists('TIX_Co_Money')) TIX_Co_Money::on_co_lost($eid, $oid, true);
-        if (is_array($money)) TIX_Co_Money::apply($eid, TIX_Co_Money::resolve_new($money, $oid));
-        return ['ok' => true, 'created' => !empty($r['created']), 'mailed' => !empty($r['mailed']), 'mail_note' => (string) ($r['mail_note'] ?? ''), 'changed' => $old ? 'changed' : 'added',
+        $money_state = null;
+        if (is_array($money)) { $money_state = TIX_Co_Money::remote_set($eid, TIX_Co_Money::resolve_new($money, $oid), $by_platform ? 'platform' : 'creator'); if (is_wp_error($money_state)) $money_state = 'error'; }
+        return ['ok' => true, 'created' => !empty($r['created']), 'mailed' => !empty($r['mailed']), 'mail_note' => (string) ($r['mail_note'] ?? ''), 'changed' => $old ? 'changed' : 'added', 'money_state' => $money_state,
             'co_organizer' => self::payload($eid, $oid), 'co_organizers' => self::entries_payload($eid, true)];
     }
 
@@ -626,6 +632,10 @@ class TIX_Co_Remote {
             return rest_ensure_response(['ok' => true, 'co_organizer' => self::mirror_payload($eid, $oid), 'co_organizers' => self::mirror_payloads($eid)]);
         }
         if ($action === 'status') return rest_ensure_response(['ok' => true, 'co_organizer' => self::mirror_payload($eid), 'co_organizers' => self::mirror_payloads($eid)]); // Stand für die Lizenzseite (1.38.715)
+        if ($action === 'consent' && class_exists('TIX_Co_Money')) { // Zustimmung des Erstellers (Lizenzseite, 1.38.717)
+            $r = TIX_Co_Money::consent($eid, 'creator', !empty($b['accept']), (string) ($b['version'] ?? ''), mb_substr(sanitize_text_field((string) ($b['by_name'] ?? '')), 0, 120));
+            return is_wp_error($r) ? $r : rest_ensure_response(['ok' => true, 'state' => $r, 'co_money' => TIX_Co_Money::payload($eid)]);
+        }
         if ($action === 'money' && class_exists('TIX_Co_Seller')) { // Geldempfänger/Anteil (1.38.713)
             $r = TIX_Co_Seller::syndicate_money($eid, $b);
             return is_wp_error($r) ? $r : rest_ensure_response($r);

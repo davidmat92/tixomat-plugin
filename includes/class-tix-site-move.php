@@ -783,7 +783,8 @@ class TIX_Site_Move {
                 $seller = TIX_Co_Sale::platform_seller($e);
                 $cats = (array) get_post_meta($e, '_tix_ticket_categories', true);
                 foreach ($cats as $ci => $cc) if (is_array($cc)) unset($cats[$ci]['product_id']);
-                $items[$last] += ['sale' => true, 'seller' => $seller['name'], 'terms_url' => $seller['terms_url'], 'categories' => array_values(array_filter($cats, 'is_array'))];
+                $items[$last] += ['sale' => true, 'seller' => $seller['name'], 'terms_url' => $seller['terms_url'], 'categories' => array_values(array_filter($cats, 'is_array')),
+                    'seller_info' => class_exists('TIX_Co_Legal') ? TIX_Co_Legal::for_event($e) : null]; // Anschrift, Impressum, Datenschutz (1.38.717)
             }
             // Co verkauft selbst (1.38.713): Ticket-Felder für den verkaufsfähigen Spiegel
             if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::seller($e) === 'site' && TIX_Co_Seller::co_org($e) === $oid) { // nur die Seite, die das Geld einnimmt
@@ -796,6 +797,7 @@ class TIX_Site_Move {
                 foreach ((array) (TIX_Co_Money::payload($e)['shares'] ?? []) as $sp) if (empty($sp['owner']) && floatval($sp['percent']) > 0) $parts[] = ['name' => (string) $sp['name'], 'percent' => floatval($sp['percent'])];
                 $items[$last] += ['sell' => true, 'categories' => array_values(array_filter($cats, 'is_array')), 'presale' => $pre, 'owner' => 'co', 'share' => TIX_Co_Money::share($e), 'parts' => $parts];
             }
+            if (class_exists('TIX_Co_Money') && ($pend = TIX_Co_Money::pending_for_site($e, $oid))) $items[count($items) - 1]['money_pending'] = $pend; // Zustimmung (1.38.717)
             if (self::is_source_mirror($e)) {
                 $last = count($items) - 1;
                 $src = self::source_site_of($e);
@@ -928,6 +930,8 @@ class TIX_Site_Move {
                 update_post_meta($id, '_tix_platform_co_img', (string) $it['image']);
             }
             if (class_exists('TIX_Co_Seller')) { TIX_Co_Seller::apply_sync($id, $it); if (!empty($it['sell'])) $sells[] = $id; } // Co verkauft hier (1.38.713)
+            if (class_exists('TIX_Co_Money')) TIX_Co_Money::site_pending_sync($id, $it['money_pending'] ?? null); // wartende Zustimmung (1.38.717)
+            if (class_exists('TIX_Co_Legal')) { if (is_array($it['seller_info'] ?? null)) update_post_meta($id, TIX_Co_Legal::M_SITE, TIX_Co_Legal::clean($it['seller_info'])); else delete_post_meta($id, TIX_Co_Legal::M_SITE); }
         }
         foreach ($sells as $sid) TIX_Co_Seller::report($sid);
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {

@@ -15,11 +15,21 @@ function cm_eq($label, $exp, $act) {
     $GLOBALS['t_fails']++;
     echo "FAIL  $label: erwartet " . var_export($exp, true) . ", ist " . var_export($act, true) . "\n";
 }
+/** Tests vor 1.38.717: alle Beteiligten stimmen sofort zu (den echten Ablauf prüft test-co-multi-wp „Zustimmung“). */
+function co_test_consent_all($route) {
+    if (!class_exists('TIX_Co_Money') || !method_exists('TIX_Co_Money', 'pending') || empty($GLOBALS['co_auto_consent'])) return;
+    if (!preg_match('#/(?:events|syndicate|platform/events|partner/co-events)/(\d+)#', $route, $m)) return;
+    $p = TIX_Co_Money::pending(intval($m[1]));
+    if (!$p) return;
+    foreach ((array) $p['needs'] as $party) if (empty($p['consents'][$party])) TIX_Co_Money::consent(intval($m[1]), $party, true);
+}
+$GLOBALS['co_auto_consent'] = true;
 function cm_rest($method, $route, array $body = []) {
     $r = new WP_REST_Request($method, '/tixomat/v1' . $route);
     if ($body && in_array($method, ['GET', 'DELETE'], true)) $r->set_query_params($body);
     elseif ($body) { $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode($body)); }
     $res = rest_do_request($r);
+    if ($method !== 'GET') co_test_consent_all($route);
     $d = rest_get_server()->response_to_data($res, false);
     return [$res->get_status(), is_array($d) ? $d : [], is_array($d) ? ($d['code'] ?? '') : ''];
 }
@@ -168,9 +178,9 @@ try {
     // Plattform-Admin
     wp_set_current_user($admin_id);
     [$st, $d] = cm_rest('POST', "/platform/events/$ev2/co-organizer", ['organizer_id' => $ob, 'money_owner' => 'co', 'share' => 5]);
-    cm_eq('Plattform: Co-Geld + 5 %', [201, 'co', 5.0], [$st, $d['event']['co_money']['owner'] ?? '', $d['event']['co_money']['share'] ?? null]);
+    cm_eq('Plattform: Co-Geld + 5 % (wirksam nach Zustimmung)', [201, 'waiting_consent', 'co', 5.0], [$st, $d['event']['co_money']['status'] ?? '', TIX_Co_Money::owner($ev2), TIX_Co_Money::share($ev2)]);
     [$st, $d] = cm_rest('POST', "/platform/events/$ev2/co-organizer", ['organizer_id' => $ob, 'share' => 7.5]);
-    cm_eq('Plattform: nur Anteil ändern', [200, 'co', 7.5], [$st, $d['event']['co_money']['owner'] ?? '', $d['event']['co_money']['share'] ?? null]);
+    cm_eq('Plattform: nur Anteil ändern', [200, 'co', 7.5], [$st, TIX_Co_Money::owner($ev2), TIX_Co_Money::share($ev2)]);
 } catch (Throwable $e) {
     $GLOBALS['t_fails']++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

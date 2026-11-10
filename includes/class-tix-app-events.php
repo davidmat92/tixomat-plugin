@@ -653,7 +653,7 @@ class TIX_App_Events {
         if ($texts) TIX_Event_Texts::apply($post_id, $texts);
         if ($artists !== null) TIX_Artists::apply($post_id, $artists);
         if ($co) TIX_Co_Organizer::apply($post_id, $co);
-        if ($money) TIX_Co_Money::apply($post_id, $money);
+        if ($money) TIX_Co_Money::propose($post_id, $money, TIX_Co_Money::via_for($post_id)); // Zustimmung der Beteiligten (1.38.717)
 
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {

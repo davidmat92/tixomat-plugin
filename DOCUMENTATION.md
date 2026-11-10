@@ -5132,3 +5132,37 @@ Vertrag: `uebergaben/vertrag-co-mehrere.md`. Ein Event hat beliebig viele Co, ge
   - angepasst: `test-co-organizer-wp`, `test-co-platform-wp` (hinzufügen statt ersetzen, lösen je Co)
   - `test-site-move-e2e` (veraltete Erwartung seit 1.38.712: Kunden-Seite verkauft über die Plattform)
 
+
+## 124. Zustimmung zu Geldempfänger und Anteilen, Verkäufer-Angaben (ab 1.38.717)
+Vertrag: `uebergaben/vertrag-co-mehrere.md`, Nachtrag 1.38.717. Rechtliche Grundlage: Prüfmappe `co-geldempfaenger.md` der Rechtstexte.
+- **Zustimmung** (`TIX_Co_Money`):
+  - **Vorschlagen:** `propose($eid, $c, $via)` speichert die Einstellung als `_tix_co_money_pending`, bis zugestimmt haben:
+    - der Geldempfänger,
+    - alle mit Anteil > 0,
+    - der Ersteller, wenn der Plattform-Admin ändert. Bei `via=creator` gilt der Ersteller mit der Änderung als zugestimmt.
+    
+    Sofort wirksam wird sie, wenn niemand zustimmen muss. `apply()` bleibt die direkte Speicherung (intern, Abgleich, Tests).
+  - **Zustimmen:** `consent($eid, $party, $accept, $version, $by_name)`; Protokoll in `_tix_co_money_consents` mit Zeitpunkt, Konto, Fassung `CONSENT_VERSION` und Wortlaut (`consent_texts`).
+  - **Verworfen wird der Vorschlag:** bei Ablehnung, bei einem Verkauf vorher und beim Lösen eines beteiligten Co.
+  - **Routen:**
+    - `POST /events/{id}/co-money/consent`, `GET /organizer/co-consents`
+    - Plattform: `POST /partner/co-events/{id}/money-consent` (Kunden-Seite)
+    - Lizenzseite: `POST /partner/co/{id}/money` (Ergebnis von der Plattform, Partner-Zugang)
+    - Aktion `consent` in `/syndicate/{id}/co-organizer` (Zustimmung des Erstellers von der Lizenzseite)
+  - **Lizenzseite:** `remote_set()` schickt die Änderung mit `via` an die Plattform und hält bis zur Rückmeldung nur eine Kopie (`pending.remote`); lokal zustimmen geht dort nicht (409 `tix_co_consent_remote`).
+  - **Kunden-Seite:** Der Abgleich liefert `money_pending`, gespeichert als `_tix_co_money_pending_site`; die Zustimmung reicht die Seite an die Plattform weiter.
+  - **Anzeige:** `co_money.status` (`active|waiting_consent`), `pending`, `consent_version`.
+- **Verkäufer-Angaben** (`TIX_Co_Legal`, neu):
+  - `site()` liefert diese Seite aus Kontakt und Rechtstexten, `org($oid)` einen Plattform-Veranstalter (Auszahlungsdaten, Impressum der Veranstalter-Seite, AGB/Datenschutz der Plattform; Kunden-Seiten aus `_tix_site_seller`).
+  - `for_event($eid)` liefert den Verkäufer des Events, `merge()` ergänzt `syndicated`.
+  - Übertragung zur Plattform: per Event-Verteilung (`source_seller` → `_tix_source_seller`), per Meldung `/partner/co-events/{id}/local` (`seller`) und im Abgleich (`seller_info` → `_tix_sale_seller_info`).
+  - Ausgabe:
+    - `syndicated.seller_info/address/imprint_url/privacy_url`
+    - `order.seller` (`TIX_App_Checkout::seller_of`; Vermittlung, Kunden-Seite, eigene Bestellungen bei Events mit Co)
+    - Partner-Kasse `legal.legal_name/address/imprint_url/host`
+    - Detail-Event `seller` bei Fall B
+- **`payments_needed`:** auch `true`, wenn die Kunden-Seite für einen Co selbst verkauft.
+- **Tests:**
+  - `test-co-multi-wp` (Plattform 61, Lizenzseite 15)
+  - `test-co-mirror-e2e` (zwei Seiten: Vorschlag auf der Lizenzseite, Zustimmung des Co auf der Plattform, Rückmeldung)
+  - In älteren Geld-Tests stimmen alle Beteiligten automatisch zu (`co_test_consent_all`).

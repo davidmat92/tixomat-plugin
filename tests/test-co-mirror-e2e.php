@@ -139,6 +139,33 @@ if ($mode === 'multi-plat') {
     me_eq('KMT arbeitet weiter', 200, is_wp_error($env) ? $env->get_error_code() : intval($env['status'] ?? 0));
     $done(); return;
 }
+if ($mode === 'money-kk') { // 1.38.717: Lizenzseite schlägt KMT als Geldempfänger vor
+    [$sid, $x] = [intval($args[1]), intval($args[2])];
+    echo "== Lizenzseite: Geldempfänger KMT vorschlagen\n";
+    [$st, $d, $c] = me_rest('POST', "/events/$sid", ['co_money' => ['owner_id' => $x, 'shares' => ['creator' => 70, 'o:' . $x => 30]]]);
+    if ($st !== 200) echo "      $st $c " . ($d['message'] ?? '') . "\n";
+    $m = TIX_Co_Money::payload($sid);
+    me_eq('wartet auf Zustimmung bei der Plattform, bisher Ersteller', [200, 'waiting_consent', 'creator'], [$st, $m['status'] ?? '', TIX_Co_Money::owner($sid)]);
+    $done(); return;
+}
+if ($mode === 'consent-plat') {
+    $s = json_decode((string) $args[1], true);
+    echo "== Plattform: KMT stimmt zu\n";
+    $p = TIX_Co_Money::pending($s['mir']);
+    me_eq('Spiegel: Vorschlag liegt, Ersteller hat durch die Änderung zugestimmt', [true, true], [(bool) $p, !empty($p['consents']['creator'])]);
+    wp_set_current_user(intval(get_post_meta($s['x'], '_tix_org_user_id', true)));
+    [$st, $d, $c] = me_rest('POST', "/events/{$s['mir']}/co-money/consent", ['accept' => true, 'version' => TIX_Co_Money::CONSENT_VERSION]);
+    if ($st !== 200) echo "      $st $c " . ($d['message'] ?? '') . "\n";
+    me_eq('wirksam auf dem Spiegel: KMT nimmt ein (Plattform verkauft)', [200, 'active', $s['x'], 'self'], [$st, $d['state'] ?? '', TIX_Co_Money::owner_id($s['mir']), TIX_Co_Seller::seller($s['mir'])]);
+    $done(); return;
+}
+if ($mode === 'check-money-kk') {
+    [$sid, $x] = [intval($args[1]), intval($args[2])];
+    echo "== Lizenzseite: Rückmeldung der Plattform\n";
+    me_eq('wirksam: KMT Geldempfänger, 70/30, Nachweis da, Vermittlung an die Plattform', [$x, ['o:' . $x => 30.0, 'creator' => 70.0], true, 'active', true],
+        [TIX_Co_Money::owner_id($sid), TIX_Co_Money::shares($sid), count((array) get_post_meta($sid, TIX_Co_Money::META_CONSENT_LOG, true)) > 0, TIX_Co_Money::payload($sid)['status'] ?? '', TIX_Co_Seller::source_base($sid) !== '']);
+    $done(); return;
+}
 if ($mode === 'cleanup-kk') {
     $b = get_option('tix_me_backup');
     if (is_array($b)) update_option('tix_settings', $b);

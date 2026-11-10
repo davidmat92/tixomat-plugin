@@ -112,11 +112,17 @@ class TIX_Partner_API {
     }
 
     private static function legal() {
+        $s = class_exists('TIX_Co_Legal') ? TIX_Co_Legal::site() : [];
         return [
             'seller'         => (string) (tix_get_settings('syndication_site_name') ?: get_bloginfo('name')),
-            'terms_url'      => (string) tix_get_settings('terms_url'),
-            'privacy_url'    => (string) tix_get_settings('privacy_url'),
+            'terms_url'      => (string) (($s['terms_url'] ?? '') ?: tix_get_settings('terms_url')),
+            'privacy_url'    => (string) (($s['privacy_url'] ?? '') ?: tix_get_settings('privacy_url')),
             'revocation_url' => (string) tix_get_settings('revocation_url'),
+            // 1.38.717: Verkäufer vollständig (Art. 246a EGBGB)
+            'legal_name'     => (string) ($s['name'] ?? ''),
+            'address'        => (string) ($s['address'] ?? ''),
+            'imprint_url'    => (string) ($s['imprint_url'] ?? ''),
+            'host'           => (string) ($s['host'] ?? ''),
         ];
     }
 

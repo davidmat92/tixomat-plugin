@@ -17,12 +17,22 @@ function mu_eq($label, $exp, $act) {
     $GLOBALS['t_fails']++;
     echo "FAIL  $label: erwartet " . var_export($exp, true) . ", ist " . var_export($act, true) . "\n";
 }
+/** Tests vor 1.38.717: alle Beteiligten stimmen sofort zu (den echten Ablauf prüft test-co-multi-wp „Zustimmung“). */
+function co_test_consent_all($route) {
+    if (!class_exists('TIX_Co_Money') || !method_exists('TIX_Co_Money', 'pending') || empty($GLOBALS['co_auto_consent'])) return;
+    if (!preg_match('#/(?:events|syndicate|platform/events|partner/co-events)/(\d+)#', $route, $m)) return;
+    $p = TIX_Co_Money::pending(intval($m[1]));
+    if (!$p) return;
+    foreach ((array) $p['needs'] as $party) if (empty($p['consents'][$party])) TIX_Co_Money::consent(intval($m[1]), $party, true);
+}
+$GLOBALS['co_auto_consent'] = true;
 function mu_rest($method, $route, array $body = [], array $headers = []) {
     $r = new WP_REST_Request($method, '/tixomat/v1' . $route);
     foreach ($headers as $k => $v) $r->set_header($k, $v);
     if ($body && in_array($method, ['GET', 'DELETE'], true)) $r->set_query_params($body);
     elseif ($body) { $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode($body)); }
     $res = rest_do_request($r);
+    if ($method !== 'GET') co_test_consent_all($route);
     $d = rest_get_server()->response_to_data($res, false);
     return [$res->get_status(), is_array($d) ? $d : [], is_array($d) ? ($d['code'] ?? '') : ''];
 }
@@ -166,6 +176,71 @@ if ($multi) {
         mu_eq('Seite B darf das Event (gemeinsames Event)', true, TIX_Site_Move::partner_event_ok($sb, $ev3));
         if ($pbk === null) delete_option(TIX_Partners::OPTION); else update_option(TIX_Partners::OPTION, $pbk, false);
 
+        echo "-- Zustimmung (1.38.717): Co als Geldempfänger + Anteile\n";
+        $GLOBALS['co_auto_consent'] = false;
+        $ev5 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Mutest Zustimmung', 'meta_input' => ['_tix_organizer_id' => $oa, '_tix_date_start' => '2027-05-07']]);
+        $tmp_p[] = $ev5;
+        TIX_Co_Organizer::set($ev5, $ob, true, 0); TIX_Co_Organizer::set($ev5, $oc, true, 0);
+        update_post_meta($ob, '_tix_payout_data', ['billing' => ['company' => 'Mutest Bar GmbH', 'street' => 'Barweg 1', 'zip' => '42103', 'city' => 'Wuppertal', 'country' => 'DE']]);
+        update_post_meta($ob, '_tix_org_imprint_url', 'https://bar.example.test/impressum');
+        wp_set_current_user($ua);
+        $shares = ['owner_id' => $ob, 'shares' => [['party' => 'creator', 'percent' => 60], ['organizer_id' => $ob, 'percent' => 30], ['organizer_id' => $oc, 'percent' => 10]]];
+        [$st, $d] = mu_rest('POST', "/events/$ev5", ['co_money' => $shares]);
+        $m = TIX_Co_Money::payload($ev5);
+        mu_eq('Vorschlag: wartet auf Zustimmung, bisher gilt der Ersteller', [200, 'waiting_consent', 'creator', $ob], [$st, $m['status'], $m['owner'], $m['pending']['owner_id'] ?? 0]);
+        mu_eq('nötig: Bar (Geldempfänger), Ersteller (schon durch die Änderung), Club', [['o:' . $ob, false], ['creator', true], ['o:' . $oc, false]], array_map(function ($n) { return [$n['party_key'], $n['done']]; }, $m['pending']['needs'] ?? []));
+        wp_set_current_user($ub);
+        [, $d] = mu_rest('GET', '/organizer/co-consents');
+        $it = $d['items'][0] ?? [];
+        mu_eq('Bar: offene Zustimmung mit beiden Pflicht-Texten', [1, $ev5, true, true, TIX_Co_Money::CONSENT_VERSION], [count($d['items'] ?? []), $it['event_id'] ?? 0, isset($it['texts']['owner']), isset($it['texts']['shares']), $it['version'] ?? '']);
+        mu_eq('Text Geldempfänger wie Prüfmappe', true, strpos($it['texts']['owner'] ?? '', 'Ich übernehme für Mutest Zustimmung den Ticketverkauf.') === 0);
+        [$st, , $c] = mu_rest('POST', "/events/$ev5/co-money/consent", ['accept' => true, 'version' => 'alt']);
+        mu_eq('alte Textfassung: 409', [409, 'tix_co_consent_version'], [$st, $c]);
+        [$st, $d] = mu_rest('POST', "/events/$ev5/co-money/consent", ['accept' => true, 'version' => TIX_Co_Money::CONSENT_VERSION]);
+        mu_eq('Bar stimmt zu: noch pending (Club fehlt), Ersteller nimmt weiter ein', [200, 'pending', 'creator'], [$st, $d['state'] ?? '', TIX_Co_Money::owner($ev5)]);
+        wp_set_current_user($ud);
+        mu_eq('Unbeteiligter: 403', 403, mu_rest('POST', "/events/$ev5/co-money/consent", ['accept' => true])[0]);
+        wp_set_current_user($uc);
+        [$st, $d] = mu_rest('POST', "/events/$ev5/co-money/consent", ['accept' => false]);
+        mu_eq('Club lehnt ab: verworfen, alles wie vorher', [200, 'declined', null, 'creator', ['creator' => 100.0]], [$st, $d['state'] ?? '', TIX_Co_Money::pending($ev5), TIX_Co_Money::owner($ev5), TIX_Co_Money::shares($ev5)]);
+        wp_set_current_user($ua);
+        mu_rest('POST', "/events/$ev5", ['co_money' => $shares]);
+        foreach ([[$ub, 'Bar'], [$uc, 'Club']] as [$u]) { wp_set_current_user($u); $r = mu_rest('POST', "/events/$ev5/co-money/consent", ['accept' => true, 'version' => TIX_Co_Money::CONSENT_VERSION]); }
+        mu_eq('alle zugestimmt: wirksam', [200, 'active', $ob, ['o:' . $ob => 30.0, 'creator' => 60.0, 'o:' . $oc => 10.0]], [$r[0], $r[1]['state'] ?? '', TIX_Co_Money::owner_id($ev5), TIX_Co_Money::shares($ev5)]);
+        $log = (array) get_post_meta($ev5, TIX_Co_Money::META_CONSENT_LOG, true);
+        $last = end($log);
+        mu_eq('Nachweis: Zeitpunkt, Konto, Fassung, Text', [true, $uc, TIX_Co_Money::CONSENT_VERSION, true], [!empty($last['at']), intval($last['by'] ?? 0), $last['version'] ?? '', strpos((string) ($last['text']['shares'] ?? ''), 'Club – 10 %') !== false]);
+        // Verkäufer-Angaben (Art. 246a EGBGB)
+        $sel = TIX_Co_Legal::for_event($ev5);
+        mu_eq('Verkäufer = Bar: Name, Anschrift, Impressum, Datenschutz, vollständig', ['Mutest Bar GmbH', 'Barweg 1, 42103 Wuppertal', 'https://bar.example.test/impressum', true],
+            [$sel['name'], $sel['address'], $sel['imprint_url'], $sel['complete'] || $sel['privacy_url'] === null]);
+        wp_set_current_user($admin_id);
+        $pe = TIX_Public_Events::payload($ev5, true);
+        mu_eq('Öffentlich (Fall B/eigene Kasse): kein syndicated, seller = Bar', [true, null, 'Mutest Bar GmbH'], [array_key_exists('syndicated', $pe), $pe['syndicated'], $pe['seller']['name'] ?? '']);
+        // Plattform-Admin ändert: auch der Ersteller muss zustimmen
+        $ev6 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Mutest Admin-Geld', 'meta_input' => ['_tix_organizer_id' => $oa, '_tix_date_start' => '2027-05-08']]);
+        $tmp_p[] = $ev6;
+        TIX_Co_Organizer::set($ev6, $ob, true, 0);
+        mu_rest('POST', "/platform/events/$ev6/co-organizer", ['organizer_id' => $ob, 'money_owner' => 'co', 'share' => 10]);
+        $pp = TIX_Co_Money::payload($ev6)['pending'] ?? [];
+        mu_eq('Plattform-Admin: Bar + Ersteller müssen zustimmen', [['o:' . $ob, false], ['creator', false]], array_map(function ($n) { return [$n['party_key'], $n['done']]; }, $pp['needs'] ?? []));
+        $sold = true;
+        wp_set_current_user($ub);
+        [$st, , $c] = mu_rest('POST', "/events/$ev6/co-money/consent", ['accept' => true]);
+        mu_eq('Verkauf vor der Zustimmung: 409, Vorschlag verworfen', [409, 'tix_co_money_locked', null], [$st, $c, TIX_Co_Money::pending($ev6)]);
+        $sold = false;
+        wp_set_current_user($admin_id);
+        $GLOBALS['co_auto_consent'] = true;
+
+        echo "-- Verkäufer bei geteilten Events\n";
+        $mir2 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Mutest Verkäufer Quelle', 'meta_input' => ['_tix_organizer_id' => $oa, '_tix_date_start' => '2027-05-09',
+            '_tix_syndicated' => '1', '_tix_source_site' => 'KitchenKlub', TIX_Co_Legal::M_SOURCE => TIX_Co_Legal::clean(['name' => 'KK Gastro GmbH', 'address' => 'Clubstr. 2, 42103 Wuppertal',
+                'imprint_url' => 'https://kk.example.test/impressum', 'privacy_url' => 'https://kk.example.test/datenschutz', 'terms_url' => 'https://kk.example.test/agb', 'host' => 'kk.example.test'])]]);
+        $tmp_p[] = $mir2;
+        $si = TIX_App_Checkout::syndicated_info($mir2);
+        mu_eq('syndicated: Verkäufer mit Anschrift, Impressum, Datenschutz, AGB', ['KitchenKlub', 'KK Gastro GmbH', 'Clubstr. 2, 42103 Wuppertal', 'https://kk.example.test/impressum', 'https://kk.example.test/datenschutz', 'https://kk.example.test/agb', true],
+            [$si['site'] ?? '', $si['seller_info']['name'] ?? '', $si['address'] ?? '', $si['imprint_url'] ?? '', $si['privacy_url'] ?? '', $si['terms_url'] ?? '', $si['seller_info']['complete'] ?? null]);
+
         echo "-- Spiegel (Teil B auf der Plattform)\n";
         $mir = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Mutest Spiegel', 'meta_input' => ['_tix_organizer_id' => $oa, '_tix_date_start' => '2027-05-03',
             '_tix_syndicated' => '1', '_tix_co_remote_oid' => $ob, '_tix_co_remote_access' => '1', '_tix_co_remote_token' => str_repeat('b', 48)]]);
@@ -203,7 +278,7 @@ if ($multi) {
         wp_set_current_user($admin_id);
         $GLOBALS['mu_sent'] = [];
         add_filter('pre_http_request', function ($pre, $a, $url) {
-            if (strpos($url, '.test/') === false) return $pre;
+            if ($pre !== false || strpos($url, '.test/') === false) return $pre;
             $b = json_decode((string) ($a['body'] ?? ''), true) ?: [];
             $GLOBALS['mu_sent'][] = $b;
             $oid = intval($b['organizer_id'] ?? 0);
@@ -255,6 +330,25 @@ if ($multi) {
         $last = mu_last_action();
         mu_eq('Editor löst 502: clear mit organizer_id, Geld zurück', [200, 'clear', 502, [], 'creator'], [$st, $last['action'] ?? '', intval($last['organizer_id'] ?? 0), TIX_Co_Remote::ids($ev), TIX_Co_Money::owner($ev)]);
         mu_eq('alles leer: Alt-Felder weg', ['', ''], [get_post_meta($ev, '_tix_co_remote', true), get_post_meta($ev, '_tix_co_token_hash', true)]);
+        // Zustimmung über die Plattform (1.38.717)
+        $GLOBALS['co_auto_consent'] = false;
+        $GLOBALS['mu_money_reply'] = ['ok' => true, 'co_money' => ['status' => 'waiting_consent', 'pending' => ['needs' => [['party_key' => 'o:601', 'done' => false], ['party_key' => 'creator', 'done' => true]]]]];
+        add_filter('pre_http_request', function ($pre, $a, $url) {
+            $b = json_decode((string) ($a['body'] ?? ''), true) ?: [];
+            if (strpos($url, '.test/') === false || !in_array($b['action'] ?? '', ['money', 'consent'], true)) return $pre;
+            $GLOBALS['mu_sent'][] = $b;
+            return ['headers' => [], 'body' => wp_json_encode($b['action'] === 'money' ? $GLOBALS['mu_money_reply'] : ['ok' => true, 'state' => 'active', 'co_money' => ['owner_id' => 601, 'shares' => [['organizer_id' => 0, 'percent' => 80], ['organizer_id' => 601, 'percent' => 20, 'owner' => true]]]]), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null];
+        }, 5, 3);
+        mu_rest('POST', "/events/$ev/co-organizer/invite", ['organizer_id' => 601, 'access' => true, 'consent' => true]);
+        [$st] = mu_rest('POST', "/events/$ev", ['co_money' => ['owner_id' => 601, 'share' => 20]]);
+        $m = TIX_Co_Money::payload($ev);
+        mu_eq('Lizenzseite: Co als Geldempfänger wartet auf Zustimmung (Plattform), bisher Ersteller', [200, 'waiting_consent', 'creator', 'money', 'creator'], [$st, $m['status'] ?? '', TIX_Co_Money::owner($ev), mu_last_action()['action'] ?? '', mu_last_action()['via'] ?? '']);
+        wp_set_current_user(0);
+        $r = mu_rest('POST', "/partner/co/$ev/money", ['state' => 'active', 'owner' => 'o:601', 'shares' => ['o:601' => 80, 'creator' => 20], 'consents' => ['o:601' => ['at' => gmdate('c'), 'version' => TIX_Co_Money::CONSENT_VERSION]]],
+            ['X-Tix-Partner-Id' => 'plat.test', 'X-Tix-Partner-Key' => str_repeat('p', 32)]);
+        wp_set_current_user($admin_id);
+        mu_eq('Rückmeldung der Plattform: wirksam, Nachweis übernommen', [200, 601, 'active', true], [$r[0], TIX_Co_Money::owner_id($ev), TIX_Co_Money::payload($ev)['status'] ?? '', count((array) get_post_meta($ev, TIX_Co_Money::META_CONSENT_LOG, true)) >= 1]);
+        mu_eq('Verkäufer-Angaben dieser Seite', true, is_array(TIX_Co_Legal::site()) && array_key_exists('imprint_url', TIX_Co_Legal::site()));
     } catch (Throwable $e) {
         $GLOBALS['t_fails']++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
     }

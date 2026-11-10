@@ -124,7 +124,7 @@ class TIX_Co_Seller {
         elseif (array_key_exists('share', $b)) $in['share'] = $b['share'];
         $c = TIX_Co_Money::check_values($eid, $in);
         if (is_wp_error($c)) return $c;
-        if ($c) TIX_Co_Money::apply($eid, $c, 'creator');
+        if ($c) TIX_Co_Money::propose($eid, $c, ($b['via'] ?? '') === 'platform' ? 'platform' : 'creator'); // Zustimmung der Co (1.38.717)
         return ['ok' => true, 'co_money' => TIX_Co_Money::payload($eid), 'seller' => self::seller($eid)];
     }
 
@@ -160,6 +160,7 @@ class TIX_Co_Seller {
         update_post_meta($eid, self::M_PARTNER, (string) $req->get_param('_partner_id'));
         update_post_meta($eid, self::M_SOURCE, $local);
         if (!empty($b['sold'])) update_post_meta($eid, self::M_SOLD, '1');
+        if (is_array($b['seller'] ?? null) && class_exists('TIX_Co_Legal')) update_post_meta(intval($req->get_param('_partner_oid')), '_tix_site_seller', TIX_Co_Legal::clean($b['seller'])); // Verkäufer-Angaben der Seite (1.38.717)
         if (is_array($b['balance'] ?? null)) update_post_meta($eid, self::M_BALANCE, array_intersect_key($b['balance'], array_flip(['orders', 'tickets', 'gross', 'refunds', 'fees', 'net', 'share', 'share_amount', 'currency', 'as_of', 'final', 'payer', 'payee', 'seller', 'note'])));
         return rest_ensure_response(['ok' => true]);
     }
@@ -238,7 +239,7 @@ class TIX_Co_Seller {
         $bal = class_exists('TIX_Co_Money') ? TIX_Co_Money::balance($id) : null;
         wp_remote_post(rtrim((string) tix_get_settings('syndication_api_url'), '/') . '/partner/co-events/' . $pid . '/local', ['timeout' => 20,
             'headers' => ['X-Tix-Syndication-Key' => (string) tix_get_settings('syndication_api_key'), 'Content-Type' => 'application/json', 'Accept' => 'application/json'],
-            'body' => wp_json_encode(['local_id' => intval($id), 'sold' => $sold, 'balance' => $bal])]);
+            'body' => wp_json_encode(['local_id' => intval($id), 'sold' => $sold, 'balance' => $bal, 'seller' => class_exists('TIX_Co_Legal') ? TIX_Co_Legal::site() : null])]);
     }
 
     // ═══════════════ Lizenzseite (Ersteller, Co verkauft) ═══════════════

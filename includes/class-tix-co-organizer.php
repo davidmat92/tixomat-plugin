@@ -663,7 +663,7 @@ class TIX_Co_Organizer {
         $linked = self::set($eid, $oid, $access, $consent_by);
         $now = self::has_access($eid, $oid);
         if (!$now && class_exists('TIX_Co_Money')) TIX_Co_Money::on_co_lost($eid, $oid, true);
-        if (is_array($money) && class_exists('TIX_Co_Money')) TIX_Co_Money::apply($eid, TIX_Co_Money::resolve_new($money, $oid), $via);
+        if (is_array($money) && class_exists('TIX_Co_Money')) TIX_Co_Money::propose($eid, TIX_Co_Money::resolve_new($money, $oid), $via); // gilt erst nach Zustimmung (1.38.717)
         $changed = $linked ? 'added' : ($old_access !== $now ? 'changed' : 'unchanged');
         if ($changed !== 'unchanged') self::log_change($eid, $changed, $oid, $now, $via);
         return ['linked' => $linked, 'changed' => $changed, 'access' => $now];

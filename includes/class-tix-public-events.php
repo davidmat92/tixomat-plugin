@@ -228,6 +228,8 @@ class TIX_Public_Events {
             'status_label'    => $status_label,
             'tickets_enabled' => $enabled,
             'syndicated'      => $syndicated,
+            // Verkäufer, wenn ein Co das Geld einnimmt und diese Seite selbst verkauft (Fall B: kein „Tickets über …“, 1.38.717)
+            'seller'          => ($detailed && !$syndicated && class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($id) && class_exists('TIX_Co_Legal')) ? TIX_Co_Legal::for_event($id) : null,
             'price_from'      => $prices ? round(min($prices), 2) : null,
             'price_range'     => (string) get_post_meta($id, '_tix_price_range', true),
             'categories'      => $cats,

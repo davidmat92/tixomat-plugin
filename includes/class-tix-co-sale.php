@@ -135,7 +135,8 @@ class TIX_Co_Sale {
     public static function syndicated_info($eid) {
         $seller = (string) (get_post_meta($eid, self::M_SELLER, true) ?: get_post_meta($eid, '_tix_platform_co_by', true));
         if ($seller === '' && class_exists('TIX_Co_Remote') && ($d = TIX_Co_Remote::payload($eid, class_exists('TIX_Co_Money') ? TIX_Co_Money::owner_id($eid) : 0))) $seller = (string) $d['name']; // Lizenzseite: Co verkauft (der Geldempfänger unter mehreren Co)
-        return ['site' => $seller ?: 'Veranstalter', 'checkout_url' => '', 'sale_via_app' => true, 'terms_url' => (string) get_post_meta($eid, self::M_TERMS, true), 'brokered' => true];
+        $info = ['site' => $seller ?: 'Veranstalter', 'checkout_url' => '', 'sale_via_app' => true, 'terms_url' => (string) get_post_meta($eid, self::M_TERMS, true), 'brokered' => true];
+        return class_exists('TIX_Co_Legal') ? TIX_Co_Legal::merge($info, $eid) : $info; // Verkäufer-Angaben (1.38.717)
     }
 
     private static function site_call($method, $route, array $body = null, array $query = []) {
@@ -210,7 +211,7 @@ class TIX_Co_Sale {
             $o = $d['order'];
             $o['id'] = intval($local);
             $o['event'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::order_event_info(intval($m['event'])) : ($o['event'] ?? null);
-            $o['seller'] = ['name' => (string) (get_post_meta(intval($m['event']), self::M_SELLER, true) ?: ($o['seller']['name'] ?? '')), 'mail_from_seller' => true];
+            $o['seller'] = TIX_App_Checkout::seller_of(intval($m['event']), ['name' => (string) (get_post_meta(intval($m['event']), self::M_SELLER, true) ?: ($o['seller']['name'] ?? '')), 'mail_from_seller' => true]);
             if (!empty($o['paid'])) {
                 $o['tickets'] = self::mirror_tickets($local, $m, (array) ($o['tickets'] ?? []));
                 if (empty($m['paid'])) { $map[$local]['paid'] = 1; update_option(self::MAP, $map, false); }
@@ -256,6 +257,9 @@ class TIX_Co_Sale {
         $own = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'future'], 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
             'meta_query' => [['key' => '_tix_tickets_enabled', 'value' => '1'], ['key' => '_tix_platform_co', 'compare' => 'NOT EXISTS']]]);
         if ($own) return true;
+        // Diese Seite verkauft für den Co selbst (1.38.713): dann braucht sie einen Zahlungsanbieter (1.38.717)
+        if (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'future'], 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
+            'meta_query' => [['key' => '_tix_platform_co_sells', 'value' => '1']]])) return true;
         $brokered = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'future'], 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
             'meta_query' => [['key' => self::M_SALE, 'value' => '1']]]);
         return !$brokered;

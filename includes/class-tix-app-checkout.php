@@ -223,13 +223,15 @@ class TIX_App_Checkout {
         $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
         if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
         $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
-        return [
+        $info = [
             'site'         => (string) (get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter'),
             'checkout_url' => $checkout,
             // true = die App verkauft über die Vermittlung (Zahlung beim Veranstalter)
             'sale_via_app' => (bool) $broker,
             'terms_url'    => $broker ? (string) $broker['terms_url'] : '',
         ];
+        // Verkäufer mit Name, Anschrift, Impressum, Datenschutz (Art. 246a EGBGB, 1.38.717)
+        return class_exists('TIX_Co_Legal') ? TIX_Co_Legal::merge($info, $event_id) : $info;
     }
 
     /** Online-Verkauf für das Event möglich? (wie der Ticket-Selector der Event-Seite) */
@@ -1029,8 +1031,16 @@ class TIX_App_Checkout {
             'invoice_url'  => self::invoice_url(intval($o->id), (string) $o->order_key),
             // alle Rechnungen/Belege/Korrekturen (Rechnungs-Kern, 1.38.487), [] ohne
             'invoices'     => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary(intval($o->id), (string) $o->order_key) : [],
-            'seller'       => null,
+            // Plattform vermittelt für einen Co bzw. bei gemeinsamen Events: Verkäufer nennen (1.38.717)
+            'seller'       => (class_exists('TIX_Co_Money') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && $event_id && TIX_Co_Money::co_kind($event_id)) ? self::seller_of($event_id, ['mail_from_seller' => false]) : null,
         ];
+    }
+
+    /** `order.seller`: Name, Anschrift, Impressum, Datenschutz, AGB des Verkäufers (1.38.717). */
+    public static function seller_of($event_id, array $base) {
+        $s = class_exists('TIX_Co_Legal') ? TIX_Co_Legal::for_event($event_id) : null;
+        if (!$s) return $base;
+        return array_merge($s, array_filter($base, function ($v) { return $v !== '' && $v !== null; }), ['name' => (string) (($base['name'] ?? '') ?: $s['name']), 'seller_info' => $s]);
     }
 
     private static function broker_summary($id) {
@@ -1056,7 +1066,7 @@ class TIX_App_Checkout {
             'event'        => self::order_event_info(intval($row->event_id)),
             'ticket_count' => $tickets,
             'invoice_url'  => '', // Rechnung stellt der Veranstalter aus
-            'seller'       => ['name' => $p ? (string) $p['name'] : '', 'mail_from_seller' => true],
+            'seller'       => self::seller_of(intval($row->event_id), ['name' => $p ? (string) $p['name'] : '', 'mail_from_seller' => true]),
         ];
     }
 

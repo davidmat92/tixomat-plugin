@@ -31,12 +31,22 @@ function cz_eq($label, $exp, $act) {
     $GLOBALS['t_fails']++;
     echo "FAIL  $label: erwartet " . var_export($exp, true) . ", ist " . var_export($act, true) . "\n";
 }
+/** Tests vor 1.38.717: alle Beteiligten stimmen sofort zu (den echten Ablauf prüft test-co-multi-wp „Zustimmung“). */
+function co_test_consent_all($route) {
+    if (!class_exists('TIX_Co_Money') || !method_exists('TIX_Co_Money', 'pending') || empty($GLOBALS['co_auto_consent'])) return;
+    if (!preg_match('#/(?:events|syndicate|platform/events|partner/co-events)/(\d+)#', $route, $m)) return;
+    $p = TIX_Co_Money::pending(intval($m[1]));
+    if (!$p) return;
+    foreach ((array) $p['needs'] as $party) if (empty($p['consents'][$party])) TIX_Co_Money::consent(intval($m[1]), $party, true);
+}
+$GLOBALS['co_auto_consent'] = true;
 function cz_rest($method, $route, array $body = [], array $headers = []) {
     $r = new WP_REST_Request($method, '/tixomat/v1' . $route);
     foreach ($headers as $k => $v) $r->set_header($k, $v);
     if ($body && $method === 'GET') $r->set_query_params($body);
     elseif ($body) { $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode($body)); }
     $res = rest_do_request($r);
+    if ($method !== 'GET') co_test_consent_all($route);
     $d = rest_get_server()->response_to_data($res, false);
     return [$res->get_status(), is_array($d) ? $d : [], is_array($d) ? ($d['code'] ?? '') : ''];
 }
@@ -142,7 +152,7 @@ try {
     cz_eq('B: ohne Zugriff 409', [409, 'tix_co_money_unsupported'], [$st, $c]);
     update_post_meta($mir, '_tix_co_remote_access', '1');
     [$st, $d] = cz_rest('POST', "/syndicate/$mir/co-organizer", ['action' => 'money', 'owner' => 'co', 'share' => 10], $hk);
-    cz_eq('B: umgestellt, Plattform verkauft, eingefroren', [200, 'self', 'co', '1'], [$st, $d['seller'] ?? '', TIX_Co_Money::owner($mir), get_post_meta($mir, TIX_Co_Seller::M_FROZEN, true)]);
+    cz_eq('B: umgestellt, Plattform verkauft, eingefroren', [200, 'self', 'co', '1'], [$st, TIX_Co_Seller::seller($mir), TIX_Co_Money::owner($mir), get_post_meta($mir, TIX_Co_Seller::M_FROZEN, true)]); // nach Zustimmung des Co (1.38.717)
     cz_eq('B: kein Broker, eigene Kasse, kein „Tickets über“', [null, true, null], [TIX_Partner_Broker::partner_for_event($mir), TIX_Co_Seller::sells_here($mir), TIX_App_Checkout::syndicated_info($mir)]);
     $GLOBALS['cz_calls'] = [];
     [$st, $d] = cz_rest('POST', '/customer/cart/quote', ['event_id' => $mir, 'items' => [['index' => 0, 'qty' => 1]]]);

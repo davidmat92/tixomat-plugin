@@ -223,10 +223,14 @@ class TIX_Partner_Broker {
         if (empty($data['syndicated']['terms_url']) && !empty($legal['terms_url'])) {
             $data['syndicated']['terms_url'] = (string) $legal['terms_url'];
         }
+        $known = class_exists('TIX_Co_Legal') ? (TIX_Co_Legal::for_event($event_id) ?: []) : [];
         $data['seller'] = [
             'name'           => (string) ($legal['seller'] ?? $p['name']),
+            'legal_name'     => (string) (($legal['legal_name'] ?? '') ?: ($known['name'] ?? '')),
+            'address'        => (string) (($legal['address'] ?? '') ?: ($known['address'] ?? '')),
+            'imprint_url'    => (string) (($legal['imprint_url'] ?? '') ?: ($known['imprint_url'] ?? '')),
             'terms_url'      => (string) ($data['syndicated']['terms_url'] ?? ''),
-            'privacy_url'    => (string) ($legal['privacy_url'] ?? ''),
+            'privacy_url'    => (string) (($legal['privacy_url'] ?? '') ?: ($known['privacy_url'] ?? '')),
             'revocation_url' => (string) ($legal['revocation_url'] ?? ''),
             'notice'         => sprintf('Der Kauf erfolgt beim Veranstalter %s. Deine Daten werden dafür an ihn übermittelt; %s vermittelt nur.', $p['name'], get_bloginfo('name')),
         ];

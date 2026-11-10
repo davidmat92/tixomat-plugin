@@ -244,7 +244,8 @@ class TIX_Co_Money {
             'locked' => $sold || $readonly, 'locked_reason' => $sold ? 'sold' : ($readonly ? 'not_supported' : (count($ch) < 2 && count($list) < 2 ? 'not_supported' : null)),
             'editable' => !$sold && !$readonly && self::can_edit($eid),
             'seller' => ['name' => $seller_name, 'host' => $seller_host, 'side' => $owner, 'organizer_id' => $oid], 'note' => $note,
-            'share_to_name' => $first_other ? self::party_name($eid, $first_other) : null];
+            'share_to_name' => $first_other ? self::party_name($eid, $first_other) : null,
+            'status' => self::pending($eid) ? 'waiting_consent' : 'active', 'pending' => self::pending_payload($eid), 'consent_version' => self::CONSENT_VERSION];
     }
 
     /** Kunden-Seite (Anzeige-Spiegel): Werte vom Ersteller, nur lesen. */
@@ -257,7 +258,8 @@ class TIX_Co_Money {
         if ($parts) $note .= ' Vom Netto gehen ' . implode(', ', array_map(function ($p) { return self::pct($p['percent']) . ' % an ' . $p['name']; }, $parts)) . ' (Ausgleich zwischen euch).';
         return ['owner' => $owner, 'owner_id' => 0, 'share' => $share, 'share_to' => $owner === 'co' ? 'creator' : 'co', 'shares' => [], 'choosable' => [$owner], 'choosable_ids' => [],
             'locked' => true, 'locked_reason' => self::sold($eid) ? 'sold' : 'not_supported', 'editable' => false,
-            'seller' => ['name' => $owner === 'co' ? $co : $creator, 'host' => null, 'side' => $owner, 'organizer_id' => 0], 'note' => $note, 'share_to_name' => $parts[0]['name'] ?? null];
+            'seller' => ['name' => $owner === 'co' ? $co : $creator, 'host' => null, 'side' => $owner, 'organizer_id' => 0], 'note' => $note, 'share_to_name' => $parts[0]['name'] ?? null,
+            'status' => ($sp = get_post_meta(intval($eid), self::META_SITE_PENDING, true)) ? 'waiting_consent' : 'active', 'pending' => $sp ?: null, 'consent_version' => self::CONSENT_VERSION];
     }
 
     /** Kunden-Seite: Beteiligte mit Anteil (vom Abgleich) – Alt: der Ersteller mit `share`. */
@@ -403,10 +405,10 @@ class TIX_Co_Money {
         if (!is_array($v)) return new WP_Error('tix_invalid_field', 'co_money: {owner, share} oder {owner_id, shares}.', ['status' => 400, 'field' => 'co_money']);
         if (!$k) return new WP_Error('tix_invalid_field', 'Ohne Co-Veranstalter gibt es keinen Geldempfänger zu wählen.', ['status' => 400, 'field' => 'co_money']);
         $c = self::check_values($post_id, $v);
-        // Lizenzseite: die Plattform prüft und übernimmt (Verkaufsinstanz beim Co, 1.38.713)
+        // Lizenzseite: die Plattform prüft, holt die Zustimmungen und übernimmt (1.38.713/717); hier nichts mehr anzuwenden
         if (is_array($c) && $k === 'remote' && class_exists('TIX_Co_Remote')) {
-            $r = TIX_Co_Remote::send_money($post_id, $c['owner'], $c['shares']);
-            if (is_wp_error($r)) return $r;
+            $r = self::remote_set($post_id, $c, 'creator');
+            return is_wp_error($r) ? $r : null;
         }
         return $c;
     }
@@ -447,7 +449,7 @@ class TIX_Co_Money {
 
     /** Alles gelöst: zurück auf Ersteller ohne Anteil. */
     public static function reset($eid) {
-        foreach ([self::META_OWNER, self::META_SHARE, self::META_SHARES, self::META_BY] as $k) delete_post_meta($eid, $k);
+        foreach ([self::META_OWNER, self::META_SHARE, self::META_SHARES, self::META_BY, self::META_PENDING] as $k) delete_post_meta($eid, $k);
     }
 
     /**
@@ -456,6 +458,8 @@ class TIX_Co_Money {
      */
     public static function on_co_lost($eid, $oid, $access_only) {
         $eid = intval($eid);
+        $pp = self::pending($eid);
+        if ($pp && (in_array(self::party($oid), (array) $pp['needs'], true) || isset($pp['shares'][self::party($oid)]))) delete_post_meta($eid, self::META_PENDING);
         $raw_owner = (string) get_post_meta($eid, self::META_OWNER, true);
         $p = self::party($oid);
         $is_owner = $raw_owner === $p || ($raw_owner === 'co' && $access_only && (self::co_ids($eid)[0] ?? 0) === intval($oid)); // 'co' nur noch ohne Listenänderung (normalize)
@@ -491,6 +495,317 @@ class TIX_Co_Money {
             if (!self::sold($eid)) return true;
         }
         return new WP_Error('tix_co_money_locked', 'Der Co-Veranstalter nimmt Geld ein bzw. bekommt einen Anteil, und es gibt schon Verkäufe. Die Verbindung kann erst nach der Abrechnung gelöst werden.', ['status' => 409]);
+    }
+
+    // ═══════════════ Zustimmung (1.38.717, Rechtstexte `pruefmappe/co-geldempfaenger.md` §2) ═══════════════
+    //
+    // Ein Co wird Geldempfänger nur mit eigenem Pflicht-Haken; Anteile gelten erst, wenn alle mit Anteil zugestimmt haben
+    // (mindestens der Geldempfänger, der abgibt). Bis dahin bleibt die bisherige Einstellung wirksam (`status: waiting_consent`).
+    //   _tix_co_money_pending   {owner, shares, needs [party], consents {party => {at, by, by_name, version, text}}, at, by, via}
+    //   _tix_co_money_consents  Protokoll aller Zustimmungen/Ablehnungen (Nachweis, bleibt nach dem Wirksamwerden)
+
+    const META_PENDING     = '_tix_co_money_pending';
+    const META_CONSENT_LOG = '_tix_co_money_consents';
+    const META_SITE_PENDING = '_tix_co_money_pending_site'; // Kunden-Seite: Stand vom Abgleich
+    const CONSENT_VERSION  = 'co-geld-2026-11-10';
+
+    public static function pending($eid) {
+        $p = get_post_meta(intval($eid), self::META_PENDING, true);
+        return is_array($p) && !empty($p['owner']) && is_array($p['shares'] ?? null) ? $p : null;
+    }
+
+    /** Wer muss zustimmen? Geldempfänger + alle mit Anteil > 0. Nur der Ersteller mit 100 % → niemand. */
+    private static function needs_of(array $c) {
+        $out = [(string) $c['owner']];
+        foreach ((array) $c['shares'] as $k => $v) if (floatval($v) > 0) $out[] = (string) $k;
+        $out = array_values(array_unique($out));
+        return $out === ['creator'] ? [] : $out;
+    }
+
+    /** Pflicht-Texte (Fassung CONSENT_VERSION) für eine Partei. */
+    public static function consent_texts($eid, array $c, $party) {
+        $title = self::dec(get_the_title(intval($eid)));
+        $list = [];
+        foreach ((array) $c['shares'] as $k => $v) if (floatval($v) > 0) $list[] = self::party_name($eid, $k) . ' – ' . self::pct($v) . ' %';
+        $out = [];
+        if ((string) $c['owner'] === $party && $party !== 'creator') {
+            $out['owner'] = 'Ich übernehme für ' . $title . ' den Ticketverkauf. Ich bin Verkäufer und Vertragspartner der Käufer, auch für Erstattungen bei Absage oder Verlegung. Bestätigung, Tickets und Rechnung gehen in meinem Namen raus. Es gelten meine AGB und meine Datenschutzerklärung.';
+        }
+        if (count($list) > 1 || ($list && (string) $c['owner'] !== $party)) {
+            $out['shares'] = 'Ich bin mit der Aufteilung für ' . $title . ' einverstanden: ' . implode(', ', $list) . '. Nach dem ersten bezahlten Verkauf kann sie nicht mehr geändert werden.';
+        }
+        if (!$out) $out['shares'] = 'Ich bin mit der Aufteilung für ' . $title . ' einverstanden: ' . implode(', ', $list) . '. Nach dem ersten bezahlten Verkauf kann sie nicht mehr geändert werden.';
+        return $out;
+    }
+
+    /** Wer ändert: creator (Ersteller/Lizenzseite) | platform (Plattform-Admin an einem fremden Event). */
+    public static function via_for($eid) {
+        if (!self::multi() || !class_exists('TIX_Co_Organizer')) return 'creator';
+        return TIX_Co_Organizer::role($eid) === 'admin' && intval(get_post_meta(intval($eid), '_tix_organizer_id', true)) !== intval(TIX_App_Scope::organizer_id_for_user()) ? 'platform' : 'creator';
+    }
+
+    /** Partei des angemeldeten Nutzers am Event (creator | o:{ID}) oder null. */
+    public static function my_party($eid) {
+        $eid = intval($eid);
+        if (!self::multi()) {
+            if (self::co_kind($eid) === 'platform_co') return null; // Kunden-Seite: über die eigene Zustimmungs-Route
+            return self::can_edit($eid) ? 'creator' : null;
+        }
+        $org = class_exists('TIX_App_Scope') ? TIX_App_Scope::organizer_id_for_user() : 0;
+        if (!$org) return null;
+        if (get_post_meta($eid, '_tix_syndicated', true) !== '1' && intval(get_post_meta($eid, '_tix_organizer_id', true)) === $org) return 'creator';
+        return in_array($org, self::co_ids($eid), true) ? self::party($org) : null;
+    }
+
+    /**
+     * Einstellung vorschlagen: sofort wirksam, wenn niemand (mehr) zustimmen muss, sonst „wartet auf Zustimmung“.
+     * $via creator = der Ersteller ändert (seine Zustimmung gilt damit), platform = Plattform-Admin (alle müssen zustimmen).
+     * → 'active' | 'pending' | null
+     */
+    public static function propose($eid, $c, $via = 'creator') {
+        if (!is_array($c)) return null;
+        $eid = intval($eid);
+        $needs = self::needs_of($c);
+        $consents = [];
+        if ($via === 'creator' && in_array('creator', $needs, true)) $consents['creator'] = ['at' => gmdate('c'), 'by' => get_current_user_id(), 'by_name' => self::user_name(), 'version' => self::CONSENT_VERSION, 'text' => self::consent_texts($eid, $c, 'creator'), 'via' => 'change'];
+        delete_post_meta($eid, self::META_PENDING);
+        if (!array_diff($needs, array_keys($consents))) {
+            self::apply($eid, $c, $via);
+            if ($consents) self::log_consent($eid, 'creator', true, $consents['creator']);
+            return 'active';
+        }
+        update_post_meta($eid, self::META_PENDING, ['owner' => (string) $c['owner'], 'shares' => (array) $c['shares'], 'needs' => $needs, 'consents' => $consents,
+            'at' => gmdate('c'), 'by' => get_current_user_id(), 'via' => $via]);
+        foreach ($consents as $party => $x) self::log_consent($eid, $party, true, $x);
+        foreach (array_diff($needs, array_keys($consents)) as $party) self::notify_consent($eid, $party);
+        return 'pending';
+    }
+
+    private static function user_name() {
+        $u = wp_get_current_user();
+        return $u && $u->ID ? (string) ($u->display_name ?: $u->user_login) : '';
+    }
+
+    private static function log_consent($eid, $party, $accept, array $x) {
+        $log = (array) get_post_meta($eid, self::META_CONSENT_LOG, true);
+        $log[] = ['party' => $party, 'accept' => (bool) $accept] + $x;
+        update_post_meta($eid, self::META_CONSENT_LOG, array_slice(array_values(array_filter($log, 'is_array')), -100));
+    }
+
+    /**
+     * Zustimmung bzw. Ablehnung einer Partei. → 'active' | 'pending' | 'declined' | WP_Error
+     * $by_name = Anzeigename (z. B. Konto auf der Kunden-Seite).
+     */
+    public static function consent($eid, $party, $accept, $version = '', $by_name = '') {
+        $eid = intval($eid);
+        $p = self::pending($eid);
+        if (!$p) return new WP_Error('tix_co_consent_none', 'Für dieses Event wartet keine Zustimmung.', ['status' => 409]);
+        if (!empty($p['remote'])) return new WP_Error('tix_co_consent_remote', 'Die Zustimmungen sammelt die Plattform.', ['status' => 409]); // Lizenzseite: nur Kopie
+        if (!in_array($party, (array) $p['needs'], true)) return new WP_Error('tix_co_forbidden', 'Deine Zustimmung ist hier nicht nötig.', ['status' => 403]);
+        if (self::sold($eid)) { delete_post_meta($eid, self::META_PENDING); return new WP_Error('tix_co_money_locked', 'Für dieses Event gibt es schon bezahlte Bestellungen. Geldempfänger und Aufteilung sind deshalb fest.', ['status' => 409]); }
+        if ($accept && $version !== '' && $version !== self::CONSENT_VERSION) return new WP_Error('tix_co_consent_version', 'Der Text der Zustimmung hat sich geändert. Bitte neu laden.', ['status' => 409, 'version' => self::CONSENT_VERSION]);
+        $x = ['at' => gmdate('c'), 'by' => get_current_user_id(), 'by_name' => $by_name !== '' ? $by_name : self::user_name(), 'version' => self::CONSENT_VERSION, 'text' => self::consent_texts($eid, $p, $party)];
+        self::log_consent($eid, $party, $accept, $x);
+        if (!$accept) {
+            delete_post_meta($eid, self::META_PENDING);
+            self::notify_declined($eid, $party);
+            self::source_callback($eid, $p, 'declined');
+            return 'declined';
+        }
+        $p['consents'][$party] = $x;
+        if (array_diff((array) $p['needs'], array_keys((array) $p['consents']))) { update_post_meta($eid, self::META_PENDING, $p); return 'pending'; }
+        delete_post_meta($eid, self::META_PENDING);
+        self::apply($eid, ['owner' => $p['owner'], 'shares' => $p['shares']], 'consent');
+        self::source_callback($eid, $p, 'active');
+        return 'active';
+    }
+
+    /** Spiegel: Ergebnis an die Lizenzseite melden (dort gilt die Einstellung dann auch). */
+    private static function source_callback($eid, array $p, $state) {
+        if (!self::multi() || get_post_meta($eid, '_tix_syndicated', true) !== '1' || !class_exists('TIX_Partners')) return;
+        $pp = TIX_Partners::get((string) get_post_meta($eid, '_tix_source_partner', true));
+        $sid = intval(get_post_meta($eid, '_tix_source_id', true));
+        if (!$pp || empty($pp['api_base']) || strlen((string) ($pp['key_out'] ?? '')) < 20 || !$sid) return;
+        wp_remote_post(untrailingslashit($pp['api_base']) . '/partner/co/' . $sid . '/money', ['timeout' => 15,
+            'body' => wp_json_encode(['state' => $state, 'owner' => $p['owner'], 'shares' => (object) $p['shares'], 'consents' => (object) ($p['consents'] ?? [])]),
+            'headers' => ['Content-Type' => 'application/json', 'Accept' => 'application/json', 'X-Tix-Partner-Id' => TIX_Partners::platform_id(), 'X-Tix-Partner-Key' => (string) $pp['key_out']]]);
+    }
+
+    /** Lizenzseite: Ergebnis der Zustimmung von der Plattform. */
+    public static function rest_source_money(WP_REST_Request $req) {
+        $sid = absint($req['id']);
+        $b = (array) ($req->get_json_params() ?: []);
+        $state = (string) ($b['state'] ?? '');
+        if ($state === 'active') {
+            $owner = (string) ($b['owner'] ?? 'creator');
+            if ($owner !== 'creator' && !in_array(intval(substr($owner, 2)), self::co_ids($sid), true)) return new WP_Error('tix_invalid_field', 'Unbekannter Geldempfänger.', ['status' => 400]);
+            self::apply($sid, ['owner' => $owner, 'shares' => array_map('floatval', (array) ($b['shares'] ?? []))], 'consent');
+            foreach ((array) ($b['consents'] ?? []) as $party => $x) if (is_array($x)) self::log_consent($sid, (string) $party, true, $x + ['via' => 'platform']);
+        }
+        delete_post_meta($sid, self::META_PENDING);
+        return rest_ensure_response(['ok' => true, 'co_money' => self::payload($sid)]);
+    }
+
+    /** Lizenzseite: Einstellung über die Plattform setzen (die prüft und holt die Zustimmungen). → 'active' | 'pending' | WP_Error */
+    public static function remote_set($eid, array $c, $via = 'creator') {
+        $r = TIX_Co_Remote::send_money($eid, $c['owner'], $c['shares'], $via);
+        if (is_wp_error($r)) return $r;
+        $st = (string) ($r['co_money']['status'] ?? 'active');
+        if ($st === 'waiting_consent') {
+            update_post_meta($eid, self::META_PENDING, ['owner' => (string) $c['owner'], 'shares' => (array) $c['shares'], 'needs' => array_map(function ($n) { return (string) $n['party_key']; }, (array) ($r['co_money']['pending']['needs'] ?? [])),
+                'consents' => [], 'remote' => (array) ($r['co_money']['pending'] ?? []), 'at' => gmdate('c'), 'by' => get_current_user_id(), 'via' => $via]);
+            return 'pending';
+        }
+        delete_post_meta($eid, self::META_PENDING);
+        self::apply($eid, $c, $via);
+        return 'active';
+    }
+
+    /** Anzeige der wartenden Einstellung. */
+    private static function pending_payload($eid) {
+        $p = self::pending($eid);
+        if (!$p) return null;
+        if (!empty($p['remote']) && self::co_kind($eid) === 'remote') return $p['remote'] + ['version' => self::CONSENT_VERSION]; // Lizenzseite: Stand der Plattform
+        $needs = [];
+        foreach ((array) $p['needs'] as $party) {
+            $done = $p['consents'][$party] ?? null;
+            $needs[] = ['party_key' => $party, 'party' => $party === 'creator' ? 'creator' : 'co', 'organizer_id' => self::pid($party), 'name' => self::party_name($eid, $party),
+                'done' => (bool) $done, 'at' => $done['at'] ?? null, 'by_name' => $done['by_name'] ?? null];
+        }
+        $shares = [];
+        foreach ((array) $p['shares'] as $k => $v) $shares[] = ['party_key' => $k, 'organizer_id' => self::pid($k), 'name' => self::party_name($eid, $k), 'percent' => floatval($v), 'owner' => $k === $p['owner']];
+        $mine = self::my_party($eid);
+        return ['owner_id' => self::pid($p['owner']), 'owner_name' => self::party_name($eid, $p['owner']), 'shares' => $shares, 'needs' => $needs,
+            'since' => (string) ($p['at'] ?? ''), 'version' => self::CONSENT_VERSION,
+            'my_consent' => ($mine && in_array($mine, (array) $p['needs'], true) && empty($p['consents'][$mine])) ? ['party_key' => $mine, 'texts' => self::consent_texts($eid, $p, $mine)] : null];
+    }
+
+    private static function party_user($eid, $party) {
+        $oid = $party === 'creator' ? intval(get_post_meta($eid, '_tix_organizer_id', true)) : self::pid($party);
+        return ($oid && class_exists('TIX_Co_Organizer')) ? TIX_Co_Organizer::owner_user($oid) : null;
+    }
+
+    private static function notify_consent($eid, $party) {
+        if (!self::multi()) return;
+        $u = self::party_user($eid, $party);
+        if (!$u) { if ($party !== 'creator' && class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile(self::pid($party))) TIX_Co_Sites::trigger_sync(self::pid($party)); return; }
+        $title = self::dec(get_the_title($eid));
+        if (class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'add_user_item')) {
+            TIX_Notifications::add_user_item($u->ID, 'Zustimmung nötig', $title . ' · Geldempfänger und Aufteilung', ['type' => 'message', 'action' => 'staff:event:' . intval($eid)]);
+        }
+        $html = '<p>Hallo,</p><p>Für <strong>' . esc_html($title) . '</strong> wurde festgelegt, wer das Geld einnimmt und wie ihr das Netto aufteilt. Das gilt erst, wenn du zustimmst.</p><p>Im Studio findest du das beim Event unter „Co-Veranstalter“.</p>';
+        $subject = 'Zustimmung nötig: ' . $title;
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($u->user_email, $subject, ['title' => $subject, 'blocks' => [['type' => 'html', 'html' => $html]], 'kind' => 'account'], ['customer' => false]);
+        else wp_mail($u->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+    }
+
+    private static function notify_declined($eid, $party) {
+        if (!self::multi()) return;
+        $u = self::party_user($eid, 'creator');
+        if ($u && class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'add_user_item')) {
+            TIX_Notifications::add_user_item($u->ID, self::party_name($eid, $party) . ' hat nicht zugestimmt', self::dec(get_the_title($eid)) . ' · Geldempfänger und Aufteilung bleiben wie bisher', ['type' => 'message', 'action' => 'staff:event:' . intval($eid)]);
+        }
+    }
+
+    /** POST /events/{id}/co-money/consent {accept, version} */
+    public static function rest_consent(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        $b = (array) ($req->get_json_params() ?: $req->get_params());
+        $accept = filter_var($b['accept'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $version = (string) ($b['version'] ?? '');
+        if (!self::multi() && self::co_kind($eid) === 'platform_co') return self::site_forward_consent($eid, $accept, $version); // Kunden-Seite → Plattform
+        if (!self::multi() && self::co_kind($eid) === 'remote') { // Lizenzseite: die Zustimmungen liegen auf der Plattform
+            if (!self::can_edit($eid)) return new WP_Error('tix_co_forbidden', 'Deine Zustimmung ist hier nicht nötig.', ['status' => 403]);
+            $u = wp_get_current_user();
+            $r = TIX_Co_Remote::send_consent($eid, $accept, $version, (string) ($u->display_name ?: $u->user_login));
+            if (is_wp_error($r)) return $r;
+            $st = (string) ($r['state'] ?? '');
+            if ($st === 'active' && is_array($r['co_money'] ?? null)) { // gleich wirksam (Rückmeldung kommt zusätzlich)
+                $own = intval($r['co_money']['owner_id'] ?? 0);
+                $map = [];
+                foreach ((array) ($r['co_money']['shares'] ?? []) as $x) if (floatval($x['percent'] ?? 0) > 0 || !empty($x['owner'])) $map[intval($x['organizer_id'] ?? 0) ? 'o:' . intval($x['organizer_id']) : 'creator'] = floatval($x['percent']);
+                self::apply($eid, ['owner' => self::party($own), 'shares' => $map], 'consent');
+            }
+            if ($st !== 'pending') delete_post_meta($eid, self::META_PENDING);
+            return rest_ensure_response(['ok' => true, 'state' => $st, 'co_money' => self::payload($eid)]);
+        }
+        $party = self::my_party($eid);
+        if (!$party) return new WP_Error('tix_co_forbidden', 'Deine Zustimmung ist hier nicht nötig.', ['status' => 403]);
+        $r = self::consent($eid, $party, $accept, $version);
+        if (is_wp_error($r)) return $r;
+        return rest_ensure_response(['ok' => true, 'state' => $r, 'co_money' => self::payload($eid)]);
+    }
+
+    /** GET /organizer/co-consents: offene Zustimmungen des eigenen Veranstalters. */
+    public static function rest_my_consents(WP_REST_Request $req) {
+        $org = TIX_App_Scope::organizer_id_for_user();
+        $items = [];
+        if ($org) {
+            foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => 200, 'fields' => 'ids', 'meta_key' => self::META_PENDING]) as $eid) {
+                $p = self::pending($eid);
+                if (!$p) continue;
+                foreach ([self::party($org), 'creator'] as $party) {
+                    if ($party === 'creator' && (get_post_meta($eid, '_tix_syndicated', true) === '1' || intval(get_post_meta($eid, '_tix_organizer_id', true)) !== $org)) continue;
+                    if ($party !== 'creator' && !in_array($org, self::co_ids($eid), true)) continue;
+                    if (in_array($party, (array) $p['needs'], true) && empty($p['consents'][$party])) {
+                        $items[] = ['event_id' => intval($eid), 'title' => self::dec(get_the_title($eid)), 'date' => (string) get_post_meta($eid, '_tix_date_start', true),
+                            'party_key' => $party, 'texts' => self::consent_texts($eid, $p, $party), 'version' => self::CONSENT_VERSION, 'pending' => self::pending_payload($eid)];
+                    }
+                }
+            }
+        }
+        return rest_ensure_response(['ok' => true, 'items' => $items]);
+    }
+
+    /** Plattform: Zustimmung einer Kunden-Seite (Partner-Schlüssel der Seite). */
+    public static function perm_site_consent(WP_REST_Request $req) {
+        if (!class_exists('TIX_Site_Move')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+        $ok = TIX_Site_Move::perm_partner($req);
+        if ($ok !== true) return $ok;
+        if (!TIX_Site_Move::partner_event_ok(intval($req->get_param('_partner_oid')), absint($req['id']))) return new WP_Error('tix_co_forbidden', 'Kein gemeinsames Event.', ['status' => 403]);
+        return true;
+    }
+
+    public static function rest_site_consent(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        $b = (array) ($req->get_json_params() ?: []);
+        $r = self::consent($eid, self::party(intval($req->get_param('_partner_oid'))), filter_var($b['accept'] ?? false, FILTER_VALIDATE_BOOLEAN), (string) ($b['version'] ?? ''), mb_substr(sanitize_text_field((string) ($b['by_name'] ?? '')), 0, 120));
+        if (is_wp_error($r)) return $r;
+        $oid = intval($req->get_param('_partner_oid'));
+        if (class_exists('TIX_Co_Sites')) TIX_Co_Sites::trigger_sync($oid);
+        return rest_ensure_response(['ok' => true, 'state' => $r]);
+    }
+
+    /** Kunden-Seite: Zustimmung an die Plattform weiterreichen. */
+    private static function site_forward_consent($eid, $accept, $version) {
+        $pid = class_exists('TIX_Site_Move') ? TIX_Site_Move::platform_co_id($eid) : 0;
+        if (!$pid) return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        $u = wp_get_current_user();
+        $r = wp_remote_post(rtrim((string) tix_get_settings('syndication_api_url'), '/') . '/partner/co-events/' . $pid . '/money-consent', ['timeout' => 20,
+            'headers' => ['X-Tix-Syndication-Key' => (string) tix_get_settings('syndication_api_key'), 'Content-Type' => 'application/json', 'Accept' => 'application/json'],
+            'body' => wp_json_encode(['accept' => (bool) $accept, 'version' => $version, 'by_name' => (string) ($u->display_name ?: $u->user_login)])]);
+        if (is_wp_error($r)) return new WP_Error('tix_partner_unreachable', 'Die Plattform ist gerade nicht erreichbar. Bitte gleich noch einmal versuchen.', ['status' => 502]);
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $d = json_decode((string) wp_remote_retrieve_body($r), true);
+        if ($code >= 300 || !is_array($d)) return new WP_Error(is_array($d) && !empty($d['code']) ? (string) $d['code'] : 'tix_co_consent_error', is_array($d) && !empty($d['message']) ? (string) $d['message'] : 'Die Plattform hat die Zustimmung nicht angenommen.', ['status' => $code >= 400 && $code < 500 ? $code : 502]);
+        if (($d['state'] ?? '') !== 'pending') delete_post_meta($eid, self::META_SITE_PENDING);
+        return rest_ensure_response(['ok' => true, 'state' => (string) ($d['state'] ?? ''), 'note' => 'Der neue Stand kommt mit dem nächsten Abgleich.']);
+    }
+
+    /** Kunden-Seite: Stand vom Abgleich ({…pending_payload, my_party}) speichern. */
+    public static function site_pending_sync($id, $pending) {
+        if (is_array($pending) && $pending) update_post_meta($id, self::META_SITE_PENDING, $pending); else delete_post_meta($id, self::META_SITE_PENDING);
+    }
+
+    /** Plattform: wartende Einstellung für eine Kunden-Seite (Abgleich-Eintrag) oder null. */
+    public static function pending_for_site($eid, $oid) {
+        $p = self::pending($eid);
+        if (!$p) return null;
+        $party = self::party($oid);
+        $pp = self::pending_payload($eid);
+        $pp['my_consent'] = (in_array($party, (array) $p['needs'], true) && empty($p['consents'][$party])) ? ['party_key' => $party, 'texts' => self::consent_texts($eid, $p, $party)] : null;
+        return $pp;
     }
 
     // ═══════════════ Abrechnung (evendis.de) ═══════════════
@@ -662,6 +977,13 @@ class TIX_Co_Money {
     }
 
     public static function routes() {
+        register_rest_route(self::NS, '/events/(?P<id>\d+)/co-money/consent', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_consent'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
+        if (self::multi()) {
+            register_rest_route(self::NS, '/organizer/co-consents', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_my_consents'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
+            register_rest_route(self::NS, '/partner/co-events/(?P<id>\d+)/money-consent', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_site_consent'], 'permission_callback' => [__CLASS__, 'perm_site_consent']]);
+        } else {
+            register_rest_route(self::NS, '/partner/co/(?P<id>\d+)/money', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_source_money'], 'permission_callback' => ['TIX_Co_Remote', 'perm_assign']]);
+        }
         register_rest_route(self::NS, '/events/(?P<id>\d+)/co-balance', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_balance'], 'permission_callback' => [__CLASS__, 'perm_balance']]);
         register_rest_route(self::NS, '/events/(?P<id>\d+)/co-balance/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_balance_pdf'], 'permission_callback' => [__CLASS__, 'perm_balance']]);
     }
