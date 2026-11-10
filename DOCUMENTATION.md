@@ -5216,3 +5216,14 @@ Fund KMT (mallorcaparty-schwelm.de): Im Plattform-Studio war „Homepage“ an u
 - **Nur bei einer Änderung des Lizenz-Stands** (gemerkt in `tix_website_license_state` = `on`/`off`): Ein Schalter, der im WP-Admin dazwischen umgelegt wurde, bleibt, bis die Lizenz sich wieder ändert. Beim ersten Abgleich nach dem Update wird eine ausdrückliche Liste übernommen; das repariert Seiten wie KMT von selbst.
 - Der Mehr-Veranstalter-Modus (evendis.de) ist nicht betroffen.
 - **Tests:** `test-website-license-wp` (kk, 12 Prüfungen); `test-license-wp` bleibt grün.
+
+## 128. Website-Vorlagen „nacht“ und „plakat“ (ab 1.38.721)
+Auftrag `uebergaben/auftrag-plugin-vorlagen-nacht-plakat.md` (Homepage-Stile). Kein neues Feld und kein neuer Abschnitt, nur zusätzliche Werte.
+- `TIX_Website::TEMPLATES` und `TIX_Sales_Previews::TEMPLATES` kennen `nacht` und `plakat`; der Fehlertext der Prüfung ist mitgezogen.
+- **Vorgaben** (Reihenfolge = Startseite, alles Übrige aus):
+  - `nacht`: stage, live_now, presale, next, tips, raffles, lineup, about, arrival, gallery, faq, newsletter, app_banner
+  - `plakat`: stage, ticker, lineup, tickets, more_dates, raffles, tips, about, arrival, gallery, faq, newsletter, app_banner
+- Folge: `catalog.templates` enthält beide, und `catalog.sections[].defaults` hat die Schlüssel `nacht`/`plakat`.
+- **Vertriebs-Vorschau → evendis-Design:** `nacht` → `clubnacht`, `plakat` → `ticketschalter` (wie `festival`; ein Design `programmheft` gibt es im Plugin nicht).
+- Profil (`homepage.layout`) unverändert.
+- **Tests:** `test-website-nacht-plakat-wp` (kk 10 mit Speichern und site-config, Plattform 8), `test-website-einfach-wp` grün.

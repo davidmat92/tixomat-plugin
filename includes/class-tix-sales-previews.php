@@ -42,7 +42,7 @@ class TIX_Sales_Previews {
     const GONE_DAYS = 30;
     const DEFAULT_ACCENT = '#FC2F55';
     const VID_BASE = 900000000;
-    const TEMPLATES = ['club', 'festival', 'klar', 'einfach'];
+    const TEMPLATES = ['club', 'festival', 'klar', 'einfach', 'nacht', 'plakat']; // nacht + plakat: 1.38.721
     const PUBLIC_STATI = ['publish', 'future', 'pending', 'private'];
     /** Editor-Felder, die eine Vorschau nicht kennt (Rest geht 1:1 an den Event-Editor). */
     const NOT_IN_PREVIEW = ['published', 'post_status', 'organizer_id', 'id'];
@@ -1033,7 +1033,7 @@ class TIX_Sales_Previews {
         $email = trim((string) $req->get_param('customer_email'));
         if ($email !== '' && !is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse des Kunden angeben.', ['status' => 400, 'field' => 'customer_email']);
         $tpl = (string) $req->get_param('template');
-        if ($tpl !== '' && !in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival, klar oder einfach.', ['status' => 400, 'field' => 'template']);
+        if ($tpl !== '' && !in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival, klar, einfach, nacht oder plakat.', ['status' => 400, 'field' => 'template']);
         if (self::limited('sales_preview', 30, HOUR_IN_SECONDS)) return new WP_Error('tix_rate_limit', 'Zu viele Vorschauen in kurzer Zeit. Bitte warte etwas.', ['status' => 429]);
         $imp = self::import($src, self::MAX_EVENTS);
         if (is_wp_error($imp)) return self::map_error($imp);
@@ -1109,7 +1109,7 @@ class TIX_Sales_Previews {
         $tpl = null;
         if (array_key_exists('template', $p)) {
             $tpl = (string) $p['template'];
-            if (!in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival, klar oder einfach.', ['status' => 400, 'field' => 'template']);
+            if (!in_array($tpl, self::TEMPLATES, true)) return new WP_Error('tix_invalid_field', 'Vorlage: club, festival, klar, einfach, nacht oder plakat.', ['status' => 400, 'field' => 'template']);
         }
         $logo = null;
         if (array_key_exists('logo_id', $p)) {
@@ -1637,7 +1637,7 @@ class TIX_Sales_Previews {
         // Website-Vorlage für die spätere Website-Einstellung (Phase 3 des Website-Plans)
         update_post_meta($org_id, self::META_TEMPLATE, self::template_of($d));
         // Veranstalterseite auf evendis.de passend zur Vorlage (User-Entscheid A, 1.38.515) – nur ohne eigenes Design
-        $design = ['club' => 'clubnacht', 'festival' => 'ticketschalter', 'klar' => 'galerie', 'einfach' => 'ticketschalter'][self::template_of($d)] ?? '';
+        $design = ['club' => 'clubnacht', 'festival' => 'ticketschalter', 'klar' => 'galerie', 'einfach' => 'ticketschalter', 'nacht' => 'clubnacht', 'plakat' => 'ticketschalter'][self::template_of($d)] ?? '';
         if ($design !== '' && (string) get_post_meta($org_id, '_tix_org_page_design', true) === '' && class_exists('TIX_Organizer_Page') && method_exists('TIX_Organizer_Page', 'set_design')) {
             TIX_Organizer_Page::set_design($org_id, $design);
         }
