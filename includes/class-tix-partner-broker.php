@@ -126,6 +126,11 @@ class TIX_Partner_Broker {
         return intval($id) >= self::ID_START && get_option('tix_partner_orders_db') === self::DB_VERSION;
     }
 
+    /** Vermittlung mit dieser ID vorhanden? (eigene Bestell-IDs können in den Bereich ab 800000001 wachsen, 1.38.712) */
+    public static function exists($id) {
+        return self::is_broker_id($id) && (bool) self::row($id);
+    }
+
     private static function row($id) {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE id = %d", intval($id)));
@@ -193,7 +198,7 @@ class TIX_Partner_Broker {
             'items'    => is_array($items) ? $items : [],
             'coupon'   => (string) ($req->get_param('coupon') ?? ''),
             // Gebühr im evendis-Kanal (nur wenn für den Partner an) – die Quelle rechnet sie ins Angebot
-            'channel_fee' => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::for_partner($p) : null,
+            'channel_fee' => (class_exists('TIX_Channel_Fee') && !(class_exists('TIX_Co_Sale') && TIX_Co_Sale::$no_fee)) ? TIX_Channel_Fee::for_partner($p) : null, // keine Gebühr zwischen eigenen Seiten (1.38.712)
         ], function ($v) { return $v !== null; }));
         if (is_wp_error($data)) return $data;
         $legal = isset($data['legal']) && is_array($data['legal']) ? $data['legal'] : [];
@@ -255,7 +260,9 @@ class TIX_Partner_Broker {
             'payment_method'    => sanitize_text_field((string) ($req->get_param('payment_method') ?? '')),
             'idempotency_token' => 'p' . $idem,
             'partner_ref'       => (string) $id,
-            'channel_fee'       => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::for_partner($p) : null,
+            'channel_fee'       => (class_exists('TIX_Channel_Fee') && !(class_exists('TIX_Co_Sale') && TIX_Co_Sale::$no_fee)) ? TIX_Channel_Fee::for_partner($p) : null,
+            // Rücksprung nach der Zahlung (z. B. Kunden-Seite, 1.38.712)
+            'return_url'        => (string) ($req->get_param('return_url') ?? ''),
         ]);
         if (is_wp_error($data) || empty($data['order']['id'])) {
             $wpdb->delete(self::table(), ['id' => $id]);

@@ -121,7 +121,10 @@ class TIX_Owner_Access {
             $c = $c ?? TIX_Site_Config::payload();
             $homepage = is_array($c['homepage'] ?? null) && !empty($c['homepage']['enabled']);
         }
-        return ['payment' => $payment, 'legal' => $legal, 'owner' => self::has_owner(), 'homepage' => $homepage];
+        // Nur vermittelte Co-Events (1.38.712): kein eigener Zahlungsanbieter nötig
+        $needed = class_exists('TIX_Co_Sale') ? TIX_Co_Sale::payments_needed() : true;
+        return ['payment' => $payment || !$needed, 'legal' => $legal, 'owner' => self::has_owner(), 'homepage' => $homepage,
+            'payments_needed' => $needed, 'payments_reason' => $needed ? null : 'only_brokered'];
     }
 
     /** Lizenzprüfung: Einladung aus der Antwort ausführen (einmal je nonce, nur mit gültiger Signatur). */

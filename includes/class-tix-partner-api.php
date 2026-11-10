@@ -264,8 +264,13 @@ class TIX_Partner_API {
         }
         TIX_App_Checkout::$partner = ['id' => TIX_Partners::source_platform_id(), 'ref' => $ref];
         if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::begin($req);
+        // Rücksprung nach der Zahlung (1.38.712): die Plattform ist angemeldet und reicht die Adresse ihrer bzw. der vermittelnden Seite durch
+        $ret = (string) ($req->get_param('return_url') ?? '');
+        $ret_host = ($ret !== '' && stripos($ret, 'https://') === 0) ? strtolower((string) wp_parse_url($ret, PHP_URL_HOST)) : '';
+        $old_hosts = TIX_Native_Checkout::$extra_return_hosts;
+        if ($ret_host !== '') TIX_Native_Checkout::$extra_return_hosts = [$ret_host];
         try {
-            $data = self::data(TIX_App_Checkout::create(self::sub_request('/customer/orders', [
+            $data = self::data(TIX_App_Checkout::create(self::sub_request('/customer/orders', ($ret_host !== '' ? ['return_url' => $ret] : []) + [
                 'event_id'          => $event_id,
                 'items'             => is_array($req->get_param('items')) ? $req->get_param('items') : [],
                 'coupon'            => (string) ($req->get_param('coupon') ?? ''),
@@ -276,6 +281,7 @@ class TIX_Partner_API {
             ])));
         } finally {
             TIX_App_Checkout::$partner = null;
+            TIX_Native_Checkout::$extra_return_hosts = $old_hosts;
             if (class_exists('TIX_Channel_Fee')) TIX_Channel_Fee::end();
         }
         if (is_wp_error($data)) return $data;

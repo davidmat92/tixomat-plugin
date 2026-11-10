@@ -5030,3 +5030,19 @@ Vertrag `uebergaben/vertrag-co-geldempfaenger.md`. Klasse `TIX_Co_Money` (`inclu
   - Nachverkäufe teilt `late_share` genauso.
 - **Ausgleich:** `GET /events/{id}/co-balance` und `/co-balance/pdf` für Ersteller, Co und Admin, auch über den Durchgriff.
 - **Test:** `tests/test-co-money-wp.php` (Plattform 24, Einzel-Seite 9).
+
+## 119. Vermittlung von Kunden-Seiten über die Plattform, Paket 2 (ab 1.38.712)
+Vertrag `uebergaben/vertrag-co-geldempfaenger.md` §4. Klasse `TIX_Co_Sale`.
+- **Plattform:**
+  - `POST /partner/co-events/{id}/sale/quote|orders` und `GET …/sale/orders/{oid}?key=`, mit dem Partner-Schlüssel der Kunden-Seite. Erlaubt nur für Co-Events der Seite, bei denen der Ersteller einnimmt.
+  - Dahinter läuft die App-Kasse der Plattform als Gast: bei eigenen Events direkt, bei geteilten über den Broker zur Quelle. Die Kanalgebühr entfällt (`TIX_Co_Sale::$no_fee`, F2).
+  - Der Rücksprung ist nur auf den Host der Kunden-Seite erlaubt (`TIX_Native_Checkout::$extra_return_hosts`, an der Bestellung `_tix_return_trusted_host`).
+- **Rücksprung bis zur Quelle:** Der Broker reicht `return_url` an die Quelle durch. `POST /partner/orders` der Quelle übernimmt ihn, denn die Plattform ist dort angemeldet.
+- **Abgleich** (`/partner/co-events`): Jedes verkaufsbereite Event trägt `sale`, `seller`, `terms_url` und `categories`. Die Kunden-Seite setzt am Spiegel `_tix_platform_co_sale`, die Kategorien, Online-Verkauf an und den externen Shop aus.
+- **Kunden-Seite:**
+  - Die App-Kasse (`/customer/cart/quote`, `/customer/orders`, `/customer/orders/{id}`) vermittelt Spiegel mit Verkauf an die Plattform. Lokale Bestell-IDs beginnen bei 900000001 (Option `tix_co_sale_orders`).
+  - Ticket-Spiegel (`_tix_ticket_co_sale`) erscheinen unter „Meine Tickets“.
+  - `syndicated_info` liefert `sale_via_app: true` und `brokered: true`. Die Web-Kasse des Plugins verkauft Spiegel nicht selbst.
+- **Startklar:** `TIX_Owner_Access::readiness()` liefert `payments_needed` und `payments_reason: only_brokered`. Eine Seite, die nur vermittelt, gilt als zahlungsbereit.
+- **Broker:** Status-Abrufe prüfen jetzt, ob die Vermittlung existiert (`TIX_Partner_Broker::exists`). Eigene Bestell-IDs können in den Bereich ab 800000001 wachsen.
+- **Tests:** `tests/test-co-sale-wp.php` (Plattform 15), `tests/test-co-sale-e2e.php` (zwei Seiten über HTTP, 10).

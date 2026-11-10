@@ -216,6 +216,8 @@ class TIX_App_Checkout {
      */
     public static function syndicated_info($event_id) {
         $event_id = intval($event_id);
+        // Kunden-Seite: Co-Event, das über die Plattform verkauft wird (1.38.712)
+        if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::is_sale_mirror($event_id)) return TIX_Co_Sale::syndicated_info($event_id);
         if (!self::is_syndicated($event_id)) return null;
         $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
         if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
@@ -1227,6 +1229,8 @@ class TIX_App_Checkout {
         $coupon = (string) ($req->get_param('coupon') ?? '');
 
         $user = is_user_logged_in() ? wp_get_current_user() : null;
+        // Kunden-Seite: Co-Event über die Plattform (1.38.712)
+        if (!self::$partner && class_exists('TIX_Co_Sale') && TIX_Co_Sale::is_sale_mirror($event_id)) return TIX_Co_Sale::site_quote($event_id, $req);
         // Geteiltes Event mit Verkauf über die Vermittlung: Angebot der Quelle
         if (!self::$partner && class_exists('TIX_Partner_Broker') && ($partner = TIX_Partner_Broker::partner_for_event($event_id))) {
             return TIX_Partner_Broker::quote($partner, $event_id, $req, $user);
@@ -1398,6 +1402,8 @@ class TIX_App_Checkout {
         $event_id = intval($req->get_param('event_id'));
         if (!$event_id || get_post_type($event_id) !== 'event') return self::error('tix_event', 'Event nicht gefunden.', 404);
 
+        // Kunden-Seite: Co-Event über die Plattform (1.38.712)
+        if (!self::$partner && class_exists('TIX_Co_Sale') && TIX_Co_Sale::is_sale_mirror($event_id)) return TIX_Co_Sale::site_create($event_id, $req);
         // Geteiltes Event mit Verkauf über die Vermittlung: Bestellung bei der Quelle
         $partner = (!self::$partner && class_exists('TIX_Partner_Broker')) ? TIX_Partner_Broker::partner_for_event($event_id) : null;
         if ($partner) {
@@ -1557,6 +1563,10 @@ class TIX_App_Checkout {
         if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
         if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
+        // Vermittlung (1.38.712): Rücksprung-Host war nur für diese Anfrage erlaubt → an der Bestellung merken
+        if ($return_url !== '' && TIX_Native_Checkout::$extra_return_hosts && in_array($rh = strtolower((string) wp_parse_url($return_url, PHP_URL_HOST)), TIX_Native_Checkout::$extra_return_hosts, true)) {
+            update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_TRUSTED, $rh);
+        }
         if (!self::$partner) self::apply_attribution($order_id, $req->get_param('attribution'), $cart);
         // Newsletter-Häkchen (Modul Marketing): Kontakt mit Double-Opt-in je Veranstalter bzw. Seite, ohne Bestätigung kein Versand
         if (!self::$partner && class_exists('TIX_Newsletter') && filter_var($req->get_param('newsletter_optin'), FILTER_VALIDATE_BOOLEAN)) {
@@ -1723,8 +1733,9 @@ class TIX_App_Checkout {
     public static function status(WP_REST_Request $req) {
         $user = is_user_logged_in() ? wp_get_current_user() : null;
         $id   = intval($req['id']);
+        if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::is_local_id($id)) return TIX_Co_Sale::site_status($id, $req); // Kunden-Seite (1.38.712)
         // Vermittelte Bestellung (geteiltes Event, Zahlung beim Veranstalter)
-        if (class_exists('TIX_Partner_Broker') && TIX_Partner_Broker::is_broker_id($id)) {
+        if (class_exists('TIX_Partner_Broker') && TIX_Partner_Broker::exists($id)) {
             return TIX_Partner_Broker::status($id, $req, $user);
         }
         $o    = self::order_row($id);

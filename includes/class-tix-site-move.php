@@ -740,6 +740,11 @@ class TIX_Site_Move {
         return array_values(array_unique(array_merge($ids, class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirrors_of($oid) : [])));
     }
 
+    /** Darf die Kunden-Seite (Veranstalter $oid) dieses Event nutzen? (1.38.712) */
+    public static function partner_event_ok($oid, $eid) {
+        return in_array(intval($eid), self::partner_co_ids(intval($oid)), true);
+    }
+
     /** Spiegel einer Lizenzseite (Teil B)? */
     private static function is_source_mirror($e) {
         return get_post_meta($e, '_tix_syndicated', true) === '1' && intval(get_post_meta($e, TIX_Co_Remote::M_OID, true)) > 0;
@@ -768,6 +773,14 @@ class TIX_Site_Move {
                 'tickets' => get_post_meta($e, '_tix_tickets_enabled', true) === '1', 'price_from' => $price,
                 'creator' => ['id' => $creator, 'name' => html_entity_decode((string) get_the_title($creator), ENT_QUOTES, 'UTF-8')],
                 'access' => TIX_Co_Organizer::has_access($e)];
+            // Verkauf über die Plattform (1.38.712): Kategorien für die Anzeige, Verkäufer, AGB
+            if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::platform_sale_ready($e)) {
+                $last = count($items) - 1;
+                $seller = TIX_Co_Sale::platform_seller($e);
+                $cats = (array) get_post_meta($e, '_tix_ticket_categories', true);
+                foreach ($cats as $ci => $cc) if (is_array($cc)) unset($cats[$ci]['product_id']);
+                $items[$last] += ['sale' => true, 'seller' => $seller['name'], 'terms_url' => $seller['terms_url'], 'categories' => array_values(array_filter($cats, 'is_array'))];
+            }
             if (self::is_source_mirror($e)) {
                 $last = count($items) - 1;
                 $src = self::source_site_of($e);
@@ -869,12 +882,18 @@ class TIX_Site_Move {
             $pid = intval($it['id']);
             $seen[$pid] = true;
             $have = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future', 'trash'], 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => self::CO_META, 'meta_value' => strval($pid)]);
-            $meta = [self::CO_META => $pid, '_tix_syndicate' => '0', '_tix_platform_co_by' => (string) ($it['creator']['name'] ?? ''), '_tix_platform_co_source' => (string) ($it['source_site'] ?? ''),
+            $sale = !empty($it['sale']);
+            $meta = [self::CO_META => $pid, '_tix_syndicate' => '0', '_tix_platform_co_sale' => $sale ? '1' : '0', '_tix_platform_co_seller' => (string) ($it['seller'] ?? ''), '_tix_platform_co_terms' => (string) ($it['terms_url'] ?? ''), '_tix_platform_co_by' => (string) ($it['creator']['name'] ?? ''), '_tix_platform_co_source' => (string) ($it['source_site'] ?? ''),
                 '_tix_platform_co_access' => !empty($it['access']) ? '1' : '0', '_tix_platform_co_url' => (string) $it['url'], '_tix_organizer_id' => $org,
                 '_tix_date_start' => (string) $it['date_start'], '_tix_time_start' => (string) $it['time_start'], '_tix_date_end' => (string) $it['date_end'], '_tix_time_end' => (string) $it['time_end'],
                 '_tix_location' => (string) $it['location'], '_tix_address' => (string) $it['address'], '_tix_tickets_enabled' => '0',
                 '_tix_extshop_enabled' => !empty($it['tickets']) ? '1' : '0', '_tix_extshop_url' => (string) $it['url'], '_tix_extshop_text' => 'Tickets kaufen', '_tix_extshop_mode' => 'replace',
                 '_tix_extshop_price' => $it['price_from'] === null ? '' : (string) $it['price_from']];
+            if ($sale) { // Verkauf über die Plattform: Kategorien zur Anzeige, Kasse vermittelt (TIX_Co_Sale), kein externer Shop
+                $meta['_tix_tickets_enabled'] = '1';
+                $meta['_tix_extshop_enabled'] = '0';
+                $meta['_tix_ticket_categories'] = (array) ($it['categories'] ?? []);
+            }
             $post = ['post_type' => 'event', 'post_title' => (string) $it['title'], 'post_content' => (string) $it['content'], 'post_excerpt' => (string) $it['excerpt'],
                 'post_status' => in_array($it['status'], ['publish', 'draft', 'pending', 'private', 'future'], true) ? $it['status'] : 'draft'];
             if ($have) {

@@ -12,6 +12,10 @@ class TIX_Native_Checkout {
 
     const CART_EXPIRY = 7200; // 2 Stunden
 
+    /** Zusätzlich erlaubte Rücksprung-Hosts nur für die laufende Anfrage (Vermittlung, 1.38.712). */
+    public static $extra_return_hosts = [];
+    const META_RETURN_TRUSTED = '_tix_return_trusted_host';
+
     public static function init() {
 
         add_action('init', [__CLASS__, 'init_cart_session'], 1);
@@ -1109,6 +1113,7 @@ class TIX_Native_Checkout {
             $h = strtolower(trim((string) $h));
             if ($h !== '' && preg_match('/^[a-z0-9.-]+$/', $h) && $h !== 'localhost' && substr($h, -10) !== '.localhost') $out[] = $h;
         }
+        // Vermittlung über die Plattform (Ersteller-Seite bzw. Kunden-Seite) – nur in dieser Anfrage
         // Kunden-Adresse ist automatisch ein erlaubtes Rücksprung-Ziel (nur bei https)
         if (class_exists('TIX_Customer_URL') && strpos(TIX_Customer_URL::base(), 'https://') === 0) $out[] = TIX_Customer_URL::host();
         // Aktive eigene Domains der Veranstalter (Mehr-Veranstalter-Modus, TIX_Org_Domains)
@@ -1116,6 +1121,7 @@ class TIX_Native_Checkout {
             $doms = get_option(TIX_Customer_URL::OPTION_DOMAINS, []);
             if (is_array($doms)) foreach (array_keys($doms) as $d) $out[] = (string) $d;
         }
+        foreach ((array) self::$extra_return_hosts as $h) $out[] = strtolower((string) $h);
         return array_values(array_unique(array_filter($out)));
     }
 
@@ -1155,8 +1161,9 @@ class TIX_Native_Checkout {
     public static function return_redirect_url($order_id, $order_key, $status = '') {
         $back = (string) get_post_meta(intval($order_id), self::META_RETURN_URL, true);
         if ($back === '') return '';
-        // Erneut prüfen: Host könnte inzwischen aus der Liste entfernt worden sein
-        if (is_wp_error(self::validate_return_url($back))) return '';
+        // Erneut prüfen: Host könnte inzwischen aus der Liste entfernt worden sein (außer Vermittlung: beim Anlegen erlaubt, 1.38.712)
+        $trusted = (string) get_post_meta(intval($order_id), self::META_RETURN_TRUSTED, true);
+        if (is_wp_error(self::validate_return_url($back)) && ($trusted === '' || strtolower((string) wp_parse_url($back, PHP_URL_HOST)) !== $trusted)) return '';
         return add_query_arg([
             'order_id' => intval($order_id),
             'key'      => rawurlencode((string) $order_key),
@@ -1870,8 +1877,8 @@ class TIX_Native_Checkout {
                 wp_send_json_error(['message' => 'Event "' . get_the_title($event_id) . '" ist nicht mehr verfügbar.']);
             }
             // Geteilte Events verkauft die Quellseite, nicht diese Kasse
-            if (get_post_meta($event_id, '_tix_syndicated', true) === '1') {
-                $site = get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter';
+            if (get_post_meta($event_id, '_tix_syndicated', true) === '1' || get_post_meta($event_id, '_tix_platform_co', true)) {
+                $site = get_post_meta($event_id, '_tix_source_site', true) ?: (get_post_meta($event_id, '_tix_platform_co_by', true) ?: 'Veranstalter');
                 wp_send_json_error(['message' => 'Tickets für "' . get_the_title($event_id) . '" gibt es beim Veranstalter (' . esc_html($site) . ').']);
             }
             // Mehr-Veranstalter-Modus: kein Verkauf, solange der Veranstalter nicht freigegeben ist
