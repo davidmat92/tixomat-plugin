@@ -795,7 +795,10 @@ class TIX_Site_Move {
                 // Line-up und Künstler (1.38.723): Text, fertige Liste mit Bildern, Künstler als Schnappschuss
                 'lineup' => (string) get_post_meta($e, '_tix_info_lineup', true),
                 'lineup_acts' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::acts($e) : [],
-                'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : []];
+                'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : [],
+                // Ort und Kategorien für lokale Spiegel auf der Kunden-Seite (1.38.738)
+                'venue' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($e) + ['address' => (string) get_post_meta($e, '_tix_address', true)] : null,
+                'category_names' => array_values(array_map(function ($t) { return (string) $t->name; }, (array) (is_array($tt = wp_get_post_terms($e, 'event_category')) ? $tt : [])))];
             // Verkauf über die Plattform (1.38.712): Kategorien für die Anzeige, Verkäufer, AGB
             if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::platform_sale_ready($e)) {
                 $last = count($items) - 1;
@@ -959,6 +962,10 @@ class TIX_Site_Move {
                 if ($acts) update_post_meta($id, '_tix_lineup_acts', $acts); else delete_post_meta($id, '_tix_lineup_acts');
             }
             if (array_key_exists('artists', $it) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) TIX_Artists::store_snapshot($id, (array) $it['artists']);
+            if (class_exists('TIX_Shared_Objects')) { // Ort und Kategorien als lokale Spiegel (1.38.738)
+                if (is_array($it['venue'] ?? null)) TIX_Shared_Objects::sync_location($id, $it['venue']);
+                if (array_key_exists('category_names', $it)) TIX_Shared_Objects::sync_categories($id, (array) $it['category_names']);
+            }
             if (class_exists('TIX_Co_Money')) TIX_Co_Money::site_pending_sync($id, $it['money_pending'] ?? null); // wartende Zustimmung (1.38.717)
             if (class_exists('TIX_Co_Legal')) { if (is_array($it['seller_info'] ?? null)) update_post_meta($id, TIX_Co_Legal::M_SITE, TIX_Co_Legal::clean($it['seller_info'])); else delete_post_meta($id, TIX_Co_Legal::M_SITE); }
         }
@@ -966,6 +973,7 @@ class TIX_Site_Move {
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {
             if (empty($seen[intval(get_post_meta($id, self::CO_META, true))])) { wp_trash_post($id); $n['removed']++; }
         }
+        if (class_exists('TIX_Shared_Objects')) TIX_Shared_Objects::cleanup(); // Spiegel entfernter Events aufräumen (1.38.738)
         update_option('tix_platform_co_sync', ['at' => gmdate('c'), 'counts' => $n, 'errors' => array_slice($errors, 0, 20)], false);
         return ['ok' => true] + $n + ['errors' => $errors];
     }

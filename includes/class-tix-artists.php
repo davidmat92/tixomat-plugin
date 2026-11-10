@@ -293,7 +293,9 @@ class TIX_Artists {
     public static function has_image($aid) {
         $d = self::raw($aid);
         $img = (array) ($d['images'] ?? []);
-        return intval($img['portrait']['id'] ?? 0) > 0 || intval($img['cover']['id'] ?? 0) > 0;
+        if (intval($img['portrait']['id'] ?? 0) > 0 || intval($img['cover']['id'] ?? 0) > 0) return true;
+        $mi = class_exists('TIX_Shared_Objects') ? TIX_Shared_Objects::artist_images($aid) : null;
+        return $mi && ($mi['portrait'] || $mi['cover']);
     }
 
     /**
@@ -350,6 +352,7 @@ class TIX_Artists {
         $img = $d ? (array) ($d['images'] ?? []) : [];
         $p = self::image($img['portrait']['id'] ?? 0, $img['portrait']['credit'] ?? '');
         $c = self::image($img['cover']['id'] ?? 0, $img['cover']['credit'] ?? '');
+        if (!$p && !$c && class_exists('TIX_Shared_Objects') && ($mi = TIX_Shared_Objects::artist_images($id))) { $p = $mi['portrait']; $c = $mi['cover']; } // Spiegel: Bilder der Quelle (1.38.738)
         $flat = function ($i) { return $i ? ['medium' => $i['medium'], 'medium_large' => $i['medium_large'], 'large' => $i['large'], 'credit' => $i['credit']] : null; };
         return ['images' => ['cover' => $c, 'portrait' => $p], 'portrait' => $flat($p), 'cover' => $flat($c), 'credit' => (string) (($p['credit'] ?? '') ?: ($c['credit'] ?? ''))];
     }
@@ -653,6 +656,8 @@ class TIX_Artists {
         delete_post_meta($event_id, self::EV_META);
         delete_post_meta($event_id, self::EV_REF);
         unset(self::$cache['actpics'][intval($event_id)]);
+        // lokale, schreibgeschützte Spiegel der Künstler bzw. eigene gleichen Namens verknüpfen (1.38.738)
+        if (class_exists('TIX_Shared_Objects')) TIX_Shared_Objects::sync_artists($event_id, $out);
         return $out;
     }
 

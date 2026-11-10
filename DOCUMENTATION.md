@@ -5666,3 +5666,11 @@ Das Programm mit Uhrzeiten (`timetable`) bleibt eigenständig. Ein eigener Berei
 - Geteilte Events werden neu verteilt; Spiegel auf evendis und Kunden-Seiten bekommen dadurch Bilder und Künstler.
 - Bestehende Events behalten ihre Rollen, bis im Studio gespeichert wird.
 - **Tests:** `test-lineup-artist-link-wp` (je 20), Line-up-, Künstler- und Co-Tests grün.
+
+## 145. Geteilte Objekte als lokale Spiegel (ab 1.38.738)
+Auftrag und Vertrag: `uebergaben/auftrag-sync-geteilte-objekte-2026-11-10.md`. Klasse `TIX_Shared_Objects`.
+- **Künstler:** Kopien geteilter Events (evendis-Spiegel, Kunden-Seiten) legen die Künstler als markierte lokale Beiträge an (`_tix_mirror`, `_tix_mirror_key`), oder sie verknüpfen eigene gleichen Namens. Das Event bekommt `_tix_artist_ref`; die Bilder kommen als Adressen der Quelle.
+- **Orte und Kategorien:** Auf Kunden-Seiten entstehen Orte (`tix_location`, Adresse und Koordinaten) und Kategorien.
+- **Schreibschutz:** `source`/`readonly` in den Listen; ändernde Aufrufe auf Spiegel → 409 `tix_mirrored_readonly`.
+- **Aufräumen:** Spiegel ohne nutzendes Event werden gelöscht.
+- **Tests:** `test-shared-objects-wp` (15/8).
