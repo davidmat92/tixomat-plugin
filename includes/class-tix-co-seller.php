@@ -19,6 +19,7 @@ class TIX_Co_Seller {
     const M_SOLD    = '_tix_sale_sold';
     const M_BALANCE = '_tix_sale_balance';
     const M_FROZEN  = '_tix_sale_frozen';
+    const M_URL     = '_tix_sale_url';      // Adresse des Events auf der Kunden-Seite des Co (von /local, 1.38.745)
     const M_SELLS   = '_tix_platform_co_sells';
     const TICKET_FIELDS = ['categories', 'tickets_enabled', 'presale_active', 'presale_start', 'presale_end_mode', 'presale_end', 'presale_end_offset'];
     const TICKET_META   = ['_tix_ticket_categories', '_tix_tickets_enabled', '_tix_presale_active', '_tix_presale_start', '_tix_presale_end_mode', '_tix_presale_end', '_tix_presale_end_offset'];
@@ -75,6 +76,25 @@ class TIX_Co_Seller {
         if ($s === 'self') return get_post_meta($eid, '_tix_syndicated', true) === '1' ? null : false;
         $p = self::site_partner(self::co_org($eid));
         return ($p && intval(get_post_meta($eid, self::M_SOURCE, true))) ? $p : null;
+    }
+
+    /**
+     * Geteilter Spiegel, den die Kunden-Seite des Co verkauft (Fall B mit eigener Seite, 1.38.745):
+     * {site, checkout_url} des Co statt der Quelle, sonst null.
+     */
+    public static function site_origin($eid) {
+        $eid = intval($eid);
+        if (!self::multi() || get_post_meta($eid, '_tix_syndicated', true) !== '1' || self::seller($eid) !== 'site') return null;
+        $co = self::co_org($eid);
+        $legal = class_exists('TIX_Co_Legal') ? TIX_Co_Legal::org($co) : [];
+        $name = (string) (($legal['name'] ?? '') ?: html_entity_decode((string) get_the_title($co), ENT_QUOTES, 'UTF-8'));
+        $url = (string) get_post_meta($eid, self::M_URL, true);
+        // sonst Startseite der Kunden-Seite: gemeldeter Host, dann Host des Partners (nie der Host der Plattform)
+        $sm = get_post_meta($co, '_tix_site_seller', true);
+        $h = is_array($sm) ? (string) ($sm['host'] ?? '') : '';
+        if ($h === '' && ($p = self::site_partner($co))) $h = (string) wp_parse_url((string) $p['api_base'], PHP_URL_HOST);
+        if ($url === '' && $h !== '') $url = 'https://' . $h . '/';
+        return ['site' => $name, 'checkout_url' => $url];
     }
 
     public static function source_id($eid) {
@@ -160,6 +180,8 @@ class TIX_Co_Seller {
         update_post_meta($eid, self::M_PARTNER, (string) $req->get_param('_partner_id'));
         update_post_meta($eid, self::M_SOURCE, $local);
         if (!empty($b['sold'])) update_post_meta($eid, self::M_SOLD, '1');
+        $url = esc_url_raw((string) ($b['url'] ?? ''), ['https', 'http']);
+        if ($url !== '') update_post_meta($eid, self::M_URL, $url); // Event-Adresse der Kunden-Seite (1.38.745)
         if (is_array($b['seller'] ?? null) && class_exists('TIX_Co_Legal')) update_post_meta(intval($req->get_param('_partner_oid')), '_tix_site_seller', TIX_Co_Legal::clean($b['seller'])); // Verkäufer-Angaben der Seite (1.38.717)
         if (is_array($b['balance'] ?? null)) update_post_meta($eid, self::M_BALANCE, array_intersect_key($b['balance'], array_flip(['orders', 'tickets', 'gross', 'refunds', 'fees', 'net', 'share', 'share_amount', 'currency', 'as_of', 'final', 'payer', 'payee', 'seller', 'note'])));
         return rest_ensure_response(['ok' => true]);
@@ -239,7 +261,7 @@ class TIX_Co_Seller {
         $bal = class_exists('TIX_Co_Money') ? TIX_Co_Money::balance($id) : null;
         wp_remote_post(rtrim((string) tix_get_settings('syndication_api_url'), '/') . '/partner/co-events/' . $pid . '/local', ['timeout' => 20,
             'headers' => ['X-Tix-Syndication-Key' => (string) tix_get_settings('syndication_api_key'), 'Content-Type' => 'application/json', 'Accept' => 'application/json'],
-            'body' => wp_json_encode(['local_id' => intval($id), 'sold' => $sold, 'balance' => $bal, 'seller' => class_exists('TIX_Co_Legal') ? TIX_Co_Legal::site() : null])]);
+            'body' => wp_json_encode(['local_id' => intval($id), 'url' => class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to((string) get_permalink($id)) : (string) get_permalink($id), 'sold' => $sold, 'balance' => $bal, 'seller' => class_exists('TIX_Co_Legal') ? TIX_Co_Legal::site() : null])]);
     }
 
     // ═══════════════ Lizenzseite (Ersteller, Co verkauft) ═══════════════

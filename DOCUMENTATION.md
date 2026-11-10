@@ -5838,3 +5838,12 @@ Hat eine Seite nur vermittelte Co-Events, galt die Zahlung bisher als erfüllt (
   - Ältere Seiten, die nur Vermittlung melden (`payments_needed: false` ohne `payment_mode: none`), erscheinen ebenfalls als `undecided`.
   - `ready.ok` ist dann false.
 - **Tests:** `test-go-live-wp` (Kunden-Seite 16, Plattform 8), `test-operator-access-wp` (12 / 26), `test-owner-access-wp` grün.
+
+## 152. `syndicated` bei Co mit eigener Seite (ab 1.38.745)
+Ein geteiltes Event auf evendis.de, dessen Geld ein Co mit eigener Kunden-Seite einnimmt (`owner: co`, `TIX_Co_Seller::seller() = site`, Vertrag Fall C), gab in `syndicated` weiter die Quelle aus (`site` „KitchenKlub“, `checkout_url` und Verkäufer-Angaben von kitchenklub.de), obwohl die Kunden-Seite des Co verkauft.
+- **Jetzt** (`TIX_Co_Seller::site_origin`): `syndicated.site` = Name des Co (gemeldete Verkäufer-Angaben, sonst Titel des Profils), `checkout_url` = Event-Adresse auf der Kunden-Seite, sonst deren Startseite (gemeldeter Host bzw. Host des Partners, nie der Host der Plattform).
+- **Verkäufer** (`TIX_Co_Legal::for_event`): bei `seller = site` der Co statt der Quelle (`seller_info`, `address`, `imprint_url`, `privacy_url`).
+- **`POST /partner/co-events/{id}/local`** nimmt `url` an (Meta `_tix_sale_url`); die Kunden-Seite schickt die Adresse ihres Events mit. Die Event-Verteilung überschreibt `_tix_sale_url` nicht.
+- **Unverändert:** Fall B (Plattform verkauft selbst) → `syndicated: null`, `seller` = Co; `owner: creator` → Quelle.
+- **Live-Stand 11.11.:** Auf evendis.de gibt es noch keinen solchen Fall (einziges Co-Event #6453 Schwelm = owner creator, KK nimmt ein; Ausgabe dort korrekt).
+- **Tests:** `test-co-seller-wp` (Plattform 25, Kunden-Seite 16), `test-co-multi-wp` 61, `test-co-sites-wp` 47, `test-co-platform-wp` 59, `test-co-organizer-wp` 46, `test-co-money-wp` 24, `test-co-remote-wp` 17, `test-co-sale-wp` 15, `test-studio-payments-wp` grün.

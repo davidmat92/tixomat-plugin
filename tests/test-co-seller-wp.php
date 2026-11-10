@@ -118,7 +118,7 @@ if (!$multi) {
         $GLOBALS['cz_calls'] = [];
         TIX_Co_Seller::report($mir);
         $c = cz_last('/partner/co-events/4242/local');
-        cz_eq('Meldung an die Plattform: lokale ID + Ausgleich', [$mir, true], [intval($c['body']['local_id'] ?? 0), is_array($c['body']['balance'] ?? null)]);
+        cz_eq('Meldung an die Plattform: lokale ID + Ausgleich + Event-Adresse', [$mir, true, true], [intval($c['body']['local_id'] ?? 0), is_array($c['body']['balance'] ?? null), (string) ($c['body']['url'] ?? '') !== '' && strpos((string) $c['body']['url'], 'http') === 0]);
         cz_eq('Kasse vermittelt nicht (eigener Verkauf)', '', TIX_Co_Sale::target($mir));
     } catch (Throwable $e) { $GLOBALS['t_fails']++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n"; }
     finally { foreach ($tmp_p as $id) wp_delete_post($id, true); wp_set_current_user(0); }
@@ -140,6 +140,7 @@ try {
     $parts['czkk'] = ['id' => 'czkk', 'name' => 'Cztest KK', 'api_base' => 'https://kk.test/wp-json/tixomat/v1', 'key_in' => $kk_key, 'key_out' => str_repeat('q', 32), 'organizer_id' => $okk, 'sales_enabled' => 1, 'channel_fee' => 1, 'channel_fee_percent' => '5'];
     $parts['czkmt'] = ['id' => 'czkmt', 'name' => 'Cztest KMT', 'api_base' => 'https://kmt.test/wp-json/tixomat/v1', 'key_in' => $kmt_key, 'key_out' => str_repeat('o', 32), 'organizer_id' => $okmt];
     update_option(TIX_Partners::OPTION, $parts, false);
+    if (method_exists('TIX_Partner_Broker', 'maybe_install')) TIX_Partner_Broker::maybe_install(); // frische Testseite: Vermittlungs-Tabelle
     TIX_Platform_Customers::flush();
 
     // ── Fall B: KK-Event, Co auf evendis.de verkauft
@@ -172,6 +173,26 @@ try {
     cz_eq('B: Ausgleich für die Lizenzseite', ['seller', 40.0, 4.0], [$b['source'] ?? '', $b['net'] ?? null, $b['share_amount'] ?? null]);
     [$st, , $c] = cz_rest('POST', "/syndicate/$mir/co-organizer", ['action' => 'money', 'owner' => 'creator'], $hk);
     cz_eq('B: nach Verkauf gesperrt', [409, 'tix_co_money_locked'], [$st, $c]);
+
+    // ── Fall B mit eigener Seite: KK-Event, KMT (Kunden-Seite) nimmt ein → `syndicated` nennt KMT, nicht KK (1.38.745)
+    $mirk = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Cztest Spiegel B-Seite', 'meta_input' => ['_tix_organizer_id' => $okk, '_tix_date_start' => '2027-07-02', '_tix_time_start' => '20:00',
+        '_tix_syndicated' => '1', '_tix_source_partner' => 'czkk', '_tix_source_id' => 1172, '_tix_source_site' => 'Cztest KK', '_tix_partner_sales' => '1', '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1',
+        '_tix_source_checkout' => 'https://kk.test/events/b-seite/', '_tix_source_seller' => ['name' => 'Cztest KK', 'imprint_url' => 'https://kk.test/impressum/'],
+        '_tix_ticket_categories' => [['name' => 'VVK', 'price' => 20, 'qty' => 100, 'stock' => 100]], '_tix_co_remote_oid' => $okmt, '_tix_co_remote_access' => '1', '_tix_co_remote_token' => str_repeat('x', 48)]]);
+    $tmp_p[] = $mirk;
+    update_post_meta($mirk, TIX_Co_Money::META_OWNER, 'co'); update_post_meta($mirk, TIX_Co_Money::META_SHARE, '10');
+    cz_eq('B-Seite: Verkaufsinstanz Kunden-Seite, Plattform verkauft nicht', ['site', $okmt, false], [TIX_Co_Seller::seller($mirk), TIX_Co_Money::owner_id($mirk), TIX_Co_Seller::sells_here($mirk)]);
+    $si = TIX_App_Checkout::syndicated_info($mirk);
+    cz_eq('B-Seite vor Meldung: site = KMT, Adresse der Seite, Verkäufer KMT, keine Vermittlung', ['Cztest KMT', 'https://kmt.test/', 'Cztest KMT', false],
+        [$si['site'] ?? '', $si['checkout_url'] ?? '', $si['seller_info']['name'] ?? '', $si['sale_via_app'] ?? null]);
+    [$st] = cz_rest('POST', "/partner/co-events/$mirk/local", ['local_id' => 91, 'url' => 'https://kmt.test/events/b-seite/', 'seller' => ['name' => 'KMT Schwelm GmbH', 'address' => 'Markt 1, 58332 Schwelm', 'imprint_url' => 'https://kmt.test/impressum/', 'privacy_url' => 'https://kmt.test/datenschutz/']], ['X-Tix-Syndication-Key' => $kmt_key]);
+    $si = TIX_App_Checkout::syndicated_info($mirk);
+    cz_eq('B-Seite nach Meldung: Event-Adresse bei KMT, Verkäufer-Angaben KMT, Vermittlung an KMT', [200, 'KMT Schwelm GmbH', 'https://kmt.test/events/b-seite/', 'KMT Schwelm GmbH', 'Markt 1, 58332 Schwelm', true],
+        [$st, $si['site'] ?? '', $si['checkout_url'] ?? '', $si['seller_info']['name'] ?? '', $si['address'] ?? '', $si['sale_via_app'] ?? null]);
+    $pe = TIX_Public_Events::payload($mirk, true);
+    cz_eq('B-Seite öffentlich: kein kitchenklub/KK in syndicated, Verkauf über die App', ['KMT Schwelm GmbH', true, false], [$pe['syndicated']['site'] ?? '', $pe['tickets_enabled'], strpos(wp_json_encode($pe['syndicated']), 'kk.test') !== false]);
+    update_post_meta($mirk, TIX_Co_Money::META_OWNER, 'creator');
+    cz_eq('B-Seite zurück auf Ersteller: wieder die Quelle', ['Cztest KK', 'https://kk.test/events/b-seite/', 'Cztest KK'], [TIX_App_Checkout::syndicated_info($mirk)['site'] ?? '', TIX_App_Checkout::syndicated_info($mirk)['checkout_url'] ?? '', TIX_App_Checkout::syndicated_info($mirk)['seller_info']['name'] ?? '']);
 
     // ── Fall D: Plattform-Event, KMT (Kunden-Seite) verkauft
     wp_set_current_user($ua);

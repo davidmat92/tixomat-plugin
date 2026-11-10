@@ -92,7 +92,8 @@ class TIX_Co_Legal {
         if (self::multi()) {
             $syn = get_post_meta($eid, '_tix_syndicated', true) === '1';
             $owner = class_exists('TIX_Co_Money') ? TIX_Co_Money::owner_id($eid) : 0;
-            if ($owner && class_exists('TIX_Co_Seller') && (!$syn || TIX_Co_Seller::sells_here($eid))) return self::org($owner);
+            // Co nimmt ein: verkauft die Plattform selbst oder die Kunden-Seite des Co (seller site, 1.38.745)
+            if ($owner && class_exists('TIX_Co_Seller') && (!$syn || TIX_Co_Seller::sells_here($eid) || TIX_Co_Seller::seller($eid) === 'site')) return self::org($owner);
             if ($syn) { $m = get_post_meta($eid, self::M_SOURCE, true); return is_array($m) && !empty($m['name']) ? self::clean($m) : null; }
             return self::org(intval(get_post_meta($eid, '_tix_organizer_id', true)));
         }

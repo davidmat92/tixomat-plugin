@@ -22,7 +22,7 @@ class TIX_Syndication_Receive {
         '_tix_co_organizer_id', '_tix_co_organizer_ref', '_tix_co_organizer_access', '_tix_co_organizer_consent', '_tix_co_organizer_since',
         '_tix_co_remote', '_tix_co_token_hash', '_tix_co_remote_oid', '_tix_co_remote_access', '_tix_co_remote_token', // Teil B: evendis setzt diese selbst
         '_tix_co_list', '_tix_co_remotes', '_tix_co_mirror', '_tix_co_shares', '_tix_co_parts', // mehrere Co (1.38.716)
-        '_tix_co_money_pending', '_tix_co_money_consents', '_tix_co_money_pending_site', '_tix_source_seller', '_tix_sale_seller_info', // Zustimmung, Verkäufer (1.38.717)
+        '_tix_co_money_pending', '_tix_co_money_consents', '_tix_co_money_pending_site', '_tix_source_seller', '_tix_sale_seller_info', '_tix_sale_url', // Zustimmung, Verkäufer (1.38.717), Adresse beim Co (1.38.745)
         '_tix_artists', '_tix_artist_ref', '_tix_source_artists', // Künstler-IDs der Quelle gelten hier nicht; Schnappschuss über `artists` (1.38.723)
     ];
 

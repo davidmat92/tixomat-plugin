@@ -223,8 +223,11 @@ class TIX_App_Checkout {
         $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
         if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
         $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
+        // Co mit eigener Kunden-Seite verkauft (Fall B, 1.38.745): Herkunft = Co, nicht die Quelle
+        $co_site = class_exists('TIX_Co_Seller') ? TIX_Co_Seller::site_origin($event_id) : null;
+        if ($co_site) $checkout = $co_site['checkout_url'];
         $info = [
-            'site'         => (string) (get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter'),
+            'site'         => $co_site ? $co_site['site'] : (string) (get_post_meta($event_id, '_tix_source_site', true) ?: 'Veranstalter'),
             'checkout_url' => $checkout,
             // true = die App verkauft über die Vermittlung (Zahlung beim Veranstalter)
             'sale_via_app' => (bool) $broker,
