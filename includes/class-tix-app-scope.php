@@ -323,7 +323,9 @@ class TIX_App_Scope {
     }
 
     public static function rest_profile(WP_REST_Request $req) {
-        return rest_ensure_response(self::profile_payload(self::organizer_id_for_user()));
+        $oid = self::organizer_id_for_user();
+        // Kunden-Seite (1.38.726): gepflegt im Studio der Seite, hier nur lesend (nicht in der Brücke /syndicate/organizer)
+        return rest_ensure_response(self::profile_payload($oid) + ['managed_by_site' => self::site_managed($oid)]);
     }
 
     /** Profil eines bestimmten Veranstalters (auch für die Partner-Brücke, TIX_Partner_Page). */
@@ -331,10 +333,23 @@ class TIX_App_Scope {
         return self::profile_payload(intval($oid));
     }
 
+    /**
+     * Profil einer Kunden-Seite (1.38.726): gepflegt im Studio der Seite (Brücke /partner/evendis-page → /syndicate/organizer),
+     * auf evendis nur lesend – sonst überschriebe die Seite die Änderung bzw. es gäbe zwei Stände.
+     */
+    public static function site_managed($oid) {
+        return class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile(intval($oid));
+    }
+
+    private static function site_managed_error() {
+        return new WP_Error('tix_org_site_managed', 'Diese Veranstalterseite pflegt die eigene Website im eigenen Studio (Veranstalterseite). Auf evendis ist sie nur lesbar.', ['status' => 409]);
+    }
+
     public static function rest_save_profile(WP_REST_Request $req) {
         $b = $req->get_json_params();
         $b = is_array($b) ? $b : [];
         $oid = self::organizer_id_for_user();
+        if (self::site_managed($oid)) return self::site_managed_error();
         if ($c = self::profile_conflict($oid, $b)) return $c;
         $r = self::save_profile($oid, $b);
         if (is_wp_error($r)) return $r;
@@ -468,6 +483,7 @@ class TIX_App_Scope {
     /** POST /organizer/profile/image (multipart `file`, Feld `kind` = logo|hero). */
     public static function rest_profile_image(WP_REST_Request $req) {
         $oid  = self::organizer_id_for_user();
+        if (self::site_managed($oid)) return self::site_managed_error();
         $kind = sanitize_key((string) $req->get_param('kind'));
         $meta = $kind === 'hero' ? '_tix_org_landing_hero_id' : ($kind === 'placeholder' ? '_tix_org_placeholder_id' : '_tix_org_landing_logo_id');
         // Platzhalter je Veranstalter (1.38.465) zurücksetzen: kind=placeholder&remove=1 → wieder der Platzhalter der Seite

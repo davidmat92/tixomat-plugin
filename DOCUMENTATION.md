@@ -5397,3 +5397,13 @@ Auftrag `uebergaben/auftrag-logo-hell-dunkel-2026-11-10.md`. Gespeichert als `lo
 - Oder in `wp tixomat marke setzen --daten='{…, "logo": "<datei|url|id>", "logo_on_light": "<datei|url|id>"}'`; `""` entfernt.
 - Gleiche Datei-Regeln; URLs werden geladen und in die Mediathek übernommen.
 - **Tests:** `test-logo-on-light-wp` (Einzel-Seite und Plattform je 12); Marke, Website und Studio-Tests grün.
+
+## 133. Kunden-Seiten-Profile auf evendis: öffentlich mit Co-Events, nur lesend (ab 1.38.726)
+Fund KMT: Das Profil #9510 war veröffentlicht und freigegeben, aber `/public/organizers?q=KMT` war leer und `/public/organizers/9510` gab 404, weil `public_hidden` nur eigene Events zählte. KMT ist Co beim KitchenKlub-Spiegel #6453.
+- **Öffentlich**, sobald das Profil an mindestens einem veröffentlichten Event beteiligt ist (`TIX_Co_Sites::public_hidden`): als Veranstalter (`_tix_organizer_id`), als Co lokal (`_tix_co_organizer_id`) oder als Co auf dem Spiegel einer Lizenzseite (`_tix_co_remote_oid`). Ein Entwurf zählt nicht.
+- **Kommende Events eines Veranstalters** (Liste und Detail, `upcoming_count`, Sparten, Stadt) enthalten jetzt auch Events, bei denen er Co ist (`co_organizers_info`). Das gilt für alle Veranstalter. Neues Feld je Event: `organizer_role` = `own` | `co`.
+- **Pflege:** Das Studio der Kunden-Seite schreibt unter „Veranstalterseite“ (`/seite/`) schon direkt ins evendis-Profil, über die Brücke `/partner/evendis-page` → `/syndicate/organizer` mit dem Partner-Schlüssel der Seite (§ Partner-Page 1.38.450). Einen lokalen Stand gibt es nicht, daher braucht es keinen zusätzlichen Abgleich.
+- **Auf evendis nur lesend:**
+  - `POST /organizer/profile` und `/organizer/profile/image` antworten bei Kunden-Seiten-Profilen mit 409 `tix_org_site_managed`.
+  - `GET /organizer/profile` liefert `managed_by_site: true`. Die Brücke liefert das Feld nicht, damit das Studio der Seite weiter bearbeiten kann.
+- **Tests:** `test-site-profile-public-wp` (11). Die Co-Tests bleiben grün.

@@ -228,11 +228,18 @@ class TIX_Public_Platform {
         return $events;
     }
 
+    /** Kommende Events eines Veranstalters: eigene und solche, bei denen er Co-Veranstalter ist (1.38.726, `organizer_role` own|co). */
     private static function upcoming_for_organizer($oid, $events = null) {
         $events = $events ?? self::upcoming_payloads();
-        return array_values(array_filter($events, function ($e) use ($oid) {
-            return intval($e['organizer_info']['id'] ?? 0) === intval($oid);
-        }));
+        $oid = intval($oid);
+        $out = [];
+        foreach ($events as $e) {
+            if (intval($e['organizer_info']['id'] ?? 0) === $oid) { $out[] = $e + ['organizer_role' => 'own']; continue; }
+            foreach ((array) ($e['co_organizers_info'] ?? []) as $co) {
+                if (intval($co['id'] ?? 0) === $oid) { $out[] = $e + ['organizer_role' => 'co']; break; }
+            }
+        }
+        return $out;
     }
 
     public static function organizer_payload($oid, $detailed = false, $events = null) {

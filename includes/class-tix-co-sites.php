@@ -162,11 +162,17 @@ class TIX_Co_Sites {
         return self::$prof[$oid] = $r;
     }
 
-    /** Öffentlich ausblenden: Profil einer Kunden-Seite ohne eigenes veröffentlichtes Event auf der Plattform. */
+    /**
+     * Öffentlich ausblenden: Profil einer Kunden-Seite, das an keinem veröffentlichten Event der Plattform beteiligt ist.
+     * Beteiligt (1.38.726, Fund KMT #9510): als Veranstalter (`_tix_organizer_id`) oder als Co – lokal (`_tix_co_organizer_id`, je Co
+     * eine Zeile) oder auf dem Spiegel einer Lizenzseite (`_tix_co_remote_oid`).
+     */
     public static function public_hidden($oid) {
         if (!self::is_site_profile($oid)) return false;
+        $v = strval(intval($oid));
         return !get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
-            'meta_query' => [['key' => '_tix_organizer_id', 'value' => strval(intval($oid))]]]);
+            'meta_query' => ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $v], ['key' => '_tix_co_organizer_id', 'value' => $v],
+                ['key' => class_exists('TIX_Co_Remote') ? TIX_Co_Remote::M_OID : '_tix_co_remote_oid', 'value' => $v]]]);
     }
 
     /** Mitteilung an die Kunden-Seite (1.38.715): [gemailt, Hinweis]; Ersatzadressen (….invalid) bekommen keine Mail. */
