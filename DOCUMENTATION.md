@@ -5560,7 +5560,7 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
 - **`manual`** (Standard, „Eigene Reihenfolge“): zuerst die Acts mit `role: "headliner"` in ihrer Reihenfolge, danach alle übrigen in der Studio-Reihenfolge.
   - Acts, die die Studio-Reihenfolge nicht nennt, kommen dahinter in der bisherigen Reihenfolge (Programm, dann Line-up-Zeilen, dann zugeordnete Künstler).
 - **`time`** („Nach Auftrittszeit“): nur die Zeit (`start_at`, sonst `time` mit `next_day`), Acts ohne Zeit danach. Headliner werden nicht vorgezogen, nur `role` zeigt sie.
-- **Frage an den User (Vorgabe aus dem Auftrag umgesetzt):** Sollen Headliner bei „Nach Auftrittszeit“ doch oben stehen? Heute nein.
+- **Entschieden (User, 10.11.):** Bei „Nach Auftrittszeit“ zählt nur die Uhrzeit wie im Timetable; Headliner werden nur hervorgehoben (`role`), nicht nach oben gestellt. So gebaut.
 
 **Studio / App-Veranstalterbereich**
 - `GET /events/{id}/edit` (auch `studio/events`) → zusätzlich:
