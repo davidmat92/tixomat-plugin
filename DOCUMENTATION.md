@@ -5481,3 +5481,14 @@ Auftrag `uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md` (Feldnamen von marke
 - Geprüft wird Text auf Hintergrund und auf Flächen (mindestens 4,5:1) sowie Akzent auf Hintergrund (mindestens 3:1).
 - Das ist nur ein Hinweis, Speichern geht trotzdem. Geprüft wird nur, wenn beide Farben gesetzt sind.
 - **Tests:** `test-website-layout-wp` (Einzel-Seite 13 mit Speichern und Veröffentlichen, Plattform 10).
+
+## 136. Vertriebs-Vorschau: Kopf, Fuß, Farben (ab 1.38.729)
+- **Speichern:** `PATCH /sales/previews/{id}` nimmt `header`, `footer` und `colors` an, mit denselben Feldern und Prüfungen wie die echte Website (400 `tix_invalid_field` mit `field`).
+  - Nicht gesendete Teile bleiben erhalten.
+  - `null` für einen Teil setzt ihn auf die Vorlage zurück, z. B. `colors: null`.
+- **Studio (Vertrieb):** Die Vorschau-Antwort enthält den gespeicherten Rohzustand `header`, `footer`, `colors` (`null` = Vorlage) und `layout_warnings` (Kontrast, wie `warnings` der Website).
+- **Öffentlich:** `GET /public/previews/{token}` → `website {template, header, footer, colors, colors_source}` mit den wirksamen Werten wie `/public/website`.
+  - Für nicht gesetzte Felder gilt die Vorgabe der Vorlage; die Marke der Plattform ist kein Rückfall.
+- **Übernahme:** Bei der Übernahme gehen die Werte nicht mit, weil die Vorschau zu einem evendis-Veranstalter wird, nicht zu einer eigenen Website.
+- `TIX_Website::layout($w, $tpl, $brand)` ist dafür öffentlich.
+- **Test:** `test-preview-layout-wp` (Plattform 7).

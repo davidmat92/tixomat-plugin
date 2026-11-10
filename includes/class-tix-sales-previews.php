@@ -907,6 +907,7 @@ class TIX_Sales_Previews {
             'logo'           => self::logo_of($d) ?: null,
             'accent'         => self::accent_of($d),
             'template'       => self::template_of($d),
+        ] + self::layout_admin($d) + [
             'source_url'     => (string) ($d['source_url'] ?? ''),
             'created_at'     => self::iso($d['created_at'] ?? 0),
             'expires_at'     => self::iso($d['expires_at'] ?? 0),
@@ -932,6 +933,19 @@ class TIX_Sales_Previews {
             'read_mode'      => (string) ($d['read_mode'] ?? 'direct'),
             'notice'         => $d['notice'] ?? null,
         ];
+    }
+
+    /** Studio (Vertrieb): gespeicherter Rohzustand (null = Vorlage) + Kontrast-Warnungen (1.38.729). */
+    private static function layout_admin(array $d) {
+        $l = (array) ($d['website_layout'] ?? []);
+        $raw = ['header' => (object) ($l['header'] ?? []), 'footer' => (object) ($l['footer'] ?? []), 'colors' => (object) ($l['colors'] ?? [])];
+        return $raw + ['layout_warnings' => class_exists('TIX_Website') && method_exists('TIX_Website', 'color_warnings') ? TIX_Website::color_warnings((array) ($l['colors'] ?? [])) : []];
+    }
+
+    /** Öffentlich: wirksame Werte wie /public/website (Vorgaben der Vorlage, ohne Marke der Plattform) */
+    private static function layout_public(array $d) {
+        if (!class_exists('TIX_Website') || !method_exists('TIX_Website', 'layout')) return [];
+        return TIX_Website::layout((array) ($d['website_layout'] ?? []), self::template_of($d), false);
     }
 
     private static function template_of(array $d) {
@@ -1116,6 +1130,16 @@ class TIX_Sales_Previews {
             $logo = intval($p['logo_id']);
             if ($logo > 0 && !self::image_allowed($logo, $d)) return new WP_Error('tix_invalid_field', 'Dieses Bild gehört nicht zu dieser Vorschau.', ['status' => 403, 'field' => 'logo_id']);
         }
+        // Kopf, Fuß, Farben der Homepage-Vorschau (1.38.729): gleiche Prüfung wie echte Websites (TIX_Website::clean)
+        $layout = null;
+        if (array_intersect(['header', 'footer', 'colors'], array_keys($p)) && class_exists('TIX_Website') && method_exists('TIX_Website', 'layout')) {
+            $cur = (array) ($d['website_layout'] ?? []);
+            $in = [];
+            foreach (['header', 'footer', 'colors'] as $k) $in[$k] = array_key_exists($k, $p) ? ($p[$k] === null ? [] : $p[$k]) : ($cur[$k] ?? []);
+            $cl = TIX_Website::clean($in);
+            if (is_wp_error($cl)) return $cl;
+            $layout = ['header' => $cl['header'], 'footer' => $cl['footer'], 'colors' => $cl['colors']];
+        }
         $email = null;
         if (array_key_exists('customer_email', $p)) {
             $email = trim((string) $p['customer_email']);
@@ -1124,6 +1148,7 @@ class TIX_Sales_Previews {
         if ($name !== null) { $d['name'] = $name; $d['organizer']['name'] = $name; }
         if ($accent !== null) $d['organizer']['accent'] = $accent;
         if ($tpl !== null) $d['template'] = $tpl;
+        if ($layout !== null) $d['website_layout'] = $layout;
         if ($logo !== null) {
             if ($logo > 0) self::own_attachment($logo, $d['id']);
             $d['organizer']['logo_id'] = max(0, $logo);
@@ -1427,7 +1452,10 @@ class TIX_Sales_Previews {
         $org['preview'] = true;
         $org['events'] = $events;
         $owner = get_userdata(intval($d['owner']));
+        $lay = self::layout_public($d);
         return self::nostore(['ok' => true, 'preview' => true, 'noindex' => true, 'status' => 'active', 'expires_at' => self::iso($d['expires_at']), 'template' => self::template_of($d),
+            // Kopf, Fuß, Farben (1.38.729): wie website.header/footer/colors der echten Websites
+            'website' => ['template' => self::template_of($d)] + $lay,
             'organizer' => $org, 'events' => $events, 'takeover_url' => self::claim_link($d['claim']),
             'contact' => ['name' => $owner ? (string) $owner->display_name : '', 'email' => $owner ? (string) $owner->user_email : '']]);
     }

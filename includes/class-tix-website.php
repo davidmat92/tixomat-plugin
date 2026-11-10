@@ -545,7 +545,13 @@ class TIX_Website {
      * header/footer wirksam (gespeichert, sonst Vorgabe der Vorlage) + `colors` (Hex oder null = Farbe der Vorlage).
      * Hintergrund/Lichtschein aus „Texte & Angaben“ (homepage.colors) gelten weiter, solange hier nichts gesetzt ist (`colors_source`).
      */
-    private static function layout_payload($w, $tpl) {
+    /** Öffentliche Form für andere Stellen (Vertriebs-Vorschau, 1.38.729); $brand = Hintergrund aus „Texte & Angaben“ als Rückfall. */
+    public static function layout($w, $tpl, $brand = true) {
+        $tpl = in_array($tpl, self::TEMPLATES, true) ? $tpl : 'club';
+        return self::layout_payload((array) $w, $tpl, $brand);
+    }
+
+    private static function layout_payload($w, $tpl, $brand = true) {
         $d = self::layout_defaults($tpl);
         $out = [];
         foreach (['header', 'footer'] as $part) {
@@ -555,7 +561,7 @@ class TIX_Website {
         $c = array_fill_keys(self::COLOR_KEYS, null);
         $src = array_fill_keys(self::COLOR_KEYS, 'template');
         foreach ((array) ($w['colors'] ?? []) as $k => $v) if ($v && array_key_exists($k, $c)) { $c[$k] = $v; $src[$k] = 'website'; }
-        if ($c['background'] === null && class_exists('TIX_Site_Config')) {
+        if ($brand && $c['background'] === null && class_exists('TIX_Site_Config')) {
             $st = (array) ((get_option(TIX_Site_Config::OPTION, []) ?: [])['homepage']['colors'] ?? []);
             if (!empty($st['background'])) { $c['background'] = (string) $st['background']; $src['background'] = 'brand'; }
         }
