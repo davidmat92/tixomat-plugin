@@ -5072,3 +5072,21 @@ Vertrag `uebergaben/vertrag-co-geldempfaenger.md` §5. Klasse `TIX_Co_Seller`.
 - `TIX_Website::TEMPLATES` und `TIX_Sales_Previews::TEMPLATES` kennen `einfach`, Vorgabe `stage, next, about, contact`. Der Katalog (`catalog.templates`, `sections[].defaults.einfach`) liefert die Vorlage mit. In der Vertriebs-Vorschau bekommt `einfach` das Design `ticketschalter`.
 - Das Profil `theater` steht in `TIX_Studio::LAYOUTS` und `TIX_Site_Brand::LAYOUTS`. Es wird wie `club` dargestellt (`profile_template` → `club`), bis es eine eigene Darstellung gibt.
 - Test: `tests/test-website-einfach-wp.php` (Plattform 5, Einzel-Seite 7).
+
+## 122. Co auf Spiegeln: an die Quelle weiterreichen, Kunden-Seiten sofort aktiv, Status-Abgleich (ab 1.38.715)
+Live-Befund: kitchenklub.de #1171, evendis.de #6453. Der Plattform-Admin hatte auf dem Spiegel einen lokalen Co (Teil A) angelegt; zusätzlich gab es den Teil-B-Co der Quelle.
+- **Spiegel** (`_tix_syndicated`):
+  - Ein Co lässt sich nicht mehr lokal anlegen, auch nicht über Editor, Einladung, Kunden-Seite oder `POST /platform/events/{id}/co-organizer`. Die Plattform reicht ihn an die Quelle weiter: `POST {quelle}/partner/co/{id}/assign` mit Partner-Zugang (`TIX_Co_Remote::forward_to_source`).
+  - Die Quelle lädt ein wie im Editor (`invite_internal`, auch per `organizer_id`) und meldet den Co über die Event-Verteilung zurück (`syndicate_org`). Beide Seiten haben danach denselben Co.
+- **Anzeige:**
+  - Der Editor des Spiegels zeigt den Co der Quelle (`co_organizer_mode: source`, `co_source {site, note}`).
+  - In der Plattform-Zeile ist `co_editable` gesetzt, wenn die Quelle erreichbar ist, dazu `co_source {site, forward, note}`. `co_locked` gibt es nur noch ohne Verbindung.
+- **Kunden-Seiten als Co:**
+  - Ihr Status ist immer `active` (`org_status`), ohne Passwort.
+  - Die Plattform stößt sofort den Abgleich der Kunden-Seite an (`POST {seite}/partner/co-sync`, nicht blockierend, höchstens einmal je Minute).
+  - An Ersatzadressen (`….invalid`) geht keine Mail; die Antwort enthält dann `mail_note`.
+- **Status:**
+  - Die Lizenzseite fragt beim Öffnen des Editors, ob ein Co mit Status „eingeladen“ noch eingeladen ist (Aktion `status`, höchstens alle 5 Minuten).
+  - `mirror_payload` verwendet dieselbe Regel wie Teil A.
+- **Bereinigung:** `wp tixomat co spiegel [--reparieren]` listet lokale Co auf Spiegeln bzw. reicht sie an die Quelle weiter (ersetzt deren Co) und entfernt sie lokal.
+- **Tests:** `tests/test-co-mirror-e2e.php` (zwei Seiten über HTTP, 8), `test-co-sites-wp.php` (Plattform 43).

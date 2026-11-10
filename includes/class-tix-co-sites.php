@@ -169,6 +169,24 @@ class TIX_Co_Sites {
             'meta_query' => [['key' => '_tix_organizer_id', 'value' => strval(intval($oid))]]]);
     }
 
+    /** Mitteilung an die Kunden-Seite (1.38.715): [gemailt, Hinweis]; Ersatzadressen (….invalid) bekommen keine Mail. */
+    public static function notify_result($event_id, $oid, $by = '') {
+        $u = TIX_Co_Organizer::owner_user($oid);
+        $to = $u ? (string) $u->user_email : (string) get_post_meta($oid, '_tix_org_email', true);
+        if (!is_email($to) || preg_match('/\.invalid$/i', $to)) return [false, 'Für die Seite ist keine E-Mail-Adresse hinterlegt – das Event erscheint trotzdem in ihrem Studio.'];
+        return [self::notify($event_id, $oid, $by), ''];
+    }
+
+    /** Kunden-Seite sofort abgleichen lassen (nicht blockierend, 1.38.715). */
+    public static function trigger_sync($oid) {
+        if (!class_exists('TIX_Co_Seller')) return false;
+        $p = TIX_Co_Seller::site_partner($oid);
+        if (!$p) return false;
+        wp_remote_post(untrailingslashit($p['api_base']) . '/partner/co-sync', ['timeout' => 5, 'blocking' => false, 'body' => '{}',
+            'headers' => ['Content-Type' => 'application/json', 'X-Tix-Partner-Id' => TIX_Partners::platform_id(), 'X-Tix-Partner-Key' => (string) $p['key_out']]]);
+        return true;
+    }
+
     /** Mail an den Inhaber der Kunden-Seite. */
     public static function notify($event_id, $oid, $by = '') {
         $u = TIX_Co_Organizer::owner_user($oid);

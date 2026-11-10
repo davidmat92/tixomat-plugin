@@ -55,6 +55,10 @@ class TIX_Site_Move {
             $o = ['permission_callback' => ['TIX_REST_API', 'check_organizer']];
             register_rest_route(self::NS, '/platform-co/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_co_list']] + $o);
             register_rest_route(self::NS, '/platform-co/sync', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_co_sync']] + $o);
+            // Plattform stößt den Abgleich an (1.38.715): Partner-Zugang, höchstens einmal je Minute
+            register_rest_route(self::NS, '/partner/co-sync', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_partner_co_sync'], 'permission_callback' => function (WP_REST_Request $r) {
+                return class_exists('TIX_Partner_API') ? TIX_Partner_API::check_auth($r) : new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+            }]);
             register_rest_route(self::NS, '/platform-co/(?P<id>\d+)/(?P<path>[A-Za-z0-9/_-]+)', ['methods' => ['GET', 'POST', 'DELETE'], 'callback' => [__CLASS__, 'rest_co_proxy'], 'permission_callback' => [__CLASS__, 'perm_co_proxy']]);
             return;
         }
@@ -929,6 +933,13 @@ class TIX_Site_Move {
         }
         update_option('tix_platform_co_sync', ['at' => gmdate('c'), 'counts' => $n, 'errors' => array_slice($errors, 0, 20)], false);
         return ['ok' => true] + $n + ['errors' => $errors];
+    }
+
+    public static function rest_partner_co_sync() {
+        if (get_transient('tix_co_sync_lock')) return rest_ensure_response(['ok' => true, 'skipped' => true]);
+        set_transient('tix_co_sync_lock', 1, MINUTE_IN_SECONDS);
+        $r = self::sync_co_events();
+        return is_wp_error($r) ? new WP_Error($r->get_error_code(), $r->get_error_message(), ['status' => 502]) : rest_ensure_response($r);
     }
 
     public static function rest_co_sync() {

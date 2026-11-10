@@ -260,6 +260,11 @@ try {
     cs_eq('Profil Art site, Partner zugeordnet', ['site', $kmt_oid], [get_post_meta($kmt_oid, '_tix_org_kind', true), intval(TIX_Partners::get('cskmt')['organizer_id'] ?? 0)]);
     cs_eq('Eintrag: site, Label', ['site', 'eigene Seite kmt.test'], [$d['co_organizers'][0]['kind'] ?? '', $d['co_organizers'][0]['origin']['label'] ?? '']);
     cs_eq('Zugriff an', true, TIX_Co_Organizer::has_access($ev));
+    // 1.38.715: Kunden-Seite sofort aktiv, keine Mail an Ersatzadressen
+    cs_eq('Kunden-Seite: Status aktiv, ohne Einladungs-Adresse', ['active', ''], [TIX_Co_Organizer::payload($ev)['status'] ?? '', TIX_Co_Organizer::payload($ev)['invited_email'] ?? 'x']);
+    update_post_meta($kmt_oid, '_tix_org_email', 'inhaber@kunden.evendis.invalid');
+    [$m0, $n0] = TIX_Co_Sites::notify_result($ev, $kmt_oid);
+    cs_eq('Ersatzadresse: keine Mail, Hinweis', [false, true], [$m0, strpos($n0, 'keine E-Mail-Adresse') !== false]);
     // 1.38.709: Profil der Kunden-Seite nicht in Veranstalter-Suche und öffentlicher Liste
     [, $d] = cs_rest('GET', '/organizers/search', ['q' => 'Csxtest']);
     cs_eq('Veranstalter-Suche ohne Kunden-Seite', [false, true], [in_array($kmt_oid, array_map('intval', array_column($d['items'] ?? [], 'id')), true), in_array($ob, array_map('intval', array_column($d['items'] ?? [], 'id')), true)]);
@@ -310,8 +315,12 @@ try {
     wp_set_current_user($admin_id);
     [, $d] = cs_rest('GET', '/platform/events', ['q' => 'Csxtest Spiegel']);
     $row = $d['items'][0] ?? [];
-    cs_eq('Zeile Spiegel: nicht änderbar, aber trennbar', [false, true, 'site'], [$row['co_editable'] ?? null, $row['co_removable'] ?? null, $row['co_organizer']['kind'] ?? '']);
-    cs_eq('POST auf Spiegel bleibt 409', 409, cs_rest('POST', "/platform/events/$mir/co-organizer", ['organizer_id' => $ob])[0]);
+    cs_eq('Zeile Spiegel: änderbar über die Quelle, trennbar', [true, true, 'site', true], [$row['co_editable'] ?? null, $row['co_removable'] ?? null, $row['co_organizer']['kind'] ?? '', $row['co_source']['forward'] ?? null]);
+    // 1.38.715: Ändern auf dem Spiegel geht an die Quelle (kk.test), lokal kein Teil-A-Co
+    $GLOBALS['cs_reply'] = function () { return [200, ['ok' => true, 'mailed' => false]]; };
+    [$st, $d] = cs_rest('POST', "/platform/events/$mir/co-organizer", ['organizer_id' => $ob]);
+    $c = cs_last_call('/partner/co/1171/assign');
+    cs_eq('POST auf Spiegel: an die Quelle weitergereicht', [true, true, $ob, 0], [in_array($st, [200, 201], true), !empty($d['forwarded']), intval($c['body']['organizer_id'] ?? 0), TIX_Co_Organizer::ref_id($mir)]);
     $GLOBALS['cs_reply'] = function () { return [200, ['ok' => true]]; };
     [$st, $d] = cs_rest('DELETE', "/platform/events/$mir/co-organizer");
     $c = cs_last_call('/release');

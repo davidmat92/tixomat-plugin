@@ -63,7 +63,7 @@ sb_eq('Teil-Update: Rest bleibt, null entfernt, enabled aus', [200, null, 'XXL S
 foreach ([
     'Unbekanntes Feld' => [['logo' => 'x'], 'homepage.logo'],
     'Kurzname' => [['key' => 'XXL Party!'], 'homepage.key'],
-    'Profil' => [['layout' => 'theater'], 'homepage.layout'],
+    'Profil' => [['layout' => 'zirkus'], 'homepage.layout'],
     'Schrift' => [['display_font' => 'comic'], 'homepage.display_font'],
     'Farbe' => [['colors' => ['surface' => 'red']], 'homepage.colors.surface'],
     'Farbname' => [['colors' => ['--bg' => '#000000']], 'homepage.colors.--bg'],
