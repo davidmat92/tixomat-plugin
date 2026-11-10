@@ -77,6 +77,12 @@ if ($multi) {
         su_eq('Passwort-Link per Mail an Ina', [200, true], (function ($r) { return [$r[0], $r[1]['mailed'] ?? null]; })(su_rest('POST', "/platform/customers/$k/users/$ina/password", ['mode' => 'invite'])));
         su_eq('Inhaber ändern/entfernen 409', [409, 409], [su_rest('DELETE', "/platform/customers/$k/users/$owner")[0], su_rest('PATCH', "/platform/customers/$k/users/$owner", ['role' => 'dj'])[0]]);
         su_eq('Fremdes Konto (Admin) 404', 404, su_rest('DELETE', "/platform/customers/$k/users/$admin_id")[0]);
+        // 1.38.727: Inhaberschaft wechseln (Veranstalter), Konten auf evendis nie löschen
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users/$ina/owner", ['old' => 'admin']);
+        su_eq('Veranstalter: Ina wird Inhaberin, alter Inhaber ins Team', [200, $ina, $org], [$s, intval(get_post_meta($org, '_tix_org_user_id', true)), intval(get_user_meta($owner, TIX_App_Scope::META_TEAM_ORG, true))]);
+        su_eq('Konto auf evendis löschen 409', [409, 'tix_users_delete_platform'], (function ($r) { return [$r[0], $r[2]]; })(su_rest('DELETE', "/platform/customers/$k/users/$owner", ['delete' => true])));
+        su_eq('Inhaberin nicht entfernbar (Rolle)', 409, su_rest('DELETE', "/platform/customers/$k/users/$ina")[0]);
+        update_post_meta($org, '_tix_org_user_id', $owner); delete_user_meta($owner, TIX_App_Scope::META_TEAM_ORG); update_user_meta($ina, TIX_App_Scope::META_TEAM_ORG, $org);
         [$s, $d] = su_rest('DELETE', "/platform/customers/$k/users/$kai");
         su_eq('Entfernen: Rolle weg, nicht mehr im Team', [200, true, '', null], [$s, $d['removed'] ?? null, (string) get_user_meta($kai, TIX_App_Scope::META_TEAM_ORG, true), (function ($u) { foreach (TIX_Team::APP_ROLES as $k => $wp) if (in_array($wp, (array) $u->roles, true)) return $k; return null; })(get_userdata($kai))]);
         $n = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . TIX_Customers::audit_table() .  " WHERE action LIKE 'team_%%' AND subject_id IN (%s, %s, %s)", (string) $ina, (string) $kai, (string) $owner));
@@ -131,7 +137,8 @@ if ($multi) {
         su_eq('Signierte Anfrage: Zugang angelegt (Rolle Eingang, Passwort gesetzt)', [200, true, 'entrance', true], [$s, $d['password_set'] ?? null, $d['user']['role'] ?? '', $eva > 0 && wp_check_password('Einlass-Pass-2026', get_userdata($eva)->user_pass, $eva)]);
         [$s, $d] = $call('list', []);
         $byid = array_column((array) ($d['users'] ?? []), null, 'id');
-        su_eq('Liste: Inhaber nicht entfernbar, Eva mit Login, kein Admin', [true, false, "sut_eva$sfx", false], [$byid[$own]['owner'] ?? null, $byid[$own]['removable'] ?? null, $byid[$eva]['login'] ?? '', isset($byid[get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]])]);
+        $adm1 = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
+        su_eq('Liste: Inhaber nicht entfernbar, Eva mit Login, WordPress-Admin gekennzeichnet (1.38.727)', [true, false, "sut_eva$sfx", 'wp_admin'], [$byid[$own]['owner'] ?? null, $byid[$own]['removable'] ?? null, $byid[$eva]['login'] ?? '', $byid[$adm1]['kind'] ?? '']);
         su_eq('falscher Schlüssel 401', 401, $call('list', [], 'TIX-FALSCH-1')[0]);
         su_eq('alte Anfrage 401', 401, $call('list', [], null, time() - 600)[0]);
         $nonce = 'fest' . $sfx;
@@ -140,6 +147,33 @@ if ($multi) {
         su_eq('Inhaber entfernen 409', [409, 'tix_is_owner'], (function ($r) { return [$r[0], $r[2]]; })($call('remove', ['id' => $own])));
         su_eq('Rolle ändern', [200, 'cashier'], (function ($r) { return [$r[0], $r[1]['user']['role'] ?? '']; })($call('update', ['id' => $eva, 'role' => 'cashier'])));
         su_eq('Entfernen', [200, true], (function ($r) { return [$r[0], $r[1]['removed'] ?? null]; })($call('remove', ['id' => $eva])));
+
+        // ── 1.38.727: alle Konten, Löschen, Inhaberwechsel
+        $kunde = wp_insert_user(['user_login' => "sut_kunde$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_kunde$sfx@example.test", 'role' => get_role('tix_customer') ? 'tix_customer' : 'subscriber']); $users[] = $kunde;
+        [$s, $d] = $call('list', []);
+        $ids = array_map('intval', array_column((array) ($d['users'] ?? []), 'id'));
+        su_eq('Kundenkonten nur gezählt', [200, false, true], [$s, in_array($kunde, $ids, true), intval($d['counts']['customer'] ?? 0) >= 1]);
+        [, $d] = $call('list', ['customers' => true]);
+        $byid = array_column((array) ($d['users'] ?? []), null, 'id');
+        su_eq('… mit customers: Kundenkonto dabei, löschbar', ['customer', true], [$byid[$kunde]['kind'] ?? '', $byid[$kunde]['deletable'] ?? null]);
+        su_eq('Einziger Inhaber nicht löschbar', [409, 'tix_last_owner'], (function ($r) { return [$r[0], $r[2]]; })($call('delete', ['id' => $own])));
+        [$s, $d] = $call('create', ['name' => 'Max Neu', 'login' => "sut_max$sfx", 'role' => 'cashier', 'password_mode' => 'set', 'password' => 'Max-Pass-2026x']);
+        $max = intval($d['user']['id'] ?? 0); $users[] = $max;
+        $post = wp_insert_post(['post_type' => 'post', 'post_status' => 'draft', 'post_title' => "SUT Beitrag $sfx", 'post_author' => $own]);
+        [$s, $d] = $call('transfer_owner', ['id' => $max, 'old' => 'admin']);
+        su_eq('Inhaber wechseln: Max Inhaber, alter Inhaber bleibt Admin', [200, true, '', true],
+            [$s, intval(get_user_meta($max, '_tix_site_owner', true)) === 1, (string) get_user_meta($own, '_tix_site_owner', true), in_array('tix_organizer', (array) get_userdata($own)->roles, true)]);
+        [$s, $d] = $call('delete', ['id' => $own]);
+        su_eq('Alter Inhaber gelöscht, Beitrag an den neuen Inhaber', [200, true, $max, $max], [$s, $d['deleted'] ?? null, $d['reassigned_to'] ?? 0, intval(get_post_field('post_author', $post))]);
+        wp_delete_post($post, true);
+        su_eq('Neuer Inhaber ist jetzt der einzige: nicht löschbar', 409, $call('delete', ['id' => $max])[0]);
+        su_eq('Letzter WordPress-Admin nicht löschbar', [409, true], (function ($r) use ($adm1) { return [$r[0], in_array($r[2], ['tix_last_admin', 'tix_last_owner'], true)]; })(count(get_users(['role' => 'administrator', 'fields' => 'ID'])) === 1 ? $call('delete', ['id' => $adm1]) : [409, [], 'tix_last_admin']));
+        su_eq('Kundenkonto löschen', [200, true, false], (function ($r) use ($kunde) { return [$r[0], $r[1]['deleted'] ?? null, (bool) get_userdata($kunde)]; })($call('delete', ['id' => $kunde])));
+        $u2 = wp_insert_user(['user_login' => "sut_neu$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_neu$sfx@example.test", 'role' => 'tix_entrance']); $users[] = $u2;
+        [$s] = $call('transfer_owner', ['id' => $u2, 'old' => 'remove']);
+        su_eq('Wechsel mit old=remove: alter Inhaber ohne App-Rolle', [200, true, false], [$s, intval(get_user_meta($u2, '_tix_site_owner', true)) === 1, in_array('tix_organizer', (array) get_userdata($max)->roles, true)]);
+        su_eq('Technisches Konto kann nicht Inhaber werden', 400, (function () use ($call) { $op = class_exists('TIX_Operator_Access') ? TIX_Operator_Access::account() : 0; $r = $op ? $call('transfer_owner', ['id' => $op]) : [400]; if ($op) { require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($op); } return $r[0]; })());
+
         update_option('tix_license_server', '1', false);
         su_eq('Seite ohne Lizenz-Betrieb (selbst Lizenz-Server) 404', 404, $call('list', [])[0]);
     } finally {

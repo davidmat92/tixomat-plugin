@@ -5407,3 +5407,43 @@ Fund KMT: Das Profil #9510 war veröffentlicht und freigegeben, aber `/public/or
   - `POST /organizer/profile` und `/organizer/profile/image` antworten bei Kunden-Seiten-Profilen mit 409 `tix_org_site_managed`.
   - `GET /organizer/profile` liefert `managed_by_site: true`. Die Brücke liefert das Feld nicht, damit das Studio der Seite weiter bearbeiten kann.
 - **Tests:** `test-site-profile-public-wp` (11). Die Co-Tests bleiben grün.
+
+## 134. Zugänge: alle Konten, Löschen, Inhaberschaft wechseln (ab 1.38.727)
+Auftrag `uebergaben/auftrag-zugaenge-alle-inhaber-2026-11-10.md`, Ergänzung zu §131 (`TIX_Site_Users`).
+- **Kunden-Seite:** Die Liste zeigt immer alle Inhaber, WordPress-Admins, Team-Mitglieder und technischen Konten.
+  - Kundenkonten werden nur gezählt; mit `customers=1` kommen höchstens 200 dazu, neueste zuerst.
+  - **Veranstalter auf evendis:** nur Inhaber und Team, weil andere Plattform-Konten nicht zum Kunden gehören.
+- **Je Konto zusätzlich:**
+  - `kind`: `owner` | `wp_admin` | `team` | `technical` (evendis Betreiber) | `customer`
+  - `role` bei diesen Arten: `owner` | `admin_wp` | `operator` | `customer`; sonst die App-Rolle
+  - `wp_roles`, `deletable`, `delete_hint` (Grund, warum es nicht geht), `can_become_owner`
+  - `editable` und `removable` sind nur bei `team` true (Rolle ändern bzw. aus dem Team nehmen).
+
+**Konto löschen:** `DELETE /platform/customers/{key}/users/{id}?delete=1` (oder Body `{delete: true, reassign?: <Konto-ID>}`) → `{ok, deleted, reassigned_to}`
+- Ohne `delete` bleibt es wie bisher: nur die App-Rolle wird entfernt.
+- **Nur auf Kunden-Seiten:** Auf evendis antwortet die Route mit 409 `tix_users_delete_platform`, dort nur aus dem Team nehmen.
+- **Beiträge** gehen an `reassign`, ohne Angabe an einen anderen Inhaber, sonst an einen anderen WordPress-Admin.
+- **Bestellungen und Tickets** bleiben an der E-Mail wie bei „Konto löschen“.
+- **Gesperrt:**
+  - letzter Inhaber: 409 `tix_last_owner`, erst die Inhaberschaft wechseln
+  - letzter WordPress-Admin: 409 `tix_last_admin`
+- Das technische Konto „evendis Betreiber“ darf gelöscht werden; die nächste Betreiber-Anmeldung legt es neu an.
+- Bestätigungsdialog im Studio.
+
+**Inhaberschaft wechseln:** `POST /platform/customers/{key}/users/{id}/owner {old: 'admin'|'remove'}` → `{ok, owner, users}`
+- **Kunden-Seite:**
+  - Das Konto bekommt `_tix_site_owner` und Inhaberrechte (`tix_organizer`, sofern kein WordPress-Admin).
+  - Alle bisherigen Inhaber verlieren die Inhaberschaft. Mit `admin` (Vorgabe) bleiben sie Admin, mit `remove` verlieren sie die App-Rolle und alle Sitzungen; WordPress-Admins behalten ihre WordPress-Rolle.
+- **Veranstalter auf evendis:**
+  - Nur ein Team-Mitglied kann Inhaber werden; es wird `_tix_org_user_id`.
+  - Mit `admin` kommt der alte Inhaber ins Team, mit `remove` nicht.
+  - Gehört die Person zu einem anderen Veranstalter: 409 `tix_other_team`.
+- **Fehler:**
+  - 400 `tix_invalid_field`: technisches Konto oder kein Team-Mitglied
+  - 409 `tix_is_owner`: ist schon Inhaber
+
+**Protokoll und Weg:** wie 1.38.724
+- signierte Anfrage an `/site/users` mit den Aktionen `delete` und `transfer_owner`
+- Lizenz-Verlauf `site_user_delete` / `site_user_transfer_owner`
+- `tix_audit_log` beim Kunden: `user_deleted`, `owner_set`, `owner_removed`
+- **Tests:** `test-site-users-wp` (Plattform 26, Kunden-Seite 19).
