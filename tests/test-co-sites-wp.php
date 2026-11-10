@@ -301,12 +301,17 @@ try {
     [$st, $d] = cs_rest('GET', '/partner/co-events', [], ['X-Tix-Syndication-Key' => $kmt_key]);
     $it = array_column($d['items'] ?? [], null, 'id')[$mir] ?? [];
     cs_eq('B: Spiegel in co-events der Kunden-Seite', [true, 'kk.test', true], [!empty($it), $it['source_site'] ?? '', $it['access'] ?? null]);
+    cs_eq('B: origin_id = Event-ID der Lizenzseite, Plattform-Event 0 (1.38.718)', [1171, 0], [$it['origin_id'] ?? null, array_column($d['items'] ?? [], null, 'id')[$ev]['origin_id'] ?? null]);
 
     // Durchgriff Kunden-Seite → Plattform → KK
-    $GLOBALS['cs_reply'] = function ($url) { return [200, ['ok' => true, 'status' => 200, 'data' => ['id' => 1171, 'title' => 'von KK']]]; };
+    $GLOBALS['cs_reply'] = function ($url) { return [200, ['ok' => true, 'status' => 200, 'data' => ['id' => 1171, 'title' => 'von KK', 'event' => ['id' => '1171', 'event_id' => 1171], 'items' => [['id' => 1171, 'event_id' => 1171]]]]]; };
     [$st, $d] = cs_rest('POST', "/partner/co-events/$mir/call", ['method' => 'GET', 'path' => "/events/$mir/edit"], ['X-Tix-Syndication-Key' => $kmt_key]);
     $c = cs_last_call('kk.test/');
     cs_eq('B: Durchgriff weitergeleitet', [200, 200, 'von KK'], [$st, $d['status'] ?? 0, $d['data']['title'] ?? '']);
+    cs_eq('B: Quell-ID in der Antwort → Plattform-ID, fremde IDs bleiben (1.38.718)', [$mir, strval($mir), $mir, 1171, $mir],
+        [$d['data']['id'] ?? 0, $d['data']['event']['id'] ?? '', $d['data']['event']['event_id'] ?? 0, $d['data']['items'][0]['id'] ?? 0, $d['data']['items'][0]['event_id'] ?? 0]);
+    [, $d] = cs_rest('POST', "/partner/co-events/$mir/call", ['method' => 'GET', 'path' => "/events/$mir/orders"], ['X-Tix-Syndication-Key' => $kmt_key]);
+    cs_eq('B: Unterroute: oberste id bleibt (keine Event-Antwort)', [1171, strval($mir)], [$d['data']['id'] ?? 0, $d['data']['event']['id'] ?? 0]);
     cs_eq('B: an KK mit Quell-ID und Schlüssel', [true, '/events/1171/edit', $ctok], [strpos($c['url'] ?? '', '/partner/co/1171') !== false, $c['body']['path'] ?? '', $c['headers']['X-Tix-Co-Token'] ?? '']);
     [$st, $d] = cs_rest('POST', "/partner/co-events/$mir/call", ['method' => 'POST', 'path' => '/orders/5/refund'], ['X-Tix-Syndication-Key' => $kmt_key]);
     cs_eq('B: Storno gesperrt', [false, 403], [$d['ok'] ?? null, $d['status'] ?? 0]);

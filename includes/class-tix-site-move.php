@@ -33,6 +33,7 @@ class TIX_Site_Move {
     const SKIP_META_RE = '#^_tix_(settled|settle_|syndicat|source_|partner_|moved_|co_|organizer_id$|location_id$|org_user_id$|org_kind$|org_approval|org_terms|org_payout|org_iban|org_bank|org_fee|org_team|publish_held|edit_lock|thumbnail_id$)#';
 
     const CO_META   = '_tix_platform_co';
+    const CO_ORIGIN = '_tix_platform_co_origin'; // Event-ID auf der Lizenzseite, wenn das Plattform-Event ein Spiegel ist (1.38.718), sonst 0
     const CO_CRON   = 'tix_platform_co_sync';
 
     public static function init() {
@@ -744,6 +745,20 @@ class TIX_Site_Move {
         return array_values(array_unique(array_merge($ids, class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirrors_of($oid) : [])));
     }
 
+    /**
+     * Antwort der Lizenzseite für die Kunden-Seite: Event-ID der Lizenzseite ($sid) → Plattform-ID ($eid) (1.38.718).
+     * Nur Event-Felder: `event_id` überall, `id` beim Event selbst (oberste Ebene bzw. `event`) – Bestell-/Ticket-IDs bleiben.
+     */
+    public static function source_ids_back($data, $sid, $eid, $is_event = false) {
+        if (!is_array($data) || !$sid || $sid === $eid) return $data;
+        foreach ($data as $k => $v) {
+            if (is_array($v)) { $data[$k] = self::source_ids_back($v, $sid, $eid, $k === 'event'); continue; }
+            if ((!is_int($v) && !(is_string($v) && ctype_digit($v))) || intval($v) !== $sid) continue;
+            if ($k === 'event_id' || ($k === 'id' && $is_event)) $data[$k] = is_string($v) ? strval($eid) : $eid;
+        }
+        return $data;
+    }
+
     /** Darf die Kunden-Seite (Veranstalter $oid) dieses Event nutzen? (1.38.712) */
     public static function partner_event_ok($oid, $eid) {
         return in_array(intval($eid), self::partner_co_ids(intval($oid)), true);
@@ -776,7 +791,7 @@ class TIX_Site_Move {
                 'image' => $thumb ? (string) wp_get_attachment_image_url($thumb, 'large') : '', 'url' => (string) get_permalink($e),
                 'tickets' => get_post_meta($e, '_tix_tickets_enabled', true) === '1', 'price_from' => $price,
                 'creator' => ['id' => $creator, 'name' => html_entity_decode((string) get_the_title($creator), ENT_QUOTES, 'UTF-8')],
-                'access' => TIX_Co_Organizer::has_access($e, $oid)];
+                'access' => TIX_Co_Organizer::has_access($e, $oid), 'origin_id' => 0];
             // Verkauf über die Plattform (1.38.712): Kategorien für die Anzeige, Verkäufer, AGB
             if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::platform_sale_ready($e)) {
                 $last = count($items) - 1;
@@ -803,6 +818,7 @@ class TIX_Site_Move {
                 $src = self::source_site_of($e);
                 $items[$last]['access'] = TIX_Co_Remote::mirror_has_access($e, $oid);
                 $items[$last]['source_site'] = $src;
+                $items[$last]['origin_id'] = intval(get_post_meta($e, '_tix_source_id', true)); // Event-ID auf der Lizenzseite (1.38.718)
                 if ($items[$last]['creator']['name'] === '') $items[$last]['creator'] = ['id' => 0, 'name' => $src];
             }
         }
@@ -831,7 +847,9 @@ class TIX_Site_Move {
             $ok = TIX_Co_Remote::allowed($method, $path, $q, $body, $sid);
             if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
             $env = TIX_Co_Remote::forward($eid, $method, $path, $q, $body, ['email' => '', 'name' => html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8'), 'organizer_id' => $oid]);
-            return is_wp_error($env) ? $env : rest_ensure_response($env);
+            if (is_wp_error($env)) return $env;
+            if (isset($env['data'])) $env['data'] = self::source_ids_back($env['data'], $sid, $eid, (bool) preg_match('#^/(?:studio/)?events/' . $sid . '(?:/(?:edit|form))?$#', $path)); // Kunden-Seite kennt nur die Plattform-ID (1.38.718)
+            return rest_ensure_response($env);
         }
         $ok = TIX_Co_Remote::allowed($method, $path, $q, $body, $eid, true); // Ersteller ist Provisionskunde → Storno/Erstattung erlaubt (User 09.11.)
         if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
@@ -873,7 +891,7 @@ class TIX_Site_Move {
     }
 
     public static function co_list_fields($eid) {
-        return ['event_role' => 'co', 'remote' => true, 'base' => '/platform-co/' . intval($eid), 'access' => get_post_meta($eid, '_tix_platform_co_access', true) === '1',
+        return ['event_role' => 'co', 'remote' => true, 'base' => '/platform-co/' . intval($eid), 'origin_id' => intval(get_post_meta($eid, self::CO_ORIGIN, true)), 'access' => get_post_meta($eid, '_tix_platform_co_access', true) === '1',
             'source_site' => (string) get_post_meta($eid, '_tix_platform_co_source', true) ?: null,
             'shared_with' => ['id' => 0, 'name' => (string) get_post_meta($eid, '_tix_platform_co_by', true), 'logo' => '']];
     }
@@ -900,7 +918,7 @@ class TIX_Site_Move {
             $seen[$pid] = true;
             $have = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future', 'trash'], 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => self::CO_META, 'meta_value' => strval($pid)]);
             $sale = !empty($it['sale']);
-            $meta = [self::CO_META => $pid, '_tix_syndicate' => '0', '_tix_platform_co_sale' => $sale ? '1' : '0', '_tix_platform_co_seller' => (string) ($it['seller'] ?? ''), '_tix_platform_co_terms' => (string) ($it['terms_url'] ?? ''), '_tix_platform_co_by' => (string) ($it['creator']['name'] ?? ''), '_tix_platform_co_source' => (string) ($it['source_site'] ?? ''),
+            $meta = [self::CO_META => $pid, '_tix_syndicate' => '0', '_tix_platform_co_sale' => $sale ? '1' : '0', '_tix_platform_co_seller' => (string) ($it['seller'] ?? ''), '_tix_platform_co_terms' => (string) ($it['terms_url'] ?? ''), '_tix_platform_co_by' => (string) ($it['creator']['name'] ?? ''), '_tix_platform_co_source' => (string) ($it['source_site'] ?? ''), self::CO_ORIGIN => strval(intval($it['origin_id'] ?? 0)),
                 '_tix_platform_co_access' => !empty($it['access']) ? '1' : '0', '_tix_platform_co_url' => (string) $it['url'], '_tix_organizer_id' => $org,
                 '_tix_date_start' => (string) $it['date_start'], '_tix_time_start' => (string) $it['time_start'], '_tix_date_end' => (string) $it['date_end'], '_tix_time_end' => (string) $it['time_end'],
                 '_tix_location' => (string) $it['location'], '_tix_address' => (string) $it['address'], '_tix_tickets_enabled' => '0',

@@ -5166,3 +5166,11 @@ Vertrag: `uebergaben/vertrag-co-mehrere.md`, Nachtrag 1.38.717. Rechtliche Grund
   - `test-co-multi-wp` (Plattform 61, Lizenzseite 15)
   - `test-co-mirror-e2e` (zwei Seiten: Vorschlag auf der Lizenzseite, Zustimmung des Co auf der Plattform, Rückmeldung)
   - In älteren Geld-Tests stimmen alle Beteiligten automatisch zu (`co_test_consent_all`).
+
+## 125. Kunden-Seite: Event-ID der Lizenzseite beim Doppel-Durchgriff (ab 1.38.718)
+Live-Fund KMT (mallorcaparty-schwelm.de): „Bearbeiten“ am gemeinsamen KitchenKlub-Event führte auf `/events/1171/bearbeiten/` → 404. Weg: KMT `/platform-co/7` → evendis `/co-remote/6453` → KitchenKlub `/partner/co/1171`; die Antworten trugen die KitchenKlub-ID 1171, das Studio kannte nur 7 und 6453.
+- **`origin_id`:** `GET /partner/co-events` (Plattform → Kunden-Seite) liefert je Item `origin_id` = `_tix_source_id` des Spiegels, bei reinen Plattform-Events 0. Der Abgleich speichert ihn als `_tix_platform_co_origin`. `GET /platform-co/events` und die Co-Felder der Event-Liste (`co_list_fields`) geben `origin_id` aus. Das Studio mappt `origin_id` → eigene ID (Studio a6d69b4a).
+- **Durchgriff schreibt zurück:** Bei Spiegeln übersetzt `POST /partner/co-events/{id}/call` die Quell-ID in der Antwort zurück auf die Plattform-ID (`TIX_Site_Move::source_ids_back`). Übersetzt werden `event_id` überall und `id` nur beim Event selbst: oberste Ebene der Routen `/events/{id}`, `/events/{id}/edit`, `/events/{id}/form` (auch `studio/`), dazu Objekte unter `event`. Bestell-, Ticket- und Gast-IDs bleiben. Danach mappt die Kunden-Seite wie bei Plattform-Events über `platform_id`. `origin_id` ist die Absicherung für alles, was die Übersetzung nicht erfasst.
+- Die Zentrale-Route `/co-remote/{id}` (Studio auf evendis.de) bleibt unverändert; dort liefert die Liste schon `source_id`.
+- **Nach dem Rollout:** Auf jeder Kunden-Seite mit Co-Events einmal den Abgleich laufen lassen (`POST /platform-co/sync` bzw. stündlicher Cron), damit `_tix_platform_co_origin` gesetzt ist.
+- **Tests:** `test-co-sites-wp` (origin_id, Rückübersetzung, Unterroute ohne Event), `test-site-move-e2e` (origin_id 0 bei Plattform-Event).

@@ -186,6 +186,7 @@ if ($mode === 'co-kk') { // Schritt 2 auf der neuen Seite; Phase: an | aus | weg
     sm_eq('Liste: Rolle co, remote, Basis', ['co', true, "/platform-co/$m"], [$lf['event_role'] ?? null, $lf['remote'] ?? null, $lf['base'] ?? null]);
     [$st, $d] = sm_rest('GET', '/platform-co/events');
     sm_eq('/platform-co/events listet den Spiegel', [200, 1], [$st, count(array_filter((array) ($d['items'] ?? []), function ($i) use ($m) { return intval($i['id']) === $m; }))]);
+    sm_eq('/platform-co/events: origin_id 0 bei reinem Plattform-Event (1.38.718)', [0, '0'], [(array_column((array) ($d['items'] ?? []), null, 'id')[$m]['origin_id'] ?? null), get_post_meta($m, '_tix_platform_co_origin', true)]);
     [$st, $d] = sm_rest('POST', "/events/$m", ['title' => 'lokal geändert']);
     sm_eq('Lokales Speichern gesperrt: 409', [409, 'tix_co_platform_event'], [$st, $d['code'] ?? null]);
     [$st, $d] = sm_rest('GET', "/platform-co/$m/events/{$s['co']}/edit");
