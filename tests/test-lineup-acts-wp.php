@@ -112,6 +112,17 @@ try {
     [$st, $d] = lx_rest('POST', "/events/$ev", ['lineup_order' => ["Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], 'lineup_sort' => 'manual']);
     $mo = array_column((array) ($get($ev)['lineup_acts'] ?? []), 'name');
     lx_eq('POST /events/{id} lineup_order: gespeichert und wirksam', [200, "Lxt Headliner Extra $sfx", "Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], [$st, $mo[0] ?? '', $mo[1] ?? '', $mo[2] ?? '']);
+    // 1.38.735: Headliner-Stern aus dem Studio ist maßgeblich
+    [$st] = lx_rest('POST', "/events/$ev", ['lineup_headliners' => ["Lxt Andi (DJ/Moderation) $sfx"]]);
+    $ha = (array) ($get($ev)['lineup_acts'] ?? []);
+    lx_eq('Stern: Andi Headliner und oben, Extra nicht mehr Headliner', [200, "Lxt Andi (DJ/Moderation) $sfx", true, 'headliner', false],
+        [$st, $ha[0]['name'] ?? '', $ha[0]['headliner'] ?? null, $ha[0]['role'] ?? '', (function ($l) use ($sfx) { foreach ($l as $x) if ($x['name'] === "Lxt Headliner Extra $sfx") return $x['headliner']; return null; })($ha)]);
+    [, $d] = lx_rest('GET', "/events/$ev/edit");
+    $ed = $d['event'] ?? $d;
+    lx_eq('Editor: lineup_headliners + gesetzt', [["Lxt Andi (DJ/Moderation) $sfx"], true], [$ed['lineup_headliners'] ?? [], $ed['lineup_headliners_set'] ?? null]);
+    TIX_Lineup_Links::save_order($ev, ['lineup_headliners' => null]);
+    $ha = (array) ($get($ev)['lineup_acts'] ?? []);
+    lx_eq('null: wieder Rollen der Künstler (Extra Headliner)', ["Lxt Headliner Extra $sfx", true], [$ha[0]['name'] ?? '', $ha[0]['headliner'] ?? null]);
     TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'time', 'lineup_order' => []]);
 
     // Programm ausgeblendet: gleiche Reihenfolge, ohne Zeiten

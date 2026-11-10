@@ -5594,3 +5594,17 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
   - Kunde: `tix_audit_log` `team_password_set` mit `via: platform`, Admin, Kontoart und „erste Anmeldung“.
   - Nie das Passwort.
 - **Tests:** `test-site-users-wp` (Kunden-Seite 34, Plattform 28).
+
+## 142. Headliner-Stern im Line-up (ab 1.38.735)
+- **Speichern:** `POST /events/{id} {lineup_headliners: [Name …]}` setzt die Liste der Acts mit Stern; Namen wie `lineup_acts[].name`, höchstens 80.
+  - Ist die Liste gesetzt, ist sie **maßgeblich**: Wer genannt ist, bekommt `role: "headliner"`; Acts, die nur über die Künstler-Rolle Headliner waren, werden `support`.
+  - `[]` heißt bewusst keine Headliner.
+  - `null` entfernt die Liste, dann gilt wieder die Rolle aus den Künstlern.
+  - Ungültig (keine Liste) → 400 `tix_invalid_field` (`lineup_headliners`).
+  - Lässt sich mit `lineup_order`/`lineup_sort` in einem Aufruf schicken. Geteilte Events werden danach neu verteilt.
+- **Ausgabe:** Jeder Act in `lineup_acts` hat neu `headliner: true|false` (= `role === "headliner"`), auch auf Spiegeln und Kunden-Seiten. Die Sortierung „Eigene Reihenfolge“ (Headliner oben) richtet sich danach.
+- **Editor** `GET /events/{id}/edit`:
+  - `lineup_headliners`: Namen der Acts, die gerade Headliner sind
+  - `lineup_headliners_set`: true, wenn im Studio bzw. in der App festgelegt
+- **Meta:** `_tix_lineup_headliners` (Liste der Schlüssel).
+- **Tests:** `test-lineup-acts-wp` (Plattform 30, Einzel-Seite 35).
