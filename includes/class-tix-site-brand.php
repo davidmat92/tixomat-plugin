@@ -179,14 +179,40 @@ class TIX_Site_Brand {
      * wp tixomat marke setzen --daten='{…}'      Felder wie POST /studio/site-config {homepage} (für kunde-anlegen); enabled = true,
      *                                            zusätzlich "has_app": false = Seite ohne App (Studio-Schalter tix_studio_has_app)
      * wp tixomat marke zuruecksetzen             gespeicherte homepage löschen (→ null)
+     * wp tixomat marke logo [--dunkel=<datei|url|id>] [--hell=<datei|url|id>] [--dunkel-entfernen] [--hell-entfernen]
+     *                                            Logo für dunklen (--dunkel) bzw. hellen Hintergrund (--hell) setzen (1.38.725)
+     * In --daten gehen auch "logo" und "logo_on_light" (Datei, URL oder Medien-ID; "" = entfernen).
      */
     public static function cli($args, $assoc) {
         $a = $args[0] ?? 'zeigen';
         $opt = get_option(TIX_Site_Config::OPTION, []);
         if (!is_array($opt)) $opt = [];
+        if ($a === 'logo') {
+            $done = [];
+            foreach (['dunkel' => 'logo', 'hell' => 'logo_on_light'] as $opt_name => $key) {
+                if (!empty($assoc[$opt_name . '-entfernen'])) { TIX_Studio::set_brand_logo($key, 0); $done[] = $key . ' entfernt'; continue; }
+                if (!isset($assoc[$opt_name])) continue;
+                $id = TIX_Studio::import_logo((string) $assoc[$opt_name]);
+                if (is_wp_error($id)) WP_CLI::error($key . ': ' . $id->get_error_message());
+                TIX_Studio::set_brand_logo($key, $id);
+                $done[] = $key . ' = #' . $id;
+            }
+            if (!$done) WP_CLI::error('Bitte --dunkel=… und/oder --hell=… angeben.');
+            WP_CLI::success('Logo: ' . implode(', ', $done) . '.');
+            $p = TIX_Site_Config::payload();
+            WP_CLI::line(wp_json_encode(['logo' => $p['logo'] ?? null, 'logo_on_light' => $p['logo_on_light'] ?? null], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            return;
+        }
         if ($a === 'setzen') {
             $in = json_decode((string) ($assoc['daten'] ?? ''), true);
             if (!is_array($in)) WP_CLI::error('Bitte --daten=\'{…}\' angeben.');
+            foreach (['logo', 'logo_on_light'] as $key) { // Logos über die Studio-Marke (1.38.725)
+                if (!array_key_exists($key, $in)) continue;
+                $src = (string) ($in[$key] ?? '');
+                if ($src === '') TIX_Studio::set_brand_logo($key, 0);
+                else { $id = TIX_Studio::import_logo($src); if (is_wp_error($id)) WP_CLI::error($key . ': ' . $id->get_error_message()); TIX_Studio::set_brand_logo($key, $id); }
+                unset($in[$key]);
+            }
             if (array_key_exists('has_app', $in)) {
                 if (!is_bool($in['has_app'])) WP_CLI::error('has_app: true oder false.');
                 update_option(class_exists('TIX_Studio') ? TIX_Studio::HAS_APP : 'tix_studio_has_app', $in['has_app'] ? '1' : '0', false);

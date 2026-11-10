@@ -270,7 +270,7 @@ class TIX_Studio {
         $id = intval($b['logo_id'] ?? 0);
         $logo = $id ? (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id)) : '';
         $acc = self::hex($b['accent'] ?? '');
-        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null, 'placeholder' => self::placeholder() !== null, 'font' => self::font() ?: null];
+        return ['accent' => $acc !== '' ? $acc : null, 'logo' => $logo ? (string) $logo : null, 'logo_on_light' => self::logo_on_light() ?: null, 'placeholder' => self::placeholder() !== null, 'font' => self::font() ?: null];
     }
 
     /** Platzhalterbild der Seite für Events ohne Bild: {id, url (large), url_small (medium)} | null. */
@@ -428,6 +428,59 @@ class TIX_Studio {
         return (string) get_site_icon_url(256);
     }
 
+    /**
+     * Zweites Logo „für hellen Hintergrund“ (dunkel/farbig, 1.38.725) – nur gespeichert, kein Rückfall. `logo()` bleibt das Logo
+     * für dunklen Grund (hell/weiß), wie bisher.
+     */
+    public static function logo_on_light() {
+        $id = intval(self::brand()['logo_on_light_id'] ?? 0);
+        if (!$id || get_post_type($id) !== 'attachment') return '';
+        return (string) (wp_get_attachment_image_url($id, 'medium') ?: wp_get_attachment_url($id));
+    }
+
+    /**
+     * Logo aus Datei, Adresse oder Medien-ID übernehmen (WP-CLI, Kunden-Dienst Schritt „marke“) → Attachment-ID | WP_Error.
+     * Gleiche Regeln wie der Upload: PNG, JPG, WebP, GIF, höchstens 2 MB und 16–4000 px.
+     */
+    public static function import_logo($src) {
+        $src = trim((string) $src);
+        if ($src === '') return new WP_Error('tix_invalid_field', 'Keine Logo-Quelle angegeben.', ['status' => 400]);
+        if (ctype_digit($src)) { $ok = self::check_logo_attachment(intval($src)); return is_wp_error($ok) ? $ok : intval($src); }
+        $tmp = '';
+        if (preg_match('#^https?://#i', $src)) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            $tmp = download_url($src, 20);
+            if (is_wp_error($tmp)) return new WP_Error('tix_invalid_field', 'Logo konnte nicht geladen werden: ' . $tmp->get_error_message(), ['status' => 400]);
+            $path = $tmp;
+        } else {
+            $path = $src;
+            if (!is_readable($path)) return new WP_Error('tix_invalid_field', 'Logo-Datei nicht gefunden.', ['status' => 400]);
+        }
+        try {
+            $mime = self::check_image_file($path, filesize($path));
+            if (is_wp_error($mime)) return $mime;
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            $ext = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'image/gif' => 'gif'][$mime];
+            $up = wp_upload_bits('studio-logo-' . wp_generate_password(6, false, false) . '.' . $ext, null, (string) file_get_contents($path));
+            if (!empty($up['error'])) return new WP_Error('tix_upload_failed', 'Das Logo konnte nicht gespeichert werden.', ['status' => 500]);
+            $id = wp_insert_attachment(['post_mime_type' => $mime, 'post_title' => 'Studio-Logo', 'post_status' => 'inherit'], $up['file']);
+            if (!$id || is_wp_error($id)) return new WP_Error('tix_upload_failed', 'Das Logo konnte nicht gespeichert werden.', ['status' => 500]);
+            wp_update_attachment_metadata($id, wp_generate_attachment_metadata($id, $up['file']));
+            return intval($id);
+        } finally {
+            if ($tmp && is_string($tmp) && file_exists($tmp)) @unlink($tmp);
+        }
+    }
+
+    /** Logo der Marke setzen: $key logo | logo_on_light, $id 0 = entfernen. */
+    public static function set_brand_logo($key, $id) {
+        $k = $key === 'logo_on_light' ? 'logo_on_light_id' : 'logo_id';
+        $b = self::brand();
+        if (intval($id)) $b[$k] = intval($id); else unset($b[$k]);
+        update_option(self::BRAND, $b, false);
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::flush();
+    }
+
     private static function config_payload() {
         $multi = self::multi();
         $wallet = class_exists('TIX_Wallet_Balance') && method_exists('TIX_Wallet_Balance', 'settings') ? !empty(TIX_Wallet_Balance::settings()['enabled']) : false;
@@ -436,12 +489,13 @@ class TIX_Studio {
             'name'       => html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8') . ' Studio',
             'accent'     => self::accent(),
             'logo'       => self::logo(),
+            'logo_on_light' => self::logo_on_light() ?: null, // 1.38.725: Logo für hellen Hintergrund
             // 1.38.599: Schrift für Studio und Website (Schlüssel aus FONTS, null = Vorgabe)
             'font'       => self::font() ?: null,
             // Im Studio gesetzte Werte (null = nur Rückfall, z. B. Website-Icon) – 1.38.446
             'custom'     => self::custom_brand(),
             // 1.38.458: Marke gesammelt, mit Platzhalterbild für Events ohne Bild ({url, url_small} | null)
-            'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })(),
+            'brand'      => ['accent' => self::accent(), 'logo' => self::logo(), 'logo_on_light' => self::logo_on_light() ?: null, 'placeholder' => (function () { $p = self::placeholder(); return $p ? ['url' => $p['url'], 'url_small' => $p['url_small']] : null; })(),
                 // 1.38.473: Mail-Marke (Kopf light|brand, Logos, Absender, Antworten an)
                 'mail' => self::mail_payload()],
             // 1.38.481: Bestellnummern (legacy = bisheriges Format, short = KK-7HQ4M2)
@@ -646,7 +700,7 @@ class TIX_Studio {
         // ── Audit 2026-11-03 (M17): alle Prüfungen vor dem ersten Schreiben ──
         // Vorher liefen Logo-Upload, Auto-Archiv und Funktionen schon, bevor unbekannte Felder, die Admin-Rechte für
         // app_layout/has_app oder das Bestellnummern-Kürzel geprüft wurden – Antwort „Fehler“, aber ein Teil gespeichert.
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'share_sales_with_platform', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'logo_on_light', 'logo_on_light_id', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'share_sales_with_platform', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
@@ -698,6 +752,23 @@ class TIX_Studio {
                 $ok = self::check_logo_attachment($id);
                 if (is_wp_error($ok)) return $ok;
                 $b['logo_id'] = $id;
+            }
+        }
+        // Logo für hellen Hintergrund (1.38.725): Datei logo_on_light oder logo_on_light_id (0 = entfernen)
+        if (!empty($files['logo_on_light']['error']) && intval($files['logo_on_light']['error']) !== UPLOAD_ERR_OK && intval($files['logo_on_light']['error']) !== UPLOAD_ERR_NO_FILE) {
+            return new WP_Error('tix_too_large', 'Das Logo konnte nicht hochgeladen werden (höchstens 2 MB).', ['status' => 400, 'field' => 'logo_on_light']);
+        }
+        if (!empty($files['logo_on_light']['tmp_name'])) {
+            $lid = self::store_logo($files['logo_on_light']);
+            if (is_wp_error($lid)) return new WP_Error($lid->get_error_code(), $lid->get_error_message(), ['status' => 400, 'field' => 'logo_on_light']);
+            $b['logo_on_light_id'] = $lid;
+        } elseif ($has('logo_on_light_id') || ($has('logo_on_light') && in_array($req->get_param('logo_on_light'), [null, '', 0, '0'], true))) {
+            $lid = intval($has('logo_on_light_id') ? $req->get_param('logo_on_light_id') : 0);
+            if ($lid === 0) unset($b['logo_on_light_id']);
+            else {
+                $ok = self::check_logo_attachment($lid);
+                if (is_wp_error($ok)) return new WP_Error($ok->get_error_code(), $ok->get_error_message(), ['status' => 400, 'field' => 'logo_on_light_id']);
+                $b['logo_on_light_id'] = $lid;
             }
         }
         // Platzhalter als Datei über die Marken-Route (Studio, 1.38.460): placeholder=<Datei>

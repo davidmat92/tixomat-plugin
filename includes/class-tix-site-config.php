@@ -178,6 +178,7 @@ class TIX_Site_Config {
         if (!$android_url && $play && $play_public) $android_url = 'https://play.google.com/store/apps/details?id=' . $play;
         $accent = class_exists('TIX_Studio') ? TIX_Studio::accent() : (string) ($s['color_primary'] ?? '');
         $logo = class_exists('TIX_Studio') ? TIX_Studio::logo() : '';
+        $logo_on_light = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'logo_on_light') ? TIX_Studio::logo_on_light() : '';
         $ph = class_exists('TIX_Studio') ? TIX_Studio::placeholder() : null;
         $privacy = self::abs_url($s['privacy_url'] ?? '');
         $terms = self::abs_url($s['terms_url'] ?? '');
@@ -207,7 +208,9 @@ class TIX_Site_Config {
             'colors' => ['accent' => $accent, 'background' => null, 'glow' => null],
             // 1.38.599: Schrift aus Studio → Marke → Schriften wählen (null = Vorgabe der Website); Dateien liefert die Website selbst aus
             'font' => class_exists('TIX_Studio') && method_exists('TIX_Studio', 'font') ? (TIX_Studio::font() ?: null) : null,
-            'logo' => ['light' => $logo ?: null, 'dark' => $logo ?: null],
+            'logo' => ['light' => $logo ?: null, 'dark' => $logo ?: null, 'on_light' => $logo_on_light ?: null],
+            // 1.38.725: Logo für hellen Hintergrund (dunkel/farbig), null = keins; `logo.dark` = für dunklen Grund wie bisher
+            'logo_on_light' => $logo_on_light ?: null,
             'icon' => (string) get_site_icon_url(512) ?: null,
             'favicon' => (string) get_site_icon_url(32) ?: null,
             'event_placeholder' => $ph ? ['url' => $ph['url'], 'url_small' => $ph['url_small']] : null,

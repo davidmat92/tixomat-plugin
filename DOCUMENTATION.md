@@ -5372,3 +5372,28 @@ Klasse `TIX_Site_Users` (`class-tix-site-users.php`). Auftrag und vollständiger
   - Passwörter nie im Protokoll oder in Antworten.
 - Letzter Login: aus `_tix_last_login`/`last_login`, sonst das jüngste App-Token.
 - **Tests:** `test-site-users-wp` (Plattform 23, Kunden-Seite 9); Kunden-Akte, Betreiber, Inhaber grün.
+
+## 132. Zweites Logo „für hellen Hintergrund“ (ab 1.38.725)
+Auftrag `uebergaben/auftrag-logo-hell-dunkel-2026-11-10.md`. Gespeichert als `logo_on_light_id` in `tix_studio_brand`; `TIX_Studio::logo_on_light()`, `import_logo()`, `set_brand_logo()`.
+**Festgelegter Feldname: `site-config.logo_on_light` (URL als Text oder `null`).** Dasselbe steht zusätzlich in `site-config.logo.on_light`. marken-web liest das schon so, es ist nichts zu ändern.
+- `logo.dark` bzw. `logo.light` bleiben unverändert das bisherige Logo (für dunklen Grund). `logo.light` heißt nicht „für hellen Grund“; Rückfall-Logik bleibt bei marken-web.
+- Das zweite Logo hat keinen eigenen Rückfall; ohne Logo ist es `null`.
+
+**Lesen**
+- `GET /public/site-config` → `logo_on_light`, `logo.on_light`.
+- `GET /studio/config` → `logo_on_light`, `brand.logo_on_light`, `custom.logo_on_light` (alle URL oder `null`); `logo` bleibt das Logo für dunklen Grund.
+
+**Schreiben im Studio:** `POST /studio/config`, Rechte wie beim bisherigen Logo (Admin bzw. Inhaber).
+- Datei: Multipart `logo_on_light=<Datei>`.
+- Vorhandenes Medium: `{logo_on_light_id: <ID>}`.
+- Entfernen: `{logo_on_light_id: 0}` bzw. `logo_on_light: null`.
+- Gleiche Regeln wie das bestehende Logo: PNG, JPG, WebP, GIF, höchstens 2 MB, 16–4000 px. **SVG ist nicht erlaubt**, das gilt heute auch für `logo`.
+- Fehler 400 `tix_invalid_field` bzw. `tix_too_large` mit `field: logo_on_light` bzw. `logo_on_light_id`.
+
+**Kunden-Dienst, Schritt „marke“ (WP-CLI auf der Kunden-Seite)**
+- Eigener Befehl: `wp tixomat marke logo [--dunkel=<datei|url|id>] [--hell=<datei|url|id>] [--dunkel-entfernen] [--hell-entfernen]`.
+  - `--dunkel` = Logo für dunklen Grund (`logo`), `--hell` = Logo für hellen Grund (`logo_on_light`).
+  - Er gibt danach `logo` und `logo_on_light` als JSON aus.
+- Oder in `wp tixomat marke setzen --daten='{…, "logo": "<datei|url|id>", "logo_on_light": "<datei|url|id>"}'`; `""` entfernt.
+- Gleiche Datei-Regeln; URLs werden geladen und in die Mediathek übernommen.
+- **Tests:** `test-logo-on-light-wp` (Einzel-Seite und Plattform je 12); Marke, Website und Studio-Tests grün.
