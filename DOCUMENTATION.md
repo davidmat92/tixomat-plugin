@@ -5447,3 +5447,37 @@ Auftrag `uebergaben/auftrag-zugaenge-alle-inhaber-2026-11-10.md`, Ergänzung zu 
 - Lizenz-Verlauf `site_user_delete` / `site_user_transfer_owner`
 - `tix_audit_log` beim Kunden: `user_deleted`, `owner_set`, `owner_removed`
 - **Tests:** `test-site-users-wp` (Plattform 26, Kunden-Seite 19).
+
+## 135. Homepage: Kopf, Fuß, Farben (ab 1.38.728)
+Auftrag `uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md` (Feldnamen von marken-web, Commit 2ed2056a). `TIX_Website::HEADER`/`FOOTER`/`COLOR_KEYS`, `layout_defaults()`, `contrast()`, `color_warnings()`.
+
+**Felder:** wie oben im Vorschlag. Jedes Feld ist optional, `null` heißt „Vorgabe der Vorlage“.
+- `header`
+  - `logo`: `logo` | `name` | `none`; `false` gilt als `none`
+  - `logo_size`: `s` | `m` | `l`
+  - `nav`, `my_tickets`, `gift`, `notifications`, `account`, `info_bar` (App-Leiste oben), `sticky`: an/aus
+  - `cta`: `true` | `false` | `{show, label ≤ 40}`, gespeichert immer als `{show, label}`
+- `footer`
+  - `logo`, `columns`, `social`, `app`, `contact`: an/aus
+  - `claim`: Text, höchstens 160 Zeichen
+  - `copyright`: Text, höchstens 80 Zeichen
+- `colors`: `background`, `surface`, `text`, `accent` als `#RRGGBB` (auch `#RGB` bzw. ohne `#`; gespeichert in Großbuchstaben) oder `null`.
+- **Fehler:** unbekannte Option, falscher Wert oder keine Farbe → 400 `tix_invalid_field` mit `field` (z. B. `header.logo_size`, `colors.text`).
+- An/aus-Felder nehmen auch `"0"`/`"1"` an.
+
+**Ausgabe** (`GET /public/website` → `website`, `site-config.website`, Studio `website`/`draft` gespeichert):
+- Öffentlich sind `header` und `footer` immer vollständig. Dort stehen die wirksamen Werte, für nicht gesetzte Felder die Vorgabe der Vorlage, also das heutige Aussehen. Alle An/aus-Felder stehen dort auf an, Logo `logo`, Größe `m`, `cta {show: true, label: ""}`, Texte leer.
+- `colors`: gesetzter Wert oder `null`.
+- `colors_source` je Farbe: `website` | `brand` | `template`. `brand` heißt: der Hintergrund aus „Texte & Angaben“ (`homepage.colors.background`) gilt weiter, solange hier keiner gesetzt ist. Der Lichtschein bleibt dort.
+- Das Studio bekommt in `GET /studio/website` den gespeicherten Rohzustand (`null` = Vorlage), damit „Auf Vorlage zurücksetzen“ funktioniert.
+
+**Katalog** (`GET /studio/website` → `catalog`):
+- `header_options` / `footer_options`: Typ bzw. erlaubte Werte
+- `layout_defaults[vorlage] {header, footer}`
+- `color_keys`
+
+**Kontrast-Warnung:** `GET`/`POST /studio/website` → `warnings [{field, against, ratio, min, message}]` für den Entwurf bzw. den veröffentlichten Stand.
+- Gleiche WCAG-Formel wie marken-web.
+- Geprüft wird Text auf Hintergrund und auf Flächen (mindestens 4,5:1) sowie Akzent auf Hintergrund (mindestens 3:1).
+- Das ist nur ein Hinweis, Speichern geht trotzdem. Geprüft wird nur, wenn beide Farben gesetzt sind.
+- **Tests:** `test-website-layout-wp` (Einzel-Seite 13 mit Speichern und Veröffentlichen, Plattform 10).

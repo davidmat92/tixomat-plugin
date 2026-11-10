@@ -82,6 +82,24 @@ class TIX_Website {
     const MAX = ['highlights' => 24, 'next' => 12, 'lineup' => 48, 'faq' => 20, 'raffles' => 12, 'tips' => 12, 'more_dates' => 12];
     const TEXTS = ['claim', 'seo_title', 'seo_description', 'newsletter_title', 'newsletter_text'];
 
+    /**
+     * Kopf, Fuß und Farben der Homepage (1.38.728, Auftrag uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md).
+     * Gespeichert im Website-Entwurf wie Abschnitte/Texte, wirksam erst nach „Veröffentlichen“. null = Vorgabe der Vorlage.
+     * Menü-Links selbst bleiben in `nav.header` / `nav.cta` / `nav.footer`; Rechtstexte im Fuß sind immer da.
+     */
+    const HEADER = [ // Schlüssel => [Typ, Vorgabe] – Namen wie marken-web (Commit 2ed2056a)
+        'logo' => [['logo', 'name', 'none'], 'logo'], 'logo_size' => [['s', 'm', 'l'], 'm'], 'nav' => ['bool', true], 'cta' => ['cta', ['show' => true, 'label' => '']],
+        'my_tickets' => ['bool', true], 'gift' => ['bool', true], 'notifications' => ['bool', true], 'account' => ['bool', true],
+        'info_bar' => ['bool', true], // App-Leiste oben
+        'sticky' => ['bool', true],
+    ];
+    const FOOTER = [
+        'logo' => ['bool', true], 'claim' => ['text', ''], 'columns' => ['bool', true], 'social' => ['bool', true], 'app' => ['bool', true],
+        'contact' => ['bool', true], 'copyright' => ['text', ''],
+    ];
+    const HEADER_BY_TEMPLATE = []; // abweichende Vorgaben je Vorlage (bisher keine)
+    const COLOR_KEYS = ['background', 'surface', 'text', 'accent'];
+
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('init', [__CLASS__, 'maybe_enable']);
@@ -432,6 +450,43 @@ class TIX_Website {
                 $out['nav']['footer'][] = ['title' => $title, 'links' => $links];
             }
         }
+        // Kopf, Fuß, Farben (1.38.728)
+        foreach (['header' => self::HEADER, 'footer' => self::FOOTER] as $part => $spec) {
+            $in = $w[$part] ?? [];
+            if (!is_array($in)) return self::bad($part, 'Ungültige Angaben.');
+            if ($bad = array_diff(array_keys($in), array_keys($spec))) return self::bad($part . '.' . reset($bad), 'Unbekannte Option.');
+            $out[$part] = [];
+            foreach ($spec as $k => [$type, $def]) {
+                $v = $in[$k] ?? null;
+                if ($v === null) { $out[$part][$k] = null; continue; }
+                if ($part === 'header' && $k === 'logo' && $v === false) $v = 'none'; // logo: false = none
+                if ($type === 'cta') { // cta: true | false | {show, label}
+                    if (is_bool($v)) $v = ['show' => $v, 'label' => ''];
+                    if (!is_array($v)) return self::bad($part . '.cta', 'cta: true, false oder {show, label}.');
+                    $lb = self::text($v['label'] ?? '', $part . '.cta.label', 40);
+                    if (is_wp_error($lb)) return $lb;
+                    $out[$part][$k] = ['show' => filter_var($v['show'] ?? true, FILTER_VALIDATE_BOOLEAN), 'label' => $lb];
+                    continue;
+                }
+                if ($type === 'bool') $v = filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                elseif ($type === 'text') { $v = self::text($v, $part . '.' . $k, $k === 'claim' ? 160 : 80); if (is_wp_error($v)) return $v; }
+                elseif (!in_array($v, $type, true)) return self::bad($part . '.' . $k, 'Erlaubt: ' . implode(', ', $type) . '.');
+                if ($v === null) return self::bad($part . '.' . $k, 'Bitte true oder false.');
+                $out[$part][$k] = $v;
+            }
+        }
+        $cin = $w['colors'] ?? [];
+        if (!is_array($cin)) return self::bad('colors', 'Ungültige Farben.');
+        if ($bad = array_diff(array_keys($cin), self::COLOR_KEYS)) return self::bad('colors.' . reset($bad), 'Unbekannte Farbe.');
+        $out['colors'] = [];
+        foreach (self::COLOR_KEYS as $k) {
+            $v = $cin[$k] ?? null;
+            if ($v === null || $v === '') { $out['colors'][$k] = null; continue; }
+            if (!preg_match('/^#?([0-9a-f]{6}|[0-9a-f]{3})$/i', trim((string) $v), $m)) return self::bad('colors.' . $k, 'Bitte eine Farbe als Hex-Wert angeben, z. B. #1A1A2E.');
+            $h = strtolower($m[1]);
+            if (strlen($h) === 3) $h = $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+            $out['colors'][$k] = '#' . strtoupper($h);
+        }
         // Texte
         $tx = is_array($w['texts'] ?? null) ? $w['texts'] : [];
         $out['texts'] = [];
@@ -475,7 +530,62 @@ class TIX_Website {
             if (isset($s['logos'])) $s['logos'] = array_map(function ($l) { $l['image'] = self::image_payload($l['image']); return $l; }, $s['logos']);
             $out[] = $s;
         }
-        return ['version' => 1, 'template' => $tpl, 'sections' => $out, 'nav' => $w['nav'] ?? ['header' => [], 'cta' => null, 'footer' => []], 'texts' => ($w['texts'] ?? []) + array_fill_keys(self::TEXTS, '')];
+        return ['version' => 1, 'template' => $tpl, 'sections' => $out, 'nav' => $w['nav'] ?? ['header' => [], 'cta' => null, 'footer' => []], 'texts' => ($w['texts'] ?? []) + array_fill_keys(self::TEXTS, '')]
+            + self::layout_payload($w, $tpl);
+    }
+
+    /** Vorgaben einer Vorlage für Kopf und Fuß (1.38.728). */
+    public static function layout_defaults($tpl) {
+        $h = []; foreach (self::HEADER as $k => [, $d]) $h[$k] = $d;
+        $f = []; foreach (self::FOOTER as $k => [, $d]) $f[$k] = $d;
+        return ['header' => array_merge($h, self::HEADER_BY_TEMPLATE[$tpl] ?? []), 'footer' => $f];
+    }
+
+    /**
+     * header/footer wirksam (gespeichert, sonst Vorgabe der Vorlage) + `colors` (Hex oder null = Farbe der Vorlage).
+     * Hintergrund/Lichtschein aus „Texte & Angaben“ (homepage.colors) gelten weiter, solange hier nichts gesetzt ist (`colors_source`).
+     */
+    private static function layout_payload($w, $tpl) {
+        $d = self::layout_defaults($tpl);
+        $out = [];
+        foreach (['header', 'footer'] as $part) {
+            $out[$part] = $d[$part];
+            foreach ((array) ($w[$part] ?? []) as $k => $v) if ($v !== null && array_key_exists($k, $d[$part])) $out[$part][$k] = $v;
+        }
+        $c = array_fill_keys(self::COLOR_KEYS, null);
+        $src = array_fill_keys(self::COLOR_KEYS, 'template');
+        foreach ((array) ($w['colors'] ?? []) as $k => $v) if ($v && array_key_exists($k, $c)) { $c[$k] = $v; $src[$k] = 'website'; }
+        if ($c['background'] === null && class_exists('TIX_Site_Config')) {
+            $st = (array) ((get_option(TIX_Site_Config::OPTION, []) ?: [])['homepage']['colors'] ?? []);
+            if (!empty($st['background'])) { $c['background'] = (string) $st['background']; $src['background'] = 'brand'; }
+        }
+        $out['colors'] = $c;
+        $out['colors_source'] = $src;
+        return $out;
+    }
+
+    /** Kontrast nach WCAG (1–21) zweier Hex-Farben. */
+    public static function contrast($a, $b) {
+        $lum = function ($hex) {
+            $hex = ltrim((string) $hex, '#');
+            if (!preg_match('/^[0-9a-f]{6}$/i', $hex)) return null;
+            $c = array_map(function ($i) use ($hex) { $v = hexdec(substr($hex, $i, 2)) / 255; return $v <= 0.03928 ? $v / 12.92 : pow(($v + 0.055) / 1.055, 2.4); }, [0, 2, 4]);
+            return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2];
+        };
+        $x = $lum($a); $y = $lum($b);
+        if ($x === null || $y === null) return null;
+        return round((max($x, $y) + 0.05) / (min($x, $y) + 0.05), 2);
+    }
+
+    /** Kontrast-Warnungen für gesetzte Farben (Text auf Grund/Fläche ≥ 4,5, Akzent auf Grund ≥ 3). */
+    public static function color_warnings(array $c) {
+        $out = [];
+        foreach ([['text', 'background', 4.5, 'Text auf Hintergrund'], ['text', 'surface', 4.5, 'Text auf Flächen'], ['accent', 'background', 3.0, 'Akzent (Knöpfe) auf Hintergrund']] as [$f, $g, $min, $label]) {
+            if (empty($c[$f]) || empty($c[$g])) continue;
+            $r = self::contrast($c[$f], $c[$g]);
+            if ($r !== null && $r < $min) $out[] = ['field' => 'colors.' . $f, 'against' => 'colors.' . $g, 'ratio' => $r, 'min' => $min, 'message' => $label . ': Kontrast ' . str_replace('.', ',', (string) $r) . ':1 – empfohlen mindestens ' . str_replace('.', ',', (string) $min) . ':1.'];
+        }
+        return $out;
     }
 
     /** Für /public/site-config und /public/website: veröffentlichter Stand (bzw. Vorgabe) aufbereitet. */
@@ -496,7 +606,12 @@ class TIX_Website {
             foreach (self::TEMPLATES as $t) $d[$t] = in_array($k, self::DEFAULTS[$t], true);
             $sections[] = ['key' => $k, 'label' => $def[0], 'options' => $def[1], 'switch' => $def[2], 'available' => self::switch_on($def[2]), 'defaults' => $d] + (isset(self::MAX[$k]) ? ['max' => self::MAX[$k]] : []);
         }
-        return ['templates' => self::TEMPLATES, 'sections' => $sections];
+        $layout = [];
+        foreach (self::TEMPLATES as $t) $layout[$t] = self::layout_defaults($t);
+        $opt = function ($spec) { $o = []; foreach ($spec as $k => [$type]) $o[$k] = is_array($type) ? $type : $type; return $o; };
+        return ['templates' => self::TEMPLATES, 'sections' => $sections,
+            // 1.38.728: Kopf, Fuß, Farben – Optionen (Typ bzw. erlaubte Werte), Vorgaben je Vorlage, Farb-Schlüssel
+            'header_options' => $opt(self::HEADER), 'footer_options' => $opt(self::FOOTER), 'layout_defaults' => $layout, 'color_keys' => self::COLOR_KEYS];
     }
 
     // ═══════════════ Domain ═══════════════
@@ -558,6 +673,8 @@ class TIX_Website {
             'updated_by' => $by ? ['id' => intval($by->ID), 'name' => (string) $by->display_name] : null,
             'preview' => ['key' => self::preview_key($exp), 'expires_at' => wp_date('c', $exp)],
             'catalog' => self::catalog(), 'features' => class_exists('TIX_Features') ? TIX_Features::map() : [], 'domain' => self::domain(), 'enabled' => self::package_enabled(),
+            // Kontrast-Warnungen für den Entwurf bzw. den veröffentlichten Stand (1.38.728), nur Hinweis
+            'warnings' => self::color_warnings((array) ((($o['draft'] ?? $o['published']) ?: [])['colors'] ?? [])),
             'history' => array_map(function ($h) { $u = get_userdata(intval($h['by'] ?? 0)); return ['published_at' => $h['at'] ?? null, 'by' => $u ? ['id' => intval($u->ID), 'name' => (string) $u->display_name] : null]; }, array_slice((array) $o['history'], 0, self::HISTORY))];
     }
 
