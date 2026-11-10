@@ -857,6 +857,8 @@ class TIX_REST_API {
         }
         // Studio: Menü-Ansicht je Konto (1.38.655)
         if (class_exists('TIX_Studio_Prefs')) $out['studio_prefs'] = TIX_Studio_Prefs::payload($user);
+        // Servicegebühr eigener Seiten (1.38.749): Zeile nur zeigen, wenn available; bearbeiten nur mit can_edit
+        if (class_exists('TIX_Studio_Fees')) $out['service_fee'] = TIX_Studio_Fees::me_payload($user);
         return rest_ensure_response($out);
     }
 

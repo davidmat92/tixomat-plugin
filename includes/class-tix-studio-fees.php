@@ -47,6 +47,14 @@ class TIX_Studio_Fees {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
     }
 
+    /** Für /me: {available (eigene Seite, kein Mehr-Veranstalter-Modus), can_edit (Rechte wie perm_brand)} */
+    public static function me_payload($user = null) {
+        $u = $user instanceof WP_User ? $user : wp_get_current_user();
+        $available = !self::locked();
+        $can = $available && $u && $u->ID && ($u->has_cap('manage_options') || in_array('tix_organizer', (array) $u->roles, true));
+        return ['available' => $available, 'can_edit' => (bool) $can];
+    }
+
     private static function locked_error() {
         return new WP_Error('tix_fees_locked', 'Auf evendis gilt die Plattformgebühr. Wer sie trägt, stellst du unter „Gebühren“ deines Veranstalters ein.', ['status' => 403]);
     }
@@ -170,6 +178,7 @@ class TIX_Studio_Fees {
         $f = self::fields($s);
         return [
             'ok' => true,
+            'available' => true, // auf Mehr-Veranstalter-Seiten antwortet die Route 403 tix_fees_locked; Apps lesen /me.service_fee
             'fees' => $f,
             'payment' => [
                 'fixed' => round(floatval($s['gateway_fee_fixed'] ?? 0), 2), 'percent' => round(floatval($s['gateway_fee_percent'] ?? 0), 2),

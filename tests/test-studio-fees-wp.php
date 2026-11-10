@@ -31,6 +31,8 @@ function sf_done() { echo ($GLOBALS['t_fails'] ? "FEHLER: {$GLOBALS['t_fails']}"
 if (TIX_Studio_Fees::locked()) {
     echo "== Plattform (Mehr-Veranstalter-Modus)\n";
     wp_set_current_user(intval((get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID']))[0] ?? 0));
+    [$st, $d] = sf_rest('GET', '/me');
+    sf_eq('/me: service_fee nicht verfügbar', [200, ['available' => false, 'can_edit' => false]], [$st, $d['service_fee'] ?? null]);
     foreach ([['GET', '/studio/fees'], ['POST', '/studio/fees'], ['POST', '/studio/fees/preview']] as [$m, $r]) {
         [$st, , $c] = sf_rest($m, $r, $m === 'POST' ? ['fixed' => 1] : []);
         sf_eq("$m $r gesperrt", [403, 'tix_fees_locked'], [$st, $c]);
@@ -70,11 +72,15 @@ if ($mode === 'run') {
     echo "-- Rechte\n";
     wp_set_current_user(0);
     sf_eq('ohne Anmeldung 401', 401, sf_rest('GET', '/studio/fees')[0]);
+    wp_set_current_user($uc);
+    sf_eq('/me Kasse: verfügbar, nicht bearbeitbar', ['available' => true, 'can_edit' => false], sf_rest('GET', '/me')[1]['service_fee'] ?? null);
     foreach ([[$uc, 'Kasse'], [$ub, 'Kunde']] as [$u, $n]) { wp_set_current_user($u); sf_eq("$n: 403", 403, sf_rest('GET', '/studio/fees')[0]); sf_eq("$n: speichern 403", 403, sf_rest('POST', '/studio/fees', ['fixed' => 1])[0]); }
     wp_set_current_user($uo);
     [$st, $d] = sf_rest('GET', '/studio/fees');
     sf_eq('Inhaber: 200, Grundzustand ohne Gebühr', [200, false, 'organizer', 0.0, 'Servicegebühr', 'Ticket 20,00 € → Käufer zahlt 20,00 € (keine Servicegebühr)'],
         [$st, $d['fees']['active'] ?? null, $d['fees']['mode'] ?? '', $d['fees']['fixed'] ?? null, $d['fees']['label'] ?? '', $d['preview']['text'] ?? '']);
+    sf_eq('/me Inhaber: service_fee verfügbar + bearbeitbar', ['available' => true, 'can_edit' => true], sf_rest('GET', '/me')[1]['service_fee'] ?? null);
+    sf_eq('GET: available true', true, $d['available'] ?? null);
     sf_eq('Antwort: Modi, Rundungen, Zahlungskosten, overrides', [['customer', 'split', 'organizer'], 6, 'organizer', 0], [array_column($d['modes'] ?? [], 'key'), count($d['roundings'] ?? []), $d['payment']['mode'] ?? '', $d['overrides'] ?? -1]);
 
     echo "-- Prüfung\n";

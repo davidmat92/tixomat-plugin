@@ -3020,7 +3020,7 @@ Tokens werden bei `/auth/login` generiert und als SHA-256 Hash in `_tix_app_toke
 | Methode | Route | Beschreibung | Auth |
 |---|---|---|---|
 | GET | `/info` | Plugin-Version, Features, aktive Module | Public |
-| GET | `/me` | Aktueller User (ID, Name, E-Mail, Rollen, Avatar) | Auth |
+| GET | `/me` | Aktueller User (ID, Name, E-Mail, Rollen, Avatar); `service_fee {available, can_edit}` ab 1.38.749 (§154) | Auth |
 | GET | `/events` | Events des Organizers (Filter: status, search, per_page) | Auth |
 | GET | `/events/{id}` | Einzel-Event mit allen Meta-Daten | Auth |
 | PUT | `/events/{id}` | Event aktualisieren | Auth |
@@ -5872,3 +5872,4 @@ Vertrag: `uebergaben/vertrag-servicegebuehr.md`. Klasse `TIX_Studio_Fees`. Diese
   - Website-Kasse (`cart_fees`/`cart_total`, Bestellung) und App-Kasse (`/customer/cart/quote` `totals.fee|fee_label|total`) rechnen über `TIX_Fees::calc_order_fees`.
   - Gebührenfreie Kategorien (`no_fee`) bleiben ohne Gebühr.
 - **Tests:** `test-studio-fees-wp` (Einzel-Seite: run 33 + kasse 4, Plattform 3), `test-studio-payments-wp` 33, `test-fees` 97 grün.
+- **`/me.service_fee {available, can_edit}`** (ab 1.38.749): `available` = kein Mehr-Veranstalter-Modus, `can_edit` = Admin oder `tix_organizer`. Studio und Apps blenden die Zeile „Servicegebühr“ danach aus; `GET /studio/fees` liefert zusätzlich `available: true`. Test `test-studio-fees-wp` jetzt 36 + 4, Plattform 4.
