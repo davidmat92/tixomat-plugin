@@ -164,7 +164,7 @@ class TIX_Platform_Offers {
                 'prices' => ['once' => 0], 'default_interval' => 'once', 'price_note' => 'ohne Gebühr', 'benefits' => ['reichweite', 'eintritt_frei', 'follower']]),
             $i(['key' => 'tickets', 'type' => 'plan', 'name' => 'Tickets über evendis', 'short' => 'Mit Ticketverkauf',
                 'description' => 'Verkauf über evendis.de und die evendis-App. Keine Grundgebühr, keine Kosten ohne Verkauf, Freitickets kostenlos. Verkauf startet nach Freigabe deines Kontos.',
-                'default_interval' => 'per_ticket', 'fee_percent' => 2.5, 'fee_fixed' => 0.59, 'price_note' => 'je verkauftem Ticket, inkl. MwSt. und Zahlung',
+                'default_interval' => 'per_ticket', 'fee_percent' => 2.9, 'fee_fixed' => 0.30, // 11.11.2026 (vorher 2,5 % + 0,59 €) 'price_note' => 'je verkauftem Ticket, inkl. MwSt. und Zahlung',
                 'tax_note' => 'inkl. MwSt.', 'term' => 'keine Bindung', 'benefits' => ['eigene_seite', 'keine_grundgebuehr', 'zahlung_inklusive', 'gebuehr_weitergeben', 'einlass_kasse', 'abrechnung'], 'recommended' => true]),
             $i(['key' => 'shop', 'type' => 'plan', 'name' => 'Eigener Shop', 'short' => 'Jahresvertrag',
                 'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket. Einrichtung inklusive.',
@@ -474,7 +474,7 @@ class TIX_Platform_Offers {
         // Provisionsmodell
         $fp = null; $ff = null;
         foreach ((array) $d['items'] as $it) if (($it['catalog_key'] ?? '') === 'tickets' && $it['interval'] === 'per_ticket') { $fp = $it['fee_percent']; $ff = $it['fee_fixed']; break; }
-        if ($fp === null) { $pl = self::catalog_item('tickets'); $fp = $pl['fee_percent'] ?? 2.5; $ff = $pl['fee_fixed'] ?? 0.59; }
+        if ($fp === null) { $pl = self::catalog_item('tickets'); $fp = $pl['fee_percent'] ?? 2.9; $ff = $pl['fee_fixed'] ?? 0.30; }
         $fp = floatval($fp); $ff = floatval($ff);
         $fee_t = $P > 0 ? $P * $fp / 100 + $ff : 0.0;
         $pg = round($fee_t * $T, 2);

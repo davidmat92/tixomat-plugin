@@ -27,7 +27,7 @@ class TIX_Demo_Access {
     const META_ORDER = '_tix_demo_access';
     const META_MODEL = '_tix_demo_model';
     const OPT_PLATFORM_HOME = 'tix_demo_platform_url';
-    /** Modell (User 06.11.): platform = Provisionskunde (Tickets über evendis, 2,5 % + 0,59 € je Ticket), self = selbstgehostet (0 € je Ticket) */
+    /** Modell (User 06.11.): platform = Provisionskunde (Tickets über evendis, 2,9 % + 0,30 € je Ticket), self = selbstgehostet (0 € je Ticket) */
     const MODELS = ['platform', 'self'];
     /** Website-Profil (User 06.11.): club = mehrere Events (Beispiel-Club Ostkai), festival = 1 Event (Beispiel-Festival Seewiese) */
     const META_PROFILE = '_tix_demo_profile';
@@ -466,7 +466,7 @@ class TIX_Demo_Access {
     /** Modelle mit Preisen wie veranstalter.evendis.de/preise/ (Anzeige im Studio) */
     public static function models_info() {
         return [
-            ['key' => 'platform', 'label' => 'Provisionskunde', 'price' => '2,5 % + 0,59 € je Ticket', 'text' => 'Tickets über evendis: Veranstalter-Seite auf evendis.de, Gebühr, Abrechnung und Auszahlung durch evendis.'],
+            ['key' => 'platform', 'label' => 'Provisionskunde', 'price' => '2,9 % + 0,30 € je Ticket', 'text' => 'Tickets über evendis: Veranstalter-Seite auf evendis.de, Gebühr, Abrechnung und Auszahlung durch evendis.'],
             ['key' => 'self', 'label' => 'Selbstgehostet', 'price' => '0 € je Ticket', 'text' => 'Eigener Shop mit Lizenz: eigene Website und Domain, ggf. eigene App, eigener Zahlungsanbieter, keine evendis-Gebühr.'],
         ];
     }

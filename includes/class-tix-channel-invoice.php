@@ -232,8 +232,8 @@ class TIX_Channel_Invoice {
         $msg = 'saved';
         if ($do === 'settings') {
             update_option(TIX_Channel_Fee::OPTION, [
-                'percent'      => max(0, min(20, round(floatval(str_replace(',', '.', (string) ($_POST['percent'] ?? 2.5))), 4))),
-                'fixed'        => max(0, min(5, round(floatval(str_replace(',', '.', (string) ($_POST['fixed'] ?? 0.59))), 2))),
+                'percent'      => max(0, min(20, round(floatval(str_replace(',', '.', (string) ($_POST['percent'] ?? TIX_Channel_Fee::DEFAULT_PERCENT))), 4))),
+                'fixed'        => max(0, min(5, round(floatval(str_replace(',', '.', (string) ($_POST['fixed'] ?? TIX_Channel_Fee::DEFAULT_FIXED))), 2))),
                 'label'        => mb_substr(sanitize_text_field(wp_unslash($_POST['label'] ?? 'Servicegebühr')), 0, 60) ?: 'Servicegebühr',
                 'new_partners' => !empty($_POST['new_partners']) ? 1 : 0,
                 'due_days'     => max(0, min(60, intval($_POST['due_days'] ?? 14))),

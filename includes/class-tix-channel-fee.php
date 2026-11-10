@@ -19,6 +19,9 @@ class TIX_Channel_Fee {
 
     const OPTION = 'tix_channel_fee_settings';
     const MODES  = ['customer', 'split', 'organizer'];
+    /** Vorgabe = Plattformgebühr evendis, inkl. MwSt. (User-Entscheid 11.11.2026, vorher 2,5 % + 0,59 €) */
+    const DEFAULT_PERCENT = 2.9;
+    const DEFAULT_FIXED   = 0.30;
 
     /** Aktuelle Kanal-Gebühr der laufenden Partner-Anfrage (Quelle) oder null. */
     private static $current = null;
@@ -29,8 +32,8 @@ class TIX_Channel_Fee {
         $s = get_option(self::OPTION, []);
         $s = is_array($s) ? $s : [];
         return [
-            'percent'      => isset($s['percent']) ? floatval($s['percent']) : 2.5,
-            'fixed'        => isset($s['fixed']) ? floatval($s['fixed']) : 0.59,
+            'percent'      => isset($s['percent']) ? floatval($s['percent']) : self::DEFAULT_PERCENT,
+            'fixed'        => isset($s['fixed']) ? floatval($s['fixed']) : self::DEFAULT_FIXED,
             'label'        => (string) ($s['label'] ?? 'Servicegebühr'),
             'new_partners' => array_key_exists('new_partners', $s) ? !empty($s['new_partners']) : true,
             'due_days'     => max(0, intval($s['due_days'] ?? 14)),

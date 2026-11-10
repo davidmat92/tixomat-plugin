@@ -618,7 +618,7 @@ class TIX_Partners {
                             <p class="description">Geteilte Events dieser Quelle werden diesem Veranstalter zugeordnet.</p></td></tr>
                         <tr><th>Verkauf über diese Seite</th><td>
                             <label><input type="checkbox" name="sales_enabled" value="1" <?php checked(!empty($p['sales_enabled'])); ?>> Tickets für geteilte Events dieser Quelle in der App verkaufen (Zahlung beim Veranstalter)</label></td></tr>
-                        <?php $cfs = class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::settings() : ['percent' => 2.5, 'fixed' => 0.59]; ?>
+                        <?php $cfs = class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::settings() : ['percent' => 2.9, 'fixed' => 0.30]; ?>
                         <tr><th>Gebühr im evendis-Kanal</th><td>
                             <label><input type="checkbox" name="channel_fee" value="1" <?php checked(!empty($p['channel_fee'])); ?>> Gebühr für Verkäufe über die App/Website berechnen</label>
                             <div style="margin-top:6px;">

@@ -15,9 +15,33 @@ if (!defined('ABSPATH')) exit;
 class TIX_Price_Watch {
 
     const NS = 'tixomat/v1';
+    /** Rechensatz = veröffentlichte Plattformgebühr (11.11.2026: 2,9 % + 0,30 € inkl. MwSt., vorher 2,5 % + 0,59 €) */
+    const REF_PERCENT = 2.9;
+    const REF_FIXED   = 0.30;
+    const OPT_RATE_MIGRATED = 'tix_price_watch_rate_745';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
+        add_action('init', [__CLASS__, 'migrate_rate'], 30);
+    }
+
+    /**
+     * Einmalig (1.38.746): gespeicherten alten Rechensatz 2,5 % + 0,59 € auf den neuen Satz stellen.
+     * Abweichend eingetragene Werte bleiben; Abrechnungen und Angebote werden nicht angefasst.
+     */
+    public static function migrate_rate() {
+        if (get_option(self::OPT_RATE_MIGRATED)) return;
+        $s = get_option('tix_settings', []);
+        if (is_array($s) && isset($s['price_watch_ref_percent'], $s['price_watch_ref_fixed'])
+            && abs(floatval($s['price_watch_ref_percent']) - 2.5) < 0.0001 && abs(floatval($s['price_watch_ref_fixed']) - 0.59) < 0.0001) {
+            $s['price_watch_ref_percent'] = self::REF_PERCENT;
+            $s['price_watch_ref_fixed']   = self::REF_FIXED;
+            // Die Einstellungs-Prüfung übernimmt price_watch_* nur zusammen mit price_watch_shop_monthly (sonst bleibt der alte Wert)
+            if (!array_key_exists('price_watch_shop_monthly', $s)) $s['price_watch_shop_monthly'] = 79;
+            if (!array_key_exists('price_watch_enabled', $s)) $s['price_watch_enabled'] = 0;
+            update_option('tix_settings', $s);
+        }
+        update_option(self::OPT_RATE_MIGRATED, gmdate('c'), false);
     }
 
     public static function register_routes() {
@@ -31,8 +55,8 @@ class TIX_Price_Watch {
         return [
             'enabled'      => !empty($s['price_watch_enabled']),
             'shop_monthly' => max(0.0, floatval($s['price_watch_shop_monthly'] ?? 79)),
-            'ref_percent'  => max(0.0, floatval($s['price_watch_ref_percent'] ?? 2.5)),
-            'ref_fixed'    => max(0.0, floatval($s['price_watch_ref_fixed'] ?? 0.59)),
+            'ref_percent'  => max(0.0, floatval($s['price_watch_ref_percent'] ?? self::REF_PERCENT)),
+            'ref_fixed'    => max(0.0, floatval($s['price_watch_ref_fixed'] ?? self::REF_FIXED)),
         ];
     }
 
