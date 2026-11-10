@@ -5687,3 +5687,23 @@ Auftrag und Vertrag: `uebergaben/auftrag-sync-geteilte-objekte-2026-11-10.md`. K
   - Ausgabe: `lineup_list[].tour`.
   - Nur mit `artist_id` möglich.
 - **Tests:** `test-lineup-artist-link-wp` (je 23).
+
+## 147. Künstlerbilder der Spiegel (ab 1.38.740)
+- **Ursache:**
+  - Die Bilder der KitchenKlub-Künstler sind meist Act-Fotos aus dem Line-up und keine Porträts am Künstler.
+  - Im Schnappschuss stehen sie deshalb in `image`, während `portrait`/`cover` leer sind.
+  - 1.38.738 hat nur Porträt und Titelbild ausgewertet, deshalb war `image` leer.
+  - Download, IPv6 oder Rechte waren nicht beteiligt, weil 1.38.738 gar nicht geladen hat.
+- **Jetzt:**
+  - Das Bild (Porträt, sonst Titelbild, sonst Act-Foto) wird in die **Mediathek der Seite** geladen. Dabei entstehen alle Größen für Karte und Rundbild.
+  - Der Download läuft nur über IPv4, akzeptiert höchstens 8 MB und nur JPG, PNG, WebP und GIF.
+  - Der Anhang ist mit `_tix_mirror_of` = Künstler-ID markiert.
+  - **Klappt der Download nicht**, gilt die Adresse der Quelle als Rückfall. Der Fehler steht in `_tix_mirror.img_error`.
+  - **Ändert sich das Bild an der Quelle** (andere Adresse), wird es beim nächsten Abgleich neu geladen und der alte Anhang gelöscht. Gleiche Adresse heißt kein erneuter Download.
+  - Beim Aufräumen eines Spiegels werden seine Anhänge mitgelöscht.
+- **Reparatur:** Nach dem Update werden alle vorhandenen Spiegel einmal automatisch neu abgeglichen (etwa 5 Minuten nach dem ersten Seitenaufruf, Option `tix_shared_objects_repair_740`).
+  - Von Hand: `wp tixomat spiegel reparieren`.
+  - `wp tixomat spiegel` listet alle Spiegel mit Bildstatus: `#Anhang`, `Quelle` oder `–`, dazu einen eventuellen Fehler.
+- **Flyer:** Das Eventbild der Kopie lädt der Abgleich der Kunden-Seite schon seit 1.38.712 in die Mediathek (`_tix_platform_co_img`).
+- **Orte:** Sie haben bei Spiegeln kein eigenes Bild, weil die Quelle keines liefert.
+- **Tests:** `test-shared-objects-wp` (Kunden-Seite 21, Plattform 14). Der echte Download ist nachgestellt, weil die Test-Seiten nur private Adressen haben, die WordPress ablehnt.

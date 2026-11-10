@@ -15,7 +15,22 @@ $snap = [
     ['source_id' => 1162, 'name' => "Maurice SOT $sfx", 'role' => 'support', 'kind' => 'solo', 'short_bio' => 'Partykanone', 'links' => ['instagram' => 'https://instagram.com/maurice'],
      'portrait' => ['medium' => 'https://kk.test/m-300.jpg', 'medium_large' => 'https://kk.test/m-768.jpg', 'large' => 'https://kk.test/m-1024.jpg', 'credit' => 'Foto KK'], 'url' => 'https://kk.test/kuenstler/maurice/'],
     ['source_id' => 1170, 'name' => "Eigen SOT $sfx"],
+    ['source_id' => 1180, 'name' => "Act SOT $sfx", 'image' => 'https://kk.test/act-foto.jpg', 'image_source' => 'act', 'portrait' => null, 'cover' => null], // nur Act-Foto (Fund KMT)
+    ['source_id' => 1181, 'name' => "Kaputt SOT $sfx", 'image' => 'https://kk.test/kaputt.jpg', 'portrait' => null],
 ];
+// Download nachstellen: lokale Datei als Anhang; „kaputt“ scheitert (Rückfall: Bild der Quelle)
+$GLOBALS['sot_dl'] = 0;
+add_filter('tix_shared_objects_sideload', function ($pre, $url, $parent) {
+    $GLOBALS['sot_dl']++;
+    if (strpos($url, 'kaputt') !== false) return new WP_Error('tix_mirror_img', 'Download fehlgeschlagen: blockiert');
+    $up = wp_upload_bits('sot-' . wp_generate_password(5, false) . '.png', null, (string) file_get_contents(ABSPATH . 'wp-admin/images/w-logo-blue.png'));
+    $aid = wp_insert_attachment(['post_mime_type' => 'image/png', 'post_title' => 'SOT', 'post_status' => 'inherit'], $up['file']);
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+    wp_update_attachment_metadata($aid, wp_generate_attachment_metadata($aid, $up['file']));
+    update_post_meta($aid, '_tix_mirror_of', intval($parent));
+    $GLOBALS['sot_att'][] = $aid;
+    return $aid;
+}, 10, 3);
 try {
     $orgK = $multi ? wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "SOT KK $sfx"]) : 0; if ($orgK) $posts[] = $orgK;
     // eigener Künstler gleichen Namens → verknüpfen statt spiegeln
@@ -34,11 +49,28 @@ try {
     TIX_Artists::store_snapshot($ev, $snap);
     $refs = array_map('intval', (array) get_post_meta($ev, TIX_Artists::EV_REF));
     $mir = 0; foreach ($refs as $r) if (TIX_Shared_Objects::mirror($r)) $mir = $r;
-    $eq('Künstler: Spiegel angelegt + eigener verknüpft (nicht doppelt)', [2, true, true], [count($refs), $mir > 0, in_array($own, $refs, true)]);
+    $mir = 0; foreach ($refs as $r) if (($mm = TIX_Shared_Objects::mirror($r)) && intval($mm['source_id'] ?? 0) === 1162) $mir = $r;
+    $eq('Künstler: Spiegel angelegt + eigener verknüpft (nicht doppelt)', [4, true, true], [count($refs), $mir > 0, in_array($own, $refs, true)]);
+    $byname = []; foreach ($refs as $r) $byname[get_the_title($r)] = $r;
+    $act = $byname["Act SOT $sfx"] ?? 0; $kap = $byname["Kaputt SOT $sfx"] ?? 0;
+    $ma = TIX_Shared_Objects::mirror($act);
+    $eq('Nur Act-Foto: in die Mediathek geladen, Größen vorhanden (1.38.740)', [true, true, true], [!empty($ma['attachment']), TIX_Artists::has_image($act), (string) (TIX_Artists::images_public($act)['portrait']['medium'] ?? '') !== '']);
+    $mk = TIX_Shared_Objects::mirror($kap);
+    $eq('Download gescheitert: Rückfall auf das Bild der Quelle, Fehler vermerkt', ['https://kk.test/kaputt.jpg', true], [(string) (TIX_Artists::images_public($kap)['portrait']['medium'] ?? ''), (string) ($mk['img_error'] ?? '') !== '']);
+    $card = TIX_Artists::card($act);
+    $eq('Karte in /public/artists hat image', true, (string) ($card['image'] ?? '') !== '');
     $m = TIX_Shared_Objects::mirror($mir);
     $eq('Spiegel markiert mit Herkunft, Link zur Künstlerseite', ['kk.test', 'https://kk.test/kuenstler/maurice/'], [$m['host'] ?? '', $m['url'] ?? '']);
     $img = TIX_Artists::images_public($mir);
-    $eq('Bilder der Quelle als Adresse', ['https://kk.test/m-300.jpg', 'Foto KK', true], [$img['portrait']['medium'] ?? '', $img['credit'] ?? '', TIX_Artists::has_image($mir)]);
+    $eq('Porträt in die eigene Mediathek geladen, Bildnachweis bleibt (1.38.740)', [true, 'Foto KK', true], [strpos((string) ($img['portrait']['medium'] ?? ''), '/wp-content/uploads/') !== false, $img['credit'] ?? '', TIX_Artists::has_image($mir)]);
+    $dl = $GLOBALS['sot_dl'];
+    TIX_Artists::store_snapshot($ev, $snap);
+    $eq('erneuter Abgleich: Bild nicht erneut geladen (außer dem gescheiterten)', $dl + 1, $GLOBALS['sot_dl']);
+    $snap2 = $snap; $snap2[2]['image'] = 'https://kk.test/act-foto-neu.jpg';
+    $old_att = intval($ma['attachment'] ?? 0);
+    TIX_Artists::store_snapshot($ev, $snap2);
+    $ma2 = TIX_Shared_Objects::mirror($act);
+    $eq('Bild an der Quelle geändert: neu geladen, alter Anhang weg', [true, false], [intval($ma2['attachment'] ?? 0) !== $old_att, (bool) get_post($old_att)]);
     TIX_Artists::store_snapshot($ev, $snap);
     $eq('erneuter Abgleich: kein zweiter Spiegel', 1, count(get_posts(['post_type' => 'tix_artist', 'post_status' => 'any', 'fields' => 'ids', 'meta_query' => [['key' => TIX_Shared_Objects::META . '_key', 'value' => 'kk.test|1162']]])));
     if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush(); TIX_Artists::flush_cache(); wp_cache_flush();
@@ -68,13 +100,16 @@ try {
     // Aufräumen: Event weg → Spiegel weg, eigene bleiben
     wp_trash_post($ev);
     TIX_Shared_Objects::cleanup();
+    $att_now = intval((TIX_Shared_Objects::mirror($act) ?: [])['attachment'] ?? 0);
     $eq('Event entfernt: Spiegel gelöscht, eigener Künstler bleibt', [false, true], [(bool) get_post($mir), (bool) get_post($own)]);
+    $eq('… mit seinen Bildern', false, (bool) get_post($att_now));
     if (!$multi) $eq('… Orts-Spiegel gelöscht, eigener Ort bleibt', [false, true], [(bool) get_post($lid), (bool) get_post($ownloc)]);
 } finally {
     foreach (array_reverse($posts) as $p) if (get_post($p)) wp_delete_post($p, true);
     foreach ((array) ($GLOBALS['sot_terms'] ?? []) as $t) wp_delete_term($t, 'event_category');
     if ($multi) { if ($partner_bak === null) delete_option(TIX_Partners::OPTION); else update_option(TIX_Partners::OPTION, $partner_bak, false); }
     TIX_Shared_Objects::cleanup();
+    foreach ((array) ($GLOBALS['sot_att'] ?? []) as $x) if (get_post($x)) wp_delete_attachment($x, true);
     wp_set_current_user(0);
 }
 echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen)\n";

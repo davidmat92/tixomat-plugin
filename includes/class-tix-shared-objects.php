@@ -19,6 +19,20 @@ class TIX_Shared_Objects {
     const META = '_tix_mirror';
 
     public static function init() {
+        // Einmal nach 1.38.740: vorhandene Spiegel neu abgleichen (Bilder)
+        add_action('tix_shared_objects_repair', [__CLASS__, 'repair']);
+        add_action('init', function () {
+            if (get_option('tix_shared_objects_repair_740', '') !== '') return;
+            update_option('tix_shared_objects_repair_740', gmdate('c'), false);
+            if (!wp_next_scheduled('tix_shared_objects_repair')) wp_schedule_single_event(time() + 300, 'tix_shared_objects_repair');
+        }, 41);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat spiegel', function ($args) {
+            if (($args[0] ?? '') === 'reparieren') { WP_CLI::success(self::repair() . ' Events neu gespiegelt.'); return; }
+            foreach (get_posts(['post_type' => ['tix_artist', 'tix_location'], 'post_status' => 'any', 'posts_per_page' => 500, 'fields' => 'ids', 'meta_query' => [['key' => self::META . '_key', 'compare' => 'EXISTS']]]) as $id) {
+                $m = self::mirror($id) ?: [];
+                WP_CLI::line(sprintf('%-6d %-14s %-30s von %s · Bild %s%s', $id, get_post_type($id), get_the_title($id), $m['host'] ?? '?', !empty($m['attachment']) ? '#' . $m['attachment'] : (!empty($m['image']) || !empty($m['portrait']) ? 'Quelle' : '–'), !empty($m['img_error']) ? ' (' . $m['img_error'] . ')' : ''));
+            }
+        });
         add_filter('rest_pre_dispatch', [__CLASS__, 'guard'], 7, 3);
         add_filter('rest_request_after_callbacks', [__CLASS__, 'decorate'], 40, 3);
         add_action('trashed_post', [__CLASS__, 'on_event_gone']);
@@ -100,12 +114,25 @@ class TIX_Shared_Objects {
             }
             $links = [];
             foreach ((array) ($a['links'] ?? []) as $k => $v) if ($v) $links[$k] = esc_url_raw((string) $v);
+            // Bild (1.38.740): Porträt, sonst Titelbild, sonst das Bild des Acts (Act-Foto) – in die Mediathek dieser Seite
+            $src_url = (string) (($a['portrait']['large'] ?? '') ?: ($a['portrait']['medium'] ?? '') ?: ($a['cover']['large'] ?? '') ?: ($a['cover']['medium'] ?? '') ?: ($a['image'] ?? ''));
+            $prev = self::mirror($mid) ?: [];
+            $att = intval($prev['attachment'] ?? 0);
+            $err = null;
+            if ($src_url === '') { if ($att) wp_delete_attachment($att, true); $att = 0; }
+            elseif ($src_url !== (string) ($prev['img_src'] ?? '') || !$att || !get_post($att)) {
+                $new = self::sideload($src_url, $mid, $name);
+                if (is_wp_error($new)) { $err = $new->get_error_message(); }
+                else { if ($att && $att !== $new) wp_delete_attachment($att, true); $att = $new; }
+            }
+            $credit = (string) (($a['portrait']['credit'] ?? '') ?: ($a['credit'] ?? ''));
             update_post_meta($mid, TIX_Artists::META, ['kind' => (string) ($a['kind'] ?? 'solo'), 'short_bio' => (string) ($a['short_bio'] ?? ''), 'links' => $links,
-                'images' => [], 'ids' => ['spotify' => '', 'apple' => ''], 'tours' => [], 'status' => 'public', 'verified' => false,
+                'images' => $att ? ['portrait' => ['id' => $att, 'credit' => $credit]] : [], 'ids' => ['spotify' => '', 'apple' => ''], 'tours' => [], 'status' => 'public', 'verified' => false,
                 'managed_by' => $org ? ['type' => 'organizer', 'id' => $org] : ['type' => 'site', 'id' => 0]]);
             update_post_meta($mid, TIX_Artists::META_NORM, TIX_Artists::norm($name));
             update_post_meta($mid, self::META, ['host' => $src['host'], 'site' => $src['site'], 'source_id' => intval($a['source_id'] ?? 0) ?: null,
-                'url' => ($a['url'] ?? null) ?: null, 'portrait' => $a['portrait'] ?? null, 'cover' => $a['cover'] ?? null, 'credit' => (string) ($a['credit'] ?? ''), 'at' => gmdate('c')]);
+                'url' => ($a['url'] ?? null) ?: null, 'portrait' => $a['portrait'] ?? null, 'cover' => $a['cover'] ?? null, 'image' => ($a['image'] ?? null) ?: null, 'credit' => $credit,
+                'img_src' => $src_url !== '' && !$err ? $src_url : (string) ($prev['img_src'] ?? ''), 'attachment' => $att ?: null, 'img_error' => $err, 'at' => gmdate('c')]);
             $ids[] = intval($mid);
         }
         $ids = array_values(array_unique($ids));
@@ -121,7 +148,46 @@ class TIX_Shared_Objects {
         $m = self::mirror($aid);
         if (!$m) return null;
         $one = function ($f) { return is_array($f) && (!empty($f['large']) || !empty($f['medium'])) ? ['id' => null, 'large' => (string) ($f['large'] ?: $f['medium']), 'medium_large' => (string) (($f['medium_large'] ?? '') ?: ($f['large'] ?: $f['medium'])), 'medium' => (string) ($f['medium'] ?: $f['large']), 'credit' => (string) ($f['credit'] ?? '')] : null; };
-        return ['portrait' => $one($m['portrait'] ?? null), 'cover' => $one($m['cover'] ?? null)];
+        $p = $one($m['portrait'] ?? null); $c = $one($m['cover'] ?? null);
+        if (!$p && !$c && !empty($m['image'])) $p = $one(['medium' => (string) $m['image'], 'large' => (string) $m['image'], 'credit' => (string) ($m['credit'] ?? '')]); // Act-Foto der Quelle
+        return ['portrait' => $p, 'cover' => $c];
+    }
+
+    /**
+     * Bild der Quelle in die Mediathek laden (Größen für Karte/Rundbild entstehen dabei), nur über IPv4 (Kunden-Server mit IPv6 ohne
+     * Route scheitern sonst), höchstens 8 MB, nur Bilder. → Anhang-ID | WP_Error
+     */
+    public static function sideload($url, $parent, $title = '') {
+        $url = esc_url_raw((string) $url, ['https', 'http']);
+        if ($url === '') return new WP_Error('tix_mirror_img', 'Keine Bildadresse.');
+        $test = apply_filters('tix_shared_objects_sideload', null, $url, $parent); // Tests
+        if ($test !== null) return $test;
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $v4 = function ($h) { if (defined('CURLOPT_IPRESOLVE')) curl_setopt($h, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); };
+        add_action('http_api_curl', $v4);
+        $tmp = download_url($url, 20);
+        remove_action('http_api_curl', $v4);
+        if (is_wp_error($tmp)) return new WP_Error('tix_mirror_img', 'Download fehlgeschlagen: ' . $tmp->get_error_message());
+        $info = @getimagesize($tmp);
+        if (!is_array($info) || !in_array((string) $info['mime'], ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true) || filesize($tmp) > 8 * MB_IN_BYTES) { @unlink($tmp); return new WP_Error('tix_mirror_img', 'Kein gültiges Bild.'); }
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'][$info['mime']];
+        $aid = media_handle_sideload(['name' => sanitize_file_name(($title ?: 'kuenstler') . '-' . substr(md5($url), 0, 8) . '.' . $ext), 'tmp_name' => $tmp], 0, $title ?: null);
+        if (is_wp_error($aid)) { @unlink($tmp); return new WP_Error('tix_mirror_img', 'Bild konnte nicht gespeichert werden: ' . $aid->get_error_message()); }
+        update_post_meta($aid, '_tix_mirror_of', intval($parent));
+        return intval($aid);
+    }
+
+    /** Reparatur (1.38.740): alle Kopien mit Künstler-Schnappschuss neu spiegeln (Bilder nachladen). → Anzahl Events */
+    public static function repair() {
+        $n = 0;
+        foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future', 'private'], 'posts_per_page' => 300, 'fields' => 'ids', 'suppress_filters' => true,
+            'meta_query' => [['key' => '_tix_source_artists', 'compare' => 'EXISTS']]]) as $eid) {
+            $snap = get_post_meta($eid, '_tix_source_artists', true);
+            if (is_array($snap) && $snap && self::source_of($eid)) { self::sync_artists($eid, $snap); $n++; }
+        }
+        return $n;
     }
 
     // ═══════════════ Orte, Kategorien (Kunden-Seiten) ═══════════════
@@ -176,6 +242,7 @@ class TIX_Shared_Objects {
             $type = get_post_type($id);
             $q = $type === 'tix_location' ? [['key' => '_tix_location_id', 'value' => (string) $id]] : [['key' => '_tix_artist_ref', 'value' => (string) $id]];
             if (get_posts(['post_type' => 'event', 'post_status' => $live, 'posts_per_page' => 1, 'fields' => 'ids', 'suppress_filters' => true, 'meta_query' => $q])) continue;
+            foreach (get_posts(['post_type' => 'attachment', 'post_status' => 'any', 'posts_per_page' => 20, 'fields' => 'ids', 'meta_key' => '_tix_mirror_of', 'meta_value' => (string) $id]) as $att) wp_delete_attachment($att, true);
             wp_delete_post($id, true);
             $n++;
         }
