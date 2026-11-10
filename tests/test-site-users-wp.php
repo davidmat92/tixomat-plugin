@@ -1,0 +1,151 @@
+<?php
+/**
+ * Zugänge für Kunden-Seiten aus der Plattform-Akte (1.38.724).
+ *   plat eval-file …/test-site-users-wp.php   (Veranstalter-Kunde direkt; Lizenz-Kunde: signierte Anfrage an die Seite)
+ *   kk   eval-file …/test-site-users-wp.php   (Kunden-Seite: signierte Anfragen ausführen)
+ */
+if (!defined('ABSPATH') || !class_exists('TIX_Site_Users')) { echo "Tixomat ab 1.38.724 nötig\n"; return; }
+$h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
+$multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+global $wpdb;
+$GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
+function su_eq($label, $exp, $act) {
+    $GLOBALS['t_count']++;
+    if ($exp === $act) { echo "ok    $label\n"; return; }
+    $GLOBALS['t_fails']++;
+    echo "FAIL  $label: erwartet " . var_export($exp, true) . ", ist " . var_export($act, true) . "\n";
+}
+function su_rest($method, $route, array $body = [], array $headers = [], $raw = null) {
+    $r = new WP_REST_Request($method, '/tixomat/v1' . $route);
+    foreach ($headers as $k => $v) $r->set_header($k, $v);
+    if ($raw !== null) { $r->set_header('content-type', 'application/json'); $r->set_body($raw); }
+    elseif ($body && $method === 'GET') $r->set_query_params($body);
+    elseif ($body) { $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode($body)); }
+    $res = rest_do_request($r);
+    $d = rest_get_server()->response_to_data($res, false);
+    return [$res->get_status(), is_array($d) ? $d : [], is_array($d) ? ($d['code'] ?? '') : ''];
+}
+add_filter('pre_wp_mail', function () { $GLOBALS['su_mails'] = ($GLOBALS['su_mails'] ?? 0) + 1; return true; });
+$admin = get_users(['role' => 'administrator', 'number' => 1]);
+$admin_id = intval($admin[0]->ID);
+$sfx = wp_rand(1000, 9999);
+$users = []; $posts = [];
+$cleanup_users = function () use (&$users) { require_once ABSPATH . 'wp-admin/includes/user.php'; foreach (array_unique($users) as $u) if ($u) wp_delete_user($u); };
+
+if ($multi) {
+    // ═══════════════ Plattform ═══════════════
+    $owner = wp_insert_user(['user_login' => "sut_owner$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_owner$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $owner;
+    $org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "SUTEST Veranstalter $sfx", 'meta_input' => ['_tix_org_user_id' => $owner]]); $posts[] = $org;
+    $keep = get_option('tix_license_server', null);
+    try {
+        TIX_Platform_Customers::flush();
+        $k = TIX_Platform_Customers::canonical('v-' . $org);
+        wp_set_current_user(0);
+        su_eq('ohne Anmeldung 401', 401, su_rest('GET', "/platform/customers/$k/users")[0]);
+        wp_set_current_user($owner);
+        su_eq('Veranstalter 403', 403, su_rest('GET', "/platform/customers/$k/users")[0]);
+        wp_set_current_user($admin_id);
+        [$s, $d] = su_rest('GET', "/platform/customers/$k/users");
+        su_eq('Liste: Inhaber, nicht entfernbar, Rollen, Ziel Veranstalter', [200, true, false, 5, 'organizer'], [$s, $d['users'][0]['owner'] ?? null, $d['users'][0]['removable'] ?? null, count($d['roles'] ?? []), $d['target'] ?? '']);
+        $mails = $GLOBALS['su_mails'] ?? 0;
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users", ['name' => 'Ina Einlass', 'email' => "sut_ina$sfx@example.test", 'role' => 'entrance', 'password_mode' => 'invite']);
+        $ina = intval($d['user']['id'] ?? 0); $users[] = $ina;
+        su_eq('Einladung per Mail: angelegt, Team des Veranstalters, Mail raus', [200, true, $org, true, 'entrance'], [$s, $d['invited'] ?? null, intval(get_user_meta($ina, TIX_App_Scope::META_TEAM_ORG, true)), ($GLOBALS['su_mails'] ?? 0) > $mails, $d['user']['role'] ?? '']);
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users", ['name' => 'Kai Kasse', 'login' => "sut_kai$sfx", 'role' => 'cashier', 'password_mode' => 'set', 'password' => 'Kasse-Geheim-2026']);
+        $kai = intval($d['user']['id'] ?? 0); $users[] = $kai;
+        $ku = get_userdata($kai);
+        su_eq('Ohne E-Mail: Login, Ersatzadresse, Passwort gesetzt, Passwort nie in der Antwort', [200, "sut_kai$sfx", null, true, true, false],
+            [$s, $d['user']['login'] ?? '', array_key_exists('email', (array) ($d['user'] ?? [])) ? $d['user']['email'] : 'fehlt', substr($ku->user_email, -strlen('.ohne-mail.invalid')) === '.ohne-mail.invalid', wp_check_password('Kasse-Geheim-2026', $ku->user_pass, $kai), strpos(wp_json_encode($d), 'Kasse-Geheim') !== false]);
+        su_eq('Ohne E-Mail keine Einladung', [400, 'tix_invalid_field'], (function ($r) { return [$r[0], $r[2]]; })(su_rest('POST', "/platform/customers/$k/users", ['login' => "sut_x$sfx", 'role' => 'dj', 'password_mode' => 'invite'])));
+        su_eq('Schwaches Passwort 400', [400, 'tix_weak_password'], (function ($r) { return [$r[0], $r[2]]; })(su_rest('POST', "/platform/customers/$k/users", ['login' => "sut_y$sfx", 'role' => 'dj', 'password_mode' => 'set', 'password' => 'kurz'])));
+        su_eq('… und kein halbes Konto übrig', false, (bool) username_exists("sut_y$sfx"));
+        su_eq('Login doppelt 409', [409, 'tix_login_taken'], (function ($r) { return [$r[0], $r[2]]; })(su_rest('POST', "/platform/customers/$k/users", ['login' => "sut_kai$sfx", 'role' => 'dj', 'password_mode' => 'set', 'password' => 'Anderes-Pass-99'])));
+        su_eq('E-Mail mit vorhandenem Konto 409', [409, 'tix_user_exists'], (function ($r) { return [$r[0], $r[2]]; })(su_rest('POST', "/platform/customers/$k/users", ['email' => "sut_owner$sfx@example.test", 'role' => 'dj'])));
+        // Form des Studios: {invite: true} bzw. {password}, PATCH {password}|{invite}
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users", ['name' => 'Dana DJ', 'email' => "sut_dana$sfx@example.test", 'role' => 'dj', 'invite' => true]);
+        $dana = intval($d['user']['id'] ?? 0); $users[] = $dana;
+        su_eq('Studio-Form: invite true → Mail, source platform, role_label', [200, true, 'platform', 'DJ', false], [$s, $d['mailed'] ?? null, $d['source'] ?? '', $d['user']['role_label'] ?? '', $d['user']['email_placeholder'] ?? null]);
+        [$s, $d] = su_rest('PATCH', "/platform/customers/$k/users/$dana", ['password' => 'Dana-Pass-2026x']);
+        su_eq('Studio-Form: PATCH {password} setzt das Passwort', [200, true], [$s, wp_check_password('Dana-Pass-2026x', get_userdata($dana)->user_pass, $dana)]);
+        su_eq('Studio-Form: PATCH {invite: true} schickt den Link', [200, true], (function ($r) { return [$r[0], $r[1]['mailed'] ?? null]; })(su_rest('PATCH', "/platform/customers/$k/users/$dana", ['invite' => true])));
+        [$s, $d] = su_rest('PATCH', "/platform/customers/$k/users/$kai", ['role' => 'dj', 'name' => 'Kai DJ']);
+        su_eq('Rolle + Name ändern', [200, 'dj', 'Kai DJ'], [$s, $d['user']['role'] ?? '', $d['user']['name'] ?? '']);
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users/$kai/password", ['mode' => 'set', 'password' => 'Neues-Passwort-77']);
+        su_eq('Passwort neu setzen', [200, true, true], [$s, $d['password_set'] ?? null, wp_check_password('Neues-Passwort-77', get_userdata($kai)->user_pass, $kai)]);
+        su_eq('Ersatzadresse: kein Passwort-Link per Mail', 400, su_rest('POST', "/platform/customers/$k/users/$kai/password", ['mode' => 'invite'])[0]);
+        su_eq('Passwort-Link per Mail an Ina', [200, true], (function ($r) { return [$r[0], $r[1]['mailed'] ?? null]; })(su_rest('POST', "/platform/customers/$k/users/$ina/password", ['mode' => 'invite'])));
+        su_eq('Inhaber ändern/entfernen 409', [409, 409], [su_rest('DELETE', "/platform/customers/$k/users/$owner")[0], su_rest('PATCH', "/platform/customers/$k/users/$owner", ['role' => 'dj'])[0]]);
+        su_eq('Fremdes Konto (Admin) 404', 404, su_rest('DELETE', "/platform/customers/$k/users/$admin_id")[0]);
+        [$s, $d] = su_rest('DELETE', "/platform/customers/$k/users/$kai");
+        su_eq('Entfernen: Rolle weg, nicht mehr im Team', [200, true, '', null], [$s, $d['removed'] ?? null, (string) get_user_meta($kai, TIX_App_Scope::META_TEAM_ORG, true), (function ($u) { foreach (TIX_Team::APP_ROLES as $k => $wp) if (in_array($wp, (array) $u->roles, true)) return $k; return null; })(get_userdata($kai))]);
+        $n = $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . TIX_Customers::audit_table() .  " WHERE action LIKE 'team_%%' AND subject_id IN (%s, %s, %s)", (string) $ina, (string) $kai, (string) $owner));
+        su_eq('Protokoll beim Kunden ohne Passwörter', [true, false], [intval($n) >= 5, (bool) $wpdb->get_var("SELECT COUNT(*) FROM " . TIX_Customers::audit_table() . " WHERE summary LIKE '%Geheim%' OR summary LIKE '%Neues-Passwort%'")]);
+
+        // ── Lizenz-Kunde: signierte Anfrage an die gebundene Seite
+        update_option('tix_license_server', '1', false);
+        TIX_License_Server::install();
+        $lic = TIX_License_Server::create(['customer' => 'SUTEST Lizenz', 'email' => 'sut@example.test', 'valid_until' => gmdate('Y-m-d', strtotime('+60 days'))]);
+        $st = $wpdb->prefix . 'tix_license_sites';
+        $wpdb->insert($st, ['license_id' => $lic->id, 'host' => 'sut-kunde.test', 'dev' => 0, 'first_seen' => current_time('mysql'), 'last_seen' => current_time('mysql')]);
+        TIX_Platform_Customers::flush();
+        $GLOBALS['su_calls'] = [];
+        add_filter('pre_http_request', function ($pre, $a, $url) {
+            if (strpos($url, 'sut-kunde.test/') === false) return $pre;
+            $GLOBALS['su_calls'][] = ['url' => $url, 'body' => (string) $a['body'], 'headers' => $a['headers']];
+            return ['headers' => [], 'body' => wp_json_encode(['ok' => true, 'created' => true, 'password_set' => true, 'user' => ['id' => 5, 'login' => 'kunde-team']]), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null];
+        }, 10, 3);
+        [$s, $d] = su_rest('POST', "/platform/customers/l-{$lic->id}/users", ['login' => 'kunde-team', 'role' => 'cashier', 'password_mode' => 'set', 'password' => 'Kunden-Pass-123']);
+        $c = $GLOBALS['su_calls'][0] ?? [];
+        $b = json_decode((string) ($c['body'] ?? ''), true);
+        su_eq('Lizenz-Kunde: an die Seite, signiert mit dem Lizenzschlüssel', [200, 'site', true, true, 'create'],
+            [$s, $d['target'] ?? '', strpos((string) ($c['url'] ?? ''), 'https://sut-kunde.test/wp-json/tixomat/v1/site/users') === 0,
+             hash_equals(TIX_Site_Users::sign((string) ($c['body'] ?? ''), 'sut-kunde.test', $lic->license_key), (string) ($c['headers']['X-Tix-Signature'] ?? '')), $b['action'] ?? '']);
+        su_eq('Protokoll auf der Plattform ohne Passwort', [1, false], [intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tix_license_log WHERE license_id = %d AND action = 'site_user_create'", $lic->id))),
+            (bool) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tix_license_log WHERE license_id = %d AND data LIKE %s", $lic->id, '%Kunden-Pass%'))]);
+        $wpdb->delete($st, ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_license_log', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic->id]);
+    } finally {
+        if ($keep === null) delete_option('tix_license_server'); else update_option('tix_license_server', $keep, false);
+        foreach ($posts as $p) wp_delete_post($p, true);
+        $cleanup_users();
+        TIX_Platform_Customers::flush();
+        wp_set_current_user(0);
+    }
+} else {
+    // ═══════════════ Kunden-Seite ═══════════════
+    $keep = [];
+    foreach (['tix_license_server', 'tix_license_key', 'tix_license_mode', TIX_Site_Users::OPT_NONCES] as $o) $keep[$o] = get_option($o, null);
+    $key = 'TIX-SUTEST-' . strtoupper(wp_generate_password(10, false));
+    update_option('tix_license_key', $key, false); update_option('tix_license_mode', 'selfhosted', false); update_option('tix_license_server', '0', false);
+    $host = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url(home_url(), PHP_URL_HOST)));
+    $call = function ($action, array $args, $sigkey = null, $ts = null, $nonce = null) use ($key, $host) {
+        $raw = wp_json_encode(['action' => $action, 'args' => $args ?: new stdClass(), 'by' => ['name' => 'Pat', 'email' => 'pat@evendis.test'], 'ts' => $ts ?? time(), 'nonce' => $nonce ?? wp_generate_password(20, false)]);
+        return su_rest('POST', '/site/users', [], ['X-Tix-Signature' => TIX_Site_Users::sign($raw, $host, $sigkey ?? $key)], $raw);
+    };
+    try {
+        wp_set_current_user(0);
+        $own = wp_insert_user(['user_login' => "sut_inh$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_inh$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $own;
+        update_user_meta($own, '_tix_site_owner', 1);
+        [$s, $d] = $call('create', ['name' => 'Eva Einlass', 'login' => "sut_eva$sfx", 'role' => 'entrance', 'password_mode' => 'set', 'password' => 'Einlass-Pass-2026']);
+        $eva = intval($d['user']['id'] ?? 0); $users[] = $eva;
+        su_eq('Signierte Anfrage: Zugang angelegt (Rolle Eingang, Passwort gesetzt)', [200, true, 'entrance', true], [$s, $d['password_set'] ?? null, $d['user']['role'] ?? '', $eva > 0 && wp_check_password('Einlass-Pass-2026', get_userdata($eva)->user_pass, $eva)]);
+        [$s, $d] = $call('list', []);
+        $byid = array_column((array) ($d['users'] ?? []), null, 'id');
+        su_eq('Liste: Inhaber nicht entfernbar, Eva mit Login, kein Admin', [true, false, "sut_eva$sfx", false], [$byid[$own]['owner'] ?? null, $byid[$own]['removable'] ?? null, $byid[$eva]['login'] ?? '', isset($byid[get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]])]);
+        su_eq('falscher Schlüssel 401', 401, $call('list', [], 'TIX-FALSCH-1')[0]);
+        su_eq('alte Anfrage 401', 401, $call('list', [], null, time() - 600)[0]);
+        $nonce = 'fest' . $sfx;
+        $call('list', [], null, null, $nonce);
+        su_eq('nonce nur einmal', 401, $call('list', [], null, null, $nonce)[0]);
+        su_eq('Inhaber entfernen 409', [409, 'tix_is_owner'], (function ($r) { return [$r[0], $r[2]]; })($call('remove', ['id' => $own])));
+        su_eq('Rolle ändern', [200, 'cashier'], (function ($r) { return [$r[0], $r[1]['user']['role'] ?? '']; })($call('update', ['id' => $eva, 'role' => 'cashier'])));
+        su_eq('Entfernen', [200, true], (function ($r) { return [$r[0], $r[1]['removed'] ?? null]; })($call('remove', ['id' => $eva])));
+        update_option('tix_license_server', '1', false);
+        su_eq('Seite ohne Lizenz-Betrieb (selbst Lizenz-Server) 404', 404, $call('list', [])[0]);
+    } finally {
+        foreach ($keep as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v, false); }
+        $cleanup_users();
+        wp_set_current_user(0);
+    }
+}
+echo ($GLOBALS['t_fails'] ? "FEHLER: {$GLOBALS['t_fails']}" : 'ALLES OK') . " ({$GLOBALS['t_count']} Prüfungen)\n";

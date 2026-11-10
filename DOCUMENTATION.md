@@ -5313,3 +5313,62 @@ Fund Party Schwelm: kitchenklub.de #1171 lieferte 12 Künstler, der Spiegel even
   1. Die Quelle sendet alle verteilten, kommenden Events einmal neu (Option `tix_syndication_heal_artists`, etwa 3 Minuten nach dem ersten Seitenaufruf); Speichern im Studio verteilt auch sofort.
   2. Danach braucht die Kunden-Seite einmal den Abgleich (`POST /platform-co/sync` bzw. den stündlichen Cron).
 - **Tests:** `test-lineup-acts-wp` (Plattform 22, Einzel-Seite 27), `test-co-sites-wp` (47/22) und die Zwei-Seiten-Tests (Umzug, Teil B, mehrere Co) grün.
+
+## 131. Zugänge für Kunden-Seiten aus der Plattform-Akte (ab 1.38.724)
+Klasse `TIX_Site_Users` (`class-tix-site-users.php`). Auftrag und vollständiger Vertrag: `uebergaben/auftrag-zugaenge-aus-kunden-akte-2026-11-10.md`.
+
+**Routen auf evendis.de**
+- `GET /platform/customers/{key}/users` → `{ok, users, roles, source, target}`
+  - `users [{id, name, login, email|null, email_placeholder, role, role_label, owner, editable, removable, last_login|null, invite_pending, created_by_platform}]`
+    - `role` = `owner` | `admin` | `entrance` | `cashier` | `awareness` | `dj`.
+    - Ersatzadressen (`<login>@<host>.ohne-mail.invalid`) kommen als `email: null` mit `email_placeholder: true`.
+  - `roles [{key, label, hint}]` = admin, entrance, cashier, awareness, dj. Eine Rolle `staff` gibt es nicht; bitte die gelieferte Liste nehmen.
+  - `source` = `site` (Lizenz-Kunde) | `platform` (Provisions-/Co-Kunde); `target` = `site` | `organizer`.
+- `POST /platform/customers/{key}/users` → `{ok, created, user, password_set?, invited?, mailed?, source}`
+  - Felder: `{name, login?, email?, role}`, dazu entweder `{password}` (setzen) oder `{invite: true}` (Mail). `password_mode: set|invite` geht auch.
+  - Login oder E-Mail ist Pflicht. Ohne E-Mail geht nur „Passwort setzen“, dann mit Ersatzadresse.
+  - Ohne Login wird er aus der E-Mail gebildet.
+  - Das Passwort darf jede Rolle bekommen, auch Admin.
+- `PATCH /platform/customers/{key}/users/{id}` (POST geht auch) → `{ok, user, password_set?, mailed?}`
+  - `{role}` und/oder `{name}` ändern Rolle bzw. Namen.
+  - `{password}` setzt das Passwort neu und beendet alle Sitzungen.
+  - `{invite: true}` schickt den Link zum Passwort-Setzen bzw. die Einladung erneut.
+  - Gleichwertig: `POST …/users/{id}/password {mode: set|invite, password?}`.
+- `DELETE /platform/customers/{key}/users/{id}` → `{ok, removed}`: App-Rolle weg, Team-Zuordnung weg, Sitzungen beendet. Das Konto bleibt (Bestellungen, Protokoll).
+
+**Regeln**
+- Wie TIX_Team: App-Rollen, nie WordPress-Admins, nie das Betreiber-Konto (`tix_no_user` 404).
+- Inhaber nie änderbar oder entfernbar (`tix_is_owner` 409).
+- Passwort neu setzen nur bei Konten, die die Akte bzw. das Team angelegt hat; sonst 409 `tix_has_password`, dann den Link schicken.
+- Passwort-Regeln wie im Team: mindestens 10 Zeichen, gemischt, ohne Login/E-Mail.
+
+**Fehlercodes**
+- Eingaben:
+  - `tix_bad_role`, `tix_bad_email`, `tix_invalid_field` (mit `field`)
+  - `tix_weak_password`
+  - `tix_login_taken` (409, neu)
+  - `tix_user_exists` (409: Zu dieser E-Mail gibt es schon ein Konto)
+- Zugang:
+  - `tix_is_owner`, `tix_no_user`, `tix_has_password` (409)
+- Mail und Häufigkeit:
+  - `tix_mail_failed` (502)
+  - `tix_rate_limit` (429: 5 Mails je Stunde und Zugang)
+- Kunde und Verbindung:
+  - `tix_customer_bestand` (409: KitchenKlub/Mallorca)
+  - `tix_users_no_target` (409: weder Seite noch Veranstalter)
+  - `tix_operator_no_site` (409), `tix_license_server_off` (409), `tix_site_unreachable` (502)
+  - `rest_no_route` (404, mit `site_outdated: true`, wenn die Kunden-Seite älter als 1.38.724 ist)
+
+**Weg und Protokoll**
+- Lizenz-Kunden: Die Plattform schickt `POST https://<Seite>/wp-json/tixomat/v1/site/users`.
+  - Body `{action, args, by, ts, nonce}`.
+  - Kopfzeile `X-Tix-Signature` = `HMAC-SHA256("tix-users-v1|<host>|<body>", Lizenzschlüssel)`.
+  - Die Anfrage gilt 120 s, jede nonce nur einmal.
+  - Die Kunden-Seite führt sie mit denselben Regeln aus.
+- Provisions-/Co-Kunden: direkt auf evendis gegen das Team des Veranstalters (`_tix_team_organizer_id`).
+- Protokoll:
+  - Plattform: Lizenz-Verlauf `site_user_<aktion>` mit Admin, Login und Rolle.
+  - Kunde: Änderungsprotokoll `tix_audit_log` (`team_added`, `team_role_changed`, `team_password_set`, `team_reset_sent`, `team_removed`) mit `via: platform` und Admin.
+  - Passwörter nie im Protokoll oder in Antworten.
+- Letzter Login: aus `_tix_last_login`/`last_login`, sonst das jüngste App-Token.
+- **Tests:** `test-site-users-wp` (Plattform 23, Kunden-Seite 9); Kunden-Akte, Betreiber, Inhaber grün.
