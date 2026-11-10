@@ -112,6 +112,33 @@ try {
     lx_eq('Spiegel: Liste der Quelle', $names, array_column($ma, 'name'));
     lx_eq('Spiegel: ohne Künstler-Bezug, Bild bleibt', [[null], [null], true], [array_values(array_unique(array_column($ma, 'artist_id'))), array_values(array_unique(array_column($ma, 'artist_url'))), !empty($ma[3]['image'])]);
 
+    // ── 1.38.723: Künstler der Quelle auf Kopien (Spiegel, Kunden-Seite)
+    $asnap = TIX_Artists::snapshot($ev);
+    lx_eq('Schnappschuss Künstler: Line-up-Reihenfolge, Künstlerseite der Quelle', [["Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx", "Lxt Micha Schuh $sfx", "Lxt Almklausi $sfx", "Lxt Headliner Extra $sfx"], true, true],
+        [array_column($asnap, 'name'), (bool) preg_match('#/kuenstler/[^/]+/$#', (string) ($asnap[2]['url'] ?? '')), !empty($asnap[2]['portrait']['medium'] ?? null)]);
+    update_post_meta($mir, '_tix_artists', [['artist_id' => $alm, 'role' => 'headliner']]); // alte, fremde Zuordnung
+    // Empfang wie bei der Verteilung (apply_meta): fremde IDs fallen weg, Schnappschuss wird gespeichert, Doppelte zusammengeführt
+    $am = new ReflectionMethod('TIX_Syndication_Receive', 'apply_meta'); $am->setAccessible(true);
+    $am->invoke(null, $mir, ['meta' => ['_tix_artists' => [['artist_id' => $alm]], '_tix_artist_ref' => (string) $alm], 'artists' => array_merge($asnap, [$asnap[0]])]);
+    $me = $get($mir);
+    $ar = (array) ($me['artists'] ?? []);
+    lx_eq('Spiegel: artists der Quelle in Line-up-Reihenfolge, ohne Doppelte', [5, ["Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx", "Lxt Micha Schuh $sfx", "Lxt Almklausi $sfx", "Lxt Headliner Extra $sfx"]], [count($ar), array_column($ar, 'name')]);
+    lx_eq('Spiegel: ohne ID/Slug hier, extern, Bild + Seite der Quelle', [null, null, true, true, true], [lx_k($ar[2] ?? [], 'id'), lx_k($ar[2] ?? [], 'slug'), $ar[2]['external'] ?? null, !empty($ar[2]['image']), (bool) preg_match('#/kuenstler/#', (string) ($ar[2]['url'] ?? ''))]);
+    lx_eq('Spiegel: fremde Zuordnung entfernt', ['', []], [get_post_meta($mir, '_tix_artists', true), get_post_meta($mir, '_tix_artist_ref')]);
+    $ml = array_column((array) ($me['lineup_links'] ?? []), null, 'name');
+    lx_eq('Spiegel: lineup_links ohne ID (null statt 0), Bild vom Künstler', [null, true], [lx_k($ml["Lxt Micha Schuh $sfx"] ?? [], 'artist_id'), !empty($ml["Lxt Micha Schuh $sfx"]['picture'] ?? null)]);
+    $ma = (array) ($me['lineup_acts'] ?? []);
+    lx_eq('Spiegel: Line-up-Liste kennt die Künstlerseite der Quelle', true, (bool) preg_match('#/kuenstler/#', (string) ($ma[3]['artist_source_url'] ?? '')));
+    if (!$multi) {
+        // Kunden-Seite: Kopie eines Plattform-Co-Events (Abgleich speichert Line-up-Text, Liste, Künstler)
+        $kc = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Lxt Kopie $sfx",
+            'meta_input' => ['_tix_date_start' => $date, '_tix_platform_co' => 987654, '_tix_info_lineup' => $lineup, '_tix_lineup_acts' => $ma]]);
+        $posts[] = $kc;
+        TIX_Artists::store_snapshot($kc, $ar);
+        $ke = $get($kc);
+        lx_eq('Kunden-Seite: artists, lineup, lineup_acts der Plattform', [5, true, 6, null], [count((array) ($ke['artists'] ?? [])), trim(wp_strip_all_tags((string) ($ke['lineup'] ?? ''))) !== '', count((array) ($ke['lineup_acts'] ?? [])), lx_k((array) ($ke['artists'][0] ?? []), 'id')]);
+    }
+
     // Studio „Termine“: Titel ohne Entities
     [$st, $d] = lx_rest('GET', "/artists/$micha/events");
     $titles = array_column((array) ($d['events'] ?? $d['items'] ?? []), 'title');
@@ -130,6 +157,8 @@ try {
             lx_eq('Nur Programm gespeichert: neu verteilt', [200, true], [$st, count($push) > 0]);
             $meta = $push ? (array) ($push[count($push) - 1]['body']['meta'] ?? []) : [];
             lx_eq('… mit Line-up-Liste', true, is_array($meta['_tix_lineup_acts'] ?? null) && count($meta['_tix_lineup_acts']) === 6);
+            $body = $push ? (array) ($push[count($push) - 1]['body'] ?? []) : [];
+            lx_eq('… mit Künstlern (Schnappschuss), ohne Künstler-IDs dieser Seite in meta', [5, false, false], [count((array) ($body['artists'] ?? [])), array_key_exists('_tix_artists', $meta), array_key_exists('_tix_artist_ref', $meta)]);
             $GLOBALS['lx_calls'] = [];
             [$st] = lx_rest('POST', "/events/$ev", ['lineup' => $lineup . "\n<p>Lxt Neu $sfx</p>"]);
             $push = array_filter($GLOBALS['lx_calls'], function ($c) { return strpos($c['url'], '/syndicate') !== false && $c['method'] !== 'GET'; });

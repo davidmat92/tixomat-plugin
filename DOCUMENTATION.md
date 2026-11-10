@@ -5294,3 +5294,22 @@ Fund KMT: Die Akte zeigte „✓ Zahlung eingerichtet“, obwohl dort nur vermit
 2. Das Studio der Kunden-Seite schickt das Ticket an `redeem_url`, z. B. über eine eigene Einstiegsseite.
 3. Mit dem Token arbeitet das Studio wie mit einem Inhaber-Login, der Balken kommt aus `/me.operator`.
 - **Tests:** `test-operator-access-wp` (Plattform 11, Kunden-Seite 26); `test-owner-access-wp` mit nachgezogener Erwartung (seit 1.38.712 veraltet), `test-platform-customers-wp` grün.
+
+## 130. Künstler auf Spiegeln und Kunden-Seiten (ab 1.38.723)
+Fund Party Schwelm: kitchenklub.de #1171 lieferte 12 Künstler, der Spiegel evendis.de #6453 keine, und die Kunden-Seite KMT (#7) weder Künstler noch Line-up.
+- **Kopie** (`TIX_Artists::is_copy`): Spiegel der Event-Verteilung (`_tix_syndicated`) bzw. auf einer Kunden-Seite der Spiegel eines Plattform-Co-Events (`_tix_platform_co`). Die Künstler der Quelle gibt es dort nicht als Beiträge.
+- **Schnappschuss** `_tix_source_artists` (`TIX_Artists::snapshot`/`store_snapshot`):
+  - Je Künstler: `source_id`, `name`, `role`, `tour`, `kind`, `short_bio`, `links` (website, instagram, tiktok, youtube, spotify, apple_music), `image`, `image_source`, `images`, `portrait`, `cover`, `credit` und `url` (Künstlerseite der Quelle, nur bei öffentlichen Künstlern).
+  - Reihenfolge = Line-up-Liste der Quelle; doppelte Namen (`act_key`) werden zusammengeführt.
+- **Verteilung:** `push_event` schickt `artists` (Schnappschuss) mit. `_tix_artists`/`_tix_artist_ref` gehen nicht mehr in `meta`; der Empfänger ignoriert sie (PROTECTED_META) und entfernt alte, fremde Zuordnungen, auch bei älteren Quellen ohne Feld.
+- **Abgleich Plattform → Kunden-Seite:** `GET /partner/co-events` liefert je Item `lineup` (Text), `lineup_acts` (fertige Liste mit Bildern) und `artists` (Schnappschuss). Bei Spiegeln wird der Schnappschuss der Quelle weitergereicht. `sync_co_events` speichert `_tix_info_lineup`, `_tix_lineup_acts` und `_tix_source_artists`.
+- **Öffentlich auf der Kopie** (`GET /public/events/{id}`):
+  - `artists` kommt aus dem Schnappschuss, in der Reihenfolge von `lineup_acts`.
+  - Je Eintrag gilt `id: null`, `slug: null` (der Künstler lebt auf der Quelle), `external: true` und `url` = Künstlerseite der Quelle.
+  - `lineup_acts` hat zusätzlich `artist_source_url`; `artist_url` bleibt dort `null`.
+  - `lineup_links` setzt `artist_id: null` statt `0`.
+- **Unverändert:** `/public/artists` listet nur die Künstler der eigenen Seite.
+- **Nach dem Rollout:**
+  1. Die Quelle sendet alle verteilten, kommenden Events einmal neu (Option `tix_syndication_heal_artists`, etwa 3 Minuten nach dem ersten Seitenaufruf); Speichern im Studio verteilt auch sofort.
+  2. Danach braucht die Kunden-Seite einmal den Abgleich (`POST /platform-co/sync` bzw. den stündlichen Cron).
+- **Tests:** `test-lineup-acts-wp` (Plattform 22, Einzel-Seite 27), `test-co-sites-wp` (47/22) und die Zwei-Seiten-Tests (Umzug, Teil B, mehrere Co) grün.

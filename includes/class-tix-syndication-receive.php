@@ -23,6 +23,7 @@ class TIX_Syndication_Receive {
         '_tix_co_remote', '_tix_co_token_hash', '_tix_co_remote_oid', '_tix_co_remote_access', '_tix_co_remote_token', // Teil B: evendis setzt diese selbst
         '_tix_co_list', '_tix_co_remotes', '_tix_co_mirror', '_tix_co_shares', '_tix_co_parts', // mehrere Co (1.38.716)
         '_tix_co_money_pending', '_tix_co_money_consents', '_tix_co_money_pending_site', '_tix_source_seller', '_tix_sale_seller_info', // Zustimmung, Verkäufer (1.38.717)
+        '_tix_artists', '_tix_artist_ref', '_tix_source_artists', // Künstler-IDs der Quelle gelten hier nicht; Schnappschuss über `artists` (1.38.723)
     ];
 
     public static function init() {
@@ -391,6 +392,12 @@ class TIX_Syndication_Receive {
 
         // Nur-Bestand-Update: Ort bleibt unverändert
         if (empty($data['stock_only'])) self::apply_venue($event_id, $data);
+
+        // Künstler der Quelle als Schnappschuss (1.38.723); ältere Quellen ohne Feld: fremde Zuordnungen trotzdem entfernen
+        if (empty($data['stock_only']) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) {
+            if (array_key_exists('artists', (array) $data)) TIX_Artists::store_snapshot($event_id, is_array($data['artists']) ? $data['artists'] : []);
+            else { delete_post_meta($event_id, TIX_Artists::EV_META); delete_post_meta($event_id, TIX_Artists::EV_REF); }
+        }
 
         // Awareness der Quelle übernehmen (ältere Quellen ohne Feld: Event-Metas wie bisher)
         if (empty($data['stock_only']) && array_key_exists('awareness', $data) && class_exists('TIX_Awareness')) {

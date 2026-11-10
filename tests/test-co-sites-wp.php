@@ -301,6 +301,7 @@ try {
     [$st, $d] = cs_rest('GET', '/partner/co-events', [], ['X-Tix-Syndication-Key' => $kmt_key]);
     $it = array_column($d['items'] ?? [], null, 'id')[$mir] ?? [];
     cs_eq('B: Spiegel in co-events der Kunden-Seite', [true, 'kk.test', true], [!empty($it), $it['source_site'] ?? '', $it['access'] ?? null]);
+    cs_eq('B: Line-up-Felder für den Abgleich (1.38.723)', [true, true, true], [array_key_exists('lineup', $it), is_array($it['lineup_acts'] ?? null), is_array($it['artists'] ?? null)]);
     cs_eq('B: origin_id = Event-ID der Lizenzseite, Plattform-Event 0 (1.38.718)', [1171, 0], [$it['origin_id'] ?? null, array_column($d['items'] ?? [], null, 'id')[$ev]['origin_id'] ?? null]);
 
     // Durchgriff Kunden-Seite → Plattform → KK

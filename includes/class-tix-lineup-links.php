@@ -161,11 +161,15 @@ class TIX_Lineup_Links {
      */
     public static function acts($event_id, array $links = null, array $artists = null) {
         $event_id = intval($event_id);
-        if (get_post_meta($event_id, '_tix_syndicated', true) === '1') { // Spiegel: Liste der Quelle (Künstler gibt es hier nicht)
+        $copy = class_exists('TIX_Artists') ? TIX_Artists::is_copy($event_id) : get_post_meta($event_id, '_tix_syndicated', true) === '1';
+        if ($copy) { // Spiegel bzw. Kopie auf einer Kunden-Seite (1.38.723): Liste der Quelle (Künstler gibt es hier nicht)
             $snap = get_post_meta($event_id, '_tix_lineup_acts', true);
             if (is_array($snap) && $snap) {
                 return array_values(array_map(function ($a) {
-                    return array_merge((array) $a, ['artist_id' => null, 'artist_slug' => null, 'artist_url' => null]);
+                    $a = (array) $a;
+                    // Künstlerseite auf der Quelle bleibt als artist_source_url erhalten (1.38.723)
+                    $src = ($a['artist_source_url'] ?? null) ?: ($a['artist_url'] ?? null);
+                    return array_merge($a, ['artist_id' => null, 'artist_slug' => null, 'artist_url' => null, 'artist_source_url' => $src ?: null]);
                 }, array_filter($snap, 'is_array')));
             }
         }
@@ -207,7 +211,7 @@ class TIX_Lineup_Links {
         foreach ($rest as $a) {
             $pic = ($a['portrait'] ?? null) ?: ($a['cover'] ?? null);
             $slug = ($a['slug'] ?? '') !== '' ? (string) $a['slug'] : null;
-            $push(['position' => 0, 'name' => (string) $a['name'], 'line' => (string) $a['name'], 'artist_id' => intval($a['id']), 'artist_slug' => $slug,
+            $push(['position' => 0, 'name' => (string) $a['name'], 'line' => (string) $a['name'], 'artist_id' => intval($a['id'] ?? 0) ?: null, 'artist_slug' => $slug,
                 'artist_url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null,
                 'image' => $pic ? ($pic['large'] ?: $pic['medium']) : (($a['image'] ?? null) ?: null), 'image_thumb' => $pic ? ($pic['medium'] ?: $pic['large']) : (($a['image'] ?? null) ?: null),
                 'image_source' => ($pic || !empty($a['image'])) ? (string) (($a['image_source'] ?? '') ?: 'artist') : null, 'role' => (string) ($a['role'] ?? ''),

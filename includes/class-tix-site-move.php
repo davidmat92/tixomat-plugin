@@ -791,7 +791,11 @@ class TIX_Site_Move {
                 'image' => $thumb ? (string) wp_get_attachment_image_url($thumb, 'large') : '', 'url' => (string) get_permalink($e),
                 'tickets' => get_post_meta($e, '_tix_tickets_enabled', true) === '1', 'price_from' => $price,
                 'creator' => ['id' => $creator, 'name' => html_entity_decode((string) get_the_title($creator), ENT_QUOTES, 'UTF-8')],
-                'access' => TIX_Co_Organizer::has_access($e, $oid), 'origin_id' => 0];
+                'access' => TIX_Co_Organizer::has_access($e, $oid), 'origin_id' => 0,
+                // Line-up und Künstler (1.38.723): Text, fertige Liste mit Bildern, Künstler als Schnappschuss
+                'lineup' => (string) get_post_meta($e, '_tix_info_lineup', true),
+                'lineup_acts' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::acts($e) : [],
+                'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : []];
             // Verkauf über die Plattform (1.38.712): Kategorien für die Anzeige, Verkäufer, AGB
             if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::platform_sale_ready($e)) {
                 $last = count($items) - 1;
@@ -948,6 +952,13 @@ class TIX_Site_Move {
                 update_post_meta($id, '_tix_platform_co_img', (string) $it['image']);
             }
             if (class_exists('TIX_Co_Seller')) { TIX_Co_Seller::apply_sync($id, $it); if (!empty($it['sell'])) $sells[] = $id; } // Co verkauft hier (1.38.713)
+            // Line-up und Künstler der Plattform (1.38.723); ältere Plattform ohne Felder: unverändert
+            if (array_key_exists('lineup', $it)) update_post_meta($id, '_tix_info_lineup', wp_kses_post((string) $it['lineup']));
+            if (array_key_exists('lineup_acts', $it)) {
+                $acts = array_values(array_filter((array) $it['lineup_acts'], 'is_array'));
+                if ($acts) update_post_meta($id, '_tix_lineup_acts', $acts); else delete_post_meta($id, '_tix_lineup_acts');
+            }
+            if (array_key_exists('artists', $it) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) TIX_Artists::store_snapshot($id, (array) $it['artists']);
             if (class_exists('TIX_Co_Money')) TIX_Co_Money::site_pending_sync($id, $it['money_pending'] ?? null); // wartende Zustimmung (1.38.717)
             if (class_exists('TIX_Co_Legal')) { if (is_array($it['seller_info'] ?? null)) update_post_meta($id, TIX_Co_Legal::M_SITE, TIX_Co_Legal::clean($it['seller_info'])); else delete_post_meta($id, TIX_Co_Legal::M_SITE); }
         }

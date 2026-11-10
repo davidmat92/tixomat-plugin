@@ -14,6 +14,7 @@ class TIX_Syndication_Push {
     /** Verkaufsart der Vorgabe: Tickets auch über die Plattform verkaufen ('1' Vorgabe, '0' nur anzeigen) */
     const DEFAULT_SALES_OPT = 'tix_syndicate_default_sales';
     const HEAL_OPT = 'tix_syndication_heal_465';
+    const HEAL_ARTISTS_OPT = 'tix_syndication_heal_artists'; // einmal nach 1.38.723: Künstler-Schnappschuss an die Spiegel
 
     /** Events, die gerade erst angelegt und mit der Vorgabe belegt wurden: erster Push wartet auf die vollständigen Daten */
     private static $fresh = [];
@@ -40,6 +41,12 @@ class TIX_Syndication_Push {
             update_option(self::HEAL_OPT, gmdate('c'), false);
             if (!wp_next_scheduled('tix_syndication_push_all')) wp_schedule_single_event(time() + 120, 'tix_syndication_push_all');
         }, 30);
+        // Einmal nach 1.38.723: Künstler (Schnappschuss) an alle Spiegel nachsenden
+        add_action('init', function () {
+            if (get_option(self::HEAL_ARTISTS_OPT, '') !== '' || !self::is_configured()) return;
+            update_option(self::HEAL_ARTISTS_OPT, gmdate('c'), false);
+            if (!wp_next_scheduled('tix_syndication_push_all')) wp_schedule_single_event(time() + 180, 'tix_syndication_push_all');
+        }, 31);
     }
 
     /** Ist die Vorgabe „alle teilen“ aktiv? null = nicht eingestellt (Verhalten wie bis 1.38.464). */
@@ -265,6 +272,8 @@ class TIX_Syndication_Push {
                 if ($key === '_tix_partner_sales') continue;
                 // Wiederholung bleibt hier: jeder Termin wird einzeln übertragen
                 if (strpos($key, '_tix_recurrence') === 0) continue;
+                // Künstler-Zuordnung mit IDs dieser Seite: geht als Schnappschuss `artists` (1.38.723)
+                if (in_array($key, ['_tix_artists', '_tix_artist_ref', '_tix_source_artists'], true)) continue;
                 $all_meta[$key] = maybe_unserialize($values[0]);
             }
         }
@@ -299,6 +308,8 @@ class TIX_Syndication_Push {
             'venue'           => self::venue_payload($post_id),
             // Awareness: wirksame Angaben (Event, Veranstalter- oder Seiten-Vorgabe) – null = keine
             'awareness'       => class_exists('TIX_Awareness') ? TIX_Awareness::effective($post_id) : null,
+            // Künstler in Line-up-Reihenfolge mit Bildern, Links, Künstlerseite (1.38.723); der Spiegel liefert sie als `artists`
+            'artists'         => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($post_id) : null,
         ];
 
         // Push oder Update?

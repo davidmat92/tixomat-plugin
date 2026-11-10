@@ -27,6 +27,7 @@ class TIX_Artists {
     const META_REDIRECT = '_tix_artist_merged_into';
     const EV_META = '_tix_artists';
     const EV_REF = '_tix_artist_ref';
+    const EV_SNAP = '_tix_source_artists'; // Kopie (Spiegel, Kunden-Seite): Künstler der Quelle als Schnappschuss (1.38.723)
     const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show', 'host'];
     const ROLES = ['headliner', 'support', 'guest'];
     const MAX_PER_EVENT = 20;
@@ -366,6 +367,7 @@ class TIX_Artists {
      * image_source artist | act | null.
      */
     public static function event_public($event_id) {
+        if (self::is_copy($event_id)) return self::snapshot_public($event_id);
         $preview = class_exists('TIX_Sales_Previews') && TIX_Sales_Previews::rendering_event($event_id);
         $out = [];
         foreach (self::event_list($event_id) as $r) {
@@ -409,7 +411,7 @@ class TIX_Artists {
                 foreach ($by as $cand) if (TIX_Lineup_Links::similar($nm, (string) $cand['name'])) { $ar = $cand; break; }
             }
             if (!$ar && ($aid = self::artist_for_line($event_id, $nm))) $ar = self::line_info($aid);
-            $row['artist_id'] = $ar ? intval($ar['id']) : null;
+            $row['artist_id'] = $ar && intval($ar['id'] ?? 0) ? intval($ar['id']) : null; // Kopie: Künstler der Quelle ohne ID hier (1.38.723)
             $row['artist_slug'] = $ar ? (($ar['slug'] ?? '') !== '' ? (string) $ar['slug'] : null) : null;
             $row['artist_name'] = $ar ? (string) $ar['name'] : null;
             $row['images'] = $ar['images'] ?? ['cover' => null, 'portrait' => null];
@@ -426,6 +428,103 @@ class TIX_Artists {
         }
         unset($row);
         return $rows;
+    }
+
+    // ═══════════════ Kopien: Künstler der Quelle (1.38.723) ═══════════════
+
+    /**
+     * Ist das Event eine Kopie eines Events einer anderen Seite? Spiegel der Event-Verteilung (`_tix_syndicated`) bzw. auf einer
+     * Kunden-Seite der Spiegel eines Plattform-Co-Events (`_tix_platform_co`). Dort gibt es die Künstler der Quelle nicht als
+     * Beiträge; `artists` kommt aus dem Schnappschuss `_tix_source_artists`.
+     */
+    public static function is_copy($event_id) {
+        $event_id = intval($event_id);
+        if (get_post_meta($event_id, '_tix_syndicated', true) === '1') return true;
+        return !self::multi() && intval(get_post_meta($event_id, '_tix_platform_co', true)) > 0;
+    }
+
+    /**
+     * Schnappschuss für die Weitergabe (Quelle → Spiegel, Plattform → Kunden-Seite): Künstler in Line-up-Reihenfolge, je Name nur
+     * einmal, mit Bildern, Kurztext, Links und Adresse der Künstlerseite auf der Quelle.
+     */
+    public static function snapshot($event_id) {
+        $event_id = intval($event_id);
+        if (self::is_copy($event_id)) return self::snapshot_public($event_id); // Kopie gibt den Schnappschuss der Quelle weiter
+        $list = self::event_public($event_id);
+        if ($list && class_exists('TIX_Lineup_Links')) $list = TIX_Lineup_Links::sort_artists($list, TIX_Lineup_Links::acts($event_id, null, $list));
+        $base = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');
+        $out = []; $seen = [];
+        foreach ($list as $a) {
+            $k = self::act_key((string) $a['name']);
+            if ($k === '' || isset($seen[$k])) continue;
+            $seen[$k] = true;
+            $d = self::raw(intval($a['id'])) ?: [];
+            $slug = ($a['slug'] ?? '') !== '' && self::is_public(intval($a['id'])) ? (string) $a['slug'] : null;
+            $out[] = ['source_id' => intval($a['id']), 'name' => self::dec($a['name']), 'role' => (string) ($a['role'] ?? 'headliner'), 'tour' => $a['tour'] ?? null,
+                'kind' => (string) ($d['kind'] ?? 'solo'), 'short_bio' => (string) ($d['short_bio'] ?? ''),
+                'links' => array_merge(array_fill_keys(self::LINKS, null), array_filter((array) ($d['links'] ?? []))),
+                'image' => $a['image'] ?? null, 'image_source' => $a['image_source'] ?? null,
+                'images' => $a['images'] ?? ['cover' => null, 'portrait' => null], 'portrait' => $a['portrait'] ?? null, 'cover' => $a['cover'] ?? null, 'credit' => (string) ($a['credit'] ?? ''),
+                'url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null];
+        }
+        return $out;
+    }
+
+    /** Schnappschuss einer anderen Seite prüfen und speichern ([] = keine Künstler). */
+    public static function store_snapshot($event_id, $in) {
+        $img = function ($i) {
+            if (!is_array($i)) return null;
+            $o = [];
+            foreach (['id', 'large', 'medium_large', 'medium', 'credit'] as $k) if (array_key_exists($k, $i)) $o[$k] = $k === 'id' ? null : ($k === 'credit' ? sanitize_text_field((string) $i[$k]) : (($u = esc_url_raw((string) $i[$k])) !== '' ? $u : null));
+            return $o ?: null;
+        };
+        $out = []; $seen = [];
+        foreach (is_array($in) ? array_slice(array_values($in), 0, self::MAX_PER_EVENT * 3) : [] as $a) {
+            if (!is_array($a)) continue;
+            $name = mb_substr(sanitize_text_field(self::dec($a['name'] ?? '')), 0, 190);
+            $k = self::act_key($name);
+            if ($k === '' || isset($seen[$k])) continue; // doppelte zusammenführen
+            $seen[$k] = true;
+            $links = [];
+            foreach (self::LINKS as $l) { $u = esc_url_raw((string) (($a['links'] ?? [])[$l] ?? '')); $links[$l] = $u !== '' ? $u : null; }
+            $out[] = ['source_id' => intval($a['source_id'] ?? ($a['id'] ?? 0)), 'name' => $name, 'role' => in_array($a['role'] ?? '', self::ROLES, true) ? $a['role'] : 'headliner',
+                'tour' => ($t = sanitize_text_field((string) ($a['tour'] ?? ''))) !== '' ? $t : null, 'kind' => in_array($a['kind'] ?? '', self::KINDS, true) ? $a['kind'] : 'solo',
+                'short_bio' => mb_substr(sanitize_textarea_field((string) ($a['short_bio'] ?? '')), 0, 600), 'links' => $links,
+                'image' => ($u = esc_url_raw((string) ($a['image'] ?? ''))) !== '' ? $u : null, 'image_source' => in_array($a['image_source'] ?? '', ['artist', 'act'], true) ? $a['image_source'] : null,
+                'images' => ['cover' => $img($a['images']['cover'] ?? null), 'portrait' => $img($a['images']['portrait'] ?? null)],
+                'portrait' => $img($a['portrait'] ?? null), 'cover' => $img($a['cover'] ?? null), 'credit' => sanitize_text_field((string) ($a['credit'] ?? '')),
+                'url' => ($u = esc_url_raw((string) ($a['url'] ?? ''))) !== '' ? $u : null];
+        }
+        if ($out) update_post_meta($event_id, self::EV_SNAP, $out); else delete_post_meta($event_id, self::EV_SNAP);
+        // fremde Künstler-IDs der Quelle gelten hier nicht (sonst Zuordnung zu einem Künstler gleicher ID)
+        delete_post_meta($event_id, self::EV_META);
+        delete_post_meta($event_id, self::EV_REF);
+        unset(self::$cache['actpics'][intval($event_id)]);
+        return $out;
+    }
+
+    /**
+     * Öffentliche Form auf der Kopie (wie event_public): id null (der Künstler lebt auf der Quelle), slug null, `url` = Künstlerseite
+     * der Quelle, `external` true. Reihenfolge = Line-up-Liste der Kopie (`_tix_lineup_acts`), übrige am Ende.
+     */
+    public static function snapshot_public($event_id) {
+        $snap = get_post_meta(intval($event_id), self::EV_SNAP, true);
+        if (!is_array($snap) || !$snap) return [];
+        $pos = [];
+        foreach ((array) get_post_meta(intval($event_id), '_tix_lineup_acts', true) as $i => $a) {
+            if (!is_array($a)) continue;
+            $k = self::act_key((string) ($a['name'] ?? ''));
+            if ($k !== '' && !isset($pos[$k])) $pos[$k] = $i;
+        }
+        $rows = [];
+        foreach (array_values($snap) as $i => $a) {
+            if (!is_array($a)) continue;
+            $k = self::act_key((string) ($a['name'] ?? ''));
+            if (!isset($pos[$k]) && class_exists('TIX_Lineup_Links')) foreach ($pos as $pk => $pi) if (TIX_Lineup_Links::similar_norm($pk, $k)) { $pos[$k] = $pi; break; }
+            $rows[] = ['k' => $pos[$k] ?? (10000 + $i), 'a' => ['id' => null, 'slug' => null, 'external' => true] + $a];
+        }
+        usort($rows, function ($x, $y) { return $x['k'] - $y['k']; });
+        return array_map(function ($r) { return $r['a']; }, $rows);
     }
 
     /** Editor: {artists: [{artist_id, name, slug, image, role, tour, tours[], managed}], artist_suggestions: [...]} */
