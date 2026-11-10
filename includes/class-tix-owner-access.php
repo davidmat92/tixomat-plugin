@@ -99,7 +99,8 @@ class TIX_Owner_Access {
     public static function has_owner() {
         $ids = get_users(['meta_key' => self::OWNER_META, 'meta_value' => '1', 'fields' => 'ID', 'number' => 1]);
         if ($ids) return true;
-        return (bool) get_users(['role' => 'tix_organizer', 'fields' => 'ID', 'number' => 1]);
+        // technisches Betreiber-Konto (1.38.722) zählt nicht als Inhaber
+        return (bool) get_users(['role' => 'tix_organizer', 'fields' => 'ID', 'number' => 1, 'meta_query' => [['key' => '_tix_operator', 'compare' => 'NOT EXISTS']]]);
     }
 
     /** Startklar der Kundenseite (nur Ja/Nein, keine Inhalte). */
@@ -124,7 +125,8 @@ class TIX_Owner_Access {
         // Nur vermittelte Co-Events (1.38.712): kein eigener Zahlungsanbieter nötig
         $needed = class_exists('TIX_Co_Sale') ? TIX_Co_Sale::payments_needed() : true;
         return ['payment' => $payment || !$needed, 'legal' => $legal, 'owner' => self::has_owner(), 'homepage' => $homepage,
-            'payments_needed' => $needed, 'payments_reason' => $needed ? null : 'only_brokered'];
+            'payments_needed' => $needed, 'payments_reason' => $needed ? null : 'only_brokered',
+            'payment_provider' => $payment]; // 1.38.722: echter Anbieter eingerichtet (für „ok | not_needed | missing“)
     }
 
     /** Lizenzprüfung: Einladung aus der Antwort ausführen (einmal je nonce, nur mit gültiger Signatur). */

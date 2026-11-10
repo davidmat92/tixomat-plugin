@@ -31,7 +31,8 @@ $r2 = TIX_Owner_Access::invite("INH$sfx@example.test", '', ['no_mail' => true]);
 oa_eq('Zweites Mal: vorhandenes Konto, keine Mail', [false, $r['user_id'], false, 1], [$r2['created'], $r2['user_id'], $r2['mailed'], count($GLOBALS['oa_mails'])]);
 oa_eq('Ungültige E-Mail → 400', 'tix_invalid_field', TIX_Owner_Access::invite('kein')->get_error_code());
 $rd = TIX_Owner_Access::readiness();
-oa_eq('Startklar: vier Ja/Nein-Felder, Inhaber vorhanden', [['payment', 'legal', 'owner', 'homepage'], true], [array_keys($rd), $rd['owner']]);
+// seit 1.38.712 + payments_needed/payments_reason, seit 1.38.722 + payment_provider
+oa_eq('Startklar: vier Ja/Nein-Felder + Zahlungs-Angaben, Inhaber vorhanden', [['payment', 'legal', 'owner', 'homepage', 'payments_needed', 'payments_reason', 'payment_provider'], true], [array_keys($rd), $rd['owner']]);
 // Einladung aus der Lizenzprüfung: nur mit gültiger Signatur
 $key = 'TEST-' . strtoupper(wp_generate_password(8, false)) . '-AAAA-BBBB';
 $host = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url(home_url(), PHP_URL_HOST)));

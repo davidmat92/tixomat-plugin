@@ -505,8 +505,11 @@ class TIX_Platform_Customers {
             $src = 'site'; $at = $r['_at'] ?? null;
             foreach ($L as $k => $label) {
                 $ok = array_key_exists($k, $r) ? (bool) $r[$k] : null;
-                $items[] = ['key' => $k, 'ok' => $ok, 'label' => $label, 'hint' => $ok === null ? 'Die Seite hat das noch nicht gemeldet (ab Plugin 1.38.688, nächste Lizenzprüfung).' : null];
+                $it = ['key' => $k, 'ok' => $ok, 'label' => $label, 'hint' => $ok === null ? 'Die Seite hat das noch nicht gemeldet (ab Plugin 1.38.688, nächste Lizenzprüfung).' : null];
+                if ($k === 'payment') $it = self::payment_item($it, $r);
+                $items[] = $it;
             }
+            $pay_needed = array_key_exists('payments_needed', $r) ? (bool) $r['payments_needed'] : null;
         } elseif (in_array($c['art'], ['provision', 'co'], true) && $c['organizer_id']) {
             $oid = intval($c['organizer_id']);
             $src = 'organizer';
@@ -523,7 +526,22 @@ class TIX_Platform_Customers {
             ];
         }
         $known = array_filter($items, function ($i) { return $i['ok'] !== null; });
-        return ['source' => $src, 'reported_at' => $at, 'ok' => $items && count($known) === count($items) && !array_filter($items, function ($i) { return !$i['ok']; }), 'items' => $items];
+        return ['source' => $src, 'reported_at' => $at, 'ok' => $items && count($known) === count($items) && !array_filter($items, function ($i) { return !$i['ok']; }), 'items' => $items,
+            'payments_needed' => $pay_needed ?? null, 'payments_reason' => isset($r) && ($pay_needed ?? null) === false ? (string) ($r['payments_reason'] ?? 'only_brokered') : null];
+    }
+
+    /**
+     * Zahlung ehrlich (1.38.722, Fund KMT): state ok (echter Anbieter) | not_needed (nur vermittelte Verkäufe) | missing | null (nicht gemeldet).
+     * `ok` bleibt wie bisher (true auch bei not_needed), damit „startklar“ nicht an der Vermittlung hängt.
+     */
+    private static function payment_item(array $it, array $r) {
+        if ($it['ok'] === null) return $it + ['state' => null];
+        $needed = array_key_exists('payments_needed', $r) ? (bool) $r['payments_needed'] : true;
+        $provider = array_key_exists('payment_provider', $r) ? (bool) $r['payment_provider'] : ($needed ? (bool) $r['payment'] : false);
+        if ($provider) return array_merge($it, ['state' => 'ok', 'hint' => null]);
+        if (!$needed) return array_merge($it, ['state' => 'not_needed', 'label' => 'Zahlung – noch nicht nötig (Verkauf nur über die Vermittlung)',
+            'hint' => 'Sobald eigene Events Online-Tickets haben, braucht die Seite einen Zahlungsanbieter (Studio des Kunden → Einstellungen → Zahlungen).']);
+        return array_merge($it, ['state' => 'missing', 'ok' => false, 'hint' => 'Kein Zahlungsanbieter eingerichtet (Studio des Kunden → Einstellungen → Zahlungen).']);
     }
 
     /** POST /platform/customers/{key}/owner {email, name?} – Zugang anlegen bzw. erneut einladen. */

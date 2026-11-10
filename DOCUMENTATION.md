@@ -5227,3 +5227,70 @@ Auftrag `uebergaben/auftrag-plugin-vorlagen-nacht-plakat.md` (Homepage-Stile). K
 - **Vertriebs-Vorschau → evendis-Design:** `nacht` → `clubnacht`, `plakat` → `ticketschalter` (wie `festival`; ein Design `programmheft` gibt es im Plugin nicht).
 - Profil (`homepage.layout`) unverändert.
 - **Tests:** `test-website-nacht-plakat-wp` (kk 10 mit Speichern und site-config, Plattform 8), `test-website-einfach-wp` grün.
+
+## 129. Startklar-Zahlung ehrlich + „Als Betreiber anmelden“ (ab 1.38.722)
+Fund KMT: Die Akte zeigte „✓ Zahlung eingerichtet“, obwohl dort nur vermittelte Co-Events laufen. Dazu kommt der Wunsch, als Plattform-Admin ins Studio einer Kunden-Seite zu gelangen. Klasse `TIX_Operator_Access` (`class-tix-operator-access.php`).
+
+### 1. Zahlung in Startklar
+- **Kunden-Seite:** Die Startklar-Meldung (`TIX_Owner_Access::readiness`) enthält zusätzlich `payment_provider` (bool, ein echter Anbieter ist eingerichtet). `payment` bleibt wie bisher.
+- **Plattform:** `GET /platform/customers[/{key}]` → `ready`. Der Eintrag `items[key=payment]` hat jetzt `state`:
+  - `ok`: echter Anbieter, grün.
+  - `not_needed`: nur Verkauf über die Vermittlung.
+    - `ok` bleibt `true`, damit „startklar“ nicht daran hängt.
+    - `label` = „Zahlung – noch nicht nötig (Verkauf nur über die Vermittlung)“.
+    - `hint` = „Sobald eigene Events Online-Tickets haben, braucht die Seite einen Zahlungsanbieter (Studio des Kunden → Einstellungen → Zahlungen).“
+  - `missing`: `ok: false`, mit Hinweis.
+  - `null`: Die Seite hat noch nichts gemeldet.
+- `ready` liefert zusätzlich `payments_needed` (bool|null) und `payments_reason` (`only_brokered`|null).
+- **Ältere Seiten ohne `payment_provider`:** Bei `payments_needed: false` gilt `not_needed`, sonst bestimmt `payment` den Zustand.
+- **Studio:** Grün nur bei `state: 'ok'`; bei `not_needed` neutral mit (i).
+
+### 2. „Als Betreiber anmelden“
+**Plattform (evendis.de)**
+- `POST /platform/customers/{key}/operator-login`
+  - Nur für Plattform-Admins.
+  - Nur für Kunden mit Lizenz und gebundener Seite (erste Seite ohne `dev` in der Lizenz).
+  - Antwort: `{ok, ticket, host, site_url, redeem_url, expires_at}`.
+  - Fehler:
+    - 409 `tix_operator_no_site`: keine Lizenz bzw. keine gebundene Seite.
+    - 409 `tix_license_server_off`: Lizenz-Server nicht aktiv.
+    - 404: unbekannter Kunde.
+  - Protokoll: Eintrag `operator_login` im Lizenz-Verlauf (`/license/admin/licenses/{id}/log`) mit Admin, Host und IP.
+- **Ticket:** `base64url(JSON {v:1, host, admin {id, name, email}, nonce, iat, exp})` + `.` + `HMAC-SHA256("tix-op-v1|" + Nutzlast, Lizenzschlüssel)`.
+  - Es gilt 60 s und nur einmal.
+  - Es ist an den Host gebunden.
+  - Es ist nur für das Studio gedacht und darf nicht in Logs oder URLs landen; das Studio schickt es per POST.
+
+**Kunden-Seite**
+- `POST /studio/operator-login {ticket}` (ohne Anmeldung)
+  - Antwort: `{ok, token, expires_at, user {id, display_name}, operator}`.
+  - `token` ist ein normales Studio-Token (`X-Tix-Token`), 8 h gültig.
+  - Fehler:
+    - 401 `tix_operator_ticket`: Signatur oder Format falsch.
+    - 401 `tix_operator_ticket_host`: Ticket gilt für eine andere Seite.
+    - 401 `tix_operator_ticket_expired`
+    - 401 `tix_operator_ticket_used`
+    - 403 `tix_operator_disabled`: Der Inhaber hat den Zugang abgeschaltet.
+    - 404 `tix_operator_unavailable`: Seite ohne Lizenz bzw. Plattform.
+    - 429 `tix_rate_limit`: 10 Versuche je 10 min und IP.
+- **Konto „evendis Betreiber“:** Login `evendis-betreiber`, Rolle `tix_organizer` (Inhaberrechte), Meta `_tix_operator`. Es wird beim ersten Mal angelegt und danach wiederverwendet.
+  - Mit Passwort kann es sich nicht anmelden: weder per WordPress noch per App, und ein Passwort-Reset geht nicht.
+  - Es zählt nicht als Inhaber (Startklar `owner`).
+- **Gesperrt für den Betreiber** (403 `tix_operator_forbidden`): alles außer GET auf
+  - `/studio/payments`, `/studio/mail-transport`, `/studio/operator-access`
+  - `/auth/password|profile|delete`, `/license`
+  - jede Anfrage mit den Feldern `password`, `new_password`, `current_password`, `user_pass`, `api_key` oder `secret`.
+  - Lesen bleibt erlaubt; Schlüssel bleiben maskiert wie für den Inhaber.
+- **`GET /me`** → `operator`:
+  - als Betreiber: `{active: true, by, since, until, label: "Als Betreiber angemeldet (evendis)"}`, für den Hinweis-Balken;
+  - sonst `null`.
+- **`GET /studio/operator-access`** → `{ok, enabled, available, active {by, since, until}|null, log [{at, until, by, by_email, ip, action?}]}`.
+  - Inhaber bzw. Admin, nicht der Betreiber.
+  - `log` enthält die letzten 100 Anmeldungen und Schalter-Änderungen.
+- **`POST /studio/operator-access {enabled}`:** Vorgabe an. Beim Ausschalten werden alle Betreiber-Tokens sofort ungültig; die Änderung steht im Protokoll.
+
+### Ablauf im Studio
+1. Die Kunden-Akte (auf evendis) ruft `operator-login` auf.
+2. Das Studio der Kunden-Seite schickt das Ticket an `redeem_url`, z. B. über eine eigene Einstiegsseite.
+3. Mit dem Token arbeitet das Studio wie mit einem Inhaber-Login, der Balken kommt aus `/me.operator`.
+- **Tests:** `test-operator-access-wp` (Plattform 11, Kunden-Seite 26); `test-owner-access-wp` mit nachgezogener Erwartung (seit 1.38.712 veraltet), `test-platform-customers-wp` grün.
