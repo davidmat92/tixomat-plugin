@@ -104,7 +104,8 @@ class TIX_Partner_API {
         if (!$event_id || get_post_type($event_id) !== 'event') {
             return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
         }
-        if (get_post_meta($event_id, '_tix_syndicate', true) !== '1' || get_post_meta($event_id, '_tix_partner_sales', true) === '0') {
+        $co_sells = class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_local($event_id); // Kunden-Seite verkauft für den Co (1.38.713)
+        if (!$co_sells && (get_post_meta($event_id, '_tix_syndicate', true) !== '1' || get_post_meta($event_id, '_tix_partner_sales', true) === '0')) {
             return new WP_Error('tix_partner_event', 'Für dieses Event ist der Verkauf über Partner nicht freigegeben.', ['status' => 403]);
         }
         return $event_id;

@@ -463,6 +463,8 @@ class TIX_App_Events {
         // Co-Veranstalter (1.38.696): Feld `co_organizer` – als letzte Prüfung, weil Lizenzseiten dabei evendis.de benachrichtigen (Teil B)
         $co = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::check($body, $post_id, $is_new) : null;
         if (is_wp_error($co)) return $co;
+        // Ticket-Felder, wenn eine andere Seite für den Co verkauft (1.38.713)
+        if (!$is_new && class_exists('TIX_Co_Seller') && ($tl = TIX_Co_Seller::check_ticket_fields($body, $post_id))) return $tl;
         // Geldempfänger + Anteil (1.38.711): `co_money` {owner, share}
         $money = class_exists('TIX_Co_Money') ? TIX_Co_Money::check($body, $post_id, $is_new) : null;
         if (is_wp_error($money)) return $money;

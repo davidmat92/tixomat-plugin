@@ -170,7 +170,13 @@ class TIX_Co_Money {
         $v = $body['co_money'];
         if (!is_array($v)) return new WP_Error('tix_invalid_field', 'co_money: {owner, share}.', ['status' => 400, 'field' => 'co_money']);
         if (!$k) return new WP_Error('tix_invalid_field', 'Ohne Co-Veranstalter gibt es keinen Geldempfänger zu wählen.', ['status' => 400, 'field' => 'co_money']);
-        return self::check_values($post_id, $v, true);
+        $c = self::check_values($post_id, $v, true);
+        // Lizenzseite: die Plattform prüft und übernimmt (Verkaufsinstanz beim Co, 1.38.713)
+        if (is_array($c) && $k === 'remote' && class_exists('TIX_Co_Remote')) {
+            $r = TIX_Co_Remote::send_money($post_id, $c['owner'], $c['share']);
+            if (is_wp_error($r)) return $r;
+        }
+        return $c;
     }
 
     public static function apply($eid, $c, $via = 'creator') {
@@ -203,6 +209,11 @@ class TIX_Co_Money {
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
         if (self::owner($eid) === 'co' && self::co_kind($eid) === 'local') {
             $co = intval(TIX_Co_Organizer::ref_id($eid));
+            if ($co && get_post_type($co) === 'tix_organizer') return $co;
+        }
+        // Geteiltes Event, das die Plattform für den Co verkauft (Fall B, 1.38.713)
+        if (self::owner($eid) === 'co' && self::co_kind($eid) === 'mirror' && class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($eid)) {
+            $co = intval(get_post_meta($eid, '_tix_co_remote_oid', true));
             if ($co && get_post_type($co) === 'tix_organizer') return $co;
         }
         return $main;
@@ -301,7 +312,10 @@ class TIX_Co_Money {
     }
 
     public static function rest_balance(WP_REST_Request $req) {
-        return rest_ensure_response(self::balance(absint($req['id'])));
+        $eid = absint($req['id']);
+        // Lizenzseite, Co verkauft: Stand der Verkaufsinstanz über die Plattform (1.38.713)
+        if (class_exists('TIX_Co_Seller') && ($rb = TIX_Co_Seller::remote_balance($eid)) !== null) return rest_ensure_response($rb);
+        return rest_ensure_response(self::balance($eid));
     }
 
     public static function rest_balance_pdf(WP_REST_Request $req) {

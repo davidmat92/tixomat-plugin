@@ -168,6 +168,11 @@ class TIX_Co_Remote {
         return new WP_Error('tix_co_remote_error', 'evendis.de hat die Einladung nicht angenommen (HTTP ' . $code . ').', ['status' => 502]);
     }
 
+    /** Geldempfänger/Anteil an die Plattform melden (1.38.713) → Antwort | WP_Error */
+    public static function send_money($event_id, $owner, $share) {
+        return self::send($event_id, ['action' => 'money', 'owner' => $owner, 'share' => $share]);
+    }
+
     /** POST /events/{id}/co-organizer/invite auf der Lizenzseite. */
     public static function rest_invite_source(WP_REST_Request $req) {
         $eid = absint($req['id']);
@@ -451,7 +456,11 @@ class TIX_Co_Remote {
             update_post_meta($eid, self::M_ACCESS, !empty($b['access']) ? '1' : '0');
             return rest_ensure_response(['ok' => true, 'co_organizer' => self::mirror_payload($eid)]);
         }
-        if ($action !== 'invite') return new WP_Error('tix_invalid_field', 'action: invite, access oder clear.', ['status' => 400, 'field' => 'action']);
+        if ($action === 'money' && class_exists('TIX_Co_Seller')) { // Geldempfänger/Anteil (1.38.713)
+            $r = TIX_Co_Seller::syndicate_money($eid, $b);
+            return is_wp_error($r) ? $r : rest_ensure_response($r);
+        }
+        if ($action !== 'invite') return new WP_Error('tix_invalid_field', 'action: invite, access, money oder clear.', ['status' => 400, 'field' => 'action']);
         if (!empty($b['site'])) return self::syndicate_site($req, $eid, $b);
         $email = sanitize_email((string) ($b['email'] ?? ''));
         if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'email']);

@@ -566,7 +566,7 @@ class TIX_Settlement {
         global $wpdb;
         $event_id = intval($event_id);
         $oid = class_exists('TIX_Co_Money') ? TIX_Co_Money::settlement_org($event_id) : intval(get_post_meta($event_id, '_tix_organizer_id', true)); // Geldempfänger (1.38.711)
-        if (!$oid || (get_post_meta($event_id, '_tix_syndicated', true) === '1' && !(class_exists('TIX_Site_Move') && TIX_Site_Move::settles_as_own($event_id)))) return 0;
+        if (!$oid || (get_post_meta($event_id, '_tix_syndicated', true) === '1' && !(class_exists('TIX_Site_Move') && TIX_Site_Move::settles_as_own($event_id)) && !(class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)))) return 0;
         if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return 0; // Demo/Vorschau: keine Abrechnung, keine EVR-Nummer (1.38.508)
         if (!$force && get_post_meta($event_id, '_tix_settled_at', true)) return 0;
         $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE event_id = %d AND type = 'event' AND status <> 'void'", $event_id));

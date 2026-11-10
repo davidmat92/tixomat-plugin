@@ -60,12 +60,16 @@ if (!$multi) {
         $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Cmtest KK-Event', 'meta_input' => ['_tix_date_start' => '2027-02-27']]);
         $tmp_p[] = $ev;
         update_post_meta($ev, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'KMT Test', 'access' => true, 'status' => 'active', 'since' => gmdate('c')]);
+        // Lizenzseite meldet Geldempfänger/Anteil an die Plattform (Paket 3) – Antwort nachgestellt
+        add_filter('pre_http_request', function ($pre, $a, $url) { return strpos($url, '/syndicate/') !== false ? ['headers' => [], 'body' => wp_json_encode(['ok' => true]), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null] : $pre; }, 5, 3);
         $m = cm_ev(cm_rest('GET', "/events/$ev/edit")[1])['co_money'] ?? [];
-        cm_eq('Editor: Ersteller, nur Ersteller wählbar (Paket 3 fehlt)', ['creator', 0.0, ['creator'], 'not_supported', true], [$m['owner'] ?? '', $m['share'] ?? null, $m['choosable'] ?? [], $m['locked_reason'] ?? '', $m['editable'] ?? null]);
+        cm_eq('Editor: Ersteller, Co wählbar (Paket 3)', ['creator', 0.0, ['creator', 'co'], true], [$m['owner'] ?? '', $m['share'] ?? null, $m['choosable'] ?? [], $m['editable'] ?? null]);
         [$st] = cm_rest('POST', "/events/$ev", ['co_money' => ['share' => 15]]);
         cm_eq('Anteil 15 % speichern', [200, 15.0], [$st, TIX_Co_Money::share($ev)]);
-        [$st, , $c] = cm_rest('POST', "/events/$ev", ['co_money' => ['owner' => 'co']]);
-        cm_eq('Co als Geldempfänger hier noch nicht: 409', [409, 'tix_co_money_unsupported'], [$st, $c]);
+        [$st] = cm_rest('POST', "/events/$ev", ['co_money' => ['owner' => 'co']]);
+        cm_eq('Co als Geldempfänger (über die Plattform)', [200, 'co'], [$st, TIX_Co_Money::owner($ev)]);
+        [$st] = cm_rest('POST', "/events/$ev", ['co_money' => ['owner' => 'creator']]);
+        cm_eq('zurück auf Ersteller', [200, 'creator'], [$st, TIX_Co_Money::owner($ev)]);
         $order($ev, 50.0);
         $b = cm_rest('GET', "/events/$ev/co-balance")[1];
         cm_eq('Ausgleich: Netto, Anteil, selbst überweisen', [1, 50.0, 7.5, false, 'KMT Test'], [$b['orders'] ?? 0, $b['net'] ?? null, $b['share_amount'] ?? null, $b['settled_by_platform'] ?? null, $b['payee']['name'] ?? '']);

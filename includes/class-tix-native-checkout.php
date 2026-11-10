@@ -1877,7 +1877,9 @@ class TIX_Native_Checkout {
                 wp_send_json_error(['message' => 'Event "' . get_the_title($event_id) . '" ist nicht mehr verfügbar.']);
             }
             // Geteilte Events verkauft die Quellseite, nicht diese Kasse
-            if (get_post_meta($event_id, '_tix_syndicated', true) === '1' || get_post_meta($event_id, '_tix_platform_co', true)) {
+            $own_sale = class_exists('TIX_Co_Seller') && (TIX_Co_Seller::sells_here($event_id) || TIX_Co_Seller::sells_local($event_id)); // Co verkauft hier (1.38.713)
+            $brokered = class_exists('TIX_Co_Sale') && TIX_Co_Sale::target($event_id) !== '';
+            if ((get_post_meta($event_id, '_tix_syndicated', true) === '1' || get_post_meta($event_id, '_tix_platform_co', true) || $brokered) && !$own_sale) {
                 $site = get_post_meta($event_id, '_tix_source_site', true) ?: (get_post_meta($event_id, '_tix_platform_co_by', true) ?: 'Veranstalter');
                 wp_send_json_error(['message' => 'Tickets für "' . get_the_title($event_id) . '" gibt es beim Veranstalter (' . esc_html($site) . ').']);
             }

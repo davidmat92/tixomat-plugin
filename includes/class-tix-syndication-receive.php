@@ -361,6 +361,8 @@ class TIX_Syndication_Receive {
                 if (strpos($key, '_tix_') !== 0) continue;
                 if (strpos($key, '_tix_syndicate') === 0) continue;
                 if (in_array($key, self::PROTECTED_META, true)) continue;
+                // Plattform verkauft für den Co (1.38.713): Ticket-Felder gehören jetzt der Plattform
+                if (get_post_meta($event_id, '_tix_sale_frozen', true) === '1' && class_exists('TIX_Co_Seller') && in_array($key, TIX_Co_Seller::TICKET_META, true)) continue;
                 // Wiederholung macht die Quelle (Termine kommen einzeln); Serien-Metas tragen fremde IDs
                 if (strpos($key, '_tix_recurrence') === 0) continue;
                 // Ort-Koordinaten setzt nur das Feld `venue` bzw. das Geocoding hier (apply_venue)

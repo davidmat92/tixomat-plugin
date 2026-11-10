@@ -75,7 +75,7 @@ class TIX_Co_Sale {
     }
 
     /** App-Kasse der Plattform als Gast ausführen (ohne Kanalgebühr, Rücksprung zur Kunden-Seite erlaubt). */
-    private static function run($fn, array $params, $host, $id = 0) {
+    public static function run($fn, array $params, $host, $id = 0) {
         $sub = new WP_REST_Request($fn === 'status' ? 'GET' : 'POST', '/' . self::NS . '/customer/' . ($fn === 'quote' ? 'cart/quote' : 'orders'));
         if ($fn === 'status') { $sub->set_url_params(['id' => intval($id)]); $sub->set_query_params($params); }
         else { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($params)); }
@@ -115,8 +115,16 @@ class TIX_Co_Sale {
 
     // ═══════════════ Kunden-Seite ═══════════════
 
+    /** Ziel der Vermittlung (Route-Basis auf der Plattform) oder ''. Kunden-Seite: Co-Spiegel; Lizenzseite: eigenes Event, das der Co verkauft (1.38.713). */
+    public static function target($eid) {
+        if (self::multi()) return '';
+        $eid = intval($eid);
+        if (class_exists('TIX_Site_Move') && ($pid = TIX_Site_Move::platform_co_id($eid)) && get_post_meta($eid, self::M_SALE, true) === '1') return '/partner/co-events/' . $pid . '/sale';
+        return class_exists('TIX_Co_Seller') ? TIX_Co_Seller::source_base($eid) : '';
+    }
+
     public static function is_sale_mirror($eid) {
-        return !self::multi() && class_exists('TIX_Site_Move') && TIX_Site_Move::platform_co_id($eid) && get_post_meta(intval($eid), self::M_SALE, true) === '1';
+        return self::target($eid) !== '';
     }
 
     public static function is_local_id($id) {
@@ -125,8 +133,9 @@ class TIX_Co_Sale {
 
     /** Herkunft für syndicated_info auf der Kunden-Seite. */
     public static function syndicated_info($eid) {
-        return ['site' => (string) (get_post_meta($eid, self::M_SELLER, true) ?: get_post_meta($eid, '_tix_platform_co_by', true) ?: 'Veranstalter'),
-            'checkout_url' => '', 'sale_via_app' => true, 'terms_url' => (string) get_post_meta($eid, self::M_TERMS, true), 'brokered' => true];
+        $seller = (string) (get_post_meta($eid, self::M_SELLER, true) ?: get_post_meta($eid, '_tix_platform_co_by', true));
+        if ($seller === '' && class_exists('TIX_Co_Remote') && ($d = TIX_Co_Remote::payload($eid))) $seller = (string) $d['name']; // Lizenzseite: Co verkauft
+        return ['site' => $seller ?: 'Veranstalter', 'checkout_url' => '', 'sale_via_app' => true, 'terms_url' => (string) get_post_meta($eid, self::M_TERMS, true), 'brokered' => true];
     }
 
     private static function site_call($method, $route, array $body = null, array $query = []) {
@@ -150,10 +159,10 @@ class TIX_Co_Sale {
     }
 
     public static function site_quote($eid, WP_REST_Request $req) {
-        $pid = TIX_Site_Move::platform_co_id($eid);
+        $base = self::target($eid);
         $b = $req->get_json_params() ?: $req->get_params();
         unset($b['event_id']);
-        $d = self::site_call('POST', '/partner/co-events/' . $pid . '/sale/quote', (array) $b);
+        $d = self::site_call('POST', $base . '/quote', (array) $b);
         if (is_wp_error($d)) return $d;
         $d['event_id'] = intval($eid);
         $d['syndicated'] = array_merge((array) ($d['syndicated'] ?? []), self::syndicated_info($eid));
@@ -161,20 +170,20 @@ class TIX_Co_Sale {
     }
 
     public static function site_create($eid, WP_REST_Request $req) {
-        $pid = TIX_Site_Move::platform_co_id($eid);
+        $base = self::target($eid);
         $b = (array) ($req->get_json_params() ?: $req->get_params());
         unset($b['event_id'], $b['create_account'], $b['password']);
         $ret = (string) ($b['return_url'] ?? '');
         if ($ret !== '' && !in_array(self::host_of($ret), self::own_hosts(), true)) return new WP_Error('tix_partner_return_url', 'Rücksprung nur auf diese Seite.', ['status' => 400]);
-        $d = self::site_call('POST', '/partner/co-events/' . $pid . '/sale/orders', $b);
+        $d = self::site_call('POST', $base . '/orders', $b);
         if (is_wp_error($d)) return $d;
         $po = intval($d['order']['id'] ?? 0);
         if (!$po) return new WP_Error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', ['status' => 502]);
         $map = (array) get_option(self::MAP, []);
-        foreach ($map as $lid => $m) if (intval($m['pid'] ?? 0) === $po && intval($m['pevent'] ?? 0) === $pid) { $local = intval($lid); break; }
+        foreach ($map as $lid => $m) if (intval($m['pid'] ?? 0) === $po && (string) ($m['base'] ?? '') === $base) { $local = intval($lid); break; }
         if (empty($local)) {
             $local = max(self::ID_START - 1, $map ? max(array_map('intval', array_keys($map))) : 0) + 1;
-            $map[$local] = ['pid' => $po, 'key' => (string) ($d['order']['key'] ?? ''), 'event' => intval($eid), 'pevent' => $pid,
+            $map[$local] = ['pid' => $po, 'key' => (string) ($d['order']['key'] ?? ''), 'event' => intval($eid), 'base' => $base,
                 'email' => sanitize_email((string) ($d['order']['billing_email'] ?? ($b['billing']['email'] ?? ''))), 'created' => gmdate('c')];
             update_option(self::MAP, $map, false);
         }
@@ -188,7 +197,7 @@ class TIX_Co_Sale {
         $user = is_user_logged_in() ? wp_get_current_user() : null;
         $mine = $user && !empty($m['email']) && strcasecmp((string) $user->user_email, (string) $m['email']) === 0;
         if (!$m || (!$mine && ($key === '' || !hash_equals((string) $m['key'], $key)))) return new WP_Error('tix_order_missing', 'Bestellung nicht gefunden.', ['status' => 404]);
-        $d = self::site_call('GET', '/partner/co-events/' . intval($m['pevent']) . '/sale/orders/' . intval($m['pid']), null, ['key' => (string) $m['key']]);
+        $d = self::site_call('GET', (string) $m['base'] . '/orders/' . intval($m['pid']), null, ['key' => (string) $m['key']]);
         if (is_wp_error($d)) return $d;
         return rest_ensure_response(self::local_response(intval($id), $d));
     }
@@ -202,7 +211,10 @@ class TIX_Co_Sale {
             $o['id'] = intval($local);
             $o['event'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::order_event_info(intval($m['event'])) : ($o['event'] ?? null);
             $o['seller'] = ['name' => (string) (get_post_meta(intval($m['event']), self::M_SELLER, true) ?: ($o['seller']['name'] ?? '')), 'mail_from_seller' => true];
-            if (!empty($o['paid'])) $o['tickets'] = self::mirror_tickets($local, $m, (array) ($o['tickets'] ?? []));
+            if (!empty($o['paid'])) {
+                $o['tickets'] = self::mirror_tickets($local, $m, (array) ($o['tickets'] ?? []));
+                if (empty($m['paid'])) { $map[$local]['paid'] = 1; update_option(self::MAP, $map, false); }
+            }
             else $o['tickets'] = [];
             $o['invoice_url'] = '';
             $d['order'] = $o;

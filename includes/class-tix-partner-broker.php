@@ -115,11 +115,24 @@ class TIX_Partner_Broker {
     /** Partner, über den dieses geteilte Event verkauft werden darf – sonst null. */
     public static function partner_for_event($event_id) {
         $event_id = intval($event_id);
+        // Co als Verkaufsinstanz (1.38.713): Kunden-Seite des Co bzw. kein Broker, wenn die Plattform selbst verkauft
+        if (class_exists('TIX_Co_Seller') && get_option('tix_partner_orders_db') === self::DB_VERSION && ($cp = TIX_Co_Seller::broker_partner($event_id)) !== false) return $cp;
         if (!class_exists('TIX_Partners') || get_post_meta($event_id, '_tix_syndicated', true) !== '1') return null;
         if (get_post_meta($event_id, '_tix_partner_sales', true) !== '1') return null;
         if (get_option('tix_partner_orders_db') !== self::DB_VERSION) return null;
         $p = TIX_Partners::get((string) get_post_meta($event_id, '_tix_source_partner', true));
         return TIX_Partners::sales_ready($p) ? $p : null;
+    }
+
+    /** Event-ID bei der Verkaufsinstanz (Quelle bzw. Kunden-Seite des Co, 1.38.713). */
+    private static function source_event_id($event_id) {
+        return class_exists('TIX_Co_Seller') ? TIX_Co_Seller::source_id($event_id) : intval(get_post_meta($event_id, '_tix_source_id', true));
+    }
+
+    private static function fee_for($p, $event_id) {
+        if (!class_exists('TIX_Channel_Fee')) return null;
+        if ((class_exists('TIX_Co_Sale') && TIX_Co_Sale::$no_fee) || (class_exists('TIX_Co_Seller') && TIX_Co_Seller::no_fee($event_id))) return null;
+        return TIX_Channel_Fee::for_partner($p);
     }
 
     public static function is_broker_id($id) {
@@ -194,11 +207,11 @@ class TIX_Partner_Broker {
     public static function quote(array $p, $event_id, WP_REST_Request $req, $user) {
         $items = $req->get_param('items');
         $data = self::call($p, 'POST', '/partner/quote', array_filter([
-            'event_id' => intval(get_post_meta($event_id, '_tix_source_id', true)),
+            'event_id' => self::source_event_id($event_id),
             'items'    => is_array($items) ? $items : [],
             'coupon'   => (string) ($req->get_param('coupon') ?? ''),
             // Gebühr im evendis-Kanal (nur wenn für den Partner an) – die Quelle rechnet sie ins Angebot
-            'channel_fee' => (class_exists('TIX_Channel_Fee') && !(class_exists('TIX_Co_Sale') && TIX_Co_Sale::$no_fee)) ? TIX_Channel_Fee::for_partner($p) : null, // keine Gebühr zwischen eigenen Seiten (1.38.712)
+            'channel_fee' => self::fee_for($p, $event_id), // keine Gebühr zwischen eigenen Seiten (1.38.712/713)
         ], function ($v) { return $v !== null; }));
         if (is_wp_error($data)) return $data;
         $legal = isset($data['legal']) && is_array($data['legal']) ? $data['legal'] : [];
@@ -237,7 +250,7 @@ class TIX_Partner_Broker {
             'order_key'       => 'tix_' . wp_generate_password(16, false),
             'partner'         => $p['id'],
             'event_id'        => intval($event_id),
-            'source_event_id' => intval(get_post_meta($event_id, '_tix_source_id', true)),
+            'source_event_id' => self::source_event_id($event_id),
             'user_id'         => $user ? intval($user->ID) : 0,
             'billing_email'   => $billing['email'],
             'status'          => 'creating',
@@ -253,14 +266,14 @@ class TIX_Partner_Broker {
 
         $items = $req->get_param('items');
         $data = self::call($p, 'POST', '/partner/orders', [
-            'event_id'          => intval(get_post_meta($event_id, '_tix_source_id', true)),
+            'event_id'          => self::source_event_id($event_id),
             'items'             => is_array($items) ? $items : [],
             'coupon'            => (string) ($req->get_param('coupon') ?? ''),
             'billing'           => $billing,
             'payment_method'    => sanitize_text_field((string) ($req->get_param('payment_method') ?? '')),
             'idempotency_token' => 'p' . $idem,
             'partner_ref'       => (string) $id,
-            'channel_fee'       => (class_exists('TIX_Channel_Fee') && !(class_exists('TIX_Co_Sale') && TIX_Co_Sale::$no_fee)) ? TIX_Channel_Fee::for_partner($p) : null,
+            'channel_fee'       => self::fee_for($p, $event_id),
             // Rücksprung nach der Zahlung (z. B. Kunden-Seite, 1.38.712)
             'return_url'        => (string) ($req->get_param('return_url') ?? ''),
         ]);

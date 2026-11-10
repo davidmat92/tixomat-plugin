@@ -219,6 +219,7 @@ class TIX_App_Checkout {
         // Kunden-Seite: Co-Event, das über die Plattform verkauft wird (1.38.712)
         if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::is_sale_mirror($event_id)) return TIX_Co_Sale::syndicated_info($event_id);
         if (!self::is_syndicated($event_id)) return null;
+        if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)) return null; // Plattform verkauft selbst (Fall B, 1.38.713)
         $checkout = (string) get_post_meta($event_id, '_tix_source_checkout', true);
         if ($checkout === '') $checkout = (string) get_post_meta($event_id, '_tix_source_url', true);
         $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
@@ -234,8 +235,8 @@ class TIX_App_Checkout {
     /** Online-Verkauf für das Event möglich? (wie der Ticket-Selector der Event-Seite) */
     private static function sale_open($event_id) {
         if (get_post_status($event_id) !== 'publish') return false;
-        // Geteilte Events verkauft die Quelle, nie die eigene Kasse
-        if (self::is_syndicated($event_id)) return false;
+        // Geteilte Events verkauft die Quelle, nie die eigene Kasse (außer die Plattform verkauft für den Co, 1.38.713)
+        if (self::is_syndicated($event_id) && !(class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id))) return false;
         if (get_post_meta($event_id, '_tix_tickets_enabled', true) !== '1') return false;
         // Mehr-Veranstalter-Modus: Veranstalter noch nicht freigegeben bzw. gesperrt
         if (class_exists('TIX_Org_Approval') && !TIX_Org_Approval::event_allowed($event_id)) return false;
@@ -422,7 +423,7 @@ class TIX_App_Checkout {
 
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
     private static function build_cart($event_id, array $items, $hold_token = '') {
-        if (self::is_syndicated($event_id)) {
+        if (self::is_syndicated($event_id) && !(class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id))) { // Plattform verkauft für den Co (1.38.713)
             return self::syndicated_error($event_id);
         }
         if (class_exists('TIX_Org_Approval') && ($e = TIX_Org_Approval::sale_error($event_id))) {

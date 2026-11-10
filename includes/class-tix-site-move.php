@@ -781,6 +781,15 @@ class TIX_Site_Move {
                 foreach ($cats as $ci => $cc) if (is_array($cc)) unset($cats[$ci]['product_id']);
                 $items[$last] += ['sale' => true, 'seller' => $seller['name'], 'terms_url' => $seller['terms_url'], 'categories' => array_values(array_filter($cats, 'is_array'))];
             }
+            // Co verkauft selbst (1.38.713): Ticket-Felder für den verkaufsfähigen Spiegel
+            if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::seller($e) === 'site') {
+                $last = count($items) - 1;
+                $cats = (array) get_post_meta($e, '_tix_ticket_categories', true);
+                foreach ($cats as $ci => $cc) if (is_array($cc)) unset($cats[$ci]['product_id']);
+                $pre = [];
+                foreach (TIX_Co_Seller::TICKET_META as $k) if ($k !== '_tix_ticket_categories' && $k !== '_tix_tickets_enabled') $pre[$k] = get_post_meta($e, $k, true);
+                $items[$last] += ['sell' => true, 'categories' => array_values(array_filter($cats, 'is_array')), 'presale' => $pre, 'owner' => 'co', 'share' => TIX_Co_Money::share($e)];
+            }
             if (self::is_source_mirror($e)) {
                 $last = count($items) - 1;
                 $src = self::source_site_of($e);
@@ -877,7 +886,7 @@ class TIX_Site_Move {
         if ($code !== 200 || !is_array($d)) return new WP_Error('tix_co_http', 'HTTP ' . $code . ': ' . (is_array($d) ? (string) ($d['message'] ?? '') : ''));
         $map = (array) get_option(self::OPT_MAP, []);
         $org = intval($map['organizer'] ?? 0) ?: intval((get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids']) ?: [0])[0]);
-        $seen = []; $n = ['created' => 0, 'updated' => 0, 'removed' => 0]; $errors = [];
+        $seen = []; $n = ['created' => 0, 'updated' => 0, 'removed' => 0]; $errors = []; $sells = [];
         foreach ((array) $d['items'] as $it) {
             $pid = intval($it['id']);
             $seen[$pid] = true;
@@ -889,6 +898,7 @@ class TIX_Site_Move {
                 '_tix_location' => (string) $it['location'], '_tix_address' => (string) $it['address'], '_tix_tickets_enabled' => '0',
                 '_tix_extshop_enabled' => !empty($it['tickets']) ? '1' : '0', '_tix_extshop_url' => (string) $it['url'], '_tix_extshop_text' => 'Tickets kaufen', '_tix_extshop_mode' => 'replace',
                 '_tix_extshop_price' => $it['price_from'] === null ? '' : (string) $it['price_from']];
+            if (!empty($it['sell'])) unset($meta['_tix_tickets_enabled'], $meta['_tix_extshop_enabled']); // Co verkauft hier: Ticket-Felder setzt TIX_Co_Seller (1.38.713)
             if ($sale) { // Verkauf über die Plattform: Kategorien zur Anzeige, Kasse vermittelt (TIX_Co_Sale), kein externer Shop
                 $meta['_tix_tickets_enabled'] = '1';
                 $meta['_tix_extshop_enabled'] = '0';
@@ -911,7 +921,9 @@ class TIX_Site_Move {
                 if ($att) set_post_thumbnail($id, $att); elseif ($it['image'] === '') delete_post_thumbnail($id);
                 update_post_meta($id, '_tix_platform_co_img', (string) $it['image']);
             }
+            if (class_exists('TIX_Co_Seller')) { TIX_Co_Seller::apply_sync($id, $it); if (!empty($it['sell'])) $sells[] = $id; } // Co verkauft hier (1.38.713)
         }
+        foreach ($sells as $sid) TIX_Co_Seller::report($sid);
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {
             if (empty($seen[intval(get_post_meta($id, self::CO_META, true))])) { wp_trash_post($id); $n['removed']++; }
         }
@@ -965,6 +977,13 @@ class TIX_Site_Move {
         if ($response instanceof WP_Error || self::multi() || $req->get_method() === 'GET') return $response;
         if (!preg_match('#^/' . preg_quote(self::NS, '#') . '/(?:events|studio/events|pos/events|checkin)/(\d+)(/|$)#', $req->get_route(), $m)) return $response;
         if (!self::platform_co_id(intval($m[1]))) return $response;
+        // Diese Seite verkauft für den Co (1.38.713): Einlass, Kasse, Gästeliste und Ticket-Felder hier
+        if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_local(intval($m[1]))) {
+            $route = $req->get_route();
+            if (preg_match('#/(?:checkin|pos)/#', $route) || preg_match('#/events/\d+/(?:guestlist|tickets|orders|report)#', $route)) return $response;
+            $body = (array) ($req->get_json_params() ?: []);
+            if (preg_match('#/events/\d+$#', $route) && $body && !array_diff(array_keys($body), TIX_Co_Seller::TICKET_FIELDS)) return $response;
+        }
         return new WP_Error('tix_co_platform_event', 'Dieses Event gehört ' . (get_post_meta(intval($m[1]), '_tix_platform_co_by', true) ?: 'einem anderen Veranstalter') . ' auf evendis. Änderungen bitte über den gemeinsamen Zugang.', ['status' => 409, 'base' => '/platform-co/' . intval($m[1])]);
     }
 

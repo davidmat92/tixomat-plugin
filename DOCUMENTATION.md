@@ -5046,3 +5046,24 @@ Vertrag `uebergaben/vertrag-co-geldempfaenger.md` §4. Klasse `TIX_Co_Sale`.
 - **Startklar:** `TIX_Owner_Access::readiness()` liefert `payments_needed` und `payments_reason: only_brokered`. Eine Seite, die nur vermittelt, gilt als zahlungsbereit.
 - **Broker:** Status-Abrufe prüfen jetzt, ob die Vermittlung existiert (`TIX_Partner_Broker::exists`). Eigene Bestell-IDs können in den Bereich ab 800000001 wachsen.
 - **Tests:** `tests/test-co-sale-wp.php` (Plattform 15), `tests/test-co-sale-e2e.php` (zwei Seiten über HTTP, 10).
+
+## 120. Co als Verkaufsinstanz, Paket 3 (ab 1.38.713)
+Vertrag `uebergaben/vertrag-co-geldempfaenger.md` §5. Klasse `TIX_Co_Seller`.
+- **Plattform:** `seller($eid)` liefert `self`, `source` oder `site`.
+  - Fall A/B (Co auf evendis.de): Die Plattform verkauft. Ein geteilter Spiegel verkauft selbst (`sells_here`): eigene Kasse, `syndicated_info` = null, Abrechnung an den Co. Die Verteilung überschreibt die Ticket-Felder nicht mehr (`_tix_sale_frozen`).
+  - Fall C/D (Co ist eine Kunden-Seite): Der Broker geht an deren Partner (`_tix_sale_partner`, `_tix_sale_source_id`), ohne Kanalgebühr.
+- **Umstellen:** Die Lizenzseite meldet `owner`/`share` per Aktion `money` an `POST /syndicate/{id}/co-organizer`. Die Plattform prüft Zugriff und ob die Kunden-Seite bereit ist (409 mit `reason` `no_access` bzw. `site_not_ready`).
+- **Routen:**
+  - `POST /partner/co-events/{id}/local {local_id, sold, balance}`: Die Kunden-Seite meldet ihre lokale ID, den Verkaufsstand und den Ausgleich.
+  - `POST /partner/sale/{id}/quote|orders`, `GET …/orders/{oid}`, `GET …/balance`: Die Lizenzseite vermittelt ihr Event an den Co.
+- **Kunden-Seite:**
+  - Beim Abgleich mit `sell` wird der Spiegel verkaufsfähig (`_tix_platform_co_sells`); Kategorien und Vorverkauf werden nur beim ersten Mal übernommen.
+  - Lokal erlaubt sind dann Ticket-Felder, Kasse, Einlass und Gästeliste.
+  - Die Partner-API nimmt Bestellungen für den Spiegel an.
+  - Nach dem Abgleich meldet die Seite sich mit `report()`.
+- **Lizenzseite:**
+  - Die Kasse vermittelt über `TIX_Co_Sale::target()` an `/partner/sale/{remote}`.
+  - Ticket-Felder sind gesperrt (409 `tix_co_money_seller`).
+  - `co-balance` holt den Stand der Verkaufsinstanz.
+  - Verkäufe über die Vermittlung zählen für die Sperre.
+- **Tests:** `tests/test-co-seller-wp.php` (Plattform 20, Lizenz-/Kunden-Seite 16), `tests/test-co-seller-e2e.php` (Fall D über HTTP: Abgleich, Kasse der Plattform → Broker → Kunden-Seite, Bestellung und Tickets auf der Kunden-Seite).
