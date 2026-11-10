@@ -17,7 +17,7 @@ class TIX_Site_Brand {
 
     const COLORS = ['background', 'glow', 'surface', 'surface_raised', 'spotlight', 'teal', 'cta_bg', 'cta_fg'];
     const TEXT = ['key' => 40, 'short_name' => 40, 'in_venue' => 80, 'hashtag' => 60, 'description' => 300];
-    const LAYOUTS = ['club', 'festival', 'festivalTour'];
+    const LAYOUTS = ['club', 'festival', 'festivalTour', 'theater']; // theater: Darstellung wie club, bis es eine eigene gibt (1.38.714)
     const DISPLAY = ['manrope', 'anton'];
 
     public static function init() {
@@ -103,7 +103,7 @@ class TIX_Site_Brand {
                     if ($bv === null) return self::bad($k, $k . ': true oder false.');
                     $o[$k] = $bv; break;
                 case $k === 'layout':
-                    if (!in_array($val, self::LAYOUTS, true)) return self::bad($k, 'Profil: club, festival oder festivalTour.');
+                    if (!in_array($val, self::LAYOUTS, true)) return self::bad($k, 'Profil: club, festival, festivalTour oder theater.');
                     $o[$k] = $val; break;
                 case $k === 'display_font':
                     if (!in_array($val, self::DISPLAY, true)) return self::bad($k, 'Überschriften: manrope oder anton.');

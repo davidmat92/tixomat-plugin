@@ -23,7 +23,7 @@ class TIX_Website {
     const AUTO_HOSTS = ['kitchenklub.de', 'mallorca-festival-xxl.de'];
     const OPTION = 'tix_website';
     const OPT_DOMAIN = 'tix_website_domain';
-    const TEMPLATES = ['club', 'festival', 'klar'];
+    const TEMPLATES = ['club', 'festival', 'klar', 'einfach']; // einfach: 1.38.714
     const HISTORY = 10;
     const PREVIEW_TTL = DAY_IN_SECONDS;
 
@@ -68,6 +68,7 @@ class TIX_Website {
         'club'     => ['stage', 'live_now', 'highlights', 'next', 'presale', 'service', 'tips', 'raffles', 'about', 'gallery', 'music', 'loyalty', 'giftcards', 'wallet', 'u16', 'awareness', 'faq', 'newsletter', 'app_banner'],
         'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'raffles', 'about', 'arrival', 'more_dates', 'tips', 'gallery', 'wallet', 'awareness', 'faq', 'newsletter', 'app_banner'],
         'klar'     => ['stage', 'next', 'tips', 'raffles', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
+        'einfach'  => ['stage', 'next', 'about', 'contact'], // eine Seite: nächstes Event groß, weitere Termine, Über uns, Kontakt (1.38.714)
     ];
 
     // Laufband: erlaubte Werte je Option (Vorgabe = erster Wert)
@@ -240,7 +241,7 @@ class TIX_Website {
     public static function clean(array $w) {
         $out = ['version' => 1];
         $t = (string) ($w['template'] ?? '');
-        if ($t !== '' && !in_array($t, self::TEMPLATES, true)) return self::bad('template', 'Vorlage: club, festival oder klar.');
+        if ($t !== '' && !in_array($t, self::TEMPLATES, true)) return self::bad('template', 'Vorlage: club, festival, klar oder einfach.');
         $out['template'] = $t;
         $out['sections'] = [];
         $seen = [];

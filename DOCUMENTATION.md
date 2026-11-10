@@ -5067,3 +5067,8 @@ Vertrag `uebergaben/vertrag-co-geldempfaenger.md` §5. Klasse `TIX_Co_Seller`.
   - `co-balance` holt den Stand der Verkaufsinstanz.
   - Verkäufe über die Vermittlung zählen für die Sperre.
 - **Tests:** `tests/test-co-seller-wp.php` (Plattform 20, Lizenz-/Kunden-Seite 16), `tests/test-co-seller-e2e.php` (Fall D über HTTP: Abgleich, Kasse der Plattform → Broker → Kunden-Seite, Bestellung und Tickets auf der Kunden-Seite).
+
+## 121. Website-Vorlage „einfach“, Profil „theater“ (ab 1.38.714)
+- `TIX_Website::TEMPLATES` und `TIX_Sales_Previews::TEMPLATES` kennen `einfach`, Vorgabe `stage, next, about, contact`. Der Katalog (`catalog.templates`, `sections[].defaults.einfach`) liefert die Vorlage mit. In der Vertriebs-Vorschau bekommt `einfach` das Design `ticketschalter`.
+- Das Profil `theater` steht in `TIX_Studio::LAYOUTS` und `TIX_Site_Brand::LAYOUTS`. Es wird wie `club` dargestellt (`profile_template` → `club`), bis es eine eigene Darstellung gibt.
+- Test: `tests/test-website-einfach-wp.php` (Plattform 5, Einzel-Seite 7).

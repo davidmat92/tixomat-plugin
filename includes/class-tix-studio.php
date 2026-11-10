@@ -506,7 +506,7 @@ class TIX_Studio {
      * Profil der eigenen App (1.38.455): club | festival | festivalTour (1.38.467, Mallorca). Admin-Option tix_app_layout › `layout` bzw. `profile` in den App-Inhalten
      * (_tix_app_config) › „festival“ im Seitennamen bzw. in der Adresse (z. B. mallorca-festival-xxl.de) › club.
      */
-    const LAYOUTS = ['club', 'festival', 'festivalTour'];
+    const LAYOUTS = ['club', 'festival', 'festivalTour', 'theater']; // theater: Darstellung wie club, bis es eine eigene gibt (1.38.714)
 
     public static function app_layout() {
         $o = (string) get_option(self::APP_LAYOUT, '');
@@ -649,7 +649,7 @@ class TIX_Studio {
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
-            if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival oder festivalTour.', ['status' => 400, 'field' => 'app_layout']);
+            if ($lv !== null && $lv !== '' && !in_array($lv, self::LAYOUTS, true)) return new WP_Error('tix_invalid_field', 'Profil: club, festival, festivalTour oder theater.', ['status' => 400, 'field' => 'app_layout']);
         }
         if ($unknown) return new WP_Error('tix_invalid_field', 'Nur Akzentfarbe, Schrift, Logo, Mail-Marke und (Admin) has_app lassen sich hier ändern.', ['status' => 400, 'field' => (string) reset($unknown)]);
         // Eigene App übersteuern nur Admin
