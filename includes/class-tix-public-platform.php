@@ -315,6 +315,7 @@ class TIX_Public_Platform {
         $list = [];
         foreach (self::organizer_ids() as $oid) {
             if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) continue; // Demo Club / Vorschau nie in Listen (1.38.508)
+            if (class_exists('TIX_Co_Sites') && TIX_Co_Sites::public_hidden($oid)) continue; // Profil einer Kunden-Seite ohne eigene Events (1.38.709)
             $o = self::organizer_payload($oid, false, $events);
             if (!$o) continue;
             if ($q !== '' && strpos(strtolower($o['name'] . ' ' . $o['city'] . ' ' . $o['short_desc']), $q) === false) continue;
@@ -352,7 +353,7 @@ class TIX_Public_Platform {
         $cache = 'tix_pub_events_org_' . $oid;
         $cached = get_transient($cache);
         if (is_array($cached)) return rest_ensure_response($cached);
-        $o = $oid ? self::organizer_payload($oid, true) : null;
+        $o = ($oid && !(class_exists('TIX_Co_Sites') && TIX_Co_Sites::public_hidden($oid))) ? self::organizer_payload($oid, true) : null;
         if (!$o) return new WP_Error('tix_organizer', 'Veranstalter nicht gefunden.', ['status' => 404]);
         $resp = ['ok' => true, 'organizer' => $o];
         set_transient($cache, $resp, self::TTL);

@@ -339,6 +339,7 @@ class TIX_Co_Organizer {
             $id = intval($id);
             if ($id === $own) continue;
             if (class_exists('TIX_Sales') && method_exists('TIX_Sales', 'is_demo_organizer') && TIX_Sales::is_demo_organizer($id)) continue;
+            if (class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile($id)) continue; // Kunden-Seiten nur in der Seiten-Suche (1.38.709)
             $r = self::ref($id);
             $items[] = ['id' => $id, 'name' => html_entity_decode((string) $r['name'], ENT_QUOTES, 'UTF-8'), 'slug' => (string) $r['slug'], 'logo' => (string) $r['logo'],
                 'city' => (string) (get_post_meta($id, '_tix_org_city', true) ?: get_post_meta($id, '_tix_org_landing_city', true))];

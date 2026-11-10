@@ -58,7 +58,9 @@ class TIX_Co_Remote {
 
     private static function data($event_id) {
         $d = get_post_meta(intval($event_id), self::META, true);
-        return is_array($d) && !empty($d['organizer_id']) ? $d : null;
+        if (is_string($d) && $d !== '') $d = json_decode($d, true); // von Hand als JSON gesetzt (1.38.709)
+        if (is_object($d)) $d = json_decode(wp_json_encode($d), true);
+        return is_array($d) && intval($d['organizer_id'] ?? 0) > 0 ? $d : null;
     }
 
     public static function payload($event_id) {
@@ -142,6 +144,7 @@ class TIX_Co_Remote {
         $r = self::send($post_id, ['action' => 'access', 'access' => $access]);
         if (is_wp_error($r)) return $r;
         $d['access'] = $access;
+        if (in_array($r['co_organizer']['status'] ?? '', ['active', 'invited'], true)) $d['status'] = (string) $r['co_organizer']['status']; // Stand der Plattform (1.38.709)
         if ($access && empty($d['consent']['at'])) $d['consent'] = ['at' => gmdate('c'), 'by' => get_current_user_id()];
         update_post_meta($post_id, self::META, $d);
         return ['op' => 'remote'];
@@ -372,6 +375,8 @@ class TIX_Co_Remote {
         $ok = self::allowed($method, $path, $q, $body, $sid);
         if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
         $d = self::data($sid);
+        // Der Co-Veranstalter arbeitet schon auf der Plattform → hier nicht mehr „eingeladen“ (1.38.709)
+        if (($d['status'] ?? '') === 'invited') { $d['status'] = 'active'; update_post_meta($sid, self::META, $d); }
         $uid = self::actor_user(intval($d['organizer_id']), (string) $d['name']);
         if (!$uid) return new WP_Error('tix_co_actor', 'Technisches Konto fehlt.', ['status' => 500]);
         self::$acting = $uid;

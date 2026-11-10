@@ -90,6 +90,27 @@ if (!$multi) {
             cs_eq('Schalter aus: Suche 409', [409, 'tix_co_remote_unavailable'], [$st, $c]);
             return;
         }
+        // 1.38.709: von Hand als JSON gesetzt, Status eingeladen
+        update_post_meta($sid, '_tix_co_remote', wp_json_encode(['organizer_id' => 9507, 'name' => 'MDJ Veranstaltungs UG', 'access' => true, 'status' => 'invited', 'since' => '2026-11-09T10:00:00+00:00']));
+        [, $d] = cs_rest('GET', "/events/$sid/edit");
+        $e0 = ($d['event'] ?? $d)['co_organizers'][0] ?? [];
+        cs_eq('JSON-Meta, eingeladen: angezeigt + trennbar', [9507, 'invited', true], [$e0['id'] ?? 0, $e0['status'] ?? '', $e0['removable'] ?? null]);
+        // 1.38.709: erster Durchgriff von der Plattform setzt „eingeladen“ → „aktiv“
+        $set_remote($sid);
+        update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited']));
+        wp_set_current_user(0);
+        $r = new WP_REST_Request('POST', "/tixomat/v1/partner/co/$sid");
+        $r->set_header('X-Tix-Partner-Id', 'plat.test'); $r->set_header('X-Tix-Partner-Key', str_repeat('p', 32)); $r->set_header('X-Tix-Co-Token', $tok);
+        $r->set_header('content-type', 'application/json'); $r->set_body(wp_json_encode(['method' => 'GET', 'path' => "/events/$sid/edit"]));
+        $st = rest_do_request($r)->get_status();
+        cs_eq('Durchgriff: Status wird aktiv', [200, 'active'], [$st, get_post_meta($sid, '_tix_co_remote', true)['status'] ?? '']);
+        wp_set_current_user(intval($admin[0]->ID));
+        // Zugriff umschalten übernimmt den Status der Plattform
+        update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited', 'consent' => ['at' => gmdate('c'), 'by' => 1]]));
+        $GLOBALS['cs_reply'] = function () { return [200, ['ok' => true, 'co_organizer' => ['id' => 77, 'name' => 'MDJ Test', 'access' => false, 'status' => 'active']]]; };
+        [$st] = cs_rest('POST', "/events/$sid", ['co_organizer' => ['access' => false]]);
+        $dd = get_post_meta($sid, '_tix_co_remote', true);
+        cs_eq('Zugriff aus: Status von der Plattform', [200, false, 'active'], [$st, $dd['access'] ?? null, $dd['status'] ?? '']);
         // Kunden-Seite als Herkunft
         $set_remote($sid, ['key' => 'h-kmt', 'host' => 'kmt.test', 'name' => 'KMT Test']);
         [, $d] = cs_rest('GET', "/events/$sid/edit");
@@ -204,6 +225,20 @@ try {
     cs_eq('Protokoll removed via creator', ['removed', 'creator'], [TIX_Co_Organizer::org_log($oa)[0]['what'] ?? '', TIX_Co_Organizer::org_log($oa)[0]['via'] ?? '']);
     cs_eq('nochmal: unchanged', 'unchanged', cs_rest('DELETE', "/events/$ev/co-organizer")[1]['changed'] ?? '');
 
+    // 1.38.709: Lizenzseite trennt (clear) → Event sofort aus der Liste des Co-Veranstalters
+    $mir0 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Csxtest Spiegel0', 'meta_input' => ['_tix_organizer_id' => $okk, '_tix_date_start' => '2027-04-02',
+        '_tix_syndicated' => '1', '_tix_source_partner' => 'cskk', '_tix_source_id' => 1170, '_tix_co_remote_oid' => $ob, '_tix_co_remote_access' => '1', '_tix_co_remote_token' => str_repeat('y', 48)]]);
+    $tmp_p[] = $mir0;
+    wp_set_current_user($ub);
+    cs_eq('Co sieht Spiegel in /co-remote/events', true, in_array($mir0, array_column(cs_rest('GET', '/co-remote/events')[1]['items'] ?? [], 'id'), true));
+    wp_set_current_user(0);
+    [$st] = cs_rest('POST', "/syndicate/$mir0/co-organizer", ['action' => 'clear'], ['X-Tix-Syndication-Key' => $kk_key]);
+    wp_set_current_user($ub);
+    cs_eq('Nach clear: Metas weg, nicht mehr in der Liste, Durchgriff 403', [200, '', false, 403],
+        [$st, (string) get_post_meta($mir0, '_tix_co_remote_oid', true), in_array($mir0, array_column(cs_rest('GET', '/co-remote/events')[1]['items'] ?? [], 'id'), true), cs_rest('GET', "/co-remote/$mir0/events/1170/edit")[0]]);
+    cs_eq('Feed an den Co: nicht mehr Co-Veranstalter', true, in_array('Nicht mehr Co-Veranstalter', array_column((array) get_user_meta($ub, TIX_Notifications::META_USER, true), 'title'), true));
+    wp_set_current_user($ua);
+
     // ── Suche Kunden-Seiten
     [$st, $d] = cs_rest('GET', '/co-organizer/sites', ['q' => 'csxtest']);
     $keys = array_column($d['items'] ?? [], 'key');
@@ -225,6 +260,18 @@ try {
     cs_eq('Profil Art site, Partner zugeordnet', ['site', $kmt_oid], [get_post_meta($kmt_oid, '_tix_org_kind', true), intval(TIX_Partners::get('cskmt')['organizer_id'] ?? 0)]);
     cs_eq('Eintrag: site, Label', ['site', 'eigene Seite kmt.test'], [$d['co_organizers'][0]['kind'] ?? '', $d['co_organizers'][0]['origin']['label'] ?? '']);
     cs_eq('Zugriff an', true, TIX_Co_Organizer::has_access($ev));
+    // 1.38.709: Profil der Kunden-Seite nicht in Veranstalter-Suche und öffentlicher Liste
+    [, $d] = cs_rest('GET', '/organizers/search', ['q' => 'Csxtest']);
+    cs_eq('Veranstalter-Suche ohne Kunden-Seite', [false, true], [in_array($kmt_oid, array_map('intval', array_column($d['items'] ?? [], 'id')), true), in_array($ob, array_map('intval', array_column($d['items'] ?? [], 'id')), true)]);
+    delete_transient('tix_pub_events_org_' . $kmt_oid);
+    cs_eq('Öffentliches Profil: 404', 404, cs_rest('GET', "/public/organizers/$kmt_oid")[0]);
+    global $wpdb; $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_tix_pub_events_orgs_%'");
+    [, $d] = cs_rest('GET', '/public/organizers', ['q' => 'csxtest', 'per_page' => 200]);
+    cs_eq('Öffentliche Liste ohne Kunden-Seite', false, in_array($kmt_oid, array_map('intval', array_column($d['organizers'] ?? [], 'id')), true));
+    // Profil aus der Kopplung (ohne Art) wird beim Verbinden zur Art site
+    $okmt2 = $mko(0, 'Csxtest Gekoppelt'); $parts = get_option(TIX_Partners::OPTION); $parts['csoff']['organizer_id'] = $okmt2; $parts['csoff']['key_in'] = 'tixp_' . str_repeat('f', 32); update_option(TIX_Partners::OPTION, $parts, false); TIX_Platform_Customers::flush();
+    TIX_Co_Sites::organizer_for('p-csoff');
+    cs_eq('Profil aus Kopplung: Art site', 'site', get_post_meta($okmt2, '_tix_org_kind', true));
 
     // Kunden-Seite holt ihre Co-Events
     wp_set_current_user(0);

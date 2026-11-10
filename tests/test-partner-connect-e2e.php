@@ -43,6 +43,7 @@ if ($mode === 'check-plat') {
     pc_eq('Plattform: Partner angelegt', true, (bool) $p);
     pc_eq('Plattform: pending wie erwartet, Verkauf aus', [$exp_pending, 0], [intval($p['pending'] ?? -1), intval($p['sales_enabled'] ?? -1)]);
     pc_eq('Plattform: Veranstalter-Profil', true, intval($p['organizer_id'] ?? 0) > 0);
+    pc_eq('Plattform: Profil Art site nur bei Hosting', !$exp_pending, get_post_meta(intval($p['organizer_id'] ?? 0), '_tix_org_kind', true) === 'site');
     if (!$exp_pending) {
         TIX_Platform_Customers::flush();
         $items = TIX_Co_Sites::search('pctest');

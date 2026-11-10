@@ -5007,3 +5007,13 @@ Vertrag `uebergaben/vertrag-partner-verbinden-cli.md`.
 - **Status:** `wp tixomat partner status` gibt JSON aus, gespeichert in der Option `tix_partner_connection`.
 - **Plattform:** `TIX_Partners::hosted_customer($host)`. Partner von Seiten mit Lizenz und Hosting-Kurznamen sind sofort `pending: 0`, `sales_enabled` bleibt aus. Die Antwort enthält dazu `hosted`.
 - **Test:** `tests/test-partner-connect-e2e.php` mit zwei Seiten über HTTP: eigene Kunden-Seite sofort bereit, die Co-Suche meldet `ready`, idempotent, `--neu`, `tix_connect_unreachable`, `tix_connect_verify`, ohne Hosting `pending`.
+
+## 117. Korrekturen Co-Veranstalter/Kunden-Seiten (1.38.709)
+- **Profile von Kunden-Seiten** (`TIX_Co_Sites::is_site_profile`: Art `site` oder Veranstalter eines Partners mit Hosting-Lizenz):
+  - erscheinen nicht in `/organizers/search`; dort gibt es sie nur über die Seiten-Suche.
+  - erscheinen in `/public/organizers` und `/public/organizers/{id}` nur, wenn sie eigene veröffentlichte Events auf der Plattform haben (`public_hidden`).
+  - Die Kopplung (`rest_connect`) und `organizer_for` setzen dafür die Art `site`.
+- **Lizenzseite:** `_tix_co_remote` wird auch gelesen, wenn es als JSON-Text oder Objekt gespeichert ist. Ein eingeladener Co-Veranstalter (`status: invited`) steht in `co_organizers` und ist trennbar.
+- **Status abgleichen:** Der erste Durchgriff der Plattform (`/partner/co/{id}`) setzt `_tix_co_remote.status` von `invited` auf `active`. Beim Umschalten des Zugriffs übernimmt die Lizenzseite den Status, den die Plattform meldet.
+- **Trennen auf der Lizenzseite** (`clear`): Auf der Plattform verschwinden die Spiegel-Metas sofort. Das Event fehlt dann in `/co-remote/events` des Co-Veranstalters, der Durchgriff antwortet mit 403, und es gibt einen Feed-Eintrag „Nicht mehr Co-Veranstalter“.
+- **Tests:** `test-co-sites-wp.php` (Plattform 41, Einzel-Seite 22), `test-partner-connect-e2e.php` (5/4), Teil B mit zwei Seiten über HTTP 37.

@@ -116,6 +116,8 @@ class TIX_Co_Sites {
             TIX_Platform_Customers::flush();
             $created = true;
         }
+        if (get_post_meta($oid, TIX_Co_Organizer::ORG_KIND, true) === '') update_post_meta($oid, TIX_Co_Organizer::ORG_KIND, self::KIND); // Profil aus der Kopplung (1.38.709)
+        unset(self::$prof[intval($oid)]);
         update_post_meta($oid, self::META_KEY, $site['key']);
         update_post_meta($oid, self::META_HOST, $site['host']);
         if (get_post_status($oid) !== 'publish') return new WP_Error('tix_invalid_field', 'Der Veranstalter dieser Seite ist nicht freigegeben.', ['status' => 400, 'field' => 'site']);
@@ -137,6 +139,34 @@ class TIX_Co_Sites {
             return ['key' => $key ?: 'v-' . $oid, 'host' => $h, 'name' => html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8')];
         }
         return null;
+    }
+
+    private static $prof = [];
+
+    /**
+     * Plattform-Profil einer Kunden-Seite? (1.38.709) Art `site` oder Veranstalter eines Partners, dessen Host zu einer
+     * Hosting-Lizenz gehört (Profil aus der Kopplung). Solche Profile erscheinen in der Veranstalter-Suche nie, nur als eigene Seite.
+     */
+    public static function is_site_profile($oid) {
+        $oid = intval($oid);
+        if (!$oid) return false;
+        if (isset(self::$prof[$oid])) return self::$prof[$oid];
+        $r = get_post_meta($oid, TIX_Co_Organizer::ORG_KIND, true) === self::KIND;
+        if (!$r && self::multi() && class_exists('TIX_Partners') && method_exists('TIX_Partners', 'hosted_customer')) {
+            foreach (TIX_Partners::all() as $p) {
+                if (intval($p['organizer_id'] ?? 0) !== $oid) continue;
+                $h = strtolower(preg_replace('/^www\./', '', (string) wp_parse_url((string) ($p['api_base'] ?? ''), PHP_URL_HOST)));
+                if ($h !== '' && TIX_Partners::hosted_customer($h)) { $r = true; break; }
+            }
+        }
+        return self::$prof[$oid] = $r;
+    }
+
+    /** Öffentlich ausblenden: Profil einer Kunden-Seite ohne eigenes veröffentlichtes Event auf der Plattform. */
+    public static function public_hidden($oid) {
+        if (!self::is_site_profile($oid)) return false;
+        return !get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids', 'no_found_rows' => true,
+            'meta_query' => [['key' => '_tix_organizer_id', 'value' => strval(intval($oid))]]]);
     }
 
     /** Mail an den Inhaber der Kunden-Seite. */

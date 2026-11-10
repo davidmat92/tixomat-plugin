@@ -265,6 +265,8 @@ class TIX_Partners {
         ];
         update_option(self::OPTION, $all, false);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        // Profil einer eigenen Kunden-Seite: Art `site` (nicht in Veranstalter-Suche/-Liste, 1.38.709)
+        if ($org_id && self::hosted_customer($host) && class_exists('TIX_Co_Organizer')) update_post_meta($org_id, TIX_Co_Organizer::ORG_KIND, 'site');
 
         $admin = get_option('admin_email');
         if (is_email($admin)) {
