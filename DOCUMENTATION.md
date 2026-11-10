@@ -5531,3 +5531,18 @@ Auftrag `uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md` (Feldnamen von marke
 **Protokoll beim Kunden:** `admin_to_team`, `user_technical`, `user_untechnical`, `owner_set`, `owner_removed`.
 
 - **Tests:** `test-site-users-wp` (Kunden-Seite 29, Plattform 26).
+
+## 139. Homepage nach Änderungen sofort neu laden (ab 1.38.732)
+Auftrag `uebergaben/auftrag-revalidate-plugin-2026-11-10.md` (marken-web de2b8925 lädt auch ohne Schlüssel).
+  - Nicht blockierend, Zeitlimit 2 s, nur über IPv4.
+  - `x-revalidate-secret` nur, wenn `tix_web_revalidate_secret` gesetzt ist.
+  - **Host:** Kunden-Adresse (`TIX_Customer_URL::base`), sonst die WordPress-Adresse.
+  - **URL:** `tix_web_revalidate_url`, falls gesetzt (Adressen mit `neu.` werden ignoriert), sonst `https://<host>/api/revalidate/`.
+- **Auslöser:**
+  - Website veröffentlichen (`POST /studio/website` mit `publish` oder `domain`); ein Entwurf allein löst nichts aus.
+  - `/studio/config` (Marke, Logo, Farben, Schrift, Archiv, Funktionen), `/studio/site-config` (Homepage, Kontakt, Social, Menü), `/studio/placeholder`, `/studio/legal`, `/studio/club`, `/studio/domain`, `/studio/mails`, `/studio/features`, `/app/config`, `/organizer/profile`, `/partner/evendis-page`.
+  - Alle Event-Routen (speichern, veröffentlichen, löschen), dazu die bisherigen Event- und Veranstalter-Hooks.
+  - Außerdem jede Änderung der Optionen `tix_studio_brand`, `tix_site_config`, `_tix_app_config`, `tix_customer_base_url`, `tix_website_enabled`, Seitenname und Site-Icon. So lösen auch WP-CLI (`wp tixomat marke setzen`/`logo`, Kunden-Dienst) und der WP-Admin aus.
+- **evendis.de (Mehr-Veranstalter):** unverändert. Ohne Schlüssel kein Aufruf, mit Schlüssel die Veranstalter- und Event-Aufträge an evendis-web.
+- **Letzter Aufruf:** Option `tix_web_revalidate_last` (URL, Domains, mit/ohne Schlüssel, Fehler).
+- **Test:** `test-web-revalidate-site-wp` (Einzel-Seite 8, Plattform 3).
