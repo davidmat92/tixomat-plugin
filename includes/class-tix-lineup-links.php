@@ -228,6 +228,7 @@ class TIX_Lineup_Links {
 
     const META_ORDER = '_tix_lineup_order'; // Liste der Act-Schlüssel in der Studio-Reihenfolge
     const META_SORT  = '_tix_lineup_sort';  // manual (Standard) | time
+    const META_ROLES = '_tix_lineup_roles';     // Act-Schlüssel → Rolle (support|guest|dj|host) aus der Liste, auch ohne Künstler (1.38.739)
     const META_HEAD  = '_tix_lineup_headliners'; // Act-Schlüssel mit Stern im Studio (1.38.735); gesetzt = maßgeblich
     const MAX_ORDER  = 80;
 
@@ -259,6 +260,14 @@ class TIX_Lineup_Links {
                 if (!$in) foreach (self::keys_of($a) as $k) foreach ($hk as $h) if (self::similar_norm($h, $k)) { $in = true; break 2; }
                 if ($in) $a['role'] = 'headliner';
                 elseif (($a['role'] ?? '') === 'headliner') $a['role'] = 'support';
+            }
+            unset($a);
+        }
+        $roles = (array) get_post_meta(intval($event_id), self::META_ROLES, true);
+        if ($roles) {
+            foreach ($acts as &$a) {
+                if (($a['role'] ?? '') === 'headliner') continue;
+                foreach (self::keys_of($a) as $k) if (isset($roles[$k])) { $a['role'] = (string) $roles[$k]; break; }
             }
             unset($a);
         }
@@ -343,7 +352,7 @@ class TIX_Lineup_Links {
      */
     public static function save_list($event_id, $list) {
         if (!is_array($list) || count($list) > self::MAX_LINES) return new WP_Error('tix_invalid_field', 'lineup_list: Liste mit höchstens ' . self::MAX_LINES . ' Acts.', ['status' => 400, 'field' => 'lineup_list']);
-        $names = []; $heads = []; $links = []; $artists = [];
+        $names = []; $heads = []; $links = []; $artists = []; $roles = [];
         foreach (array_values($list) as $i => $it) {
             if (is_string($it)) $it = ['name' => $it];
             if (!is_array($it)) return new WP_Error('tix_invalid_field', 'Ungültiger Act.', ['status' => 400, 'field' => 'lineup_list.' . $i]);
@@ -352,10 +361,13 @@ class TIX_Lineup_Links {
             $names[] = $name;
             $head = !empty($it['headliner']) || (($it['role'] ?? '') === 'headliner');
             if ($head) $heads[] = $name;
+            $role = $head ? 'headliner' : (string) ($it['role'] ?? 'support');
+            if (!in_array($role, ['headliner', 'support', 'guest', 'dj', 'host'], true)) return new WP_Error('tix_invalid_field', 'Rolle: headliner, support, guest, dj oder host (Moderation).', ['status' => 400, 'field' => 'lineup_list.' . $i . '.role']);
+            if (!$head && $role !== 'support') $roles[self::act_key_of($name)] = $role;
             if (array_key_exists('artist_id', $it)) {
                 $aid = $it['artist_id'] === null ? null : intval($it['artist_id']);
                 $links[] = [$name, $aid];
-                if ($aid) $artists[$aid] = ['artist_id' => $aid, 'role' => $head ? 'headliner' : (in_array($it['role'] ?? '', ['support', 'guest'], true) ? $it['role'] : 'support')];
+                if ($aid) $artists[$aid] = ['artist_id' => $aid, 'role' => $role, 'tour' => (string) ($it['tour'] ?? '')]; // Tour: Slug einer Tour des Künstlers (1.38.739)
             }
         }
         // Künstler prüfen, bevor etwas geschrieben wird
@@ -368,6 +380,7 @@ class TIX_Lineup_Links {
         if (is_wp_error($r)) return $r;
         foreach ($links as [$name, $aid]) { $x = TIX_Artists::link_line($event_id, $name, $aid); if (is_wp_error($x)) return $x; }
         if ($checked !== null) TIX_Artists::apply($event_id, $checked);
+        if ($roles) update_post_meta($event_id, self::META_ROLES, $roles); else delete_post_meta($event_id, self::META_ROLES);
         // Line-up-Text: ein Act je Zeile (das Programm mit Zeiten bleibt _tix_timetable)
         update_post_meta($event_id, '_tix_info_lineup', implode("\n", array_map(function ($n) { return '<p>' . esc_html($n) . '</p>'; }, $names)));
         if (class_exists('TIX_Artists')) TIX_Artists::flush_cache();
@@ -375,11 +388,14 @@ class TIX_Lineup_Links {
     }
 
     /** Lesen: die eine Liste für Studio und App-Veranstalterbereich (sortiert wie öffentlich) */
-    public static function list_payload(array $acts) {
-        return array_map(function ($a) {
+    public static function list_payload(array $acts, $event_id = 0) {
+        $tours = [];
+        if ($event_id && class_exists('TIX_Artists')) foreach (TIX_Artists::event_list($event_id) as $r) $tours[intval($r['artist_id'] ?? 0)] = ($r['tour'] ?? '') ?: null;
+        return array_map(function ($a) use ($tours) {
             return ['name' => (string) ($a['line'] ?? $a['name']), 'display_name' => (string) $a['name'], 'artist_id' => $a['artist_id'] ?? null, 'artist_slug' => $a['artist_slug'] ?? null,
                 'artist_link' => $a['artist_link'] ?? null, 'artist_suggestion' => $a['artist_suggestion'] ?? null, 'headliner' => !empty($a['headliner']), 'role' => $a['role'] ?? null,
-                'image' => $a['image_thumb'] ?? ($a['image'] ?? null), 'image_source' => $a['image_source'] ?? null, 'time' => $a['time'] ?? null, 'position' => intval($a['position'] ?? 0)];
+                'image' => $a['image_thumb'] ?? ($a['image'] ?? null), 'image_source' => $a['image_source'] ?? null, 'time' => $a['time'] ?? null, 'position' => intval($a['position'] ?? 0),
+                'tour' => !empty($a['artist_id']) ? ($tours[intval($a['artist_id'])] ?? null) : null];
         }, $acts);
     }
 
@@ -390,7 +406,7 @@ class TIX_Lineup_Links {
             // Stern-Liste: Namen der Acts mit Stern (aus der wirksamen Rolle); lineup_headliners_set = im Studio festgelegt
             'lineup_headliners' => array_values(array_map(function ($a) { return (string) $a['name']; }, array_filter($acts, function ($a) { return !empty($a['headliner']); }))),
             'lineup_headliners_set' => $event_id ? metadata_exists('post', $event_id, self::META_HEAD) : false,
-            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts)];
+            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts, $event_id)];
     }
 
     /** POST /events/{id} {lineup_order?, lineup_sort?} speichern; GET /events/{id}/edit ergänzen (Studio, App-Veranstalterbereich). */

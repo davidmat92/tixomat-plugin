@@ -30,7 +30,7 @@ class TIX_Artists {
     const EV_LINEMAP = '_tix_lineup_artist_map'; // Act-Schlüssel → Künstler-ID (0 = bewusst keiner), Studio „Künstler verknüpfen“ bzw. Reparatur (1.38.736)
     const EV_SNAP = '_tix_source_artists'; // Kopie (Spiegel, Kunden-Seite): Künstler der Quelle als Schnappschuss (1.38.723)
     const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show', 'host'];
-    const ROLES = ['headliner', 'support', 'guest'];
+    const ROLES = ['headliner', 'support', 'guest', 'dj', 'host']; // dj, host (Moderation): 1.38.739
     const MAX_PER_EVENT = 20;
     const LINKS = ['website', 'instagram', 'tiktok', 'youtube', 'spotify', 'apple_music'];
 
@@ -740,7 +740,7 @@ class TIX_Artists {
             if (($d['status'] ?? '') !== 'public' && !$own && !self::is_admin() && !isset($old[$aid])) return self::bad('artists.' . $i . '.artist_id', 'Dieser Künstler ist noch nicht öffentlich.', 403);
             if (isset($out[$aid])) return self::bad('artists.' . $i . '.artist_id', 'Künstler doppelt.');
             $role = (string) (is_array($r) ? ($r['role'] ?? 'headliner') : 'headliner');
-            if (!in_array($role, self::ROLES, true)) return self::bad('artists.' . $i . '.role', 'Rolle: headliner, support oder guest.');
+            if (!in_array($role, self::ROLES, true)) return self::bad('artists.' . $i . '.role', 'Rolle: headliner, support, guest, dj oder host (Moderation).');
             $tour = is_array($r) ? (string) ($r['tour'] ?? '') : '';
             if ($tour !== '' && !in_array($tour, array_column((array) $d['tours'], 'slug'), true)) return self::bad('artists.' . $i . '.tour', 'Diese Tour gibt es beim Künstler nicht.');
             $out[$aid] = ['artist_id' => $aid, 'role' => $role, 'tour' => $tour ?: null,

@@ -5674,3 +5674,16 @@ Auftrag und Vertrag: `uebergaben/auftrag-sync-geteilte-objekte-2026-11-10.md`. K
 - **Schreibschutz:** `source`/`readonly` in den Listen; ändernde Aufrufe auf Spiegel → 409 `tix_mirrored_readonly`.
 - **Aufräumen:** Spiegel ohne nutzendes Event werden gelöscht.
 - **Tests:** `test-shared-objects-wp` (15/8).
+
+## 146. Line-up: Rollen DJ/Moderation, Tour je Künstler (ab 1.38.739)
+- **Rollen** in `lineup_list[].role`: `headliner` | `support` (Vorgabe) | `guest` | `dj` | `host` (= Moderation).
+  - `headliner: true` hat Vorrang.
+  - Die Rolle gilt auch für Acts ohne verknüpften Künstler (Meta `_tix_lineup_roles`).
+  - Bei verknüpften Künstlern steht sie zusätzlich in der Künstler-Zuordnung (`_tix_artists.role`).
+  - Unbekannte Rolle → 400 `tix_invalid_field` (`lineup_list.<i>.role`).
+  - Ausgabe: `lineup_list[].role`, `lineup_acts[].role` und die öffentliche `artists[].role`.
+- **Tour:** `lineup_list[].tour` = Slug einer Tour des verknüpften Künstlers (aus `GET /artists/{id}` → `tours[].slug`), leer = keine.
+  - Gespeichert in der Künstler-Zuordnung; unbekannte Tour → 400 (`artists.<i>.tour`).
+  - Ausgabe: `lineup_list[].tour`.
+  - Nur mit `artist_id` möglich.
+- **Tests:** `test-lineup-artist-link-wp` (je 23).

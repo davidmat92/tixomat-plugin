@@ -78,6 +78,14 @@ try {
     [, $g] = $rest('GET', "/events/$ev2/edit");
     $eq('GET edit: dieselbe Liste', array_column($li, 'name'), array_column((array) (($g['event'] ?? $g)['lineup_list'] ?? []), 'name'));
     $eq('Ungültiger Act → 400', 400, $rest('POST', "/events/$ev2", ['lineup_list' => [['artist_id' => $mau]]])[0]);
+    // 1.38.739: Rollen DJ und Moderation (auch ohne Künstler), Tour je Künstler
+    $d0 = (array) get_post_meta($micha2, TIX_Artists::META, true); $d0['tours'] = [['slug' => 'sommer-26', 'name' => 'Sommer 26']]; update_post_meta($micha2, TIX_Artists::META, $d0); TIX_Artists::flush_cache();
+    [$s, $d] = $rest('POST', "/events/$ev2", ['lineup_list' => [['name' => "Gast Act $sfx", 'role' => 'dj'], ['name' => "Maurice Die Partykanone $sfx", 'artist_id' => $mau, 'role' => 'host'], ['name' => "Micha Schuh $sfx", 'artist_id' => $micha2, 'tour' => 'sommer-26', 'headliner' => true]]]);
+    $li = array_column((array) (($d['event'] ?? $d)['lineup_list'] ?? []), null, 'name');
+    $eq('Rollen dj/host, Stern, Tour in der Liste', [200, 'dj', 'host', 'headliner', 'sommer-26'], [$s, $li["Gast Act $sfx"]['role'] ?? '', $li["Maurice Die Partykanone $sfx"]['role'] ?? '', $li["Micha Schuh $sfx"]['role'] ?? '', $li["Micha Schuh $sfx"]['tour'] ?? '']);
+    $tr = []; foreach (TIX_Artists::event_list($ev2) as $er) $tr[intval($er['artist_id'])] = [$er['role'], $er['tour']];
+    $eq('Künstler-Zuordnung: host, headliner mit Tour', [$mau => ['host', null], $micha2 => ['headliner', 'sommer-26']], $tr);
+    $eq('Unbekannte Rolle / Tour → 400', [400, 400], [$rest('POST', "/events/$ev2", ['lineup_list' => [['name' => 'x', 'role' => 'chef']]])[0], $rest('POST', "/events/$ev2", ['lineup_list' => [['name' => "Micha Schuh $sfx", 'artist_id' => $micha2, 'tour' => 'gibtsnicht']]])[0]]);
 
     // öffentlich: lineup_acts mit Bild + Künstler
     if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
