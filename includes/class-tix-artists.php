@@ -44,8 +44,8 @@ class TIX_Artists {
         // Einmal nach 1.38.736: Act ↔ Künstler reparieren (kommende Events), geteilte Events neu verteilen
         add_action('tix_artist_links_repair', function () { TIX_Artists::repair_links(); });
         add_action('init', function () {
-            if (get_option('tix_artist_links_repair_736', '') !== '') return;
-            update_option('tix_artist_links_repair_736', gmdate('c'), false);
+            if (get_option('tix_artist_links_repair_737', '') !== '') return; // 1.38.737: erneut, mit zugeordneten Künstlern (eine Liste)
+            update_option('tix_artist_links_repair_737', gmdate('c'), false);
             if (!wp_next_scheduled('tix_artist_links_repair')) wp_schedule_single_event(time() + 240, 'tix_artist_links_repair');
         }, 40);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artists', [__CLASS__, 'cli']);
@@ -165,6 +165,13 @@ class TIX_Artists {
         foreach ($assigned as $aid) {
             if (($u = self::usable($aid)) && self::act_key(get_the_title($u)) === $k) return self::$cache['line'][$ck] = ['id' => $u, 'via' => 'assigned', 'suggestion' => null];
         }
+        // zugeordnet + kleiner Tippfehler bzw. gleicher Slug (bewusst gewählt, daher automatisch) – nur wenn eindeutig (1.38.737)
+        $near = [];
+        foreach ($assigned as $aid) {
+            if (!($u = self::usable($aid))) continue;
+            if ((class_exists('TIX_Lineup_Links') && TIX_Lineup_Links::similar_norm(self::act_key(get_the_title($u)), $k)) || (string) get_post_field('post_name', $u) === sanitize_title(self::act_name($name))) $near[$u] = true;
+        }
+        if (count($near) === 1) return self::$cache['line'][$ck] = ['id' => (int) array_key_first($near), 'via' => 'assigned', 'suggestion' => null];
         $cand = [];
         foreach (array_merge((array) (self::key_index()[$k] ?? []), self::slug_hits($name)) as $aid) {
             $u = self::usable($aid);
@@ -236,14 +243,31 @@ class TIX_Artists {
             $out['events']++;
             $map = self::line_map($eid);
             $changed = false;
+            $open = []; // Zeilen ohne Künstler: key => Name
             foreach (TIX_Lineup_Links::for_event($eid, true) as $row) {
                 $nm = (string) (($row['artist'] ?? '') !== '' ? $row['artist'] : ($row['name'] ?? ''));
                 $k = self::act_key($nm);
                 if ($k === '' || array_key_exists($k, $map)) continue;
                 $r = self::resolve_line($eid, $nm);
-                if (!$r['id']) { if ($r['suggestion']) $out['rows'][] = ['event_id' => $eid, 'act' => $nm, 'artist_id' => 0, 'suggestion' => $r['suggestion']['name']]; continue; }
+                if (!$r['id']) { $open[$k] = $nm; if ($r['suggestion']) $out['rows'][] = ['event_id' => $eid, 'act' => $nm, 'artist_id' => 0, 'suggestion' => $r['suggestion']['name']]; continue; }
                 $map[$k] = $r['id']; $changed = true; $out['linked']++;
                 $out['rows'][] = ['event_id' => $eid, 'act' => $nm, 'artist_id' => $r['id'], 'via' => $r['via']];
+            }
+            // 1.38.737 (eine Liste): dem Event zugeordnete Künstler ohne passende Zeile → ähnliche Zeile bzw. gleicher Slug, wenn eindeutig
+            $used = array_map('intval', array_values($map));
+            foreach (self::event_list($eid) as $er) {
+                $aid = self::usable($er['artist_id'] ?? 0);
+                if (!$aid || in_array($aid, $used, true) || !$open) continue;
+                $ak = self::act_key(get_the_title($aid));
+                $slug = (string) get_post_field('post_name', $aid);
+                $hits = array_keys(array_filter($open, function ($nm, $k) use ($ak, $slug) {
+                    return (class_exists('TIX_Lineup_Links') && TIX_Lineup_Links::similar_norm($ak, $k)) || sanitize_title(self::act_name($nm)) === $slug;
+                }, ARRAY_FILTER_USE_BOTH));
+                if (count($hits) !== 1) continue;
+                $k = $hits[0];
+                $map[$k] = $aid; $used[] = $aid; $changed = true; $out['linked']++;
+                $out['rows'][] = ['event_id' => $eid, 'act' => $open[$k], 'artist_id' => $aid, 'via' => 'assigned_similar'];
+                unset($open[$k]);
             }
             if ($changed && !$dry) {
                 update_post_meta($eid, self::EV_LINEMAP, $map);

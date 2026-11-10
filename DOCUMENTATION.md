@@ -5634,3 +5634,35 @@ Fund Party Schwelm (kitchenklub.de #1171): „Maurice Die Partykanone“ und „
   - Von Hand: `wp tixomat artists verknuepfen [--event=<id>] [--trocken]`.
   - Eindeutige Zuordnungen kommender Events werden fest gespeichert, damit spätere Dubletten nichts verschieben. Geteilte Events gehen neu an die Spiegel: evendis sofort, Kunden-Seiten mit dem nächsten Abgleich.
 - **Tests:** `test-lineup-artist-link-wp` (Einzel-Seite und Plattform je 13); Line-up-, Künstler- und Co-Tests grün.
+
+## 144. Eine Line-up-Liste (ab 1.38.737)
+**Festlegung:** Die Line-up-Liste `lineup_list` ist führend. Alles andere wird daraus abgeleitet:
+- Reihenfolge (`_tix_lineup_order`)
+- Stern/Headliner (`_tix_lineup_headliners`)
+- Verknüpfung Act ↔ Künstler (`_tix_lineup_artist_map`)
+- die Liste „Künstler“ mit Rolle (`_tix_artists`: Stern = `headliner`, sonst `support` bzw. `guest`)
+- der Line-up-Text (`_tix_info_lineup`, ein Act je Zeile)
+
+Das Programm mit Uhrzeiten (`timetable`) bleibt eigenständig. Ein eigener Bereich „Künstler“ im Editor entfällt; das Studio zeigt nur noch die eine Liste.
+
+**Lesen:** `GET /events/{id}/edit` → `lineup_list [{name, display_name, artist_id, artist_slug, artist_link, artist_suggestion, headliner, role, image, image_source, time, position}]`, sortiert wie öffentlich.
+- `name` = Act wie im Line-up (Schlüssel für Speichern).
+- `display_name` = Name des verknüpften Künstlers, sonst der Act.
+
+**Speichern:** `POST /events/{id} {lineup_list: [{name, artist_id?, headliner?, role?}]}`
+- Reihenfolge = Array, höchstens 20 Acts zu je höchstens 40 Zeichen (Grenze des Line-ups).
+- `artist_id`: ID = verknüpft, `0` = bewusst keiner, `null` oder weglassen = automatisch.
+- `headliner: true` = Stern; `role: 'guest'` ist optional für Gäste.
+- Künstler, die in der Liste nicht verknüpft sind, verlieren ihre Zuordnung zum Event (eine Quelle).
+- Fehler: 400 `tix_invalid_field` mit `field` (`lineup_list.<i>.name` …). Künstler-Fehler wie bisher (gesperrt, fremd …).
+- Die Teilfelder `lineup_order`, `lineup_headliners`, `lineup_sort` und `POST /events/{id}/lineup-artist` bleiben. Neben `lineup_list` wird nur `lineup_sort` zusätzlich ausgewertet.
+
+**Zuordnung beim Lesen:** gespeicherte Verknüpfung, dann **dem Event zugeordnete Künstler** (gleicher Schlüssel, sonst kleiner Tippfehler oder gleicher Slug, wenn eindeutig), dann Name/Slug, sonst nur ein Vorschlag.
+- Das behebt Schwelm: Maurice #1162 und „Micha Schue“ #1161 waren zugeordnet, aber nicht mit den Acts verbunden.
+
+**Migration:**
+- Der Reparatur-Lauf läuft nach dem Update einmal automatisch (Option `tix_artist_links_repair_737`) bzw. von Hand mit `wp tixomat artists verknuepfen`.
+- Er verknüpft auch zugeordnete Künstler ohne passende Zeile mit der eindeutig ähnlichen Zeile und speichert fest.
+- Geteilte Events werden neu verteilt; Spiegel auf evendis und Kunden-Seiten bekommen dadurch Bilder und Künstler.
+- Bestehende Events behalten ihre Rollen, bis im Studio gespeichert wird.
+- **Tests:** `test-lineup-artist-link-wp` (je 20), Line-up-, Künstler- und Co-Tests grün.

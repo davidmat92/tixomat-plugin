@@ -58,6 +58,27 @@ try {
     $eq('Reparatur speichert eindeutige Zuordnungen fest', [true, $mau, $micha], [$rep['linked'] >= 3, intval($map[TIX_Artists::act_key("Maurice Die Partykanone $sfx")] ?? 0), intval($map[TIX_Artists::act_key("Micha Schuh $sfx")] ?? 0)]);
     $mau3 = $mk("Maurice Die Partykanone $sfx", "maurice-die-partykanone-$sfx-neu");
     $eq('… neue Dublette verschiebt nichts', $mau, $r("Maurice Die Partykanone $sfx")['id']);
+    // ── 1.38.737: zugeordneter Künstler mit Tippfehler/anderem Slug → automatisch (Schwelm: „Künstler“-Liste vs. Line-up)
+    $ev2 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "LAL Zwei $sfx", 'meta_input' => ['_tix_date_start' => wp_date('Y-m-d', time() + 31 * DAY_IN_SECONDS),
+        '_tix_info_lineup' => "<p>Micha Schuh $sfx</p><p>Maurice Die Partykanone $sfx</p><p>Gast Act $sfx</p>"] + ($org ? ['_tix_organizer_id' => $org] : [])]); $posts[] = $ev2;
+    $micha2 = $mk("Micha Schuhe $sfx", "micha-schuhe-$sfx-x"); // weder Name noch Slug exakt
+    TIX_Artists::apply($ev2, [['artist_id' => $micha2, 'role' => 'support'], ['artist_id' => $mau_noimg, 'role' => 'support']]);
+    TIX_Artists::flush_cache();
+    $eq('Zugeordnet + Tippfehler: automatisch verknüpft', [$micha2, 'assigned'], [TIX_Artists::resolve_line($ev2, "Micha Schuh $sfx")['id'], TIX_Artists::resolve_line($ev2, "Micha Schuh $sfx")['via']]);
+    $eq('Zugeordnet + Name gleich: der zugeordnete (nicht die Dublette mit Bild)', $mau_noimg, TIX_Artists::resolve_line($ev2, "Maurice Die Partykanone $sfx")['id']);
+    // EINE Liste speichern: Reihenfolge, Stern, Verknüpfung, Künstler-Rollen, Line-up-Text
+    [$s, $d] = $rest('POST', "/events/$ev2", ['lineup_list' => [['name' => "Gast Act $sfx", 'headliner' => true], ['name' => "Maurice Die Partykanone $sfx", 'artist_id' => $mau, 'headliner' => true], ['name' => "Micha Schuh $sfx", 'artist_id' => $micha2]]]);
+    $ed = $d['event'] ?? $d;
+    $li = (array) ($ed['lineup_list'] ?? []);
+    $eq('lineup_list: Reihenfolge, Stern, Verknüpfung', [200, ["Gast Act $sfx", "Maurice Die Partykanone $sfx", "Micha Schuh $sfx"], [true, true, false], [null, $mau, $micha2]],
+        [$s, array_column($li, 'name'), array_column($li, 'headliner'), array_map(function ($x) { return $x === null ? null : intval($x); }, array_column($li, 'artist_id'))]);
+    $roles = []; foreach (TIX_Artists::event_list($ev2) as $er) $roles[intval($er['artist_id'])] = $er['role'];
+    $eq('Künstler-Zuordnung abgeleitet: Rollen aus dem Stern, alte Zuordnung weg', [$mau => 'headliner', $micha2 => 'support'], $roles);
+    $eq('Line-up-Text = Liste', ["Gast Act $sfx", "Maurice Die Partykanone $sfx", "Micha Schuh $sfx"], array_column(TIX_Lineup_Links::for_event($ev2), 'name'));
+    [, $g] = $rest('GET', "/events/$ev2/edit");
+    $eq('GET edit: dieselbe Liste', array_column($li, 'name'), array_column((array) (($g['event'] ?? $g)['lineup_list'] ?? []), 'name'));
+    $eq('Ungültiger Act → 400', 400, $rest('POST', "/events/$ev2", ['lineup_list' => [['artist_id' => $mau]]])[0]);
+
     // öffentlich: lineup_acts mit Bild + Künstler
     if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
     wp_cache_flush();

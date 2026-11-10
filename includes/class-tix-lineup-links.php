@@ -205,7 +205,8 @@ class TIX_Lineup_Links {
                 'time' => (!$hidden && $slot) ? ((string) ($slot['time'] ?? '') ?: null) : null, 'end' => (!$hidden && $slot) ? ((string) ($slot['end'] ?? '') ?: null) : null,
                 'start_at' => (!$hidden && $slot) ? ($slot['start_at'] ?? null) : null, 'end_at' => (!$hidden && $slot) ? ($slot['end_at'] ?? null) : null,
                 'stage_name' => (!$hidden && $slot) ? ((string) ($slot['stage_name'] ?? '') ?: null) : null, 'next_day' => !$hidden && $slot ? !empty($slot['next_day']) : false,
-                'spotify' => ($l['spotify'] ?? null) ?: null, 'apple_music' => ($l['apple_music'] ?? null) ?: null]);
+                'spotify' => ($l['spotify'] ?? null) ?: null, 'apple_music' => ($l['apple_music'] ?? null) ?: null,
+                'artist_link' => $l['artist_link'] ?? null, 'artist_suggestion' => $l['artist_suggestion'] ?? null]);
         }
         // Zugeordnete Künstler ohne Zeile: Headliner zuerst
         $rest = array_values(array_filter($artists, function ($a) use ($ids) { return !isset($ids[intval($a['id'])]); }));
@@ -217,7 +218,8 @@ class TIX_Lineup_Links {
                 'artist_url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null,
                 'image' => $pic ? ($pic['large'] ?: $pic['medium']) : (($a['image'] ?? null) ?: null), 'image_thumb' => $pic ? ($pic['medium'] ?: $pic['large']) : (($a['image'] ?? null) ?: null),
                 'image_source' => ($pic || !empty($a['image'])) ? (string) (($a['image_source'] ?? '') ?: 'artist') : null, 'role' => (string) ($a['role'] ?? ''),
-                'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false, 'spotify' => null, 'apple_music' => null]);
+                'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false, 'spotify' => null, 'apple_music' => null,
+                'artist_link' => 'assigned', 'artist_suggestion' => null]);
         }
         return self::apply_order($event_id, $out);
     }
@@ -231,6 +233,11 @@ class TIX_Lineup_Links {
 
     public static function act_key_of($name) {
         return class_exists('TIX_Artists') ? TIX_Artists::act_key((string) $name) : self::norm(self::artist((string) $name));
+    }
+
+    /** Schlüssel eines Acts: aus dem angezeigten Namen (ggf. Künstlername) und aus der Line-up-Zeile (1.38.737) */
+    public static function keys_of(array $a) {
+        return array_values(array_unique(array_filter([self::act_key_of((string) ($a['name'] ?? '')), self::act_key_of(self::artist((string) ($a['line'] ?? '')))])));
     }
 
     public static function sort_mode($event_id) {
@@ -248,9 +255,8 @@ class TIX_Lineup_Links {
         if (metadata_exists('post', intval($event_id), self::META_HEAD)) {
             $hk = array_values(array_filter(array_map('strval', (array) get_post_meta($event_id, self::META_HEAD, true))));
             foreach ($acts as &$a) {
-                $k = self::act_key_of((string) ($a['name'] ?? ''));
-                $in = in_array($k, $hk, true);
-                if (!$in) foreach ($hk as $h) if (self::similar_norm($h, $k)) { $in = true; break; }
+                $in = (bool) array_intersect(self::keys_of($a), $hk);
+                if (!$in) foreach (self::keys_of($a) as $k) foreach ($hk as $h) if (self::similar_norm($h, $k)) { $in = true; break 2; }
                 if ($in) $a['role'] = 'headliner';
                 elseif (($a['role'] ?? '') === 'headliner') $a['role'] = 'support';
             }
@@ -274,10 +280,9 @@ class TIX_Lineup_Links {
         } else {
             $order = array_values(array_filter(array_map('strval', (array) get_post_meta($event_id, self::META_ORDER, true))));
             $rank = function ($a) use ($order) {
-                $k = self::act_key_of((string) ($a['name'] ?? ''));
-                $p = array_search($k, $order, true);
-                if ($p === false) foreach ($order as $n => $o) if (self::similar_norm($o, $k)) { $p = $n; break; }
-                return $p === false ? null : $p;
+                foreach (self::keys_of($a) as $k) { $p = array_search($k, $order, true); if ($p !== false) return $p; }
+                foreach (self::keys_of($a) as $k) foreach ($order as $n => $o) if (self::similar_norm($o, $k)) return $n;
+                return null;
             };
             usort($rows, function ($x, $y) use ($rank) {
                 $hx = ($x['a']['role'] ?? '') === 'headliner'; $hy = ($y['a']['role'] ?? '') === 'headliner';
@@ -330,6 +335,54 @@ class TIX_Lineup_Links {
         return true;
     }
 
+    /**
+     * EINE Liste (1.38.737, User): `lineup_list` ist führend. Je Act {name, artist_id?, headliner?}, Reihenfolge = Array.
+     * Daraus abgeleitet: Reihenfolge (_tix_lineup_order), Stern (_tix_lineup_headliners), Verknüpfung (_tix_lineup_artist_map),
+     * Künstler-Zuordnung mit Rolle (_tix_artists: headliner bzw. support) und der Line-up-Text (_tix_info_lineup, ein Act je Zeile).
+     * → true | WP_Error
+     */
+    public static function save_list($event_id, $list) {
+        if (!is_array($list) || count($list) > self::MAX_LINES) return new WP_Error('tix_invalid_field', 'lineup_list: Liste mit höchstens ' . self::MAX_LINES . ' Acts.', ['status' => 400, 'field' => 'lineup_list']);
+        $names = []; $heads = []; $links = []; $artists = [];
+        foreach (array_values($list) as $i => $it) {
+            if (is_string($it)) $it = ['name' => $it];
+            if (!is_array($it)) return new WP_Error('tix_invalid_field', 'Ungültiger Act.', ['status' => 400, 'field' => 'lineup_list.' . $i]);
+            $name = trim(sanitize_text_field((string) ($it['name'] ?? '')));
+            if ($name === '' || mb_strlen($name) > self::MAX_LEN) return new WP_Error('tix_invalid_field', 'Bitte einen Namen (höchstens ' . self::MAX_LEN . ' Zeichen).', ['status' => 400, 'field' => 'lineup_list.' . $i . '.name']);
+            $names[] = $name;
+            $head = !empty($it['headliner']) || (($it['role'] ?? '') === 'headliner');
+            if ($head) $heads[] = $name;
+            if (array_key_exists('artist_id', $it)) {
+                $aid = $it['artist_id'] === null ? null : intval($it['artist_id']);
+                $links[] = [$name, $aid];
+                if ($aid) $artists[$aid] = ['artist_id' => $aid, 'role' => $head ? 'headliner' : (in_array($it['role'] ?? '', ['support', 'guest'], true) ? $it['role'] : 'support')];
+            }
+        }
+        // Künstler prüfen, bevor etwas geschrieben wird
+        $checked = null;
+        if (class_exists('TIX_Artists')) {
+            $checked = TIX_Artists::check(['artists' => array_values($artists)], $event_id);
+            if (is_wp_error($checked)) return $checked;
+        }
+        $r = self::save_order($event_id, ['lineup_order' => $names, 'lineup_headliners' => $heads]);
+        if (is_wp_error($r)) return $r;
+        foreach ($links as [$name, $aid]) { $x = TIX_Artists::link_line($event_id, $name, $aid); if (is_wp_error($x)) return $x; }
+        if ($checked !== null) TIX_Artists::apply($event_id, $checked);
+        // Line-up-Text: ein Act je Zeile (das Programm mit Zeiten bleibt _tix_timetable)
+        update_post_meta($event_id, '_tix_info_lineup', implode("\n", array_map(function ($n) { return '<p>' . esc_html($n) . '</p>'; }, $names)));
+        if (class_exists('TIX_Artists')) TIX_Artists::flush_cache();
+        return true;
+    }
+
+    /** Lesen: die eine Liste für Studio und App-Veranstalterbereich (sortiert wie öffentlich) */
+    public static function list_payload(array $acts) {
+        return array_map(function ($a) {
+            return ['name' => (string) ($a['line'] ?? $a['name']), 'display_name' => (string) $a['name'], 'artist_id' => $a['artist_id'] ?? null, 'artist_slug' => $a['artist_slug'] ?? null,
+                'artist_link' => $a['artist_link'] ?? null, 'artist_suggestion' => $a['artist_suggestion'] ?? null, 'headliner' => !empty($a['headliner']), 'role' => $a['role'] ?? null,
+                'image' => $a['image_thumb'] ?? ($a['image'] ?? null), 'image_source' => $a['image_source'] ?? null, 'time' => $a['time'] ?? null, 'position' => intval($a['position'] ?? 0)];
+        }, $acts);
+    }
+
     /** Für den Event-Editor: {lineup_sort, lineup_order, lineup_has_times, lineup_acts (sortiert)} */
     public static function editor_fields($event_id) {
         $acts = $event_id ? self::acts($event_id) : [];
@@ -337,7 +390,7 @@ class TIX_Lineup_Links {
             // Stern-Liste: Namen der Acts mit Stern (aus der wirksamen Rolle); lineup_headliners_set = im Studio festgelegt
             'lineup_headliners' => array_values(array_map(function ($a) { return (string) $a['name']; }, array_filter($acts, function ($a) { return !empty($a['headliner']); }))),
             'lineup_headliners_set' => $event_id ? metadata_exists('post', $event_id, self::META_HEAD) : false,
-            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts];
+            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts)];
     }
 
     /** POST /events/{id} {lineup_order?, lineup_sort?} speichern; GET /events/{id}/edit ergänzen (Studio, App-Veranstalterbereich). */
@@ -349,9 +402,10 @@ class TIX_Lineup_Links {
         if ($request->get_method() === 'POST' && empty($m[2])) {
             $b = $request->get_json_params();
             $b = is_array($b) ? $b : (array) $request->get_body_params();
-            if (!array_key_exists('lineup_order', $b) && !array_key_exists('lineup_sort', $b) && !array_key_exists('lineup_headliners', $b)) return $response;
+            if (!array_intersect(['lineup_order', 'lineup_sort', 'lineup_headliners', 'lineup_list'], array_keys($b))) return $response;
             if (is_wp_error($response) || ($response instanceof WP_REST_Response && $response->get_status() >= 400)) return $response;
-            $r = self::save_order($eid, $b);
+            if (array_key_exists('lineup_list', $b)) { $r = self::save_list($eid, $b['lineup_list']); if (is_wp_error($r)) return $r; }
+            $r = self::save_order($eid, array_diff_key($b, array_flip(array_key_exists('lineup_list', $b) ? ['lineup_order', 'lineup_headliners'] : [])));
             if (is_wp_error($r)) return $r;
             if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1' && method_exists('TIX_Syndication_Push', 'push_event')) TIX_Syndication_Push::push_event($eid); // Reihenfolge an die Spiegel
             if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
