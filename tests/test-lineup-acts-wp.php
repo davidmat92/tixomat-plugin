@@ -74,7 +74,8 @@ try {
     ]];
     $lineup = "<p>Lxt Andi (DJ/Moderation) $sfx</p>\n<p>Lxt Monchi $sfx</p>\n<p>Lxt Micha Schuh $sfx</p>\n<p>Lxt Maurice Die Partykanone $sfx</p>\n<p>Lxt Almklausi $sfx</p>";
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Lxt Party &#8211; Schwelm $sfx",
-        'meta_input' => ['_tix_date_start' => $date, '_tix_time_start' => '12:30', '_tix_info_lineup' => $lineup, '_tix_timetable' => $tt, '_tix_stages' => [['name' => 'Programm', 'color' => '#f50']]]]);
+        'meta_input' => ['_tix_date_start' => $date, '_tix_time_start' => '12:30', '_tix_info_lineup' => $lineup, '_tix_timetable' => $tt, '_tix_stages' => [['name' => 'Programm', 'color' => '#f50']],
+            '_tix_lineup_sort' => 'time']]); // 1.38.733: die Prüfungen bis „Spiegel“ gelten der Reihenfolge nach Auftrittszeit
     $posts[] = $ev;
     TIX_Artists::apply($ev, array_map(function ($a) use ($extra) { return ['artist_id' => $a, 'role' => $a === $extra ? 'headliner' : 'support']; }, [$alm, $micha, $mau, $mon, $extra]));
     $get = function ($eid) { TIX_Artists::flush_cache(); if (method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush(); wp_cache_flush(); return lx_rest('GET', "/public/events/$eid")[1]['event'] ?? []; };
@@ -95,6 +96,23 @@ try {
     $by = array_column($ll, null, 'name');
     lx_eq('lineup_links: Tippfehler-Zeile am Künstler', [$micha, $mau], [intval($by["Lxt Micha Schue $sfx"]['artist_id'] ?? 0), intval($by["Lxt Maurice Die Partykanona $sfx"]['artist_id'] ?? 0)]);
     lx_eq('ähnlich: kurze Namen nicht', [false, true, false], [TIX_Lineup_Links::similar('Honk', 'Hunk'), TIX_Lineup_Links::similar('Micha Schue', 'Micha Schuh'), TIX_Lineup_Links::similar('DJ Düse', 'Rick Arena')]);
+
+    // ── 1.38.733: Eigene Reihenfolge, Headliner oben
+    TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'manual', 'lineup_order' => ["Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx"]]);
+    $mo = array_column((array) ($get($ev)['lineup_acts'] ?? []), 'name');
+    lx_eq('Eigene Reihenfolge: Headliner oben, dann Studio-Reihenfolge, Rest wie bisher', ["Lxt Headliner Extra $sfx", "Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx", "Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx"], $mo);
+    $ea = $get($ev);
+    lx_eq('Positionen neu, artists in derselben Reihenfolge', [[1, 2, 3, 4, 5, 6], [$extra, $alm, $micha, $mon, $mau]], [array_column((array) ($ea['lineup_acts'] ?? []), 'position'), array_map('intval', array_column((array) ($ea['artists'] ?? []), 'id'))]);
+    $w = TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'zufall']);
+    lx_eq('Ungültiger Modus 400', 'lineup_sort', is_wp_error($w) ? ($w->get_error_data()['field'] ?? '') : '');
+    // Studio: Editor liefert Felder, POST speichert
+    [$st, $d] = lx_rest('GET', "/events/$ev/edit");
+    $ed = $d['event'] ?? $d;
+    lx_eq('Editor: lineup_sort, lineup_has_times, sortierte lineup_acts', [200, 'manual', true, "Lxt Headliner Extra $sfx"], [$st, $ed['lineup_sort'] ?? '', $ed['lineup_has_times'] ?? null, $ed['lineup_acts'][0]['name'] ?? '']);
+    [$st, $d] = lx_rest('POST', "/events/$ev", ['lineup_order' => ["Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], 'lineup_sort' => 'manual']);
+    $mo = array_column((array) ($get($ev)['lineup_acts'] ?? []), 'name');
+    lx_eq('POST /events/{id} lineup_order: gespeichert und wirksam', [200, "Lxt Headliner Extra $sfx", "Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], [$st, $mo[0] ?? '', $mo[1] ?? '', $mo[2] ?? '']);
+    TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'time', 'lineup_order' => []]);
 
     // Programm ausgeblendet: gleiche Reihenfolge, ohne Zeiten
     update_post_meta($ev, '_tix_timetable_hidden', '1');

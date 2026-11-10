@@ -49,6 +49,7 @@ class TIX_Lineup_Links {
 
     public static function init() {
         add_action('init', [__CLASS__, 'maybe_install'], 8);
+        add_filter('rest_request_after_callbacks', [__CLASS__, 'rest_hook'], 30, 3); // Line-up-Reihenfolge (1.38.733)
         add_action('added_post_meta', [__CLASS__, 'on_meta'], 10, 4);
         add_action('updated_post_meta', [__CLASS__, 'on_meta'], 10, 4);
         add_action(self::CRON, [__CLASS__, 'cron']);
@@ -217,7 +218,122 @@ class TIX_Lineup_Links {
                 'image_source' => ($pic || !empty($a['image'])) ? (string) (($a['image_source'] ?? '') ?: 'artist') : null, 'role' => (string) ($a['role'] ?? ''),
                 'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false, 'spotify' => null, 'apple_music' => null]);
         }
+        return self::apply_order($event_id, $out);
+    }
+
+    // ═══════════════ Reihenfolge (1.38.733, Auftrag uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md) ═══════════════
+
+    const META_ORDER = '_tix_lineup_order'; // Liste der Act-Schlüssel in der Studio-Reihenfolge
+    const META_SORT  = '_tix_lineup_sort';  // manual (Standard) | time
+    const MAX_ORDER  = 80;
+
+    public static function act_key_of($name) {
+        return class_exists('TIX_Artists') ? TIX_Artists::act_key((string) $name) : self::norm(self::artist((string) $name));
+    }
+
+    public static function sort_mode($event_id) {
+        return get_post_meta(intval($event_id), self::META_SORT, true) === 'time' ? 'time' : 'manual';
+    }
+
+    /**
+     * Die eine Sortierung für alle Ausgaben: „Eigene Reihenfolge“ = Headliner oben (in ihrer Reihenfolge), dann die übrigen in der
+     * Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte in der bisherigen Reihenfolge dahinter). „Nach Auftrittszeit“ = nur die
+     * Zeit (Acts ohne Zeit danach), Headliner bleiben an ihrer Stelle. position wird neu vergeben.
+     */
+    public static function apply_order($event_id, array $acts) {
+        if (!$acts) return $acts;
+        $i = 0;
+        $rows = array_map(function ($a) use (&$i) { return ['i' => $i++, 'a' => $a]; }, $acts);
+        if (self::sort_mode($event_id) === 'time') {
+            $key = function ($a) {
+                if (!empty($a['start_at']) && ($t = strtotime((string) $a['start_at']))) return $t;
+                if (!empty($a['time']) && preg_match('/^(\d{1,2}):(\d{2})/', (string) $a['time'], $m)) return (empty($a['next_day']) ? 0 : 86400) + intval($m[1]) * 3600 + intval($m[2]) * 60;
+                return null;
+            };
+            usort($rows, function ($x, $y) use ($key) {
+                $kx = $key($x['a']); $ky = $key($y['a']);
+                if ($kx === null || $ky === null) return ($kx === null) <=> ($ky === null) ?: $x['i'] <=> $y['i'];
+                return $kx <=> $ky ?: $x['i'] <=> $y['i'];
+            });
+        } else {
+            $order = array_values(array_filter(array_map('strval', (array) get_post_meta($event_id, self::META_ORDER, true))));
+            $rank = function ($a) use ($order) {
+                $k = self::act_key_of((string) ($a['name'] ?? ''));
+                $p = array_search($k, $order, true);
+                if ($p === false) foreach ($order as $n => $o) if (self::similar_norm($o, $k)) { $p = $n; break; }
+                return $p === false ? null : $p;
+            };
+            usort($rows, function ($x, $y) use ($rank) {
+                $hx = ($x['a']['role'] ?? '') === 'headliner'; $hy = ($y['a']['role'] ?? '') === 'headliner';
+                if ($hx !== $hy) return $hx ? -1 : 1;
+                $rx = $rank($x['a']); $ry = $rank($y['a']);
+                if ($rx === null || $ry === null) return ($rx === null) <=> ($ry === null) ?: $x['i'] <=> $y['i'];
+                return $rx <=> $ry ?: $x['i'] <=> $y['i'];
+            });
+        }
+        $out = [];
+        foreach ($rows as $n => $r) { $r['a']['position'] = $n + 1; $out[] = $r['a']; }
         return $out;
+    }
+
+    /** Hat das Line-up Auftrittszeiten? (Studio bietet „Nach Auftrittszeit“ nur dann an) */
+    public static function has_times($event_id) {
+        foreach (self::slots($event_id) as $s) if (trim((string) ($s['time'] ?? '')) !== '') return true;
+        return false;
+    }
+
+    /** Studio-Felder speichern: lineup_order (Namen oder Schlüssel, Reihenfolge) und lineup_sort manual|time → true | WP_Error */
+    public static function save_order($event_id, array $b) {
+        if (array_key_exists('lineup_sort', $b)) {
+            $m = (string) $b['lineup_sort'];
+            if (!in_array($m, ['manual', 'time'], true)) return new WP_Error('tix_invalid_field', 'Sortierung: manual oder time.', ['status' => 400, 'field' => 'lineup_sort']);
+        }
+        $keys = null;
+        if (array_key_exists('lineup_order', $b)) {
+            if ($b['lineup_order'] !== null && !is_array($b['lineup_order'])) return new WP_Error('tix_invalid_field', 'Reihenfolge als Liste der Namen.', ['status' => 400, 'field' => 'lineup_order']);
+            $keys = [];
+            foreach (array_slice(array_values((array) $b['lineup_order']), 0, self::MAX_ORDER) as $v) {
+                $name = is_array($v) ? (string) ($v['name'] ?? ($v['key'] ?? '')) : (string) $v;
+                $k = self::act_key_of(sanitize_text_field($name));
+                if ($k !== '' && !in_array($k, $keys, true)) $keys[] = $k;
+            }
+        }
+        if (array_key_exists('lineup_sort', $b)) update_post_meta($event_id, self::META_SORT, (string) $b['lineup_sort']);
+        if ($keys !== null) { if ($keys) update_post_meta($event_id, self::META_ORDER, $keys); else delete_post_meta($event_id, self::META_ORDER); }
+        return true;
+    }
+
+    /** Für den Event-Editor: {lineup_sort, lineup_order, lineup_has_times, lineup_acts (sortiert)} */
+    public static function editor_fields($event_id) {
+        return ['lineup_sort' => self::sort_mode($event_id), 'lineup_order' => array_values((array) get_post_meta($event_id, self::META_ORDER, true)),
+            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $event_id ? self::acts($event_id) : []];
+    }
+
+    /** POST /events/{id} {lineup_order?, lineup_sort?} speichern; GET /events/{id}/edit ergänzen (Studio, App-Veranstalterbereich). */
+    public static function rest_hook($response, $handler, $request) {
+        $route = (string) $request->get_route();
+        if (!preg_match('#^/tixomat/v1/(?:studio/)?events/(\d+)(/edit)?$#', $route, $m)) return $response;
+        $eid = intval($m[1]);
+        if (get_post_type($eid) !== 'event') return $response;
+        if ($request->get_method() === 'POST' && empty($m[2])) {
+            $b = $request->get_json_params();
+            $b = is_array($b) ? $b : (array) $request->get_body_params();
+            if (!array_key_exists('lineup_order', $b) && !array_key_exists('lineup_sort', $b)) return $response;
+            if (is_wp_error($response) || ($response instanceof WP_REST_Response && $response->get_status() >= 400)) return $response;
+            $r = self::save_order($eid, $b);
+            if (is_wp_error($r)) return $r;
+            if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1' && method_exists('TIX_Syndication_Push', 'push_event')) TIX_Syndication_Push::push_event($eid); // Reihenfolge an die Spiegel
+            if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        }
+        if (is_wp_error($response)) return $response;
+        $response = rest_ensure_response($response);
+        $d = $response->get_data();
+        if (is_array($d) && ($request->get_method() === 'GET' ? !empty($m[2]) : true)) {
+            if (isset($d['event']) && is_array($d['event'])) $d['event'] = self::editor_fields($eid) + $d['event'];
+            else $d = self::editor_fields($eid) + $d;
+            $response->set_data($d);
+        }
+        return $response;
     }
 
     /** `artists` in die Reihenfolge der Line-up-Liste bringen (übrige am Ende). */

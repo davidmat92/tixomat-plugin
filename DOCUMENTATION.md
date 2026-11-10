@@ -5546,3 +5546,34 @@ Auftrag `uebergaben/auftrag-revalidate-plugin-2026-11-10.md` (marken-web de2b892
 - **evendis.de (Mehr-Veranstalter):** unverändert. Ohne Schlüssel kein Aufruf, mit Schlüssel die Veranstalter- und Event-Aufträge an evendis-web.
 - **Letzter Aufruf:** Option `tix_web_revalidate_last` (URL, Domains, mit/ohne Schlüssel, Fehler).
 - **Test:** `test-web-revalidate-site-wp` (Einzel-Seite 8, Plattform 3).
+
+## 140. Line-up-Reihenfolge (ab 1.38.733)
+Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
+**Das Array `lineup_acts` ist fertig sortiert.** Eine zentrale Funktion (`TIX_Lineup_Links::apply_order`) sortiert es für alle Ausgaben:
+- `GET /public/events/{id}` → `lineup_acts`; `artists` in derselben Reihenfolge
+- Event-Editor, App-Veranstalterbereich
+- Event-Verteilung (`_tix_lineup_acts` an die Spiegel) und Abgleich zu den Kunden-Seiten
+- Spiegel und Kunden-Seiten übernehmen die Reihenfolge der Quelle unverändert.
+- `position` ist danach 1…n in Array-Reihenfolge.
+
+**Modus** `lineup_sort`:
+- **`manual`** (Standard, „Eigene Reihenfolge“): zuerst die Acts mit `role: "headliner"` in ihrer Reihenfolge, danach alle übrigen in der Studio-Reihenfolge.
+  - Acts, die die Studio-Reihenfolge nicht nennt, kommen dahinter in der bisherigen Reihenfolge (Programm, dann Line-up-Zeilen, dann zugeordnete Künstler).
+- **`time`** („Nach Auftrittszeit“): nur die Zeit (`start_at`, sonst `time` mit `next_day`), Acts ohne Zeit danach. Headliner werden nicht vorgezogen, nur `role` zeigt sie.
+- **Frage an den User (Vorgabe aus dem Auftrag umgesetzt):** Sollen Headliner bei „Nach Auftrittszeit“ doch oben stehen? Heute nein.
+
+**Studio / App-Veranstalterbereich**
+- `GET /events/{id}/edit` (auch `studio/events`) → zusätzlich:
+  - `lineup_sort`: `manual` | `time`
+  - `lineup_order`: gespeicherte Schlüssel
+  - `lineup_has_times`: „Nach Auftrittszeit“ nur anbieten, wenn true
+  - `lineup_acts`: sortiert, zum Ziehen
+- `POST /events/{id} {lineup_order?: [Name …], lineup_sort?: 'manual'|'time'}`:
+  - `lineup_order` ist die gezogene Reihenfolge als Liste der `name` aus `lineup_acts`, höchstens 80. Gespeichert werden normalisierte Schlüssel; kleine Tippfehler werden zugeordnet.
+  - `[]` bzw. `null` löscht die Reihenfolge.
+  - Ungültiger Modus → 400 `tix_invalid_field` (`lineup_sort`).
+  - Geteilte Events werden danach sofort neu verteilt.
+- **Meta:** `_tix_lineup_order` (Liste der Schlüssel), `_tix_lineup_sort`.
+- **Bestehende Events** ohne Angaben: Modus `manual` ohne eigene Reihenfolge, also Headliner oben und dann die bisherige Reihenfolge. Wo Künstler die Rolle Headliner tragen, rücken sie damit nach oben.
+- **Programm/Zeitplan** (`timetable`) bleibt chronologisch.
+- **Tests:** `test-lineup-acts-wp` (Plattform 27, Einzel-Seite 32).
