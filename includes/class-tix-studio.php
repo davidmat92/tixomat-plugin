@@ -486,6 +486,7 @@ class TIX_Studio {
             'default' => $avail ? TIX_Syndication_Push::default_setting() : null,
             'default_partner_sales' => class_exists('TIX_Syndication_Push') ? TIX_Syndication_Push::default_partner_sales() : true,
             'partner_sales_available' => class_exists('TIX_Partners') && method_exists('TIX_Partners', 'source_api_enabled') && TIX_Partners::source_api_enabled(),
+            'share_sales_with_platform' => class_exists('TIX_Source_Sales') ? TIX_Source_Sales::setting() : null, // 1.38.719, null auf der Plattform
         ];
     }
 
@@ -645,7 +646,7 @@ class TIX_Studio {
         // ── Audit 2026-11-03 (M17): alle Prüfungen vor dem ersten Schreiben ──
         // Vorher liefen Logo-Upload, Auto-Archiv und Funktionen schon, bevor unbekannte Felder, die Admin-Rechte für
         // app_layout/has_app oder das Bestellnummern-Kürzel geprüft wurden – Antwort „Fehler“, aber ein Teil gespeichert.
-        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
+        $unknown = array_diff(array_keys((array) $p), array_merge(['accent', 'font', 'logo_id', 'logo', 'has_app', 'app_layout', 'placeholder_id', 'placeholder', 'syndicate_default', 'syndicate_default_partner_sales', 'share_sales_with_platform', 'mail_logo', 'mail_logo_on_color', 'order_number_mode', 'order_number_code', 'archive', 'archive_enabled', 'archive_grace_hours', 'archive_skip_drafts', 'app_features', 'organizer_id', 'play_public', 'top_bar'], self::MAIL_KEYS, $feature_params));
         if ($has('app_layout')) {
             $lv = $req->get_param('app_layout');
             if (!current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur ein Admin legt das Profil der App fest.', ['status' => 403]);
@@ -755,6 +756,8 @@ class TIX_Studio {
             if ($sd === null || $sd === '') delete_option(TIX_Syndication_Push::DEFAULT_OPT);
             else update_option(TIX_Syndication_Push::DEFAULT_OPT, filter_var($sd, FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
         }
+        // Verkaufszahlen mit der Plattform teilen (1.38.719, Vorgabe an); auf der Plattform selbst ohne Wirkung
+        if ($has('share_sales_with_platform') && class_exists('TIX_Source_Sales') && !self::multi()) TIX_Source_Sales::set(filter_var($req->get_param('share_sales_with_platform'), FILTER_VALIDATE_BOOLEAN));
         if ($has('syndicate_default_partner_sales') && class_exists('TIX_Syndication_Push')) {
             update_option(TIX_Syndication_Push::DEFAULT_SALES_OPT, filter_var($req->get_param('syndicate_default_partner_sales'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
         }

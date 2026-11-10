@@ -5174,3 +5174,34 @@ Live-Fund KMT (mallorcaparty-schwelm.de): „Bearbeiten“ am gemeinsamen Kitche
 - Die Zentrale-Route `/co-remote/{id}` (Studio auf evendis.de) bleibt unverändert; dort liefert die Liste schon `source_id`.
 - **Nach dem Rollout:** Auf jeder Kunden-Seite mit Co-Events einmal den Abgleich laufen lassen (`POST /platform-co/sync` bzw. stündlicher Cron), damit `_tix_platform_co_origin` gesetzt ist.
 - **Tests:** `test-co-sites-wp` (origin_id, Rückübersetzung, Unterroute ohne Event), `test-site-move-e2e` (origin_id 0 bei Plattform-Event).
+
+## 126. Verkäufe der Quellseite im Plattform-Studio (ab 1.38.719)
+Fund: studio.evendis.de/events/85 (Spiegel von mallorca-festival-xxl.de, Event 7430) zeigte 0 Verkäufe, weil nur evendis-eigene Bestellungen zählen. Klasse `TIX_Source_Sales`, Option `tix_share_sales_with_platform`.
+
+**Quelle (Lizenzseite, selbstgehostet)**
+- Schalter: `GET /studio/config` → `syndication.share_sales_with_platform` (`true`/`false`, Vorgabe `true`; auf evendis.de selbst `null`).
+  - Ändern mit `POST /studio/config {share_sales_with_platform: true|false}`. Rechte wie Akzent/Logo (Admin bzw. Inhaber); Multipart `1`/`0` geht auch.
+- `GET /partner/events/{source_id}/sales`
+  - Kopfzeilen: `X-Tix-Partner-Id` (Host der Plattform) + `X-Tix-Partner-Key`. „Verkauf über die Plattform“ muss dafür nicht an sein.
+  - Gilt nur für geteilte Events dieser Seite.
+  - Antwort: `{ok, event_id, site {name, host}, statistics, generated_at}`.
+  - `statistics` enthält nur Summen und dieselben Felder wie `/events/{id}/statistics`: `total_revenue`, `total_tickets`, `total_orders`, `by_category {Name: {revenue, tickets}}`, `by_day`, `checkin_total`, `checkin_done`, `checkin_rate`, `sales` (Summary), `sales_by_day`, `by_channel`, `checkin_by_slot`.
+  - Keine Käuferdaten; `by_source`, `views` und `conversion` werden nicht geteilt.
+  - Fehler:
+    - 401 `tix_partner_auth`
+    - 404 `tix_event` (nicht geteilt)
+    - 403 `tix_sales_hidden` (Schalter aus)
+    - 429 `tix_rate_limit`
+
+**Plattform (evendis.de)**
+- `GET /events/{id}/source-sales[?fresh=1]`: nur für Plattform-Admins (`manage_options`), sonst 401/403. Gilt nur für Spiegel (`_tix_syndicated=1`); bei anderen Events 409 `tix_not_mirror`.
+  - verfügbar: `{ok, available: true, site {name, host}, statistics (wie oben), fetched_at}`
+  - nicht verfügbar: `{ok, available: false, reason, site {name, host}}` mit `reason`:
+    - `hidden`: Quelle teilt nicht
+    - `unreachable`
+    - `no_partner`: keine Partner-Verbindung oder kein Schlüssel
+    - `unsupported`: Quelle hat ein älteres Plugin ohne die Route
+  - 60 s Cache je Event (auch für Fehlantworten); `fresh=1` umgeht ihn.
+- Die eigenen evendis-Verkäufe bleiben getrennt in `/events/{id}/statistics`.
+- **Tests:** `test-source-sales-wp` (Quelle 16 Prüfungen mit setup/run/cleanup, Plattform 11).
+- **Rollout:** Erst wenn Quelle und evendis.de die Version haben, gibt es Zahlen; vorher meldet evendis `unsupported`.
