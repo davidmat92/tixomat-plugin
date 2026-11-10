@@ -5608,3 +5608,29 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
   - `lineup_headliners_set`: true, wenn im Studio bzw. in der App festgelegt
 - **Meta:** `_tix_lineup_headliners` (Liste der Schlüssel).
 - **Tests:** `test-lineup-acts-wp` (Plattform 30, Einzel-Seite 35).
+
+## 143. Act ↔ Künstler robust zuordnen, „Künstler verknüpfen“ (ab 1.38.736)
+Fund Party Schwelm (kitchenklub.de #1171): „Maurice Die Partykanone“ und „Micha Schuh“ hatten im Editor kein Bild und keinen Künstler, obwohl es #1162 und #1161 gibt.
+- **Wahrscheinliche Ursachen:**
+  - **Micha:** Der Künstler heißt „Micha Schue“ (Tippfehler im Titel), der Slug `micha-schuh` wurde nicht verglichen. Ähnliche Namen galten nur für Künstler, die dem Event zugeordnet sind.
+  - **Maurice:** Gab es mehr als einen veröffentlichten Künstler mit diesem Namen (Dublette), wurde keiner genommen.
+  - Prüfen lässt sich das auf der Seite mit `wp tixomat artists check-event 1171`, das zeigt Kandidaten, Weg und Vorschlag je Act.
+- **Zuordnung** (`TIX_Artists::resolve_line` → `{id, via, suggestion}`), Reihenfolge:
+  1. **Gespeicherte Verknüpfung** je Act (`_tix_lineup_artist_map`, Act-Schlüssel → Künstler-ID, 0 = bewusst keiner), `via: linked` bzw. `none`.
+  2. Dem Event zugeordneter Künstler mit gleichem Schlüssel (`assigned`).
+  3. Künstler der Seite bzw. des Veranstalters mit gleichem Schlüssel (ohne Akzente, Leerzeichen, Groß/Klein, „DJ“ vorne) oder **gleichem Slug** (`name`).
+     - Bei Dubletten gewinnt der eindeutig beste: zugeordnet > mit Bild > bestätigt. Bei Gleichstand keiner.
+  4. **Kleine Tippfehler nur als Vorschlag** (`suggestion {id, name, slug, image}`), nie automatisch.
+  - Zusammengeführte Künstler werden auf das Ziel umgeleitet; gesperrte nie.
+- **Editor-Zeilen** (`lineup_links`):
+  - `artist_link`: `linked` | `auto` | `none` | `null`
+  - `artist_suggestion`
+- **Studio und App-Veranstalterbereich:** `POST /events/{id}/lineup-artist {name, artist_id}` → `{ok, lineup_links}`.
+  - `artist_id`: ID = verknüpfen, `0` = bewusst keiner, `null` = wieder automatisch.
+  - Fehler: 400 (fehlt / unbekannt), 403 (fremder Künstler auf evendis), 404 (Event).
+  - Geteilte Events werden danach sofort neu verteilt.
+- **Reparatur:**
+  - Läuft einmal automatisch nach dem Update, etwa 4 Minuten nach dem ersten Seitenaufruf (Option `tix_artist_links_repair_736`).
+  - Von Hand: `wp tixomat artists verknuepfen [--event=<id>] [--trocken]`.
+  - Eindeutige Zuordnungen kommender Events werden fest gespeichert, damit spätere Dubletten nichts verschieben. Geteilte Events gehen neu an die Spiegel: evendis sofort, Kunden-Seiten mit dem nächsten Abgleich.
+- **Tests:** `test-lineup-artist-link-wp` (Einzel-Seite und Plattform je 13); Line-up-, Künstler- und Co-Tests grün.

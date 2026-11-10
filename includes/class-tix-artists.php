@@ -27,6 +27,7 @@ class TIX_Artists {
     const META_REDIRECT = '_tix_artist_merged_into';
     const EV_META = '_tix_artists';
     const EV_REF = '_tix_artist_ref';
+    const EV_LINEMAP = '_tix_lineup_artist_map'; // Act-Schlüssel → Künstler-ID (0 = bewusst keiner), Studio „Künstler verknüpfen“ bzw. Reparatur (1.38.736)
     const EV_SNAP = '_tix_source_artists'; // Kopie (Spiegel, Kunden-Seite): Künstler der Quelle als Schnappschuss (1.38.723)
     const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show', 'host'];
     const ROLES = ['headliner', 'support', 'guest'];
@@ -40,6 +41,13 @@ class TIX_Artists {
         add_action('init', [__CLASS__, 'register_cpt'], 5);
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('transition_post_status', [__CLASS__, 'on_publish'], 30, 3);
+        // Einmal nach 1.38.736: Act ↔ Künstler reparieren (kommende Events), geteilte Events neu verteilen
+        add_action('tix_artist_links_repair', function () { TIX_Artists::repair_links(); });
+        add_action('init', function () {
+            if (get_option('tix_artist_links_repair_736', '') !== '') return;
+            update_option('tix_artist_links_repair_736', gmdate('c'), false);
+            if (!wp_next_scheduled('tix_artist_links_repair')) wp_schedule_single_event(time() + 240, 'tix_artist_links_repair');
+        }, 40);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artists', [__CLASS__, 'cli']);
     }
 
@@ -110,27 +118,141 @@ class TIX_Artists {
      * zusammengeführte nie; bei mehreren Treffern ohne Zuordnung keiner. → ID | 0
      */
     public static function artist_for_line($event_id, $name) {
+        return self::resolve_line($event_id, $name)['id'];
+    }
+
+    /** Nutzbarer Künstler (nicht gesperrt; zusammengeführt → Ziel) → ID | 0 */
+    private static function usable($aid) {
+        $aid = intval($aid);
+        for ($n = 0; $aid && $n < 3 && ($to = intval(get_post_meta($aid, self::META_REDIRECT, true))); $n++) $aid = $to;
+        $d = self::raw($aid);
+        return $d && ($d['status'] ?? '') !== 'blocked' && get_post_status($aid) === 'publish' ? $aid : 0;
+    }
+
+    /** Gespeicherte Verknüpfungen eines Events: act_key → Künstler-ID (0 = bewusst keiner) */
+    public static function line_map($event_id) {
+        $m = get_post_meta(intval($event_id), self::EV_LINEMAP, true);
+        return is_array($m) ? $m : [];
+    }
+
+    /** Künstler mit gleichem Slug wie der Act (sanitize_title, z. B. „micha-schuh“) */
+    private static function slug_hits($name) {
+        $slug = sanitize_title(self::act_name($name));
+        if ($slug === '') return [];
+        return array_map('intval', get_posts(['post_type' => self::CPT, 'post_status' => 'publish', 'name' => $slug, 'posts_per_page' => 3, 'fields' => 'ids', 'suppress_filters' => true]));
+    }
+
+    /**
+     * Zuordnung Act ↔ Künstler (1.38.736, Fund Party Schwelm): {id, via, suggestion}
+     *   1. gespeicherte Verknüpfung (Studio bzw. Reparatur; 0 = bewusst keiner)
+     *   2. dem Event zugeordneter Künstler mit gleichem Schlüssel
+     *   3. Künstler der Seite bzw. des Veranstalters mit gleichem Schlüssel (Name ohne Akzente/Leerzeichen/Groß-Klein, „DJ“ vorne
+     *      egal) oder gleichem Slug; bei mehreren gewinnt der eindeutig beste (zugeordnet > mit Bild > bestätigt), sonst keiner
+     *   4. kleine Tippfehler nur als Vorschlag (`suggestion`), nie automatisch
+     */
+    public static function resolve_line($event_id, $name) {
         $k = self::act_key($name);
-        if (strlen($k) < 2) return 0;
+        $none = ['id' => 0, 'via' => null, 'suggestion' => null];
+        if (strlen($k) < 2) return $none;
         $ck = intval($event_id) . '|' . $k;
         if (isset(self::$cache['line'][$ck])) return self::$cache['line'][$ck];
-        $hit = 0;
-        foreach (self::event_list($event_id) as $r) {
-            $aid = intval($r['artist_id'] ?? 0);
-            $d = self::raw($aid);
-            if (!$d || ($d['status'] ?? '') === 'blocked' || get_post_meta($aid, self::META_REDIRECT, true)) continue;
-            if (self::act_key(get_the_title($aid)) === $k) { $hit = $aid; break; }
+        $map = self::line_map($event_id);
+        if (array_key_exists($k, $map)) {
+            $aid = intval($map[$k]) ? self::usable($map[$k]) : 0;
+            if ($aid || intval($map[$k]) === 0) return self::$cache['line'][$ck] = ['id' => $aid, 'via' => $aid ? 'linked' : 'none', 'suggestion' => null];
         }
-        if (!$hit) {
-            $cand = [];
-            foreach ((array) (self::key_index()[$k] ?? []) as $aid) {
-                $d = self::raw($aid);
-                if (!$d || ($d['status'] ?? '') === 'blocked' || get_post_meta($aid, self::META_REDIRECT, true)) continue;
-                if (self::owned_for_event($aid, $event_id)) $cand[] = $aid;
+        $assigned = array_map(function ($r) { return intval($r['artist_id'] ?? 0); }, self::event_list($event_id));
+        foreach ($assigned as $aid) {
+            if (($u = self::usable($aid)) && self::act_key(get_the_title($u)) === $k) return self::$cache['line'][$ck] = ['id' => $u, 'via' => 'assigned', 'suggestion' => null];
+        }
+        $cand = [];
+        foreach (array_merge((array) (self::key_index()[$k] ?? []), self::slug_hits($name)) as $aid) {
+            $u = self::usable($aid);
+            if ($u && self::owned_for_event($u, $event_id)) $cand[$u] = true;
+        }
+        $cand = array_keys($cand);
+        if (count($cand) > 1) { // Dubletten: eindeutig besten nehmen
+            $score = function ($aid) use ($assigned) { $d = self::raw($aid); return (in_array($aid, $assigned, true) ? 4 : 0) + (self::has_image($aid) ? 2 : 0) + (!empty($d['verified']) ? 1 : 0); };
+            usort($cand, function ($x, $y) use ($score) { return $score($y) <=> $score($x) ?: $x <=> $y; });
+            if ($score($cand[0]) === $score($cand[1])) $cand = []; // gleich gut → keiner, Studio entscheidet
+            else $cand = [$cand[0]];
+        }
+        if (count($cand) === 1) return self::$cache['line'][$ck] = ['id' => $cand[0], 'via' => 'name', 'suggestion' => null];
+        // Tippfehler: nur Vorschlag
+        $sug = null;
+        if (class_exists('TIX_Lineup_Links')) {
+            $hits = [];
+            foreach (self::key_index() as $kk => $ids) {
+                if (!TIX_Lineup_Links::similar_norm($kk, $k)) continue;
+                foreach ($ids as $aid) if (($u = self::usable($aid)) && self::owned_for_event($u, $event_id)) $hits[$u] = true;
             }
-            if (count($cand) === 1) $hit = $cand[0];
+            if (count($hits) === 1) { $sid = (int) array_key_first($hits); $sug = ['id' => $sid, 'name' => self::dec(get_the_title($sid)), 'slug' => (string) get_post_field('post_name', $sid), 'image' => self::has_image($sid)]; }
         }
-        return self::$cache['line'][$ck] = $hit;
+        return self::$cache['line'][$ck] = ['id' => 0, 'via' => null, 'suggestion' => $sug];
+    }
+
+    /** Studio „Künstler verknüpfen“: Act $name → Künstler $aid (0 = bewusst keiner, null = Verknüpfung entfernen). → true | WP_Error */
+    public static function link_line($event_id, $name, $aid) {
+        $k = self::act_key($name);
+        if (strlen($k) < 2) return self::bad('name', 'Bitte den Act angeben.');
+        $map = self::line_map($event_id);
+        if ($aid === null) unset($map[$k]);
+        else {
+            $aid = intval($aid);
+            if ($aid && !self::usable($aid)) return self::bad('artist_id', 'Künstler nicht gefunden.');
+            if ($aid && !self::owned_for_event(self::usable($aid), $event_id) && !self::is_admin()) return self::bad('artist_id', 'Dieser Künstler gehört nicht zu deinem Bereich.', 403);
+            $map[$k] = $aid ? self::usable($aid) : 0;
+        }
+        if ($map) update_post_meta($event_id, self::EV_LINEMAP, $map); else delete_post_meta($event_id, self::EV_LINEMAP);
+        self::flush_cache();
+        return true;
+    }
+
+    /** POST /events/{id}/lineup-artist {name, artist_id: <id>|0|null} → Zeilen wie lineup_links (Studio, App-Veranstalterbereich) */
+    public static function rest_link_line(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        if (get_post_type($eid) !== 'event' || (class_exists('TIX_REST_API') && !TIX_REST_API::can_access_event($eid))) return self::bad('id', 'Event nicht gefunden.', 404);
+        $b = $req->get_json_params();
+        $b = is_array($b) ? $b : (array) $req->get_body_params();
+        if (!array_key_exists('artist_id', $b)) return self::bad('artist_id', 'artist_id fehlt (ID, 0 = keiner, null = automatisch).');
+        $r = self::link_line($eid, (string) ($b['name'] ?? ''), $b['artist_id'] === null ? null : intval($b['artist_id']));
+        if (is_wp_error($r)) return $r;
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
+        $rows = class_exists('TIX_Lineup_Links') ? self::link_lineup(TIX_Lineup_Links::for_event($eid, true), $eid) : [];
+        return rest_ensure_response(['ok' => true, 'lineup_links' => $rows]);
+    }
+
+    /**
+     * Reparatur (1.38.736): eindeutige Zuordnungen fest speichern, damit spätere Dubletten nichts verschieben; geteilte Events neu
+     * verteilen (Spiegel auf evendis und Kunden-Seiten bekommen Bilder und Künstler). → {events, linked, rows[]}
+     */
+    public static function repair_links($event_id = 0, $dry = false) {
+        $ids = $event_id ? [intval($event_id)] : array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future'], 'posts_per_page' => 500, 'fields' => 'ids',
+            'meta_query' => [['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE']]]));
+        $out = ['events' => 0, 'linked' => 0, 'rows' => []];
+        foreach ($ids as $eid) {
+            if (self::is_copy($eid) || !class_exists('TIX_Lineup_Links')) continue;
+            $out['events']++;
+            $map = self::line_map($eid);
+            $changed = false;
+            foreach (TIX_Lineup_Links::for_event($eid, true) as $row) {
+                $nm = (string) (($row['artist'] ?? '') !== '' ? $row['artist'] : ($row['name'] ?? ''));
+                $k = self::act_key($nm);
+                if ($k === '' || array_key_exists($k, $map)) continue;
+                $r = self::resolve_line($eid, $nm);
+                if (!$r['id']) { if ($r['suggestion']) $out['rows'][] = ['event_id' => $eid, 'act' => $nm, 'artist_id' => 0, 'suggestion' => $r['suggestion']['name']]; continue; }
+                $map[$k] = $r['id']; $changed = true; $out['linked']++;
+                $out['rows'][] = ['event_id' => $eid, 'act' => $nm, 'artist_id' => $r['id'], 'via' => $r['via']];
+            }
+            if ($changed && !$dry) {
+                update_post_meta($eid, self::EV_LINEMAP, $map);
+                self::flush_cache();
+                if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
+            }
+        }
+        if (!$dry && class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        return $out;
     }
 
     /** Verknüpfungsangaben eines Künstlers für eine Line-up-Zeile (slug nur bei öffentlichem Profil) */
@@ -406,11 +528,18 @@ class TIX_Artists {
         foreach (($artists === null ? self::event_public($event_id) : $artists) as $ar) $by[self::act_key($ar['name'])] = $ar;
         foreach ($rows as &$row) {
             $nm = (string) (($row['artist'] ?? '') !== '' ? $row['artist'] : ($row['name'] ?? ''));
-            $ar = $by[self::act_key($nm)] ?? null;
-            if (!$ar && class_exists('TIX_Lineup_Links')) { // kleine Tippfehler im Programm (1.38.707)
+            $res = self::resolve_line($event_id, $nm);
+            $ar = null;
+            if ($res['via'] === 'linked') $ar = $by[self::act_key(get_the_title($res['id']))] ?? self::line_info($res['id']); // gespeicherte Verknüpfung zuerst
+            elseif ($res['via'] === 'none') $ar = false; // bewusst keiner
+            if ($ar === null) $ar = $by[self::act_key($nm)] ?? null;
+            if ($ar === null && class_exists('TIX_Lineup_Links')) { // kleine Tippfehler im Programm (1.38.707), nur dem Event zugeordnete Künstler
                 foreach ($by as $cand) if (TIX_Lineup_Links::similar($nm, (string) $cand['name'])) { $ar = $cand; break; }
             }
-            if (!$ar && ($aid = self::artist_for_line($event_id, $nm))) $ar = self::line_info($aid);
+            if ($ar === null && $res['id']) $ar = self::line_info($res['id']);
+            $row['artist_link'] = $ar ? ($res['via'] === 'linked' ? 'linked' : 'auto') : ($res['via'] === 'none' ? 'none' : null); // 1.38.736
+            $row['artist_suggestion'] = $ar ? null : $res['suggestion'];
+            $ar = $ar ?: null;
             $row['artist_id'] = $ar && intval($ar['id'] ?? 0) ? intval($ar['id']) : null; // Kopie: Künstler der Quelle ohne ID hier (1.38.723)
             $row['artist_slug'] = $ar ? (($ar['slug'] ?? '') !== '' ? (string) $ar['slug'] : null) : null;
             $row['artist_name'] = $ar ? (string) $ar['name'] : null;
@@ -860,6 +989,7 @@ class TIX_Artists {
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_update']] + $mgr,
             ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete']] + $mgr, // 1.38.609
         ]);
+        register_rest_route(self::NS, '/events/(?P<id>\d+)/lineup-artist', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_link_line']] + $mgr); // 1.38.736
         register_rest_route(self::NS, '/artists/import-lineup', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_import_lineup']] + $mgr); // 1.38.656
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/merge', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_merge_own']] + $mgr); // 1.38.609
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image']] + $mgr);
@@ -1498,13 +1628,25 @@ class TIX_Artists {
             WP_CLI::success(sprintf('%d Events geprüft, %d Künstler %s.', $r['events'], $r['adopted'], $dry ? 'würden ein Bild bekommen (trocken, nichts geändert)' : 'haben ein Bild bekommen'));
             return;
         }
+        if ($cmd === 'verknuepfen') {
+            $dry = isset($assoc['trocken']);
+            $r = self::repair_links(intval($assoc['event'] ?? 0), $dry);
+            foreach ($r['rows'] as $row) WP_CLI::line(sprintf('Event %d · %s → %s', $row['event_id'], $row['act'], $row['artist_id'] ? 'Künstler ' . $row['artist_id'] . ' (' . $row['via'] . ')' : 'Vorschlag „' . $row['suggestion'] . '“ (nicht automatisch)'));
+            WP_CLI::success(sprintf('%d Events, %d Verknüpfungen %s.', $r['events'], $r['linked'], $dry ? 'würden gespeichert (trocken)' : 'gespeichert'));
+            return;
+        }
         if ($cmd === 'check-event' && !empty($args[1])) {
             $eid = intval($args[1]);
             $rows = class_exists('TIX_Lineup_Links') ? self::link_lineup(TIX_Lineup_Links::for_event($eid, true), $eid) : [];
-            foreach ($rows as $r) WP_CLI::line(sprintf('%s | Künstler %s | Bild %s | Act-Foto %d', $r['name'], $r['artist_id'] ? $r['artist_id'] . ' „' . $r['artist_name'] . '“' : '–', $r['picture_source'] ?: '–', intval($r['photo_id'] ?? 0)));
+            foreach ($rows as $r) {
+                $nm = (string) (($r['artist'] ?? '') !== '' ? $r['artist'] : $r['name']);
+                $c = array_merge((array) (self::key_index()[self::act_key($nm)] ?? []), self::slug_hits($nm));
+                WP_CLI::line(sprintf('%s | Künstler %s | via %s | Bild %s | Kandidaten %s | Vorschlag %s', $r['name'], $r['artist_id'] ? $r['artist_id'] . ' „' . $r['artist_name'] . '“' : '–', $r['artist_link'] ?? '–',
+                    $r['picture_source'] ?: '–', $c ? implode(',', array_unique($c)) : '–', $r['artist_suggestion']['name'] ?? '–'));
+            }
             return;
         }
-        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id>');
+        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id> | verknuepfen [--event=<id>] [--trocken]');
     }
 }
 
