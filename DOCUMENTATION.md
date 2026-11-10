@@ -5856,3 +5856,19 @@ User-Entscheid 11.11.2026: Die Plattformgebühr ist jetzt 2,9 % + 0,49 € je ve
 - **Demo:** Etikett Provisionskunde „2,9 % + 0,49 € je Ticket“; die Demo-Abrechnung rechnet je Ticket (vorher je Bestellung).
 - **Nicht rückwirkend:** Abrechnungen, Kanal-Rechnungen, Bestellungen und ausgestellte Angebote behalten ihre Beträge bzw. Sätze. Die tatsächliche Plattformgebühr (`fee_percent`/`fee_fixed`) bleibt 0, bis der User sie scharf schaltet (Anwalt/Steuer).
 - **Tests:** `test-fee-rate-wp` 9, `test-platform-offers-wp` 41 (Stadthalle: Provision 533,70 € je Event, Selbstgehostet 19,40 € günstiger, lohnt sich ab 671 Tickets im Monat), `test-fees` 97, `test-co-seller-wp` 25, `test-co-multi-wp` 61, `test-co-sale-wp` 15 grün.
+
+## 154. Servicegebühr im Studio/App für eigene Seiten (ab 1.38.748)
+Vertrag: `uebergaben/vertrag-servicegebuehr.md`. Klasse `TIX_Studio_Fees`. Dieselben Felder wie im WP-Admin (`tix_settings`), kein zweiter Speicher.
+- **`GET /studio/fees[?price=&qty=]`:**
+  - `fees {active, mode, fixed, percent, label, split_customer_share, max_per_ticket, max_per_order, rounding, rounding_custom, show_in_selector}`
+  - `payment` (Zahlungskosten, nur lesen), `overrides` (Veranstalter mit eigener Gebühr)
+  - `preview {price, qty, subtotal, service_fee, buyer_pays, rounding_surplus, text}`, `modes`, `roundings`
+- **`POST /studio/fees`:** Teil-Update; 400 `tix_invalid_field` mit `field`. Grenzen: fixed/percent 0–50, max_per_ticket 0–500, max_per_order 0–5000, label 1–40 Zeichen. Protokoll `tix_audit_log` (`fees_update`).
+- **`POST /studio/fees/preview`:** Vorschau mit ungespeicherten Werten, speichert nichts.
+- **Rechte:** `TIX_Studio::perm_brand` (Admin, Inhaber, Team-Admin).
+- **Plattform (Mehr-Veranstalter):** 403 `tix_fees_locked`.
+- **Vorschau:** rechnet wie die Kassen (`TIX_Fees::calc_with_config`, mit Höchstbeträgen, Rundung und Zahlungskosten), aber aus frisch gelesenen Einstellungen (`tix_get_settings` ist je Aufruf zwischengespeichert).
+- **Kassen unverändert:**
+  - Website-Kasse (`cart_fees`/`cart_total`, Bestellung) und App-Kasse (`/customer/cart/quote` `totals.fee|fee_label|total`) rechnen über `TIX_Fees::calc_order_fees`.
+  - Gebührenfreie Kategorien (`no_fee`) bleiben ohne Gebühr.
+- **Tests:** `test-studio-fees-wp` (Einzel-Seite: run 33 + kasse 4, Plattform 3), `test-studio-payments-wp` 33, `test-fees` 97 grün.

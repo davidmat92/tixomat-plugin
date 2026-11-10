@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.747
+ * Version: 1.38.748
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.747');
+define('TIXOMAT_VERSION', '1.38.748');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -552,6 +552,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-degaso-pos.php'; // Degaso: Aben
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-tour.php'; // Geführte Tour im Studio: Gesehen-Stand je Konto /studio/tour (1.38.644)
 require_once TIXOMAT_PATH . 'includes/class-tix-domain-move.php'; // Domain-Umzug: wp tixomat domain umziehen|status|lizenz, GET /studio/domain, Lizenz move-host (§98)
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-payments.php'; // Studio: Zahlungsanbieter (GET/POST /studio/payments, /test), §96
+require_once TIXOMAT_PATH . 'includes/class-tix-studio-fees.php'; // Studio: Servicegebühr eigener Seiten (GET/POST /studio/fees, /preview), §154
 require_once TIXOMAT_PATH . 'includes/class-tix-studio-prefs.php'; // Studio: Menü-Ansicht je Konto (compact/full, GET /me studio_prefs, POST /studio/prefs)
 require_once TIXOMAT_PATH . 'includes/class-tix-features.php'; // App-Funktionen an/aus: /studio/features, app_features in /studio/config, features in /app/config (1.38.498)
 require_once TIXOMAT_PATH . 'includes/class-tix-ai-rest.php'; // KI-Funktionen fürs Studio: /ai/text, /ai/extract, /ai/duplicates, /ai/social, /events/{id}/guard, /studio/ai (1.38.505)
