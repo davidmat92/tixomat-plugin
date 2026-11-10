@@ -5017,3 +5017,16 @@ Vertrag `uebergaben/vertrag-partner-verbinden-cli.md`.
 - **Status abgleichen:** Der erste Durchgriff der Plattform (`/partner/co/{id}`) setzt `_tix_co_remote.status` von `invited` auf `active`. Beim Umschalten des Zugriffs übernimmt die Lizenzseite den Status, den die Plattform meldet.
 - **Trennen auf der Lizenzseite** (`clear`): Auf der Plattform verschwinden die Spiegel-Metas sofort. Das Event fehlt dann in `/co-remote/events` des Co-Veranstalters, der Durchgriff antwortet mit 403, und es gibt einen Feed-Eintrag „Nicht mehr Co-Veranstalter“.
 - **Tests:** `test-co-sites-wp.php` (Plattform 41, Einzel-Seite 22), `test-partner-connect-e2e.php` (5/4), Teil B mit zwei Seiten über HTTP 37.
+
+## 118. Co-Veranstalter: Geldempfänger + Anteil, Paket 1 (ab 1.38.711)
+Vertrag `uebergaben/vertrag-co-geldempfaenger.md`. Klasse `TIX_Co_Money` (`includes/class-tix-co-money.php`).
+- **Meta:** `_tix_co_money` (creator|co), `_tix_co_share` (0–100 in 0,5er-Schritten), `_tix_co_money_by`. Die Event-Verteilung gibt sie weiter.
+- **Editor:** `co_money` mit owner, share, share_to, choosable, locked, locked_reason, editable, seller und note. Gesetzt wird es über `POST /events/{id} {co_money}` bzw. über `money_owner`/`share` beim Einladen (E-Mail, Seite) und in `POST /platform/events/{id}/co-organizer`. Die Plattform-Zeile bekommt `co_money`.
+- **Sperre:** Nach der ersten bezahlten Bestellung (lokal oder vermittelt) kommt 409 `tix_co_money_locked`. Das Lösen des Co ist dann mit Co-Geld oder Anteil ebenfalls gesperrt.
+- **Geldempfänger Co:** In Paket 1 gibt es das nur bei Teil A mit Zugriff, sonst 409 `tix_co_money_unsupported`. Die Filter `tix_co_money_choosable`/`tix_co_money_sold` sind für die Pakete 2/3 da.
+- **Abrechnung:**
+  - `create_for_event`, `create_advance` und `collect_late_orders` rechnen an `settlement_org` ab.
+  - `build` ruft `apply_share` auf: Position `co_share` (−) beim Geldempfänger und ein offener Posten (+, `ref_id` = Abrechnung) für die andere Partei. „Neu berechnen“ verrechnet Posten, die schon übernommen wurden.
+  - Nachverkäufe teilt `late_share` genauso.
+- **Ausgleich:** `GET /events/{id}/co-balance` und `/co-balance/pdf` für Ersteller, Co und Admin, auch über den Durchgriff.
+- **Test:** `tests/test-co-money-wp.php` (Plattform 24, Einzel-Seite 9).

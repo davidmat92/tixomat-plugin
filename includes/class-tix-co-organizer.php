@@ -229,7 +229,10 @@ class TIX_Co_Organizer {
         $role = $is_new ? (TIX_App_Scope::is_admin() ? 'admin' : 'owner') : self::role($post_id);
         if (!in_array($role, ['owner', 'admin'], true)) return self::deny('Den Co-Veranstalter kann nur der Ersteller des Events ändern.');
         $v = $body['co_organizer'];
-        if ($v === null || $v === false || $v === '' || $v === 0) return ['op' => 'clear'];
+        if ($v === null || $v === false || $v === '' || $v === 0) {
+            if (!$is_new && class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($post_id))) return $cc;
+            return ['op' => 'clear'];
+        }
         if (!is_array($v)) return new WP_Error('tix_invalid_field', 'co_organizer: null oder {id, access, consent}.', ['status' => 400, 'field' => 'co_organizer']);
         $oid = isset($v['id']) ? intval($v['id']) : ($is_new ? 0 : self::ref_id($post_id));
         if (!$oid) return new WP_Error('tix_invalid_field', 'Bitte einen Co-Veranstalter wählen.', ['status' => 400, 'field' => 'co_organizer']);
@@ -254,10 +257,12 @@ class TIX_Co_Organizer {
         $old_access = $old ? self::has_access($post_id) : null;
         if ($c['op'] === 'clear') {
             self::clear($post_id);
+            if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($post_id);
             if ($old) self::log_change($post_id, 'removed', $old, false, 'creator');
             return;
         }
         $new = self::set($post_id, $c['id'], $c['access'], $c['consent'] ? get_current_user_id() : 0);
+        if ($new && $old && class_exists('TIX_Co_Money')) TIX_Co_Money::reset($post_id); // neuer Co: Geldempfänger zurück auf Ersteller
         if ($new) self::notify($post_id, $c['id'], null);
         if ($new && $old) self::log_change($post_id, 'removed', $old, false, 'creator');
         if ($new) self::log_change($post_id, 'added', intval($c['id']), self::has_access($post_id), 'creator');
@@ -407,6 +412,8 @@ class TIX_Co_Organizer {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
         }
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
+        $money = self::money_in($eid, $b, $access);
+        if (is_wp_error($money)) return $money;
         $r = self::find_or_create($email, $org_name, $name, ['event_id' => $eid, 'organizer_id' => $main]);
         if (is_wp_error($r)) return $r;
         [$org, $created, $user, $new_user] = $r;
@@ -414,6 +421,7 @@ class TIX_Co_Organizer {
         $old = self::ref_id($eid);
         $old_access = $old ? self::has_access($eid) : null;
         $linked = self::set($eid, $org->ID, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0);
+        self::money_after($eid, $linked && $old, $money, 'creator');
         if ($linked && $old) self::log_change($eid, 'removed', $old, false, 'creator');
         if ($linked) self::log_change($eid, 'added', intval($org->ID), self::has_access($eid), 'creator');
         elseif ($old_access !== self::has_access($eid)) self::log_change($eid, 'changed', intval($org->ID), self::has_access($eid), 'creator');
@@ -423,12 +431,30 @@ class TIX_Co_Organizer {
         return $res;
     }
 
+    /** Geldempfänger/Anteil beim Verbinden prüfen (1.38.711): {owner?, share?} aus money_owner/share → null | array | WP_Error */
+    private static function money_in($eid, array $b, $access) {
+        if (!class_exists('TIX_Co_Money')) return null;
+        $in = [];
+        if (array_key_exists('money_owner', $b)) $in['owner'] = $b['money_owner'];
+        if (array_key_exists('share', $b)) $in['share'] = $b['share'];
+        if (!$in) return null;
+        return TIX_Co_Money::check_values($eid, $in, true, $access ? ['creator', 'co'] : ['creator']) ?? ['keep' => true];
+    }
+
+    private static function money_after($eid, $replaced, $money, $via) {
+        if (!class_exists('TIX_Co_Money')) return;
+        if ($replaced && !(is_array($money) && empty($money['keep']))) TIX_Co_Money::reset($eid);
+        if (is_array($money) && empty($money['keep'])) TIX_Co_Money::apply($eid, $money, $via);
+    }
+
     /** Teil A: Kunden-Seite verbinden (invite mit `site`). */
     private static function invite_site(WP_REST_Request $req, $eid, $role, array $b) {
         $access = array_key_exists('access', $b) ? filter_var($b['access'], FILTER_VALIDATE_BOOLEAN) : true;
         if ($access && $role !== 'admin' && empty($b['consent'])) {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
         }
+        $money = self::money_in($eid, $b, $access);
+        if (is_wp_error($money)) return $money;
         $r = TIX_Co_Sites::organizer_for(sanitize_text_field((string) $b['site']));
         if (is_wp_error($r)) return $r;
         [$oid, $created] = $r;
@@ -437,6 +463,7 @@ class TIX_Co_Organizer {
         $old = self::ref_id($eid);
         $old_access = $old ? self::has_access($eid) : null;
         $linked = self::set($eid, $oid, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0);
+        self::money_after($eid, $linked && $old, $money, 'creator');
         if ($linked && $old) { self::log_change($eid, 'removed', $old, false, 'creator'); self::notify_removed_co($eid, $old); }
         if ($linked) self::log_change($eid, 'added', $oid, self::has_access($eid), 'creator');
         elseif ($old_access !== self::has_access($eid)) self::log_change($eid, 'changed', $oid, self::has_access($eid), 'creator');
@@ -459,7 +486,9 @@ class TIX_Co_Organizer {
         }
         $old = self::ref_id($eid);
         if (!$old) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'co_organizers' => [], 'released' => ['platform' => null, 'source' => null]]);
+        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid))) return $cc;
         self::clear($eid);
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
         $via = $role === 'admin' && intval(get_post_meta($eid, '_tix_organizer_id', true)) !== TIX_App_Scope::organizer_id_for_user() ? 'platform' : 'creator';
         self::log_change($eid, 'removed', $old, false, $via);
         self::notify_removed_co($eid, $old);
@@ -682,6 +711,7 @@ class TIX_Co_Organizer {
             'owner' => self::org_mini(intval(get_post_meta($event_id, '_tix_organizer_id', true))),
             'co_organizer' => $co, 'co_editable' => $lock === null, 'co_locked' => $lock,
             'co_removable' => $co !== null && ($lock === null || $lock['reason'] === 'source'),
+            'co_money' => class_exists('TIX_Co_Money') ? TIX_Co_Money::payload($event_id) : null,
         ];
     }
 
@@ -758,6 +788,8 @@ class TIX_Co_Organizer {
             $access = filter_var($b['access'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
             if ($access === null) return new WP_Error('tix_invalid_field', 'access: true oder false.', ['status' => 400, 'field' => 'access']);
         }
+        $money = self::money_in($eid, $b, $access === null ? (self::ref_id($eid) ? self::has_access($eid) : true) : $access);
+        if (is_wp_error($money)) return $money;
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
         $created = false; $new_user = null; $name = ''; $site_oid = 0;
         if (!empty($b['site'])) {
@@ -788,6 +820,7 @@ class TIX_Co_Organizer {
         $old = self::ref_id($eid);
         $old_access = $old ? self::has_access($eid) : null;
         $linked = self::set($eid, $oid, $access, get_current_user_id());
+        self::money_after($eid, $linked && $old, $money, 'platform');
         $now = self::has_access($eid);
         $changed = $linked ? 'added' : ($old_access !== $now ? 'changed' : 'unchanged');
         $mailed = false;
@@ -823,7 +856,9 @@ class TIX_Co_Organizer {
         if (is_wp_error($ok)) return $ok;
         $old = self::ref_id($eid);
         if (!$old) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'event' => self::platform_event_row($eid)]);
+        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid))) return $cc;
         self::clear($eid);
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
         self::log_change($eid, 'removed', $old, false, 'platform');
         self::notify_removed_co($eid, $old);
         self::notify_creator($eid, $old, 'removed');

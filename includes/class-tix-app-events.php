@@ -339,7 +339,9 @@ class TIX_App_Events {
           // Künstler (1.38.517, nur evendis): artists + artist_suggestions
           + (class_exists('TIX_Artists') ? TIX_Artists::editor_payload($id) : [])
           // Co-Veranstalter (1.38.696, nur evendis): co_organizer, event_role, co_organizer_editable
-          + (class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::editor_payload($id) : []);
+          + (class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::editor_payload($id) : [])
+          // Geldempfänger + Anteil (1.38.711): {owner, share, share_to, choosable, locked, locked_reason, editable, seller, note} | null
+          + ['co_money' => ($id && class_exists('TIX_Co_Money')) ? TIX_Co_Money::payload($id) : null];
     }
 
     // ──────────────────────────────────────────
@@ -461,6 +463,9 @@ class TIX_App_Events {
         // Co-Veranstalter (1.38.696): Feld `co_organizer` – als letzte Prüfung, weil Lizenzseiten dabei evendis.de benachrichtigen (Teil B)
         $co = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::check($body, $post_id, $is_new) : null;
         if (is_wp_error($co)) return $co;
+        // Geldempfänger + Anteil (1.38.711): `co_money` {owner, share}
+        $money = class_exists('TIX_Co_Money') ? TIX_Co_Money::check($body, $post_id, $is_new) : null;
+        if (is_wp_error($money)) return $money;
         // Eventbild per image_id (1.38.505, z. B. Flyer aus POST /ai/extract): eigenes Bild bzw. vorläufiger Flyer, null/0 entfernt
         $thumb = self::check_image_id($body);
         if (is_wp_error($thumb)) return $thumb;
@@ -646,6 +651,7 @@ class TIX_App_Events {
         if ($texts) TIX_Event_Texts::apply($post_id, $texts);
         if ($artists !== null) TIX_Artists::apply($post_id, $artists);
         if ($co) TIX_Co_Organizer::apply($post_id, $co);
+        if ($money) TIX_Co_Money::apply($post_id, $money);
 
         // ── Mengenrabatt (vorab geprüft; null = aus) ──
         if (array_key_exists('group_discount', $pricing)) {

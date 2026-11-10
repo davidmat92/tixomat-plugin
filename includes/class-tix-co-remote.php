@@ -125,6 +125,7 @@ class TIX_Co_Remote {
         $why = self::unavailable_reason($post_id);
         if ($clear) { // Entfernen geht immer (auch bei ausgeschaltetem Schalter oder nicht mehr geteiltem Event)
             if (!$d) return null;
+            if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($post_id))) return $cc;
             $r = self::remove($post_id, false);
             return is_wp_error($r) ? $r : ['op' => 'remote'];
         }
@@ -182,6 +183,11 @@ class TIX_Co_Remote {
         if ($access && empty($b['consent']) && !current_user_can('manage_options')) {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
         }
+        $money = null;
+        if (class_exists('TIX_Co_Money') && (array_key_exists('money_owner', (array) $b) || array_key_exists('share', (array) $b))) {
+            $money = TIX_Co_Money::check_values($eid, array_filter(['owner' => $b['money_owner'] ?? null, 'share' => $b['share'] ?? null], function ($v) { return $v !== null; }), true, TIX_Co_Money::choosable_for_new($eid, $access));
+            if (is_wp_error($money)) return $money;
+        }
         $token = wp_generate_password(48, false);
         $r = self::send($eid, ['action' => 'invite', 'email' => $email, 'site' => $site_key, 'organizer' => trim(sanitize_text_field((string) ($b['organizer'] ?? ''))),
             'name' => mb_substr(trim(sanitize_text_field((string) ($b['name'] ?? ''))), 0, 120), 'access' => $access, 'token' => $token]);
@@ -194,8 +200,10 @@ class TIX_Co_Remote {
             'since' => ($old && intval($old['organizer_id']) === intval($co['id'])) ? (string) $old['since'] : gmdate('c'),
             'consent' => $access ? ['at' => gmdate('c'), 'by' => get_current_user_id()] : null,
             'site' => !empty($co['site']['host']) ? ['key' => (string) ($co['site']['key'] ?? ''), 'host' => (string) $co['site']['host'], 'name' => (string) ($co['site']['name'] ?? '')] : null];
+        if ($old && intval($old['organizer_id']) !== intval($co['id']) && class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
         update_post_meta($eid, self::META, $d);
         update_post_meta($eid, self::META_TOKEN, hash('sha256', $token));
+        if (is_array($money)) TIX_Co_Money::apply($eid, $money);
         $res = rest_ensure_response(['ok' => true, 'created' => !empty($r['created']), 'mailed' => !empty($r['mailed']), 'co_organizer' => self::payload($eid), 'co_organizers' => [self::entry($eid, true)]]);
         $res->set_status(201);
         return $res;
@@ -219,6 +227,7 @@ class TIX_Co_Remote {
         }
         delete_post_meta($eid, self::META);
         delete_post_meta($eid, self::META_TOKEN);
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
         return ['platform' => $platform];
     }
 
@@ -228,6 +237,7 @@ class TIX_Co_Remote {
         if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
         if (!self::is_editor()) return new WP_Error('tix_co_forbidden', 'Die Verbindung kann nur der Veranstalter trennen.', ['status' => 403]);
         if (!self::data($eid)) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'co_organizers' => [], 'released' => ['platform' => null, 'source' => null]]);
+        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid))) return $cc;
         $r = self::remove($eid, filter_var($req->get_param('force'), FILTER_VALIDATE_BOOLEAN));
         if (is_wp_error($r)) return $r;
         return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'co_organizers' => [], 'released' => ['platform' => $r['platform'], 'source' => true]]);
@@ -268,6 +278,7 @@ class TIX_Co_Remote {
         $sid = absint($req['id']);
         delete_post_meta($sid, self::META);
         delete_post_meta($sid, self::META_TOKEN);
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($sid);
         return rest_ensure_response(['ok' => true]);
     }
 
@@ -289,7 +300,7 @@ class TIX_Co_Remote {
             if ($method === 'POST' && array_key_exists('co_organizer', $b)) return $no('Den Co-Veranstalter kann nur der Veranstalter ändern.');
             return true;
         }
-        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees)';
+        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf)';
         if (preg_match('#^/events/' . $id . '/' . $ev_sub . '$#', $path, $m)) {
             if ($method === 'DELETE' && strpos($m[2], 'guestlist/') !== 0) return $no();
             return true;

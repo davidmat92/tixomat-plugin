@@ -470,12 +470,13 @@ class TIX_Settlement {
             ],
         ]);
         foreach ($events as $eid) {
-            $oid = intval(get_post_meta($eid, '_tix_organizer_id', true));
+            $oid = class_exists('TIX_Co_Money') ? TIX_Co_Money::settlement_org($eid) : intval(get_post_meta($eid, '_tix_organizer_id', true));
             if (!$oid || (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid))) continue;
             foreach (self::event_orders($eid, true) as $row) {
                 $line = self::order_line($row, $eid);
                 self::insert_item(['settlement_id' => 0, 'organizer_id' => $oid, 'event_id' => $eid, 'order_id' => intval($row->id),
                     'type' => 'late', 'note' => 'Nachverkauf nach Abrechnung, Bestellung ' . $row->order_number] + $line);
+                if (class_exists('TIX_Co_Money')) TIX_Co_Money::late_share($eid, $oid, $line, intval($row->id)); // Anteil (1.38.711)
             }
         }
     }
@@ -564,7 +565,7 @@ class TIX_Settlement {
     public static function create_for_event($event_id, $force = false) {
         global $wpdb;
         $event_id = intval($event_id);
-        $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+        $oid = class_exists('TIX_Co_Money') ? TIX_Co_Money::settlement_org($event_id) : intval(get_post_meta($event_id, '_tix_organizer_id', true)); // Geldempfänger (1.38.711)
         if (!$oid || (get_post_meta($event_id, '_tix_syndicated', true) === '1' && !(class_exists('TIX_Site_Move') && TIX_Site_Move::settles_as_own($event_id)))) return 0;
         if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) return 0; // Demo/Vorschau: keine Abrechnung, keine EVR-Nummer (1.38.508)
         if (!$force && get_post_meta($event_id, '_tix_settled_at', true)) return 0;
@@ -614,7 +615,7 @@ class TIX_Settlement {
     public static function create_advance($event_id, $percent = null) {
         global $wpdb;
         $event_id = intval($event_id);
-        $oid = intval(get_post_meta($event_id, '_tix_organizer_id', true));
+        $oid = class_exists('TIX_Co_Money') ? TIX_Co_Money::settlement_org($event_id) : intval(get_post_meta($event_id, '_tix_organizer_id', true));
         $pct = $percent !== null ? floatval($percent) : floatval(get_post_meta($oid, self::META_ADVANCE, true));
         if (!$oid || $pct <= 0 || (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid))) return new WP_Error('tix_no_advance', 'Für diesen Veranstalter ist kein Abschlag freigeschaltet.');
         $final = $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE event_id = %d AND type = 'event' AND status <> 'void'", $event_id));
@@ -706,6 +707,8 @@ class TIX_Settlement {
                 }
             }
         }
+        // Anteil des Co-Veranstalters bzw. Erstellers (1.38.711) – vor der Übernahme offener Posten (sonst eigene Gegenposten)
+        if ($s->type === 'event' && class_exists('TIX_Co_Money')) TIX_Co_Money::apply_share($sid);
         // Offene Posten (Korrekturen, Nachverkäufe, Überträge) übernehmen
         $wpdb->query($wpdb->prepare("UPDATE {$si} SET settlement_id = %d WHERE settlement_id = 0 AND organizer_id = %d", $sid, $oid));
 
@@ -1090,6 +1093,7 @@ class TIX_Settlement {
             case 'advance':   return $it->note ?: 'Abschlag';
             case 'correction':return $it->note ?: 'Korrektur';
             case 'cashless':  return 'Cashless mit evendis-Guthaben' . ($it->note ? ' · ' . $it->note : '');
+            case 'co_share':  return $it->note ?: 'Anteil Co-Veranstalter';
         }
         return (string) $it->note;
     }
