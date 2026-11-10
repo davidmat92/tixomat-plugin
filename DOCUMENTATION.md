@@ -5848,11 +5848,11 @@ Ein geteiltes Event auf evendis.de, dessen Geld ein Co mit eigener Kunden-Seite 
 - **Live-Stand 11.11.:** Auf evendis.de gibt es noch keinen solchen Fall (einziges Co-Event #6453 Schwelm = owner creator, KK nimmt ein; Ausgabe dort korrekt).
 - **Tests:** `test-co-seller-wp` (Plattform 25, Kunden-Seite 16), `test-co-multi-wp` 61, `test-co-sites-wp` 47, `test-co-platform-wp` 59, `test-co-organizer-wp` 46, `test-co-money-wp` 24, `test-co-remote-wp` 17, `test-co-sale-wp` 15, `test-studio-payments-wp` grün.
 
-## 153. Plattformgebühr 2,9 % + 0,30 € (ab 1.38.746)
-User-Entscheid 11.11.2026: Die Plattformgebühr ist jetzt 2,9 % + 0,30 € je verkauftem Ticket inkl. MwSt. und Zahlung (vorher 2,5 % + 0,59 €). Das gilt auch für die Kanal-Gebühr der Shop-Kunden.
-- **Angebots-Katalog** (`TIX_Platform_Offers`): Vorgabe „Tickets über evendis“ `fee_percent` 2.9, `fee_fixed` 0.30; die Hochrechnung fällt ohne Katalogwert darauf zurück. Ein gespeicherter eigener Katalog (Option `tix_offer_catalog`) bleibt unverändert; auf evendis.de gab es am 11.11. keinen.
-- **Kanal-Gebühr** (`TIX_Channel_Fee::DEFAULT_PERCENT/DEFAULT_FIXED`): Vorgabe 2,9 % + 0,30 € (Einstellungen, Formular, Partner-Platzhalter). Gespeicherte Sätze und Einzelsätze je Partner bleiben.
-- **Preis-Wächter** (`TIX_Price_Watch::REF_PERCENT/REF_FIXED`): Rechensatz 2,9 % + 0,30 €. Einmalig (Merker `tix_price_watch_rate_745`) wird ein gespeicherter Satz von genau 2,5 % + 0,59 € umgestellt; eigene Werte bleiben.
-- **Demo:** Etikett Provisionskunde „2,9 % + 0,30 € je Ticket“; die Demo-Abrechnung rechnet je Ticket (vorher je Bestellung).
+## 153. Plattformgebühr 2,9 % + 0,49 € (ab 1.38.747)
+User-Entscheid 11.11.2026: Die Plattformgebühr ist jetzt 2,9 % + 0,49 € je verkauftem Ticket inkl. MwSt. und Zahlung (vorher 2,5 % + 0,59 €). Das gilt auch für die Kanal-Gebühr der Shop-Kunden. 1.38.746 hatte kurz 2,9 % + 0,30 €; nie ausgerollt.
+- **Angebots-Katalog** (`TIX_Platform_Offers`): Vorgabe „Tickets über evendis“ `fee_percent` 2.9, `fee_fixed` 0.49; die Hochrechnung fällt ohne Katalogwert darauf zurück. Ein gespeicherter eigener Katalog (Option `tix_offer_catalog`) bleibt unverändert; auf evendis.de gab es am 11.11. keinen.
+- **Kanal-Gebühr** (`TIX_Channel_Fee::DEFAULT_PERCENT/DEFAULT_FIXED`): Vorgabe 2,9 % + 0,49 € (Einstellungen, Formular, Partner-Platzhalter). Gespeicherte Sätze und Einzelsätze je Partner bleiben.
+- **Preis-Wächter** (`TIX_Price_Watch::REF_PERCENT/REF_FIXED`): Rechensatz 2,9 % + 0,49 €. Einmalig (Merker `tix_price_watch_rate_747`) wird ein gespeicherter Satz von genau 2,5 % + 0,59 € (oder 2,9 % + 0,30 € aus 1.38.746) umgestellt; eigene Werte bleiben.
+- **Demo:** Etikett Provisionskunde „2,9 % + 0,49 € je Ticket“; die Demo-Abrechnung rechnet je Ticket (vorher je Bestellung).
 - **Nicht rückwirkend:** Abrechnungen, Kanal-Rechnungen, Bestellungen und ausgestellte Angebote behalten ihre Beträge bzw. Sätze. Die tatsächliche Plattformgebühr (`fee_percent`/`fee_fixed`) bleibt 0, bis der User sie scharf schaltet (Anwalt/Steuer).
-- **Tests:** `test-fee-rate-wp` 8 (neu), `test-platform-offers-wp` 41 (Stadthalle neu gerechnet: Provision 448,20 € je Event, Provision 66,10 € günstiger, Selbstgehostet ab 1.263 Tickets im Monat), `test-fees` 97, `test-co-seller-wp` 25, `test-co-multi-wp` 61, `test-co-sale-wp` 15 grün.
+- **Tests:** `test-fee-rate-wp` 9, `test-platform-offers-wp` 41 (Stadthalle: Provision 533,70 € je Event, Selbstgehostet 19,40 € günstiger, lohnt sich ab 671 Tickets im Monat), `test-fees` 97, `test-co-seller-wp` 25, `test-co-multi-wp` 61, `test-co-sale-wp` 15 grün.

@@ -15,10 +15,10 @@ if (!defined('ABSPATH')) exit;
 class TIX_Price_Watch {
 
     const NS = 'tixomat/v1';
-    /** Rechensatz = veröffentlichte Plattformgebühr (11.11.2026: 2,9 % + 0,30 € inkl. MwSt., vorher 2,5 % + 0,59 €) */
+    /** Rechensatz = veröffentlichte Plattformgebühr (11.11.2026: 2,9 % + 0,49 € inkl. MwSt., vorher 2,5 % + 0,59 €) */
     const REF_PERCENT = 2.9;
-    const REF_FIXED   = 0.30;
-    const OPT_RATE_MIGRATED = 'tix_price_watch_rate_745';
+    const REF_FIXED   = 0.49;
+    const OPT_RATE_MIGRATED = 'tix_price_watch_rate_747';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -26,14 +26,14 @@ class TIX_Price_Watch {
     }
 
     /**
-     * Einmalig (1.38.746): gespeicherten alten Rechensatz 2,5 % + 0,59 € auf den neuen Satz stellen.
+     * Einmalig (1.38.747): gespeicherten alten Rechensatz 2,5 % + 0,59 € (bzw. den Zwischenstand 2,9 % + 0,30 € aus 1.38.746) auf den neuen Satz stellen.
      * Abweichend eingetragene Werte bleiben; Abrechnungen und Angebote werden nicht angefasst.
      */
     public static function migrate_rate() {
         if (get_option(self::OPT_RATE_MIGRATED)) return;
         $s = get_option('tix_settings', []);
         if (is_array($s) && isset($s['price_watch_ref_percent'], $s['price_watch_ref_fixed'])
-            && abs(floatval($s['price_watch_ref_percent']) - 2.5) < 0.0001 && abs(floatval($s['price_watch_ref_fixed']) - 0.59) < 0.0001) {
+            && in_array([round(floatval($s['price_watch_ref_percent']), 4), round(floatval($s['price_watch_ref_fixed']), 2)], [[2.5, 0.59], [2.9, 0.3]], true)) {
             $s['price_watch_ref_percent'] = self::REF_PERCENT;
             $s['price_watch_ref_fixed']   = self::REF_FIXED;
             // Die Einstellungs-Prüfung übernimmt price_watch_* nur zusammen mit price_watch_shop_monthly (sonst bleibt der alte Wert)

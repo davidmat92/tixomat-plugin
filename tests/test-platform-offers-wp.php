@@ -40,8 +40,8 @@ po_eq('Rechte: Gast 401, Veranstalter 403, Vertrieb 200, Admin 200; Katalog änd
 wp_set_current_user($s1);
 [$st, $d] = po_rest('GET', '/platform/offer-catalog');
 $it = array_column((array) ($d['catalog']['items'] ?? []), null, 'key');
-po_eq('Katalog: Preise der Preisseite (Plattform 2,9 % + 0,30 €, Shop 79 bzw. 99 monatlich kündbar, Lizenz 699, App 149 + 1.490, kein Startangebot)',
-    [200, false, false, 2.9, 0.3, 79.0, 99.0, 699.0, 149.0, ['app_einrichtung'], 1490.0, 249.0, true, false, false],
+po_eq('Katalog: Preise der Preisseite (Plattform 2,9 % + 0,49 €, Shop 79 bzw. 99 monatlich kündbar, Lizenz 699, App 149 + 1.490, kein Startangebot)',
+    [200, false, false, 2.9, 0.49, 79.0, 99.0, 699.0, 149.0, ['app_einrichtung'], 1490.0, 249.0, true, false, false],
     [$st, $d['custom'] ?? null, $d['can_edit'] ?? null, floatval($it['tickets']['fee_percent'] ?? 0), floatval($it['tickets']['fee_fixed'] ?? 0), floatval($it['shop']['prices']['monthly'] ?? 0),
         floatval($it['shop_monatlich']['prices']['monthly'] ?? 0), floatval($it['lizenz']['prices']['yearly'] ?? 0), floatval($it['app']['prices']['monthly'] ?? 0), $it['app']['adds'] ?? null,
         floatval($it['app_einrichtung']['prices']['once'] ?? 0), floatval($it['app_alle_module']['prices']['monthly'] ?? 0), count((array) ($d['catalog']['competitors'] ?? [])) >= 10,
@@ -90,14 +90,14 @@ po_eq('Prognose am Angebot gespeichert, Modell aus dem Tarif (Shop → selfhoste
 [$st, $d] = po_rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'shop'], ['catalog_key' => 'app']], 'projection' => $pj]);
 $fc = $d['totals']['projection'] ?? [];
 $m = array_column((array) ($fc['selfhosted']['methods'] ?? []), null, 'key');
-po_eq('Stadthalle: Provisionsmodell 448,20 € je Event (450 × 0,996 €, 2,9 % + 0,30 €), Selbstgehostet 514,30 € (162,79 an evendis = 3.255,84 € inkl. MwSt. ÷ 20, 351,51 an den Zahlungsdienstleister)',
-    [200, 448.2, 0.0, 162.79, 351.51, 514.3, 3255.84, 'offer'],
+po_eq('Stadthalle: Provisionsmodell 533,70 € je Event (450 × 1,186 €, 2,9 % + 0,49 €), Selbstgehostet 514,30 € (162,79 an evendis = 3.255,84 € inkl. MwSt. ÷ 20, 351,51 an den Zahlungsdienstleister)',
+    [200, 533.7, 0.0, 162.79, 351.51, 514.3, 3255.84, 'offer'],
     [$st, floatval($fc['commission']['total_event'] ?? 0), floatval($fc['commission']['to_psp_event'] ?? -1), floatval($fc['selfhosted']['to_evendis_event'] ?? 0),
         floatval($fc['selfhosted']['to_psp_event'] ?? 0), floatval($fc['selfhosted']['total_event'] ?? 0), floatval($fc['selfhosted']['package_year'] ?? 0), $fc['selfhosted']['package_source'] ?? '']);
 po_eq('Zahlarten: PayPal 30 %, Karte und Klarna je 35 % (je zur Hälfte), Fixbetrag je Zahlung (2 Tickets je Bestellung)', [[30.0, 35.0, 35.0], 123.2, 87.73, 140.58],
     [[floatval($m['paypal']['share'] ?? 0), floatval($m['card']['share'] ?? 0), floatval($m['klarna']['share'] ?? 0)], floatval($m['paypal']['cost_event'] ?? 0), floatval($m['card']['cost_event'] ?? 0), floatval($m['klarna']['cost_event'] ?? 0)]);
-po_eq('Vergleich (Satz 2,9 % + 0,30 €): Provision um 66,10 € je Event günstiger (1.322 € im Jahr), Selbstgehostet lohnt sich ab 1.263 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
-    ['commission', 66.1, 1322.0, 1263, '2026-11-04', true, true, true],
+po_eq('Vergleich (Satz 2,9 % + 0,49 €): Selbstgehostet um 19,40 € je Event günstiger (388 € im Jahr), lohnt sich ab 671 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
+    ['selfhosted', 19.4, 388.0, 671, '2026-11-04', true, true, true],
     [$fc['comparison']['cheaper'] ?? '', floatval($fc['comparison']['difference_event'] ?? 0), floatval($fc['comparison']['difference_year'] ?? 0), intval($fc['comparison']['break_even_tickets_month'] ?? 0),
         $m['paypal']['as_of'] ?? '', strpos((string) ($m['card']['source'] ?? ''), 'mollie.com') !== false, strpos((string) ($fc['payment_note'] ?? ''), 'nicht an evendis') !== false,
         strpos((string) ($fc['rates_note'] ?? ''), 'Stand 04.11.2026') !== false]);

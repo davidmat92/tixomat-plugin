@@ -390,7 +390,7 @@ class TIX_Demo {
             $gross = floatval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(i.total),0) FROM {$wpdb->prefix}tix_order_items i JOIN {$wpdb->prefix}tix_orders o ON o.id = i.order_id WHERE i.event_id = %d AND o.status = 'completed'", $ev['past'])));
             $cnt = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT order_id) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $ev['past'])));
             $n_tix = intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(quantity),0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $ev['past'])));
-            $fee = round($gross * 0.029 + $n_tix * 0.30, 2); // Plattformgebühr 2,9 % + 0,30 € je Ticket (11.11.2026)
+            $fee = round($gross * 0.029 + $n_tix * 0.49, 2); // Plattformgebühr 2,9 % + 0,49 € je Ticket (11.11.2026)
             $wpdb->insert(TIX_Settlement::table(), ['number' => 'DEMO-' . wp_date('ymd'), 'type' => 'event', 'organizer_id' => $oid, 'event_id' => $ev['past'], 'event_title' => get_the_title($ev['past']),
                 'event_date' => self::day(-10), 'status' => 'paid', 'gross' => $gross, 'platform_fee' => $fee, 'payout_amount' => round($gross - $fee, 2), 'orders' => $cnt,
                 'tickets' => intval($wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(quantity),0) FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $ev['past']))),

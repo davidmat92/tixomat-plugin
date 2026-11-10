@@ -19,9 +19,9 @@ class TIX_Channel_Fee {
 
     const OPTION = 'tix_channel_fee_settings';
     const MODES  = ['customer', 'split', 'organizer'];
-    /** Vorgabe = Plattformgebühr evendis, inkl. MwSt. (User-Entscheid 11.11.2026, vorher 2,5 % + 0,59 €) */
+    /** Vorgabe = Plattformgebühr evendis, inkl. MwSt. (User-Entscheid 11.11.2026: 2,9 % + 0,49 €, vorher 2,5 % + 0,59 €) */
     const DEFAULT_PERCENT = 2.9;
-    const DEFAULT_FIXED   = 0.30;
+    const DEFAULT_FIXED   = 0.49;
 
     /** Aktuelle Kanal-Gebühr der laufenden Partner-Anfrage (Quelle) oder null. */
     private static $current = null;

@@ -1,9 +1,9 @@
 <?php
 /**
- * Plattformgebühr 2,9 % + 0,30 € (1.38.746): Vorgaben Katalog, Kanal-Gebühr, Preis-Wächter, Demo-Etikett, einmalige Umstellung.
+ * Plattformgebühr 2,9 % + 0,49 € (1.38.747, vorher kurz 0,30 € in 1.38.746): Vorgaben Katalog, Kanal-Gebühr, Preis-Wächter, Demo-Etikett, einmalige Umstellung.
  *   wp eval-file …/test-fee-rate-wp.php
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Price_Watch') || !defined('TIX_Price_Watch::REF_PERCENT')) { echo "Tixomat ab 1.38.746 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Price_Watch') || !defined('TIX_Price_Watch::REF_PERCENT')) { echo "Tixomat ab 1.38.747 nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
@@ -25,34 +25,44 @@ try {
     // Katalog (Vorgabe)
     delete_option('tix_offer_catalog');
     $it = TIX_Platform_Offers::catalog_item('tickets');
-    fr_eq('Katalog „Tickets über evendis“: 2,9 % + 0,30 €, inkl. MwSt.', [2.9, 0.3, 'inkl. MwSt.'], [floatval($it['fee_percent']), floatval($it['fee_fixed']), $it['tax_note']]);
+    fr_eq('Katalog „Tickets über evendis“: 2,9 % + 0,49 €, inkl. MwSt., Preis-Hinweis vorhanden', [2.9, 0.49, 'inkl. MwSt.', 'je verkauftem Ticket, inkl. MwSt. und Zahlung'], [floatval($it['fee_percent']), floatval($it['fee_fixed']), $it['tax_note'], $it['price_note']]);
     // Kanal-Gebühr (Vorgabe, Einzelsatz bleibt)
     update_option(TIX_Channel_Fee::OPTION, ['new_partners' => 0], false);
     $cs = TIX_Channel_Fee::settings();
-    fr_eq('Kanal-Gebühr Vorgabe 2,9 % + 0,30 €', [2.9, 0.3], [$cs['percent'], $cs['fixed']]);
+    fr_eq('Kanal-Gebühr Vorgabe 2,9 % + 0,49 €', [2.9, 0.49], [$cs['percent'], $cs['fixed']]);
     update_option(TIX_Channel_Fee::OPTION, ['percent' => 2.5, 'fixed' => 0.59], false);
     $cs = TIX_Channel_Fee::settings();
     fr_eq('Kanal-Gebühr: gespeicherter Satz bleibt (nicht rückwirkend)', [2.5, 0.59], [$cs['percent'], $cs['fixed']]);
     // Demo-Etikett
-    if (class_exists('TIX_Demo_Access')) fr_eq('Demo: Provisionskunde 2,9 % + 0,30 €', '2,9 % + 0,30 € je Ticket', TIX_Demo_Access::models_info()[0]['price']);
+    if (class_exists('TIX_Demo_Access')) fr_eq('Demo: Provisionskunde 2,9 % + 0,49 €', '2,9 % + 0,49 € je Ticket', TIX_Demo_Access::models_info()[0]['price']);
     // Preis-Wächter: Vorgabe ohne gespeicherten Wert
     $s = is_array($bk_s) ? $bk_s : [];
     unset($s['price_watch_ref_percent'], $s['price_watch_ref_fixed'], $s['price_watch_shop_monthly'], $s['price_watch_enabled']);
     update_option('tix_settings', $s);
     $ps = TIX_Price_Watch::settings();
-    fr_eq('Preis-Wächter Vorgabe 2,9 % + 0,30 €', [2.9, 0.3], [$ps['ref_percent'], $ps['ref_fixed']]);
+    fr_eq('Preis-Wächter Vorgabe 2,9 % + 0,49 €', [2.9, 0.49], [$ps['ref_percent'], $ps['ref_fixed']]);
     // Umstellung: alter Satz → neu (tix_get_settings hat einen statischen Cache, daher direkt aus der Option lesen)
     $s['price_watch_ref_percent'] = 2.5; $s['price_watch_ref_fixed'] = 0.59;
     update_option('tix_settings', $s);
     delete_option(TIX_Price_Watch::OPT_RATE_MIGRATED);
     TIX_Price_Watch::migrate_rate();
-    fr_eq('Umstellung: gespeichert 2,5/0,59 → 2,9/0,30, Merker gesetzt', [2.9, 0.3, true], array_merge(fr_pw(), [(bool) get_option(TIX_Price_Watch::OPT_RATE_MIGRATED)]));
+    fr_eq('Umstellung: gespeichert 2,5/0,59 → 2,9/0,49, Merker gesetzt', [2.9, 0.49, true], array_merge(fr_pw(), [(bool) get_option(TIX_Price_Watch::OPT_RATE_MIGRATED)]));
     // eigener Wert bleibt
-    $s['price_watch_ref_percent'] = 3.5; $s['price_watch_ref_fixed'] = 0.49;
+    $s['price_watch_ref_percent'] = 3.5; $s['price_watch_ref_fixed'] = 0.45;
     update_option('tix_settings', $s);
     delete_option(TIX_Price_Watch::OPT_RATE_MIGRATED);
     TIX_Price_Watch::migrate_rate();
-    fr_eq('Umstellung: eigener Satz 3,5/0,49 bleibt', [3.5, 0.49], fr_pw());
+    fr_eq('Umstellung: eigener Satz 3,5/0,45 bleibt', [3.5, 0.45], fr_pw());
+    // Zwischenstand aus 1.38.746 (2,9/0,30) → 2,9/0,49
+    $s['price_watch_ref_percent'] = 2.9; $s['price_watch_ref_fixed'] = 0.3;
+    update_option('tix_settings', $s);
+    delete_option(TIX_Price_Watch::OPT_RATE_MIGRATED);
+    TIX_Price_Watch::migrate_rate();
+    fr_eq('Umstellung: Zwischenstand 2,9/0,30 → 2,9/0,49', [2.9, 0.49], fr_pw());
+    delete_option(TIX_Price_Watch::OPT_RATE_MIGRATED);
+    $s['price_watch_ref_percent'] = 2.5; $s['price_watch_ref_fixed'] = 0.59;
+    update_option('tix_settings', $s);
+    TIX_Price_Watch::migrate_rate();
     // nur einmal
     $s['price_watch_ref_percent'] = 2.5; $s['price_watch_ref_fixed'] = 0.59;
     update_option('tix_settings', $s);

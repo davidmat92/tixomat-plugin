@@ -397,7 +397,7 @@ class TIX_Settings {
             'price_watch_enabled'      => 0,     // Preis-Wächter in App/Web anzeigen (erst nach Freigabe der Preise)
             'price_watch_shop_monthly' => 79,    // Vergleich: eigener Shop je Monat in €
             'price_watch_ref_percent'  => 2.9,   // Rechensatz, solange die Plattformgebühr 0 ist (11.11.2026, vorher 2,5)
-            'price_watch_ref_fixed'    => 0.30,  // (vorher 0,59)
+            'price_watch_ref_fixed'    => 0.49,  // (vorher 0,59)
             // ── Abrechnung & Auszahlung (nur Mehr-Veranstalter-Modus, evendis.de) ──
             'settlement_enabled'       => 1,      // Abrechnungen automatisch erstellen
             'settlement_delay_days'    => 7,      // Auszahlung X Tage nach Event-Ende
@@ -1291,10 +1291,10 @@ class TIX_Settings {
             $clean['price_watch_enabled']      = !empty($input['price_watch_enabled']) ? 1 : 0;
             $clean['price_watch_shop_monthly'] = max(0, round(floatval(str_replace(',', '.', (string) $input['price_watch_shop_monthly'])), 2));
             $clean['price_watch_ref_percent']  = max(0, min(100, floatval(str_replace(',', '.', (string) ($input['price_watch_ref_percent'] ?? 2.9)))));
-            $clean['price_watch_ref_fixed']    = max(0, round(floatval(str_replace(',', '.', (string) ($input['price_watch_ref_fixed'] ?? 0.30))), 2));
+            $clean['price_watch_ref_fixed']    = max(0, round(floatval(str_replace(',', '.', (string) ($input['price_watch_ref_fixed'] ?? 0.49))), 2));
         } else {
             $prev = get_option(self::OPTION_KEY, []);
-            foreach (['price_watch_enabled' => 0, 'price_watch_shop_monthly' => 79, 'price_watch_ref_percent' => 2.9, 'price_watch_ref_fixed' => 0.30] as $k => $d) $clean[$k] = $prev[$k] ?? $d;
+            foreach (['price_watch_enabled' => 0, 'price_watch_shop_monthly' => 79, 'price_watch_ref_percent' => 2.9, 'price_watch_ref_fixed' => 0.49] as $k => $d) $clean[$k] = $prev[$k] ?? $d;
         }
         if (array_key_exists('fee_mode_new_org', $input)) {
             $clean['fee_mode_new_org'] = in_array($input['fee_mode_new_org'], ['', 'organizer', 'split', 'customer'], true) ? $input['fee_mode_new_org'] : 'customer';
@@ -7068,7 +7068,7 @@ class TIX_Settings {
                                                 <?php if (class_exists('TIX_Planned_Values')) echo TIX_Planned_Values::hint('tix_settings', 'gateway_fee_included'); ?>
                                                 <p style="color:#9ca3af;font-size:12px;margin:4px 0 0 26px;">
                                                     Die Plattform trägt die Gebühren der Zahlungsanbieter selbst: weder Aufschlag für Kunden noch Abzug bei der Auszahlung
-                                                    (z. B. evendis: „2,9 % + 0,30 € je Ticket inkl. MwSt. und Zahlung“). Gilt für neue Bestellungen.
+                                                    (z. B. evendis: „2,9 % + 0,49 € je Ticket inkl. MwSt. und Zahlung“). Gilt für neue Bestellungen.
                                                 </p>
                                             </div>
 
