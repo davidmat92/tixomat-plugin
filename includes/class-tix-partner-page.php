@@ -37,7 +37,8 @@ class TIX_Partner_Page {
                 ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_platform_get'], 'permission_callback' => $auth],
                 ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform_save'], 'permission_callback' => $auth],
             ]);
-            register_rest_route(self::NS, '/syndicate/organizer/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform_image'], 'permission_callback' => $auth]);
+            register_rest_route(self::NS, '/syndicate/organizer/image', [['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform_image'], 'permission_callback' => $auth],
+                ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_platform_image_delete'], 'permission_callback' => $auth]]); // 1.38.741
             return;
         }
         $perm = [__CLASS__, 'perm_partner_site'];
@@ -45,7 +46,8 @@ class TIX_Partner_Page {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => $perm],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => $perm],
         ]);
-        register_rest_route(self::NS, '/partner/evendis-page/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image'], 'permission_callback' => $perm]);
+        register_rest_route(self::NS, '/partner/evendis-page/image', [['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image'], 'permission_callback' => $perm],
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_image_delete'], 'permission_callback' => $perm]]); // 1.38.741
     }
 
     // ═══════════════ Plattform (evendis.de) ═══════════════
@@ -119,6 +121,14 @@ class TIX_Partner_Page {
         return rest_ensure_response(self::platform_payload($oid));
     }
 
+    /** DELETE /syndicate/organizer/image?kind=logo|hero (1.38.741) */
+    public static function rest_platform_image_delete(WP_REST_Request $req) {
+        $oid = self::partner_org();
+        if (is_wp_error($oid)) return $oid;
+        $r = TIX_App_Scope::remove_profile_image($oid, sanitize_key((string) $req->get_param('kind')));
+        return is_wp_error($r) ? $r : rest_ensure_response(self::platform_payload($oid));
+    }
+
     // ═══════════════ Partner-Seite (KitchenKlub, Mallorca …) ═══════════════
 
     public static function perm_partner_site(WP_REST_Request $req) {
@@ -170,6 +180,13 @@ class TIX_Partner_Page {
         if (!self::bridge_configured()) return rest_ensure_response(['ok' => true, 'connected' => false, 'reason' => 'not_configured', 'message' => 'Diese Seite ist noch nicht mit evendis.de verbunden.']);
         $b = $req->get_json_params();
         return self::relay(self::call('POST', '/syndicate/organizer', is_array($b) ? $b : []));
+    }
+
+    /** DELETE /partner/evendis-page/image?kind=logo|hero → evendis (1.38.741) */
+    public static function rest_image_delete(WP_REST_Request $req) {
+        if (!self::bridge_configured()) return rest_ensure_response(['ok' => true, 'connected' => false, 'reason' => 'not_configured', 'message' => 'Diese Seite ist noch nicht mit evendis.de verbunden.']);
+        $kind = sanitize_key((string) $req->get_param('kind')) === 'hero' ? 'hero' : 'logo';
+        return self::relay(self::call('DELETE', '/syndicate/organizer/image?kind=' . $kind));
     }
 
     public static function rest_image(WP_REST_Request $req) {

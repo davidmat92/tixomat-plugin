@@ -1021,7 +1021,8 @@ class TIX_Artists {
         register_rest_route(self::NS, '/events/(?P<id>\d+)/lineup-artist', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_link_line']] + $mgr); // 1.38.736
         register_rest_route(self::NS, '/artists/import-lineup', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_import_lineup']] + $mgr); // 1.38.656
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/merge', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_merge_own']] + $mgr); // 1.38.609
-        register_rest_route(self::NS, '/artists/(?P<id>\d+)/image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image']] + $mgr);
+        register_rest_route(self::NS, '/artists/(?P<id>\d+)/image', [['methods' => 'POST', 'callback' => [__CLASS__, 'rest_image']] + $mgr,
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_image_delete']] + $mgr]); // Bild entfernen (1.38.741)
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_events']] + $mgr);
         register_rest_route(self::NS, '/artists/(?P<id>\d+)/events/(?P<event_id>\d+)', ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_unassign']] + $mgr);
         register_rest_route(self::NS, '/platform/artists', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_admin_list']] + $adm);
@@ -1447,6 +1448,20 @@ class TIX_Artists {
         $d['images'][$slot] = ['id' => intval($aid), 'credit' => mb_substr($credit, 0, 120)];
         self::save_raw($id, $d);
         self::log($id, 'image', ['slot' => $slot]);
+        return rest_ensure_response(['ok' => true, 'artist' => self::payload($id, true)]);
+    }
+
+    /** DELETE /artists/{id}/image?slot=portrait|cover (ohne slot: beide) – Bild vom Profil nehmen (1.38.741; Spiegel: 409 über TIX_Shared_Objects) */
+    public static function rest_image_delete(WP_REST_Request $req) {
+        $id = self::load($req['id']);
+        if (is_wp_error($id)) return $id;
+        $d = self::raw($id);
+        if (!self::can_manage($d)) return new WP_Error('tix_artist_not_manager', 'Dieses Profil pflegt der Verwalter des Künstlers.', ['status' => 403]);
+        $slot = (string) $req->get_param('slot');
+        if ($slot !== '' && !in_array($slot, ['cover', 'portrait'], true)) return self::bad('slot', 'slot: cover oder portrait.');
+        foreach ($slot !== '' ? [$slot] : ['cover', 'portrait'] as $sl) unset($d['images'][$sl]);
+        self::save_raw($id, $d);
+        self::log($id, 'image_removed', ['slot' => $slot ?: 'all']);
         return rest_ensure_response(['ok' => true, 'artist' => self::payload($id, true)]);
     }
 

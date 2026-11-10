@@ -255,7 +255,8 @@ class TIX_App_Scope {
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_profile'], 'permission_callback' => [__CLASS__, 'check_manager']],
         ]);
         register_rest_route(self::NS, '/organizer/profile/image', [
-            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_profile_image'], 'permission_callback' => [__CLASS__, 'check_manager'],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_profile_image'], 'permission_callback' => [__CLASS__, 'check_manager']],
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_profile_image_delete'], 'permission_callback' => [__CLASS__, 'check_manager']], // 1.38.741
         ]);
     }
 
@@ -478,6 +479,26 @@ class TIX_App_Scope {
         update_post_meta(intval($oid), $kind === 'hero' ? '_tix_org_landing_hero_id' : '_tix_org_landing_logo_id', intval($aid));
         self::flush_public_cache();
         return intval($aid);
+    }
+
+    const IMAGE_META = ['logo' => '_tix_org_landing_logo_id', 'hero' => '_tix_org_landing_hero_id', 'placeholder' => '_tix_org_placeholder_id'];
+
+    /** Bild der Veranstalterseite entfernen (logo|hero|placeholder) → true | WP_Error (auch für die Brücke der Kunden-Seiten) */
+    public static function remove_profile_image($oid, $kind) {
+        if (!isset(self::IMAGE_META[$kind])) return new WP_Error('tix_invalid_field', 'kind: logo, hero oder placeholder.', ['status' => 400, 'field' => 'kind']);
+        delete_post_meta(intval($oid), self::IMAGE_META[$kind]);
+        if ($kind === 'logo') delete_post_meta(intval($oid), '_tix_org_image_id'); // Rückfall-Logo ebenfalls weg
+        update_post_meta(intval($oid), self::META_PROFILE_UPDATED, self::stamp());
+        self::flush_public_cache();
+        return true;
+    }
+
+    /** DELETE /organizer/profile/image?kind=logo|hero|placeholder (1.38.741) */
+    public static function rest_profile_image_delete(WP_REST_Request $req) {
+        $oid = self::organizer_id_for_user();
+        if (self::site_managed($oid)) return self::site_managed_error();
+        $r = self::remove_profile_image($oid, sanitize_key((string) $req->get_param('kind')));
+        return is_wp_error($r) ? $r : self::rest_profile($req);
     }
 
     /** POST /organizer/profile/image (multipart `file`, Feld `kind` = logo|hero). */

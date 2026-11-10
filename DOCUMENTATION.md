@@ -5707,3 +5707,33 @@ Auftrag und Vertrag: `uebergaben/auftrag-sync-geteilte-objekte-2026-11-10.md`. K
 - **Flyer:** Das Eventbild der Kopie lädt der Abgleich der Kunden-Seite schon seit 1.38.712 in die Mediathek (`_tix_platform_co_img`).
 - **Orte:** Sie haben bei Spiegeln kein eigenes Bild, weil die Quelle keines liefert.
 - **Tests:** `test-shared-objects-wp` (Kunden-Seite 21, Plattform 14). Der echte Download ist nachgestellt, weil die Test-Seiten nur private Adressen haben, die WordPress ablehnt.
+
+## 148. Bilder entfernen (ab 1.38.741)
+Klasse `TIX_Image_Remove` und Ergänzungen in `TIX_Artists`, `TIX_App_Scope`, `TIX_Partner_Page`. Vertrag: `uebergaben/auftrag-bilder-entfernen-2026-11-10.md`.
+Ein Bild wird über **DELETE auf derselben Route** entfernt, über die es hochgeladen wurde. Bei Einstellungen mit Medien-ID gilt **`…_id: 0`**. Rechte sind dieselben wie beim Hochladen.
+- **Antwort:** `{ok, removed: true, …}` bzw. das aktualisierte Objekt (Künstler, Veranstalterseite, Studio-Konfiguration).
+
+| Bild | Entfernen | neu in |
+|---|---|---|
+| Event-Flyer (Beitragsbild) | `DELETE /events/{id}/image` | 1.38.741 |
+| Spendenaktion | `DELETE /events/{id}/charity-image` | 1.38.741 |
+| Ticket-Sponsor | `DELETE /events/{id}/sponsor-image` | 1.38.741 |
+| Act-Foto im Line-up | `DELETE /events/{id}/lineup-photo?name=<Act>` (Act bewusst ohne Foto) | 1.38.741 |
+| Künstler Porträt/Titelbild | `DELETE /artists/{id}/image?slot=portrait\|cover` (ohne slot: beide) | 1.38.741 |
+| Veranstalterseite (evendis) Logo/Titelbild/Platzhalter | `DELETE /organizer/profile/image?kind=logo\|hero\|placeholder` | 1.38.741 |
+| Veranstalterseite über die Kunden-Seite (Brücke) | `DELETE /partner/evendis-page/image?kind=logo\|hero` → evendis `DELETE /syndicate/organizer/image` | 1.38.741 |
+| Eigenes Profilbild (Gast/Kunde) | `DELETE /auth/profile/avatar` | 1.38.741 |
+| Tipp: Bild bzw. Autorenbild | `DELETE /app/tips/{id}/image?kind=image\|author` | 1.38.741 |
+| Platzhalter der Seite | `DELETE /studio/placeholder` | schon da |
+| Logo, Logo für hellen Grund | `POST /studio/config {logo_id: 0}` bzw. `{logo_on_light_id: 0}` | schon da / 1.38.725 |
+| Mail-Logos | `POST /studio/config {mail_logo_id: 0, mail_logo_on_color_id: 0}` | schon da |
+| Platzhalter je Veranstalter | `POST /organizer/profile/image kind=placeholder&remove=1` oder neu `DELETE …?kind=placeholder` | schon da |
+| Vertriebs-Vorschau Logo | `PATCH /sales/previews/{id} {logo_id: 0}` | schon da |
+
+- **Ausgenommen sind Spiegel-Objekte:**
+  - Kopien geteilter Events: 409 `tix_mirrored_readonly`, auf Kunden-Seiten `tix_co_platform_event`.
+  - Gespiegelte Künstler und Orte: 409 `tix_mirrored_readonly`.
+  - Gepflegt wird auf der Quelle.
+- **Nach dem Entfernen:** Ein geteiltes Event wird sofort neu verteilt, die öffentlichen Listen werden geleert.
+- **Noch offen, keine eigene Route:** Club-Bilder (`/studio/club/image`) liefert nur den Upload; entfernt werden sie über das Speichern des Club-Profils ohne das Bild. Bitte melden, falls dort etwas fehlt.
+- **Tests:** `test-image-remove-wp` (Einzel-Seite 12, Plattform 14).

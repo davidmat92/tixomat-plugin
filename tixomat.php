@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.740
+ * Version: 1.38.741
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.740');
+define('TIXOMAT_VERSION', '1.38.741');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -454,6 +454,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-source-sales.php'; // Verkäufe 
 require_once TIXOMAT_PATH . 'includes/class-tix-operator-access.php'; // „Als Betreiber anmelden“ (1.38.722)
 require_once TIXOMAT_PATH . 'includes/class-tix-site-users.php'; // Zugänge für Kunden-Seiten aus der Plattform-Akte (1.38.724)
 require_once TIXOMAT_PATH . 'includes/class-tix-shared-objects.php'; // geteilte Objekte als lokale Spiegel (1.38.738)
+require_once TIXOMAT_PATH . 'includes/class-tix-image-remove.php'; // Bilder entfernen (1.38.741)
 TIX_Co_Seller::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-platform-customers.php'; // Kunden an einem Ort: GET /platform/customers, ?customer= (§100)
 require_once TIXOMAT_PATH . 'includes/class-tix-seatmap-best.php'; // Saalplan: Bester Platz mit Punktwert und Single-Seat-Regel (1.38.671)
