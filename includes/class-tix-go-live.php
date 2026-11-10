@@ -62,9 +62,11 @@ class TIX_Go_Live {
         $items = [];
         // Zahlung
         $pm = class_exists('TIX_Studio_Payments') && method_exists('TIX_Studio_Payments', 'state_of') ? TIX_Studio_Payments::state_of() : 'missing';
-        $items[] = ['key' => 'payment', 'ok' => $pm !== 'missing', 'state' => $pm, 'required' => true, 'overridable' => true,
-            'label' => ['ok' => 'Zahlungsanbieter eingerichtet', 'none' => 'Keine Zahlungen anbieten (bewusst gewählt)', 'not_needed' => 'Verkauf nur über die Vermittlung (evendis)', 'missing' => 'Zahlungsanbieter fehlt'][$pm],
-            'hint' => $pm === 'missing' ? 'Einstellungen → Zahlungen: Anbieter einrichten oder „Keine Zahlungen anbieten“ wählen.' : null, 'link' => '/einstellungen/zahlungen/'];
+        // 1.38.744: erfüllt nur mit Anbieter (ok) oder bewusst „Keine Zahlungen anbieten“ (none); undecided wie missing (nur mit „trotzdem“ durch die Plattform)
+        $items[] = ['key' => 'payment', 'ok' => in_array($pm, ['ok', 'none'], true), 'state' => $pm, 'required' => true, 'overridable' => true,
+            'payments_needed' => class_exists('TIX_Co_Sale') ? TIX_Co_Sale::payments_needed() : true,
+            'label' => ['ok' => 'Zahlungsanbieter eingerichtet', 'none' => 'Keine Zahlungen anbieten (bewusst gewählt)', 'undecided' => 'Zahlung noch nicht entschieden', 'missing' => 'Zahlungsanbieter fehlt'][$pm] ?? 'Zahlung',
+            'hint' => $pm === 'missing' ? 'Einstellungen → Zahlungen: Anbieter einrichten oder „Keine Zahlungen anbieten“ wählen.' : ($pm === 'undecided' ? TIX_Studio_Payments::UNDECIDED_HINT : null), 'link' => '/einstellungen/zahlungen/'];
         // Rechtstexte (hart)
         $ls = class_exists('TIX_Studio_Legal') && method_exists('TIX_Studio_Legal', 'legal_status') ? TIX_Studio_Legal::legal_status() : ['ok' => false, 'items' => []];
         $miss = [];

@@ -207,7 +207,8 @@ class TIX_Studio_Payments {
         if ($wh) $warnings[] = ['code' => 'tix_webhook_missing', 'message' => implode(' und ', $wh) . ': Webhook fehlt – Zahlungen werden nur bestätigt, wenn der Kunde zur Seite zurückkehrt.'];
 
         // 1.38.742: bewusst „Keine Zahlungen anbieten“ (keine Online-Kasse; Infos, Abendkasse, Vermittlung über evendis)
-        return ['locked' => false, 'order' => $order, 'active' => $active, 'providers' => $providers, 'warnings' => $warnings, 'none' => self::none(), 'state' => self::state_of(!empty($active))];
+        return ['locked' => false, 'order' => $order, 'active' => $active, 'providers' => $providers, 'warnings' => $warnings, 'none' => self::none(), 'state' => self::state_of(!empty($active)),
+            'payments_needed' => class_exists('TIX_Co_Sale') ? TIX_Co_Sale::payments_needed() : true, 'hint' => self::state_of(!empty($active)) === 'undecided' ? self::UNDECIDED_HINT : null];
     }
 
     const OPT_NONE = 'tix_payments_none';
@@ -224,12 +225,18 @@ class TIX_Studio_Payments {
         return false;
     }
 
-    /** ok (Anbieter) | none (bewusst keine) | not_needed (nur Vermittlung) | missing */
+    /** Hinweis bei undecided: Geld nimmt bisher nur der andere Veranstalter ein (1.38.744) */
+    const UNDECIDED_HINT = 'Bisher nur gemeinsame Events – das Geld nimmt der andere Veranstalter ein. Für eigene Online-Tickets einen Zahlungsanbieter einrichten oder „Keine Zahlungen anbieten“ wählen.';
+
+    /**
+     * ok (Anbieter bereit) | none (bewusst keine) | undecided (noch nicht entschieden, bisher nur vermittelte Co-Events) | missing.
+     * Seit 1.38.744 erfüllt nur ok oder none den Punkt; undecided ersetzt not_needed (User-Fund KMT: Kunde hatte sich nicht entschieden).
+     */
     public static function state_of($provider = null) {
         $provider = $provider === null ? self::provider_ready() : (bool) $provider;
         if ($provider) return 'ok';
         if (self::none()) return 'none';
-        if (class_exists('TIX_Co_Sale') && !TIX_Co_Sale::payments_needed()) return 'not_needed';
+        if (class_exists('TIX_Co_Sale') && !TIX_Co_Sale::payments_needed()) return 'undecided';
         return 'missing';
     }
 

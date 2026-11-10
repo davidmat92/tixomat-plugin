@@ -5822,3 +5822,19 @@ Fund KMT nach 1.38.742: Von 12 Künstlern hatte nur einer ein Bild. Download und
   - `test-artist-images-repair-wp` (Kunden-Seite 16 mit `setup|run|cleanup`, Plattform 3).
   - `test-site-move-e2e` hat einen Künstler mit Porträt und lädt ihn echt über das Testnetz (18 + 37).
   - `test-shared-objects-wp`, `test-lineup-artist-link-wp` und `test-image-remove-wp` bleiben grün.
+
+## 151. Zahlung „noch nicht entschieden“ (ab 1.38.744)
+Hat eine Seite nur vermittelte Co-Events, galt die Zahlung bisher als erfüllt (`not_needed`). Beim User-Fund KMT hatte sich der Kunde aber noch gar nicht entschieden. Jetzt gilt:
+- **Erfüllt** ist die Zahlung nur mit bereitem Zahlungsanbieter (`ok`) oder mit bewusst gewähltem „Keine Zahlungen anbieten“ (`none`).
+- **Neuer Zustand `undecided`:** Wer nur vermittelte Co-Events hat, ist jetzt `undecided` (ersetzt `not_needed`).
+  - `ok: false`, `overridable: true`: Live geht nur mit „trotzdem“ durch die Plattform, wie bei `missing`.
+  - Hinweis: „Bisher nur gemeinsame Events – das Geld nimmt der andere Veranstalter ein. …“ (`TIX_Studio_Payments::UNDECIDED_HINT`).
+- **`GET /studio/payments`:** `state: ok|none|undecided|missing`, neu `payments_needed` (Info) und `hint`.
+- **`GET /studio/readiness`:** Das Zahlungs-Item hat `state: undecided`, `ok: false`, Label „Zahlung noch nicht entschieden“, `hint` und `payments_needed`. `POST /studio/go-live {live}` antwortet dann mit 409 `tix_not_ready`.
+- **Startklar** (`TIX_Owner_Access::readiness`):
+  - `payment` ist nur noch bei Anbieter oder „keine“ wahr; `payment_mode` = `undecided`.
+  - `payments_needed` und `payments_reason` bleiben als Info.
+- **Akte** (`ready.items.payment`): `state: undecided`, `ok: false`, `overridable: true`, mit Hinweis.
+  - Ältere Seiten, die nur Vermittlung melden (`payments_needed: false` ohne `payment_mode: none`), erscheinen ebenfalls als `undecided`.
+  - `ready.ok` ist dann false.
+- **Tests:** `test-go-live-wp` (Kunden-Seite 16, Plattform 8), `test-operator-access-wp` (12 / 26), `test-owner-access-wp` grün.

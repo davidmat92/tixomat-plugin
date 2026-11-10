@@ -46,14 +46,16 @@ if ($multi) {
         // ── Teil 1: Zahlung ehrlich
         $p = $ready(['payment' => true, 'legal' => true, 'owner' => true, 'homepage' => true, 'payments_needed' => false, 'payments_reason' => 'only_brokered', 'payment_provider' => false]);
         $i = $pay($p);
-        op_eq('nur Vermittlung: not_needed, ok bleibt true, ehrliches Etikett', ['not_needed', true, true, false, 'only_brokered'],
-            [$i['state'] ?? '', $i['ok'] ?? null, strpos((string) $i['label'], 'noch nicht nötig') !== false, $p['payments_needed'], $p['payments_reason']]);
+        op_eq('nur Vermittlung: undecided, nicht erfüllt, übergehbar, Hinweis (1.38.744)', ['undecided', false, true, true, true, false, 'only_brokered', false],
+            [$i['state'] ?? '', $i['ok'] ?? null, $i['overridable'] ?? null, strpos((string) $i['label'], 'noch nicht entschieden') !== false, strpos((string) $i['hint'], 'anderen Veranstalter') !== false || strpos((string) $i['hint'], 'andere Veranstalter') !== false, $p['payments_needed'], $p['payments_reason'], $p['ok']]);
+        $i = $pay($ready(['payment' => true, 'legal' => true, 'owner' => true, 'homepage' => true, 'payments_needed' => false, 'payment_provider' => false, 'payment_mode' => 'none']));
+        op_eq('nur Vermittlung, aber bewusst keine Zahlungen: none, erfüllt', ['none', true], [$i['state'] ?? '', $i['ok'] ?? null]);
         $i = $pay($ready(['payment' => true, 'legal' => true, 'owner' => true, 'homepage' => true, 'payments_needed' => true, 'payment_provider' => true]));
         op_eq('echter Anbieter: ok', ['ok', true], [$i['state'] ?? '', $i['ok'] ?? null]);
         $i = $pay($ready(['payment' => false, 'legal' => true, 'owner' => true, 'homepage' => true, 'payments_needed' => true, 'payment_provider' => false]));
         op_eq('Anbieter fehlt: missing', ['missing', false], [$i['state'] ?? '', $i['ok'] ?? null]);
         $i = $pay($ready(['payment' => true, 'legal' => true, 'owner' => true, 'homepage' => true, 'payments_needed' => false]));
-        op_eq('ältere Seite ohne payment_provider, nur Vermittlung: not_needed', 'not_needed', $i['state'] ?? '');
+        op_eq('ältere Seite ohne payment_provider, nur Vermittlung: undecided', ['undecided', false], [$i['state'] ?? '', $i['ok'] ?? null]);
         $i = $pay($ready(['payment' => true, 'legal' => true, 'owner' => true, 'homepage' => true]));
         op_eq('ganz alte Seite (nur payment): ok', 'ok', $i['state'] ?? '');
 

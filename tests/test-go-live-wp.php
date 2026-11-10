@@ -47,11 +47,24 @@ if (!$multi) {
             [$s, , $c] = $rest('POST', '/studio/go-live', ['action' => 'live']);
             $eq('Zahlung fehlt: 409 tix_not_ready', [409, 'tix_not_ready'], [$s, $c]);
         } else echo "      (Zahlung hier schon $st – Prüfung „fehlt“ übersprungen)\n";
+        // 1.38.744: nur vermittelte Co-Events = noch nicht entschieden (nicht erfüllt)
+        $brk = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'GL Vermittelt', 'meta_input' => ['_tix_platform_co' => 99001, TIX_Co_Sale::M_SALE => '1', '_tix_date_start' => wp_date('Y-m-d', time() + 30 * DAY_IN_SECONDS)]]);
+        if (!TIX_Co_Sale::payments_needed() && TIX_Studio_Payments::state_of() !== 'ok') {
+            $pi = array_values(array_filter(TIX_Go_Live::checklist()['items'], function ($i) { return $i['key'] === 'payment'; }))[0];
+            $rd = TIX_Owner_Access::readiness();
+            $pp = $rest('GET', '/studio/payments')[1];
+            $eq('Nur Vermittlung: undecided, nicht erfüllt, übergehbar, Hinweis, payments_needed als Info', ['undecided', false, true, true, false],
+                [$pi['state'], $pi['ok'], $pi['overridable'], strpos((string) $pi['hint'], 'andere Veranstalter') !== false, $pi['payments_needed']]);
+            $eq('Startklar: payment false, payment_mode undecided; /studio/payments state + hint', [false, 'undecided', 'undecided', true], [$rd['payment'], $rd['payment_mode'], $pp['state'] ?? '', ($pp['hint'] ?? '') !== '']);
+            [$s, , $c] = $rest('POST', '/studio/go-live', ['action' => 'live']);
+            $eq('Live schalten bei undecided: 409 (Rechtstexte bzw. nicht bereit)', true, $s === 409 && in_array($c, ['tix_not_ready', 'tix_legal_incomplete'], true));
+        } else echo "      (Testseite hat eigene Online-Tickets bzw. Anbieter – undecided übersprungen)\n";
+        wp_delete_post($brk, true);
         [$s, $d] = $rest('POST', '/studio/payments', ['none' => true]);
-        $eq('„Keine Zahlungen anbieten“ gespeichert, Zustand none', [200, true], [$s, in_array(TIX_Studio_Payments::state_of(), ['none', 'ok', 'not_needed'], true)]);
+        $eq('„Keine Zahlungen anbieten“ gespeichert, Zustand none', [200, true], [$s, in_array(TIX_Studio_Payments::state_of(), ['none', 'ok'], true)]);
         $eq('Website: keine Online-Kasse bei „keine Zahlungen“ ohne Anbieter', TIX_Studio_Payments::state_of() === 'none' ? false : true, (bool) (TIX_Site_Config::payload()['features']['checkout'] ?? true));
         $rd = TIX_Owner_Access::readiness();
-        $eq('Startklar an die Plattform: payment true, payment_mode, legal_detail', [true, true, 4], [$rd['payment'], in_array($rd['payment_mode'], ['none', 'ok', 'not_needed'], true), count((array) $rd['legal_detail'])]);
+        $eq('Startklar an die Plattform: payment true, payment_mode, legal_detail', [true, true, 4], [$rd['payment'], in_array($rd['payment_mode'], ['none', 'ok'], true), count((array) $rd['legal_detail'])]);
         // Anfrage
         $GLOBALS['gl_calls'] = [];
         add_filter('pre_http_request', function ($pre, $ar, $url) { if (strpos($url, '/license/go-live') === false) return $pre; $GLOBALS['gl_calls'][] = ['url' => $url, 'body' => $ar['body'], 'headers' => $ar['headers']]; return ['headers' => [], 'body' => '{"ok":true,"status":"pending"}', 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null]; }, 10, 3);

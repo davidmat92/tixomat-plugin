@@ -539,8 +539,8 @@ class TIX_Platform_Customers {
     }
 
     /**
-     * Zahlung ehrlich (1.38.722, Fund KMT): state ok (echter Anbieter) | not_needed (nur vermittelte Verkäufe) | missing | null (nicht gemeldet).
-     * `ok` bleibt wie bisher (true auch bei not_needed), damit „startklar“ nicht an der Vermittlung hängt.
+     * Zahlung ehrlich (1.38.722, Fund KMT): state ok (echter Anbieter) | none (bewusst keine) | undecided (nur vermittelte Verkäufe, noch nicht
+     * entschieden, seit 1.38.744 ok=false) | missing | null (nicht gemeldet).
      */
     private static function payment_item(array $it, array $r) {
         if ($it['ok'] === null) return $it + ['state' => null];
@@ -548,8 +548,9 @@ class TIX_Platform_Customers {
         $provider = array_key_exists('payment_provider', $r) ? (bool) $r['payment_provider'] : ($needed ? (bool) $r['payment'] : false);
         if ($provider) return array_merge($it, ['state' => 'ok', 'hint' => null, 'overridable' => true]);
         if (($r['payment_mode'] ?? '') === 'none') return array_merge($it, ['state' => 'none', 'ok' => true, 'overridable' => true, 'label' => 'Zahlung – bewusst keine (keine Online-Kasse)', 'hint' => 'Der Kunde hat „Keine Zahlungen anbieten“ gewählt.']); // 1.38.742
-        if (!$needed) return array_merge($it, ['state' => 'not_needed', 'label' => 'Zahlung – noch nicht nötig (Verkauf nur über die Vermittlung)',
-            'hint' => 'Sobald eigene Events Online-Tickets haben, braucht die Seite einen Zahlungsanbieter (Studio des Kunden → Einstellungen → Zahlungen).']);
+        // 1.38.744: nur Vermittlung ist nicht mehr erfüllt, sondern „noch nicht entschieden“ (übergehbar mit „trotzdem“) – auch bei älteren Seiten, die not_needed melden
+        if (!$needed) return array_merge($it, ['state' => 'undecided', 'ok' => false, 'overridable' => true, 'label' => 'Zahlung – noch nicht entschieden',
+            'hint' => 'Bisher nur gemeinsame Events – das Geld nimmt der andere Veranstalter ein. Der Kunde richtet einen Zahlungsanbieter ein oder wählt „Keine Zahlungen anbieten“ (Studio → Einstellungen → Zahlungen).']);
         return array_merge($it, ['state' => 'missing', 'ok' => false, 'hint' => 'Kein Zahlungsanbieter eingerichtet (Studio des Kunden → Einstellungen → Zahlungen).']);
     }
 
