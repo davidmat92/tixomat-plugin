@@ -387,7 +387,15 @@ class TIX_Site_Users {
         } else {
             $olds = array_diff(self::owner_ids(0), [$u->ID]);
             update_user_meta($u->ID, '_tix_site_owner', 1);
-            if (!in_array('administrator', (array) $u->roles, true)) self::set_role($u, 'admin'); // Inhaberrechte (tix_organizer)
+            // Inhaberrechte (tix_organizer) – auch für WordPress-Admins dazu (1.38.730, Fund XXL: Seite ohne Inhaber)
+            if (!in_array('administrator', (array) $u->roles, true)) self::set_role($u, 'admin');
+            $u = get_user_by('id', $u->ID);
+            if (!in_array('tix_organizer', (array) $u->roles, true)) $u->add_role('tix_organizer');
+            // Veranstalter-Eintrag der Seite: Inhaber setzen, wo keiner oder der bisherige steht
+            foreach (self::site_organizers() as $po) {
+                $cur = intval(get_post_meta($po, '_tix_org_user_id', true));
+                if (!$cur || in_array($cur, $olds, true) || !get_user_by('id', $cur)) update_post_meta($po, '_tix_org_user_id', $u->ID);
+            }
             foreach ($olds as $oid) {
                 $ou = get_user_by('id', $oid);
                 if (!$ou) continue;
@@ -398,7 +406,16 @@ class TIX_Site_Users {
         }
         if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
         self::audit('owner_set', $u, $org, $by, ['old' => $old_mode]);
-        return ['ok' => true, 'owner' => self::row(get_user_by('id', $u->ID), $org), 'users' => self::members($org)];
+        return ['ok' => true, 'owner' => self::row(get_user_by('id', $u->ID), $org), 'users' => self::members($org), 'has_owner' => true];
+    }
+
+    /** Veranstalter-Einträge einer Kunden-Seite (Umzugs-Zuordnung bzw. alle veröffentlichten), höchstens 5. */
+    private static function site_organizers() {
+        $ids = [];
+        $map = class_exists('TIX_Site_Move') ? (array) get_option(TIX_Site_Move::OPT_MAP, []) : [];
+        if (!empty($map['organizer'])) $ids[] = intval($map['organizer']);
+        foreach (get_posts(['post_type' => 'tix_organizer', 'post_status' => ['publish', 'draft', 'pending', 'private'], 'posts_per_page' => 5, 'fields' => 'ids', 'orderby' => 'ID', 'order' => 'ASC']) as $id) $ids[] = intval($id);
+        return array_values(array_unique(array_filter($ids, function ($id) { return get_post_type($id) === 'tix_organizer'; })));
     }
 
     /** → {ok, …} | WP_Error */
@@ -408,7 +425,10 @@ class TIX_Site_Users {
         if ($action === 'list') {
             $counts = [];
             $users = self::members($org, filter_var($a['customers'] ?? false, FILTER_VALIDATE_BOOLEAN), $counts);
-            return ['ok' => true, 'users' => $users, 'roles' => self::roles(), 'counts' => $counts, 'customers_included' => filter_var($a['customers'] ?? false, FILTER_VALIDATE_BOOLEAN)];
+            $has = (bool) self::owner_ids($org);
+            // has_owner/owner_missing (1.38.730): ohne Inhaber zeigt die Akte „Zum Inhaber machen“ statt „Inhaberschaft wechseln“
+            return ['ok' => true, 'users' => $users, 'roles' => self::roles(), 'counts' => $counts, 'customers_included' => filter_var($a['customers'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'has_owner' => $has, 'owner_missing' => !$has];
         }
         if ($action === 'delete' || $action === 'transfer_owner') return self::exec_owner_delete($action, $a, $org, $by);
 

@@ -5492,3 +5492,15 @@ Auftrag `uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md` (Feldnamen von marke
 - **Übernahme:** Bei der Übernahme gehen die Werte nicht mit, weil die Vorschau zu einem evendis-Veranstalter wird, nicht zu einer eigenen Website.
 - `TIX_Website::layout($w, $tpl, $brand)` ist dafür öffentlich.
 - **Test:** `test-preview-layout-wp` (Plattform 7).
+
+## 137. Zum Inhaber machen ohne bisherigen Inhaber (ab 1.38.730)
+- **Liste** `GET …/users` → zusätzlich `has_owner` / `owner_missing`.
+  - Ohne Inhaber zeigt die Akte „Zum Inhaber machen“ statt „Inhaberschaft wechseln“.
+  - Dieselbe Route `POST …/users/{id}/owner`, `old` wird dann nicht gebraucht.
+- **„Zum Inhaber machen“ setzt alles, was ein Inhaber braucht:**
+  - `_tix_site_owner`, damit Startklar „Zugang für den Inhaber“ ✓ zeigt.
+  - Die Rolle `tix_organizer` (Studio-Inhaberrechte), auch bei WordPress-Admins zusätzlich; die WordPress-Rolle bleibt.
+  - `_tix_org_user_id` an den Veranstalter-Einträgen der Seite: Umzugs-Zuordnung bzw. die ersten 5, wo keiner, ein gelöschter oder der bisherige Inhaber steht.
+- **`can_become_owner`:** wie bisher für alle Konten außer dem technischen Betreiber-Konto und dem Inhaber, also auch für WordPress-Admins und Kundenkonten.
+- **Antwort:** zusätzlich `has_owner: true`.
+- **Test:** `test-site-users-wp` (Kunden-Seite 22, Plattform 26).

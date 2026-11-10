@@ -174,6 +174,23 @@ if ($multi) {
         su_eq('Wechsel mit old=remove: alter Inhaber ohne App-Rolle', [200, true, false], [$s, intval(get_user_meta($u2, '_tix_site_owner', true)) === 1, in_array('tix_organizer', (array) get_userdata($max)->roles, true)]);
         su_eq('Technisches Konto kann nicht Inhaber werden', 400, (function () use ($call) { $op = class_exists('TIX_Operator_Access') ? TIX_Operator_Access::account() : 0; $r = $op ? $call('transfer_owner', ['id' => $op]) : [400]; if ($op) { require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($op); } return $r[0]; })());
 
+
+        // ── 1.38.730 (Fund XXL): Seite ohne Inhaber – WordPress-Admin „Zum Inhaber machen“ ohne alten Inhaber
+        $owner_bak = array_map('intval', get_users(['meta_key' => '_tix_site_owner', 'meta_value' => '1', 'fields' => 'ID', 'number' => 0]));
+        foreach ($owner_bak as $x) delete_user_meta($x, '_tix_site_owner');
+        $xadm = wp_insert_user(['user_login' => "sut_xadm$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_xadm$sfx@example.test", 'role' => 'administrator']); $users[] = $xadm;
+        $xorg = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "SUT Veranstalter $sfx"]);
+        [$s, $d] = $call('list', []);
+        $byid = array_column((array) ($d['users'] ?? []), null, 'id');
+        su_eq('Ohne Inhaber: owner_missing, WordPress-Admin kann Inhaber werden', [true, false, 'wp_admin', true], [$d['owner_missing'] ?? null, $d['has_owner'] ?? null, $byid[$xadm]['kind'] ?? '', $byid[$xadm]['can_become_owner'] ?? null]);
+        [$s, $d] = $call('transfer_owner', ['id' => $xadm]);
+        su_eq('Zum Inhaber machen ohne alten Inhaber: Inhaber, Rolle tix_organizer, bleibt WP-Admin, Veranstalter-Eintrag', [200, true, true, true, $xadm, true],
+            [$s, intval(get_user_meta($xadm, '_tix_site_owner', true)) === 1, in_array('tix_organizer', (array) get_userdata($xadm)->roles, true), in_array('administrator', (array) get_userdata($xadm)->roles, true), intval(get_post_meta($xorg, '_tix_org_user_id', true)), $d['has_owner'] ?? null]);
+        su_eq('Startklar „Zugang für den Inhaber“', true, class_exists('TIX_Owner_Access') ? TIX_Owner_Access::has_owner() : true);
+        delete_user_meta($xadm, '_tix_site_owner');
+        foreach ($owner_bak as $x) if (get_userdata($x)) update_user_meta($x, '_tix_site_owner', 1);
+        wp_delete_post($xorg, true);
+
         update_option('tix_license_server', '1', false);
         su_eq('Seite ohne Lizenz-Betrieb (selbst Lizenz-Server) 404', 404, $call('list', [])[0]);
     } finally {
