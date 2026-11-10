@@ -5504,3 +5504,30 @@ Auftrag `uebergaben/auftrag-kopf-fuss-farben-2026-11-10.md` (Feldnamen von marke
 - **`can_become_owner`:** wie bisher für alle Konten außer dem technischen Betreiber-Konto und dem Inhaber, also auch für WordPress-Admins und Kundenkonten.
 - **Antwort:** zusätzlich `has_owner: true`.
 - **Test:** `test-site-users-wp` (Kunden-Seite 22, Plattform 26).
+
+## 138. Inhaber = WordPress-Admin, technische Konten, Aufräumen (ab 1.38.731)
+**Kontoarten** (`kind`): `owner` | `team` | `technical` | `customer`. `wp_admin` entfällt, ebenso `role: admin_wp`.
+- **`owner`:** Der Inhaber hat die WordPress-Rolle `administrator` plus `tix_organizer` und `_tix_site_owner`.
+- **`technical`:** Konten von evendis, `technical_reason` nennt den Grund:
+  - das Betreiber-Konto (`operator`)
+  - als technisch markierte Konten (`marked`, Meta `_tix_technical`)
+  - Logins `evendis-…` (`login`)
+  - Adressen `@evendis.de` (`email`)
+  - Nicht über die Akte löschbar (409 `tix_user_technical`), nie Inhaber (400). Sie behalten ihre Rollen.
+- **Weitere WordPress-Admins**, die weder Inhaber noch technisch sind, erscheinen als `team` mit `role: admin` und `wp_administrator: true`.
+  - Bis zum Aufräumen sind sie `editable/removable: false`.
+  - Löschen und „Zum Inhaber machen“ gehen.
+
+**Zum Inhaber machen / Inhaberschaft wechseln:** `POST …/users/{id}/owner {old?}`
+- Das neue Konto wird `administrator` + `tix_organizer` + Inhaber; die Veranstalter-Einträge bekommen `_tix_org_user_id`.
+- **Der alte Inhaber verliert `administrator`.** Mit `old: 'admin'` (Vorgabe) wird er Team-Admin (`tix_organizer`), mit `old: 'remove'` verliert er alle App-Rollen und Sitzungen. Technische Konten bleiben unberührt.
+- **Danach wird automatisch aufgeräumt:** Alle weiteren WordPress-Admins, die nicht technisch sind, werden Team-Admin.
+
+**Neue Routen**
+- `POST /platform/customers/{key}/users/cleanup` → `{ok, changed: [Logins], users}`: weitere WordPress-Admins werden Team-Admin. Ohne Inhaber 409 `tix_owner_missing`.
+- `POST /platform/customers/{key}/users/{id}/technical {technical: true|false}` → `{ok, user}`: als technisch markieren bzw. die Markierung entfernen. Nicht für den Inhaber (409).
+- WP-CLI auf der Kunden-Seite: `wp tixomat zugang technisch <login|email|id> [--aus]`, `wp tixomat zugang liste`.
+
+**Protokoll beim Kunden:** `admin_to_team`, `user_technical`, `user_untechnical`, `owner_set`, `owner_removed`.
+
+- **Tests:** `test-site-users-wp` (Kunden-Seite 29, Plattform 26).

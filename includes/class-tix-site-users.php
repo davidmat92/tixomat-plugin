@@ -25,6 +25,37 @@ class TIX_Site_Users {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat zugang', [__CLASS__, 'cli']);
+    }
+
+    const META_TECH = '_tix_technical'; // technisches Konto von evendis (1.38.731): nicht löschbar über die Akte, nie Inhaber
+
+    /**
+     * Technisches Konto (1.38.731, User: „Inhaber = WordPress-Admin“): Betreiber-Konto, markierte Konten (`_tix_technical`),
+     * Logins `evendis-…` und Adressen @evendis.de.
+     */
+    public static function is_technical(WP_User $u) {
+        if (get_user_meta($u->ID, '_tix_operator', true) === '1' || get_user_meta($u->ID, self::META_TECH, true) === '1') return true;
+        if (strpos(strtolower((string) $u->user_login), 'evendis-') === 0) return true;
+        return (bool) preg_match('/@(?:[a-z0-9-]+\.)?evendis\.de$/i', (string) $u->user_email);
+    }
+
+    /**
+     * wp tixomat zugang technisch <login|email|id> [--aus]   Konto als technisch (evendis) markieren bzw. die Markierung entfernen
+     * wp tixomat zugang liste                                Konten wie in der Kunden-Akte
+     */
+    public static function cli($args, $assoc) {
+        $do = $args[0] ?? 'liste';
+        if ($do === 'technisch') {
+            $k = (string) ($args[1] ?? '');
+            $u = ctype_digit($k) ? get_user_by('id', intval($k)) : (get_user_by('login', $k) ?: get_user_by('email', $k));
+            if (!$u) WP_CLI::error('Konto nicht gefunden.');
+            if (!empty($assoc['aus'])) delete_user_meta($u->ID, self::META_TECH); else update_user_meta($u->ID, self::META_TECH, '1');
+            WP_CLI::success($u->user_login . ': ' . (self::is_technical(get_user_by('id', $u->ID)) ? 'technisch' : 'nicht technisch'));
+            return;
+        }
+        $r = self::exec('list', [], 0, ['name' => 'WP-CLI', 'email' => '']);
+        foreach ((array) ($r['users'] ?? []) as $x) WP_CLI::line(sprintf('%-6d %-28s %-10s %-12s %s', $x['id'], $x['login'], $x['kind'], (string) $x['role'], implode(',', $x['wp_roles'])));
     }
 
     private static function multi() {
@@ -45,6 +76,8 @@ class TIX_Site_Users {
             ]);
             register_rest_route(self::NS, $k . '/(?P<id>\d+)/password', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p);
             register_rest_route(self::NS, $k . '/(?P<id>\d+)/owner', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // Inhaberschaft wechseln (1.38.727)
+            register_rest_route(self::NS, $k . '/(?P<id>\d+)/technical', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // als technisch markieren (1.38.731)
+            register_rest_route(self::NS, $k . '/cleanup', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // weitere WP-Admins → Team (1.38.731)
         }
         register_rest_route(self::NS, '/site/users', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_site'], 'permission_callback' => '__return_true']);
     }
@@ -55,7 +88,9 @@ class TIX_Site_Users {
     private static function action_of(WP_REST_Request $req) {
         $m = $req->get_method();
         $id = absint($req['id'] ?? 0);
+        if (!$id && preg_match('#/cleanup$#', $req->get_route())) return 'cleanup';
         if (!$id) return $m === 'GET' ? 'list' : 'create';
+        if (preg_match('#/technical$#', $req->get_route())) return 'technical';
         if (preg_match('#/password$#', $req->get_route())) return 'password';
         if (preg_match('#/owner$#', $req->get_route())) return 'transfer_owner';
         // DELETE …?delete=1 bzw. {delete: true} = Konto löschen (1.38.727); ohne = nur aus dem Team (Rolle weg)
@@ -74,7 +109,7 @@ class TIX_Site_Users {
     private static function args_of(WP_REST_Request $req) {
         $b = $req->get_json_params();
         $b = is_array($b) ? $b : (array) $req->get_body_params();
-        $a = array_intersect_key($b, array_flip(['name', 'login', 'email', 'role', 'password_mode', 'mode', 'password', 'reassign', 'old']));
+        $a = array_intersect_key($b, array_flip(['name', 'login', 'email', 'role', 'password_mode', 'mode', 'password', 'reassign', 'old', 'technical']));
         foreach (['customers', 'reassign', 'old'] as $qk) if (!array_key_exists($qk, $a) && $req->get_param($qk) !== null && !is_array($req->get_param($qk))) $a[$qk] = $req->get_param($qk); // auch als Query (1.38.727)
         // Form des Studios: {invite: true} bzw. {password} statt password_mode/mode
         $inv = filter_var($b['invite'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -214,13 +249,21 @@ class TIX_Site_Users {
         return $t ? gmdate('c', $t) : null;
     }
 
-    /** Art eines Kontos (1.38.727): owner | team | wp_admin | technical | customer */
+    /** Art eines Kontos: owner | team | technical | customer (wp_admin entfällt seit 1.38.731) */
     private static function kind(WP_User $u, $org) {
-        if (get_user_meta($u->ID, '_tix_operator', true) === '1') return 'technical';
         if (self::is_owner($u, $org)) return 'owner';
-        if (!$org && in_array('administrator', (array) $u->roles, true)) return 'wp_admin';
+        if (!$org && self::is_technical($u)) return 'technical';
+        if ($org && get_user_meta($u->ID, '_tix_operator', true) === '1') return 'technical';
+        // weitere WordPress-Admins (1.38.731): Team (Rolle admin), bis sie aufgeräumt sind (wp_administrator: true)
+        if (!$org && in_array('administrator', (array) $u->roles, true)) return 'team';
         if (self::role_key($u) || ($org && intval(get_user_meta($u->ID, TIX_App_Scope::META_TEAM_ORG, true)) === $org)) return 'team';
         return 'customer';
+    }
+
+    private static function tech_reason(WP_User $u) {
+        if (get_user_meta($u->ID, '_tix_operator', true) === '1') return 'operator';
+        if (get_user_meta($u->ID, self::META_TECH, true) === '1') return 'marked';
+        return strpos(strtolower((string) $u->user_login), 'evendis-') === 0 ? 'login' : 'email';
     }
 
     /** Inhaber der Seite bzw. des Veranstalters (IDs) */
@@ -233,13 +276,16 @@ class TIX_Site_Users {
         $kind = self::kind($u, $org);
         $owner = $kind === 'owner';
         $inv = class_exists('TIX_Team') ? intval(get_user_meta($u->ID, TIX_Team::META_INVITE, true)) : 0;
-        $labels = ['owner' => 'Inhaber', 'wp_admin' => 'WordPress-Admin', 'technical' => 'evendis Betreiber (technisch)', 'customer' => 'Kundenkonto'];
-        $role = $owner ? 'owner' : ($kind === 'wp_admin' ? 'admin_wp' : ($kind === 'technical' ? 'operator' : ($kind === 'customer' ? 'customer' : self::role_key($u))));
+        $labels = ['owner' => 'Inhaber', 'technical' => 'evendis (technisch)', 'customer' => 'Kundenkonto'];
+        $wpadm = in_array('administrator', (array) $u->roles, true);
+        $role = $owner ? 'owner' : ($kind === 'technical' ? 'technical' : ($kind === 'customer' ? 'customer' : (self::role_key($u) ?: ($wpadm ? 'admin' : null))));
         $del = self::delete_block($u, $org);
         return ['id' => $u->ID, 'name' => html_entity_decode((string) ($u->display_name ?: $u->user_login), ENT_QUOTES, 'UTF-8'), 'login' => (string) $u->user_login,
             'email' => self::is_fallback($u->user_email) ? null : (string) $u->user_email, 'email_placeholder' => self::is_fallback($u->user_email),
-            'role' => $role, 'role_label' => $labels[$kind] ?? self::label(self::role_key($u)), 'kind' => $kind, 'wp_roles' => array_values((array) $u->roles),
-            'owner' => $owner, 'editable' => $kind === 'team', 'removable' => $kind === 'team',
+            'role' => $role, 'role_label' => $labels[$kind] ?? self::label($role), 'kind' => $kind, 'wp_roles' => array_values((array) $u->roles),
+            // weiterer WordPress-Admin ohne Inhaberschaft (1.38.731): wird beim Inhaberwechsel bzw. „Aufräumen“ zur Team-Rolle
+            'wp_administrator' => $wpadm && $kind === 'team', 'technical_reason' => $kind === 'technical' ? self::tech_reason($u) : null,
+            'owner' => $owner, 'editable' => $kind === 'team' && !$wpadm, 'removable' => $kind === 'team' && !$wpadm,
             // 1.38.727: Konto löschen (mit Übertragung der Inhalte) und Inhaber werden
             'deletable' => $del === null, 'delete_hint' => $del, 'can_become_owner' => !$owner && $kind !== 'technical' && ($org ? $kind === 'team' : true),
             'last_login' => self::last_login($u), 'invite_pending' => $inv > 0, 'created_by_platform' => (bool) get_user_meta($u->ID, self::META_BY, true)];
@@ -251,7 +297,7 @@ class TIX_Site_Users {
      */
     private static function members($org, $customers = false, &$counts = null) {
         $out = []; $seen = [];
-        $counts = ['owner' => 0, 'wp_admin' => 0, 'team' => 0, 'technical' => 0, 'customer' => 0];
+        $counts = ['owner' => 0, 'team' => 0, 'technical' => 0, 'customer' => 0];
         if ($org) {
             $oid = intval(get_post_meta($org, '_tix_org_user_id', true));
             if ($oid && ($o = get_user_by('id', $oid))) { $out[] = self::row($o, $org); $seen[$oid] = 1; $counts['owner']++; }
@@ -274,7 +320,7 @@ class TIX_Site_Users {
                 foreach (get_users(['exclude' => array_keys($seen), 'number' => 200, 'orderby' => 'registered', 'order' => 'DESC']) as $u) $out[] = self::row($u, 0);
             }
         }
-        $order = ['owner' => 0, 'wp_admin' => 1, 'team' => 2, 'technical' => 3, 'customer' => 4];
+        $order = ['owner' => 0, 'team' => 2, 'technical' => 3, 'customer' => 4];
         usort($out, function ($a, $b) use ($order) { return (($order[$a['kind']] ?? 9) <=> ($order[$b['kind']] ?? 9)) ?: strcasecmp($a['name'], $b['name']); });
         return $out;
     }
@@ -282,6 +328,7 @@ class TIX_Site_Users {
     /** Warum ein Konto nicht gelöscht werden darf (Text) bzw. null. */
     private static function delete_block(WP_User $u, $org) {
         if ($org) return 'Auf evendis werden Konten nicht gelöscht – nur aus dem Team entfernt bzw. die Inhaberschaft gewechselt.';
+        if (self::is_technical($u)) return 'Technisches Konto von evendis – nicht über die Akte löschbar.';
         if (self::is_owner($u, 0) && count(array_diff(self::owner_ids(0), [$u->ID])) === 0) return 'Erst die Inhaberschaft an ein anderes Konto übergeben.';
         if (in_array('administrator', (array) $u->roles, true) && count(get_users(['role' => 'administrator', 'fields' => 'ID', 'exclude' => [$u->ID], 'number' => 1])) === 0) return 'Das ist der letzte WordPress-Admin der Seite.';
         return null;
@@ -354,6 +401,7 @@ class TIX_Site_Users {
 
         if ($action === 'delete') {
             if ($org) return self::bad('tix_users_delete_platform', 'Auf evendis werden Konten nicht gelöscht – nur aus dem Team entfernt bzw. die Inhaberschaft gewechselt.', 409);
+            if (self::is_technical($u)) return self::bad('tix_user_technical', 'Technisches Konto von evendis – nicht über die Akte löschbar.', 409);
             if (self::is_owner($u, 0) && !array_diff(self::owner_ids(0), [$u->ID])) return self::bad('tix_last_owner', 'Erst die Inhaberschaft an ein anderes Konto übergeben – die Seite braucht immer einen Inhaber.', 409);
             if (in_array('administrator', (array) $u->roles, true) && !get_users(['role' => 'administrator', 'fields' => 'ID', 'exclude' => [$u->ID], 'number' => 1])) return self::bad('tix_last_admin', 'Das ist der letzte WordPress-Admin der Seite.', 409);
             $re = intval($a['reassign'] ?? 0);
@@ -387,10 +435,10 @@ class TIX_Site_Users {
         } else {
             $olds = array_diff(self::owner_ids(0), [$u->ID]);
             update_user_meta($u->ID, '_tix_site_owner', 1);
-            // Inhaberrechte (tix_organizer) – auch für WordPress-Admins dazu (1.38.730, Fund XXL: Seite ohne Inhaber)
-            if (!in_array('administrator', (array) $u->roles, true)) self::set_role($u, 'admin');
+            // Inhaber = WordPress-Admin (1.38.731, User) plus Inhaberrechte tix_organizer
+            self::set_role($u, 'admin');
             $u = get_user_by('id', $u->ID);
-            if (!in_array('tix_organizer', (array) $u->roles, true)) $u->add_role('tix_organizer');
+            if (!in_array('administrator', (array) $u->roles, true)) $u->add_role('administrator');
             // Veranstalter-Eintrag der Seite: Inhaber setzen, wo keiner oder der bisherige steht
             foreach (self::site_organizers() as $po) {
                 $cur = intval(get_post_meta($po, '_tix_org_user_id', true));
@@ -400,13 +448,30 @@ class TIX_Site_Users {
                 $ou = get_user_by('id', $oid);
                 if (!$ou) continue;
                 delete_user_meta($oid, '_tix_site_owner');
-                if ($old_mode === 'remove') { if (!in_array('administrator', (array) $ou->roles, true)) self::set_role($ou, 'none'); self::end_sessions($oid); }
+                // alter Inhaber verliert WordPress-Admin: admin = Team-Admin (tix_organizer), remove = keine Rolle (1.38.731)
+                if (!self::is_technical($ou)) { $ou->remove_role('administrator'); self::set_role(get_user_by('id', $oid), $old_mode === 'remove' ? 'none' : 'admin'); }
+                if ($old_mode === 'remove') self::end_sessions($oid);
                 self::audit('owner_removed', $ou, 0, $by, ['mode' => $old_mode, 'new' => $u->ID]);
             }
         }
+        if (!$org) self::cleanup_admins($by); // weitere WordPress-Admins (nicht technisch) → Team-Admin
         if (class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'flush_public_cache')) TIX_App_Scope::flush_public_cache();
         self::audit('owner_set', $u, $org, $by, ['old' => $old_mode]);
         return ['ok' => true, 'owner' => self::row(get_user_by('id', $u->ID), $org), 'users' => self::members($org), 'has_owner' => true];
+    }
+
+    /** Aufräumen (1.38.731): WordPress-Admins, die weder Inhaber noch technisch sind, werden Team-Admin (tix_organizer). → Logins */
+    public static function cleanup_admins(array $by) {
+        $done = [];
+        if (!self::owner_ids(0)) return $done; // nie ohne Inhaber-Admin aufräumen
+        foreach (get_users(['role' => 'administrator', 'number' => 0]) as $x) {
+            if (self::is_owner($x, 0) || self::is_technical($x)) continue;
+            $x->remove_role('administrator');
+            self::set_role(get_user_by('id', $x->ID), 'admin');
+            self::audit('admin_to_team', $x, 0, $by);
+            $done[] = $x->user_login;
+        }
+        return $done;
     }
 
     /** Veranstalter-Einträge einer Kunden-Seite (Umzugs-Zuordnung bzw. alle veröffentlichten), höchstens 5. */
@@ -431,6 +496,21 @@ class TIX_Site_Users {
                 'has_owner' => $has, 'owner_missing' => !$has];
         }
         if ($action === 'delete' || $action === 'transfer_owner') return self::exec_owner_delete($action, $a, $org, $by);
+        if ($action === 'cleanup') {
+            if ($org) return self::bad('tix_invalid_field', 'Nur für Kunden-Seiten.', 400);
+            if (!self::owner_ids(0)) return self::bad('tix_owner_missing', 'Erst einen Inhaber bestimmen.', 409);
+            return ['ok' => true, 'changed' => self::cleanup_admins($by), 'users' => self::members(0)];
+        }
+        if ($action === 'technical') {
+            if ($org) return self::bad('tix_invalid_field', 'Nur für Kunden-Seiten.', 400);
+            $u = get_user_by('id', intval($a['id'] ?? 0));
+            if (!$u) return self::bad('tix_no_user', 'Konto nicht gefunden.', 404);
+            if (self::is_owner($u, 0)) return self::bad('tix_is_owner', 'Der Inhaber kann nicht technisch sein.', 409);
+            $on = filter_var($a['technical'] ?? true, FILTER_VALIDATE_BOOLEAN);
+            if ($on) update_user_meta($u->ID, self::META_TECH, '1'); else delete_user_meta($u->ID, self::META_TECH);
+            self::audit($on ? 'user_technical' : 'user_untechnical', $u, 0, $by);
+            return ['ok' => true, 'user' => self::row(get_user_by('id', $u->ID), 0)];
+        }
 
         if ($action === 'create') {
             $role = sanitize_key((string) ($a['role'] ?? ''));

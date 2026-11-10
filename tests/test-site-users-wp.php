@@ -128,6 +128,8 @@ if ($multi) {
         $raw = wp_json_encode(['action' => $action, 'args' => $args ?: new stdClass(), 'by' => ['name' => 'Pat', 'email' => 'pat@evendis.test'], 'ts' => $ts ?? time(), 'nonce' => $nonce ?? wp_generate_password(20, false)]);
         return su_rest('POST', '/site/users', [], ['X-Tix-Signature' => TIX_Site_Users::sign($raw, $host, $sigkey ?? $key)], $raw);
     };
+    $tech_bak = [];
+    foreach (get_users(['role' => 'administrator', 'fields' => 'ID', 'number' => 0]) as $x) { if (get_user_meta($x, TIX_Site_Users::META_TECH, true) !== '1') { update_user_meta($x, TIX_Site_Users::META_TECH, '1'); $tech_bak[] = intval($x); } }
     try {
         wp_set_current_user(0);
         $own = wp_insert_user(['user_login' => "sut_inh$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_inh$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $own;
@@ -138,7 +140,7 @@ if ($multi) {
         [$s, $d] = $call('list', []);
         $byid = array_column((array) ($d['users'] ?? []), null, 'id');
         $adm1 = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0]);
-        su_eq('Liste: Inhaber nicht entfernbar, Eva mit Login, WordPress-Admin gekennzeichnet (1.38.727)', [true, false, "sut_eva$sfx", 'wp_admin'], [$byid[$own]['owner'] ?? null, $byid[$own]['removable'] ?? null, $byid[$eva]['login'] ?? '', $byid[$adm1]['kind'] ?? '']);
+        su_eq('Liste: Inhaber nicht entfernbar, Eva mit Login, unser Admin technisch (1.38.731)', [true, false, "sut_eva$sfx", 'technical', false], [$byid[$own]['owner'] ?? null, $byid[$own]['removable'] ?? null, $byid[$eva]['login'] ?? '', $byid[$adm1]['kind'] ?? '', $byid[$adm1]['deletable'] ?? null]);
         su_eq('falscher Schlüssel 401', 401, $call('list', [], 'TIX-FALSCH-1')[0]);
         su_eq('alte Anfrage 401', 401, $call('list', [], null, time() - 600)[0]);
         $nonce = 'fest' . $sfx;
@@ -167,7 +169,7 @@ if ($multi) {
         su_eq('Alter Inhaber gelöscht, Beitrag an den neuen Inhaber', [200, true, $max, $max], [$s, $d['deleted'] ?? null, $d['reassigned_to'] ?? 0, intval(get_post_field('post_author', $post))]);
         wp_delete_post($post, true);
         su_eq('Neuer Inhaber ist jetzt der einzige: nicht löschbar', 409, $call('delete', ['id' => $max])[0]);
-        su_eq('Letzter WordPress-Admin nicht löschbar', [409, true], (function ($r) use ($adm1) { return [$r[0], in_array($r[2], ['tix_last_admin', 'tix_last_owner'], true)]; })(count(get_users(['role' => 'administrator', 'fields' => 'ID'])) === 1 ? $call('delete', ['id' => $adm1]) : [409, [], 'tix_last_admin']));
+        su_eq('Technisches Konto (unser Admin) nicht löschbar', [409, true], (function ($r) use ($adm1) { return [$r[0], in_array($r[2], ['tix_last_admin', 'tix_last_owner', 'tix_user_technical'], true)]; })($call('delete', ['id' => $adm1])));
         su_eq('Kundenkonto löschen', [200, true, false], (function ($r) use ($kunde) { return [$r[0], $r[1]['deleted'] ?? null, (bool) get_userdata($kunde)]; })($call('delete', ['id' => $kunde])));
         $u2 = wp_insert_user(['user_login' => "sut_neu$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_neu$sfx@example.test", 'role' => 'tix_entrance']); $users[] = $u2;
         [$s] = $call('transfer_owner', ['id' => $u2, 'old' => 'remove']);
@@ -182,11 +184,29 @@ if ($multi) {
         $xorg = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => "SUT Veranstalter $sfx"]);
         [$s, $d] = $call('list', []);
         $byid = array_column((array) ($d['users'] ?? []), null, 'id');
-        su_eq('Ohne Inhaber: owner_missing, WordPress-Admin kann Inhaber werden', [true, false, 'wp_admin', true], [$d['owner_missing'] ?? null, $d['has_owner'] ?? null, $byid[$xadm]['kind'] ?? '', $byid[$xadm]['can_become_owner'] ?? null]);
+        su_eq('Ohne Inhaber: owner_missing, weiterer WP-Admin als Team (wp_administrator), kann Inhaber werden', [true, false, 'team', true, true], [$d['owner_missing'] ?? null, $d['has_owner'] ?? null, $byid[$xadm]['kind'] ?? '', $byid[$xadm]['wp_administrator'] ?? null, $byid[$xadm]['can_become_owner'] ?? null]);
         [$s, $d] = $call('transfer_owner', ['id' => $xadm]);
         su_eq('Zum Inhaber machen ohne alten Inhaber: Inhaber, Rolle tix_organizer, bleibt WP-Admin, Veranstalter-Eintrag', [200, true, true, true, $xadm, true],
             [$s, intval(get_user_meta($xadm, '_tix_site_owner', true)) === 1, in_array('tix_organizer', (array) get_userdata($xadm)->roles, true), in_array('administrator', (array) get_userdata($xadm)->roles, true), intval(get_post_meta($xorg, '_tix_org_user_id', true)), $d['has_owner'] ?? null]);
         su_eq('Startklar „Zugang für den Inhaber“', true, class_exists('TIX_Owner_Access') ? TIX_Owner_Access::has_owner() : true);
+        // 1.38.731: Inhaber = WP-Admin; Wechsel entzieht dem alten den WP-Admin; weitere WP-Admins → Team; technische bleiben
+        $yadm = wp_insert_user(['user_login' => "sut_yadm$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_yadm$sfx@example.test", 'role' => 'administrator']); $users[] = $yadm;
+        $tech = wp_insert_user(['user_login' => "evendis-sut$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_t$sfx@example.test", 'role' => 'administrator']); $users[] = $tech;
+        $nown = wp_insert_user(['user_login' => "sut_nown$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_nown$sfx@example.test", 'role' => 'tix_entrance']); $users[] = $nown;
+        [$s, $d] = $call('transfer_owner', ['id' => $nown, 'old' => 'admin']);
+        $r = function ($id) { return array_values((array) get_userdata($id)->roles); };
+        su_eq('Neuer Inhaber: administrator + tix_organizer', [200, true, true], [$s, in_array('administrator', $r($nown), true), in_array('tix_organizer', $r($nown), true)]);
+        su_eq('Alter Inhaber: kein WP-Admin mehr, Team-Admin', [false, true, ''], [in_array('administrator', $r($xadm), true), in_array('tix_organizer', $r($xadm), true), (string) get_user_meta($xadm, '_tix_site_owner', true)]);
+        su_eq('Weiterer WP-Admin aufgeräumt → Team-Admin; technisches Konto (evendis-…) bleibt Admin', [false, true, true], [in_array('administrator', $r($yadm), true), in_array('tix_organizer', $r($yadm), true), in_array('administrator', $r($tech), true)]);
+        $byid = array_column((array) ($d['users'] ?? []), null, 'id');
+        su_eq('Liste: technisch (login), kein wp_admin mehr', ['technical', 'login', false], [$byid[$tech]['kind'] ?? '', $byid[$tech]['technical_reason'] ?? '', in_array('wp_admin', array_column((array) ($d['users'] ?? []), 'kind'), true)]);
+        su_eq('Technisches Konto: nicht löschbar, nicht Inhaber', [409, 400], [$call('delete', ['id' => $tech])[0], $call('transfer_owner', ['id' => $tech])[0]]);
+        [$s, $d] = $call('technical', ['id' => $yadm, 'technical' => true]);
+        su_eq('Als technisch markieren', [200, 'technical', 'marked'], [$s, $d['user']['kind'] ?? '', $d['user']['technical_reason'] ?? '']);
+        $zadm = wp_insert_user(['user_login' => "sut_zadm$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_zadm$sfx@example.test", 'role' => 'administrator']); $users[] = $zadm;
+        [$s, $d] = $call('cleanup', []);
+        su_eq('Aufräumen: weiterer WP-Admin → Team', [200, ["sut_zadm$sfx"]], [$s, $d['changed'] ?? []]);
+        delete_user_meta($nown, '_tix_site_owner');
         delete_user_meta($xadm, '_tix_site_owner');
         foreach ($owner_bak as $x) if (get_userdata($x)) update_user_meta($x, '_tix_site_owner', 1);
         wp_delete_post($xorg, true);
@@ -194,6 +214,7 @@ if ($multi) {
         update_option('tix_license_server', '1', false);
         su_eq('Seite ohne Lizenz-Betrieb (selbst Lizenz-Server) 404', 404, $call('list', [])[0]);
     } finally {
+        foreach ($tech_bak as $x) delete_user_meta($x, TIX_Site_Users::META_TECH);
         foreach ($keep as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v, false); }
         $cleanup_users();
         wp_set_current_user(0);
