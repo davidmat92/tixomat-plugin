@@ -87,7 +87,9 @@ class TIX_License {
         $prev = self::status();
         $before = class_exists('TIX_License_Stage') ? TIX_License_Stage::stage() : null;
         try {
-            return self::check_inner($key, $prev);
+            $st = self::check_inner($key, $prev);
+            if (class_exists('TIX_Website') && method_exists('TIX_Website', 'sync_license')) TIX_Website::sync_license(is_array($st) ? $st : []); // Paket website folgt der Lizenz (1.38.720)
+            return $st;
         } finally {
             if (class_exists('TIX_License_Stage')) TIX_License_Stage::changed($before);
         }

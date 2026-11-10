@@ -109,6 +109,37 @@ class TIX_Website {
         update_option(self::OPT_ENABLED, $on ? '1' : '0', false);
     }
 
+    const OPT_LIC_STATE = 'tix_website_license_state'; // zuletzt übernommener Lizenz-Stand: on|off (1.38.720)
+
+    /**
+     * Was sagt die Lizenz zum Paket website? on | off | all (alle Module, auch Listen vor dem Modul-Verkauf) | null (keine Angabe).
+     * Nur signierte Modul-Listen zählen (TIX_License::check übernimmt `modules` nur mit gültiger Signatur).
+     */
+    public static function license_state(array $status) {
+        if (empty($status['valid']) || !array_key_exists('modules', $status)) return null;
+        if (!is_array($status['modules']) || intval($status['modules_v'] ?? 1) < (class_exists('TIX_Modules') ? TIX_Modules::VERSION : 2)) return 'all';
+        return in_array('website', array_map('sanitize_key', $status['modules']), true) ? 'on' : 'off';
+    }
+
+    /**
+     * Lizenz-Abgleich (1.38.720, Fund KMT): Schaltet die Plattform das Paket website in der Lizenz an bzw. aus, folgt der Schalter
+     * `tix_website_enabled` – nur bei einer Änderung des Lizenz-Stands, damit ein Schalter im WP-Admin dazwischen bestehen bleibt.
+     * Erster Abgleich: eine ausdrückliche Liste (mit/ohne website) wird übernommen; „alle Module“ wird nur gemerkt (verkauft ist
+     * damit nichts Bestimmtes). Später: Wechsel auf „alle“ zählt als an (die Plattform hat alles eingeschaltet).
+     */
+    public static function sync_license(array $status) {
+        if (self::multi()) return null;
+        $state = self::license_state($status);
+        if ($state === null) return null;
+        $want = $state === 'off' ? 'off' : 'on';
+        $last = (string) get_option(self::OPT_LIC_STATE, '');
+        update_option(self::OPT_LIC_STATE, $want, false);
+        if ($last === $want) return null;
+        if ($last === '' && $state === 'all') return null;
+        update_option(self::OPT_ENABLED, $want === 'on' ? '1' : '0', false);
+        return $want;
+    }
+
     public static function menu() {
         if (self::multi()) return;
         add_submenu_page('tixomat', 'Marken-Website', 'Marken-Website', 'manage_options', 'tix-website', [__CLASS__, 'render_admin']);

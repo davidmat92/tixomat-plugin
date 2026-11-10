@@ -5205,3 +5205,14 @@ Fund: studio.evendis.de/events/85 (Spiegel von mallorca-festival-xxl.de, Event 7
 - Die eigenen evendis-Verkäufe bleiben getrennt in `/events/{id}/statistics`.
 - **Tests:** `test-source-sales-wp` (Quelle 16 Prüfungen mit setup/run/cleanup, Plattform 11).
 - **Rollout:** Erst wenn Quelle und evendis.de die Version haben, gibt es Zahlen; vorher meldet evendis `unsupported`.
+
+## 127. Paket website folgt der Lizenz (ab 1.38.720)
+Fund KMT (mallorcaparty-schwelm.de): Im Plattform-Studio war „Homepage“ an und die Lizenz sperrte `website` nicht. Der lokale Schalter `tix_website_enabled` stand aber auf `0`, deshalb zeigte das Studio unter `/website/` nur die Werbeseite. Der Plattform-Schalter (`POST /platform/customers/{key}/modules`) setzt nur die Lizenz.
+- **Wo:** Der Lizenz-Abgleich auf der Kunden-Seite (`TIX_License::check` → `TIX_Website::sync_license`). Jede Modul-Änderung der Plattform landet dort: Die Plattform pingt die Seite sofort an (`/license/ping`), und der Kunden-Dienst endet ebenfalls in der Lizenz. Sonst prüft die Seite täglich.
+- **Regel:** Es zählen nur signierte Modul-Listen; ist die Lizenz ungültig oder die Signatur fehlerhaft, ändert sich nichts.
+  - `website` in der Liste: Schalter an.
+  - Liste ohne `website`: aus.
+  - „alle Module“ (`null`) oder eine Liste vor dem Modul-Verkauf (v1): gilt als an, aber nur beim Wechsel. Beim ersten Abgleich wird „alle“ nur gemerkt, weil damit nichts Bestimmtes verkauft ist.
+- **Nur bei einer Änderung des Lizenz-Stands** (gemerkt in `tix_website_license_state` = `on`/`off`): Ein Schalter, der im WP-Admin dazwischen umgelegt wurde, bleibt, bis die Lizenz sich wieder ändert. Beim ersten Abgleich nach dem Update wird eine ausdrückliche Liste übernommen; das repariert Seiten wie KMT von selbst.
+- Der Mehr-Veranstalter-Modus (evendis.de) ist nicht betroffen.
+- **Tests:** `test-website-license-wp` (kk, 12 Prüfungen); `test-license-wp` bleibt grün.
