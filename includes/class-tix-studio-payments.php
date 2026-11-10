@@ -195,7 +195,7 @@ class TIX_Studio_Payments {
         $active = array_values(array_filter($order, function ($p) use ($providers) { return $providers[$p]['ready']; }));
 
         $warnings = [];
-        if (!$active) $warnings[] = ['code' => 'tix_no_payment', 'message' => 'Keine Zahlart aktiv – Kunden können nur kostenlose Tickets bestellen.'];
+        if (!$active && !self::none()) $warnings[] = ['code' => 'tix_no_payment', 'message' => 'Keine Zahlart aktiv – Kunden können nur kostenlose Tickets bestellen.'];
         $test_on = [];
         if ($providers['mollie']['ready'] && $providers['mollie']['mode'] === 'test') $test_on[] = 'Mollie';
         if ($providers['stripe']['ready'] && $providers['stripe']['test_mode']) $test_on[] = 'Stripe';
@@ -206,7 +206,31 @@ class TIX_Studio_Payments {
         if ($providers['paypal']['ready'] && $providers['paypal']['webhook_id'] === '') $wh[] = 'PayPal';
         if ($wh) $warnings[] = ['code' => 'tix_webhook_missing', 'message' => implode(' und ', $wh) . ': Webhook fehlt – Zahlungen werden nur bestätigt, wenn der Kunde zur Seite zurückkehrt.'];
 
-        return ['locked' => false, 'order' => $order, 'active' => $active, 'providers' => $providers, 'warnings' => $warnings];
+        // 1.38.742: bewusst „Keine Zahlungen anbieten“ (keine Online-Kasse; Infos, Abendkasse, Vermittlung über evendis)
+        return ['locked' => false, 'order' => $order, 'active' => $active, 'providers' => $providers, 'warnings' => $warnings, 'none' => self::none(), 'state' => self::state_of(!empty($active))];
+    }
+
+    const OPT_NONE = 'tix_payments_none';
+
+    /** Bewusst „Keine Zahlungen anbieten“ gewählt? (1.38.742) */
+    public static function none() {
+        return get_option(self::OPT_NONE, '0') === '1';
+    }
+
+    /** Ist ein Anbieter einsatzbereit? */
+    public static function provider_ready() {
+        $s = self::settings();
+        foreach (self::PROVIDERS as $p) if (self::ready($p, $s)) return true;
+        return false;
+    }
+
+    /** ok (Anbieter) | none (bewusst keine) | not_needed (nur Vermittlung) | missing */
+    public static function state_of($provider = null) {
+        $provider = $provider === null ? self::provider_ready() : (bool) $provider;
+        if ($provider) return 'ok';
+        if (self::none()) return 'none';
+        if (class_exists('TIX_Co_Sale') && !TIX_Co_Sale::payments_needed()) return 'not_needed';
+        return 'missing';
     }
 
     private static function respond($data, $status = 200) {
@@ -242,6 +266,7 @@ class TIX_Studio_Payments {
         $s = get_option('tix_settings', []);
         if (!is_array($s)) $s = [];
         $changed_keys = []; // Anbieter mit neuem Schlüssel → Selbsttest
+        if (array_key_exists('none', $b)) update_option(self::OPT_NONE, filter_var($b['none'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false); // 1.38.742
 
         if (array_key_exists('order', $b)) {
             $o = array_values(array_map('strval', (array) $b['order']));

@@ -124,9 +124,16 @@ class TIX_Owner_Access {
         }
         // Nur vermittelte Co-Events (1.38.712): kein eigener Zahlungsanbieter nötig
         $needed = class_exists('TIX_Co_Sale') ? TIX_Co_Sale::payments_needed() : true;
-        return ['payment' => $payment || !$needed, 'legal' => $legal, 'owner' => self::has_owner(), 'homepage' => $homepage,
+        // 1.38.742: „Keine Zahlungen anbieten“ erfüllt den Punkt; Rechtstexte hart (vollständig, veröffentlicht, ohne Platzhalter)
+        $none = class_exists('TIX_Studio_Payments') && method_exists('TIX_Studio_Payments', 'none') && TIX_Studio_Payments::none();
+        $ls = class_exists('TIX_Studio_Legal') && method_exists('TIX_Studio_Legal', 'legal_status') ? TIX_Studio_Legal::legal_status() : null;
+        if ($ls !== null) $legal = $legal && $ls['ok'];
+        return ['payment' => $payment || !$needed || $none, 'legal' => $legal, 'owner' => self::has_owner(), 'homepage' => $homepage,
             'payments_needed' => $needed, 'payments_reason' => $needed ? null : 'only_brokered',
-            'payment_provider' => $payment]; // 1.38.722: echter Anbieter eingerichtet (für „ok | not_needed | missing“)
+            'payment_provider' => $payment, // 1.38.722
+            'payment_mode' => $payment ? 'ok' : ($none ? 'none' : ($needed ? 'missing' : 'not_needed')),
+            'legal_detail' => $ls ? array_map(function ($i) { return ['key' => $i['key'], 'ok' => $i['ok'], 'missing' => count($i['missing']), 'placeholders' => $i['placeholders']]; }, $ls['items']) : null,
+            'live' => class_exists('TIX_Go_Live') ? TIX_Go_Live::state()['status'] : null];
     }
 
     /** Lizenzprüfung: Einladung aus der Antwort ausführen (einmal je nonce, nur mit gültiger Signatur). */

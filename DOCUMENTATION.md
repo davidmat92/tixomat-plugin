@@ -5737,3 +5737,61 @@ Ein Bild wird über **DELETE auf derselben Route** entfernt, über die es hochge
 - **Nach dem Entfernen:** Ein geteiltes Event wird sofort neu verteilt, die öffentlichen Listen werden geleert.
 - **Noch offen, keine eigene Route:** Club-Bilder (`/studio/club/image`) liefert nur den Upload; entfernt werden sie über das Speichern des Club-Profils ohne das Bild. Bitte melden, falls dort etwas fehlt.
 - **Tests:** `test-image-remove-wp` (Einzel-Seite 12, Plattform 14).
+
+## 149. Live schalten durch den Kunden (ab 1.38.742)
+Klassen `TIX_Go_Live`, Erweiterungen in `TIX_Studio_Legal`, `TIX_Studio_Payments`, `TIX_Owner_Access`, `TIX_Platform_Customers`, Lizenzprüfung. Vertrag: `uebergaben/auftrag-live-schalten-durch-kunde-2026-11-10.md`.
+**1. „Keine Zahlungen anbieten“** (Kunden-Seite)
+- `GET /studio/payments` → zusätzlich:
+  - `none`: bool
+  - `state`: `ok` (Anbieter bereit) | `none` (bewusst keine) | `not_needed` (nur Vermittlung über evendis) | `missing`
+- `POST /studio/payments {none: true|false}`, Option `tix_payments_none`.
+- Die Warnung „Keine Zahlart aktiv“ entfällt bei `none`.
+- Website: `site-config.features.checkout` ist `false`, wenn `state === 'none'` (keine Online-Kasse). Mit eingerichtetem Anbieter bleibt die Kasse an.
+
+**2. Rechtstexte-Prüfung inklusive Platzhalter** (Pflicht, nie übergehbar)
+- **Platzhalter:** `checks` jedes Rechtstexts (`GET /studio/legal[/key]`) hat neu `placeholders` (level `must`).
+  - Erkannt werden `[PLATZHALTER …]` (Groß/Klein egal) und `{{…}}`.
+  - Im `hint` stehen die ersten 5 Funde.
+- **Gesamtprüfung:** `TIX_Studio_Legal::legal_status()` → `{ok, items: [{key, title, ok, status, url, missing: [Label], placeholders}]}`.
+  - Erfüllt nur, wenn Impressum, Datenschutz, AGB und Widerruf veröffentlicht sind, alle Pflicht- und Modul-Angaben vorhanden sind und kein Platzhalter mehr drinsteht.
+- **Startklar** (Lizenzprüfung → Akte): `legal` ist nur noch mit `legal_status().ok` wahr. Dazu kommen:
+  - `legal_detail [{key, ok, missing (Anzahl), placeholders}]`
+  - `payment_mode`
+  - `live`
+- **Akte** (`ready.items`):
+  - je Punkt `overridable`: nur `payment` true, `legal` nie
+  - `legal.detail` und `legal.hint` („Offen: impressum (2 Platzhalter), …“)
+  - `payment.state` neu `none` („Zahlung – bewusst keine“)
+  - `ready.live` und `ready.go_live_request`
+
+**3. Readiness-Route für das Kunden-Studio**
+- `GET /studio/readiness` (Rechte wie Marke) → `{ok, ready, live, state, available, items}`.
+- `items`: `[{key, ok, state, required, overridable, label, hint, link, detail?}]` mit den Punkten:
+  - `payment`: ok | none | not_needed | missing; „Trotzdem“ nur durch die Plattform
+  - `legal`: Pflicht, `detail` = `legal_status().items`
+  - `homepage`: nicht Pflicht
+  - `domain`: Pflicht
+  - `owner`: Pflicht
+- `ready` = alle Pflichtpunkte erfüllt.
+- `state` = `{status: test|requested|live|failed, action, at, by, message}`.
+
+**4. „Live schalten anfordern“**
+- **Kunde:** `POST /studio/go-live {action: 'live'|'test'}`
+  - Bei `live` prüft die Seite hart:
+    - Rechtstexte offen → 409 `tix_legal_incomplete` (`data.items`)
+    - sonst fehlende Pflichtpunkte → 409 `tix_not_ready` (`data.items`)
+  - Danach geht die Anfrage signiert an den Lizenz-Server: `POST /license/go-live`, HMAC `tix-golive-v1|host|body` mit dem Lizenzschlüssel, 120 s, nonce einmalig.
+  - Zustand dann `requested`.
+  - `test` (zurück in den Testmodus) geht immer.
+  - Fehler: 404 (Seite ohne Lizenz-Betrieb), 502 (Plattform nicht erreichbar).
+- **Plattform:**
+  - `POST /license/go-live` legt die Anfrage je Lizenz ab (`pending`). Rechtstexte offen → 409, auch hier nie übergehbar.
+  - Protokoll `go_live_request`, Hook `do_action('tix_go_live_requested', $license_id, $request)` für den Kunden-Dienst.
+  - `GET /platform/customers/{key}/go-live` → `{request: {action, status, at, host, by, checks, message, done_at}}`.
+  - `POST /platform/customers/{key}/go-live {status: done|failed|cancelled, message?}` trägt das Ergebnis ein (Zentrale/Kunden-Dienst, nachdem Kasse, `tix_app_return_hosts` und `tix_web_revalidate_url` gesetzt sind). Danach wird die Seite sofort angepingt.
+- **Rückweg:** Das Ergebnis geht signiert (`go_live`, `go_live_sig`) mit der Lizenzprüfung an die Seite. Dort gilt:
+  - `done` + live → `live`
+  - `done` + test bzw. `cancelled` → `test`
+  - `failed` → `failed` mit `message`
+- **Das Plugin selbst schaltet nichts scharf.** Kasse, Rücksprung-Hosts und Neu-Laden setzt der Kunden-Dienst bzw. der Server-Teil.
+- **Tests:** `test-go-live-wp` (Kunden-Seite 13, Plattform 8). Startklar-, Akte-, Zahlungs-, Lizenz- und Zugangs-Tests sind grün.

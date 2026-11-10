@@ -142,6 +142,9 @@ class TIX_Studio_Legal {
         $addr = $has('/\b\d{5}\b/') && $has('/(str\.|straße|strasse|weg\b|platz|allee|gasse|ring\b|damm|ufer|aue\b|\s\d{1,4}\s?[a-z]?(,|\s|$))/');
         $c = [];
         $add = function ($k, $label, $ok, $level = 'must', $hint = '') use (&$c) { $c[] = ['key' => $k, 'label' => $label, 'ok' => (bool) $ok, 'level' => $level, 'hint' => $hint]; };
+        // Platzhalter aus Vorlagen (1.38.742): Pflicht, nie übergehbar – z. B. „[PLATZHALTER: Firma]“, „{{name}}“
+        $ph = self::placeholders($html);
+        $add('placeholders', $ph ? 'Platzhalter ersetzen (' . count($ph) . ')' : 'Keine Platzhalter', !$ph, 'must', $ph ? 'Noch offen: ' . implode(', ', array_slice($ph, 0, 5)) . (count($ph) > 5 ? ' …' : '') : '');
         switch ($key) {
             case 'impressum':
                 $corp = $has('/\b(gmbh|ug\b|ug \(|ag\b|kg\b|ohg|e\. ?v\.|eg\b|kgaa|se\b)/');
@@ -182,6 +185,31 @@ class TIX_Studio_Legal {
                 break;
         }
         return $c;
+    }
+
+    /** Platzhalter im Text: [PLATZHALTER …], [Platzhalter: …], {{…}} → Liste (gekürzt) */
+    public static function placeholders($html) {
+        $t = html_entity_decode(wp_strip_all_tags((string) $html), ENT_QUOTES, 'UTF-8');
+        preg_match_all('/\[\s*platzhalter[^\]]{0,80}\]?|\{\{[^}]{1,60}\}\}/iu', $t, $m);
+        return array_values(array_unique(array_map(function ($x) { return mb_substr(trim($x), 0, 60); }, $m[0])));
+    }
+
+    /**
+     * Rechtstexte bereit für die Live-Schaltung (1.38.742): Impressum, Datenschutz, AGB, Widerruf veröffentlicht, alle Pflicht- und
+     * Modul-Angaben vorhanden, keine Platzhalter. Nie übergehbar. → {ok, items: [{key, title, ok, status, url, missing: [label], placeholders}]}
+     */
+    public static function legal_status() {
+        $items = []; $all = true;
+        foreach (array_keys(self::DOCS) as $k) {
+            $it = self::item($k);
+            $miss = array_values(array_map(function ($c) { return $c['label']; }, array_filter($it['checks'], function ($c) { return !$c['ok'] && in_array($c['level'], ['must', 'module'], true); })));
+            if ($it['status'] !== 'publish' && $it['status'] !== 'missing') $miss[] = 'Seite ist nicht veröffentlicht';
+            $ph = 0; foreach ($it['checks'] as $c) if ($c['key'] === 'placeholders' && !$c['ok'] && preg_match('/\((\d+)\)/', $c['label'], $m)) $ph = intval($m[1]);
+            $ok = !$miss;
+            $all = $all && $ok;
+            $items[] = ['key' => $k, 'title' => $it['title'], 'ok' => $ok, 'status' => $it['status'], 'url' => $it['url'], 'missing' => $miss, 'placeholders' => $ph];
+        }
+        return ['ok' => $all, 'items' => $items];
     }
 
     // ═══════════════ REST ═══════════════

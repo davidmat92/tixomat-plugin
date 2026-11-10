@@ -507,6 +507,13 @@ class TIX_Platform_Customers {
                 $ok = array_key_exists($k, $r) ? (bool) $r[$k] : null;
                 $it = ['key' => $k, 'ok' => $ok, 'label' => $label, 'hint' => $ok === null ? 'Die Seite hat das noch nicht gemeldet (ab Plugin 1.38.688, nächste Lizenzprüfung).' : null];
                 if ($k === 'payment') $it = self::payment_item($it, $r);
+                if ($k === 'legal') { // 1.38.742: nie übergehbar, mit Detail (fehlende Angaben, Platzhalter)
+                    $it['overridable'] = false;
+                    $det = is_array($r['legal_detail'] ?? null) ? $r['legal_detail'] : null;
+                    $it['detail'] = $det;
+                    if ($det && $it['ok'] === false) { $open = array_filter($det, function ($d) { return empty($d['ok']); }); $it['hint'] = 'Offen: ' . implode(', ', array_map(function ($d) { return $d['key'] . ($d['placeholders'] ? ' (' . $d['placeholders'] . ' Platzhalter)' : ''); }, $open)); }
+                }
+                if (!isset($it['overridable'])) $it['overridable'] = true;
                 $items[] = $it;
             }
             $pay_needed = array_key_exists('payments_needed', $r) ? (bool) $r['payments_needed'] : null;
@@ -527,6 +534,7 @@ class TIX_Platform_Customers {
         }
         $known = array_filter($items, function ($i) { return $i['ok'] !== null; });
         return ['source' => $src, 'reported_at' => $at, 'ok' => $items && count($known) === count($items) && !array_filter($items, function ($i) { return !$i['ok']; }), 'items' => $items,
+            'live' => isset($r['live']) ? $r['live'] : null, 'go_live_request' => !empty($c['license_id']) && class_exists('TIX_Go_Live') ? TIX_Go_Live::request_of($c['license_id']) : null, // 1.38.742
             'payments_needed' => $pay_needed ?? null, 'payments_reason' => isset($r) && ($pay_needed ?? null) === false ? (string) ($r['payments_reason'] ?? 'only_brokered') : null];
     }
 
@@ -538,7 +546,8 @@ class TIX_Platform_Customers {
         if ($it['ok'] === null) return $it + ['state' => null];
         $needed = array_key_exists('payments_needed', $r) ? (bool) $r['payments_needed'] : true;
         $provider = array_key_exists('payment_provider', $r) ? (bool) $r['payment_provider'] : ($needed ? (bool) $r['payment'] : false);
-        if ($provider) return array_merge($it, ['state' => 'ok', 'hint' => null]);
+        if ($provider) return array_merge($it, ['state' => 'ok', 'hint' => null, 'overridable' => true]);
+        if (($r['payment_mode'] ?? '') === 'none') return array_merge($it, ['state' => 'none', 'ok' => true, 'overridable' => true, 'label' => 'Zahlung – bewusst keine (keine Online-Kasse)', 'hint' => 'Der Kunde hat „Keine Zahlungen anbieten“ gewählt.']); // 1.38.742
         if (!$needed) return array_merge($it, ['state' => 'not_needed', 'label' => 'Zahlung – noch nicht nötig (Verkauf nur über die Vermittlung)',
             'hint' => 'Sobald eigene Events Online-Tickets haben, braucht die Seite einen Zahlungsanbieter (Studio des Kunden → Einstellungen → Zahlungen).']);
         return array_merge($it, ['state' => 'missing', 'ok' => false, 'hint' => 'Kein Zahlungsanbieter eingerichtet (Studio des Kunden → Einstellungen → Zahlungen).']);

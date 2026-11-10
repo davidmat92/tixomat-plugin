@@ -224,7 +224,8 @@ class TIX_Site_Config {
                 // App-Leiste oben auf der Homepage, 1.38.534 – Vorgabe an
                 'top_bar' => self::top_bar()],
             'features' => [
-                'checkout' => true,
+                // 1.38.742: „Keine Zahlungen anbieten“ ohne Anbieter → keine Online-Kasse auf der Website
+                'checkout' => !(class_exists('TIX_Studio_Payments') && method_exists('TIX_Studio_Payments', 'state_of') && TIX_Studio_Payments::state_of() === 'none'),
                 'music' => class_exists('TIX_Music') && TIX_Music::enabled(),
                 'awareness' => class_exists('TIX_Awareness_Live') ? (bool) (TIX_Awareness_Live::flags()['report_enabled'] ?? false) : false,
                 'wallet' => $wallet,
