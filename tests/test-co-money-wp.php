@@ -59,7 +59,7 @@ if (!$multi) {
         wp_set_current_user($admin_id);
         $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Cmtest KK-Event', 'meta_input' => ['_tix_date_start' => '2027-02-27']]);
         $tmp_p[] = $ev;
-        update_post_meta($ev, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'KMT Test', 'access' => true, 'status' => 'active', 'since' => gmdate('c')]);
+        delete_post_meta($ev, '_tix_co_remotes'); update_post_meta($ev, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'KMT Test', 'access' => true, 'status' => 'active', 'since' => gmdate('c')]);
         // Lizenzseite meldet Geldempfänger/Anteil an die Plattform (Paket 3) – Antwort nachgestellt
         add_filter('pre_http_request', function ($pre, $a, $url) { return strpos($url, '/syndicate/') !== false ? ['headers' => [], 'body' => wp_json_encode(['ok' => true]), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null] : $pre; }, 5, 3);
         $m = cm_ev(cm_rest('GET', "/events/$ev/edit")[1])['co_money'] ?? [];

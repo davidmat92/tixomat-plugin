@@ -71,7 +71,7 @@ if (!$multi) {
             cx_eq('Editor: nicht verfügbar, Grund disabled', [false, 'disabled'], [$d['event']['co_organizer_available'] ?? null, $d['event']['co_organizer_unavailable_reason'] ?? null]);
             [$st, , $c] = cx_rest('POST', "/events/$sid/co-organizer/invite", ['email' => 'x@example.test', 'consent' => true]);
             cx_eq('Einladen: 409 tix_co_remote_unavailable', [409, 'tix_co_remote_unavailable'], [$st, $c]);
-            update_post_meta($sid, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'Alt', 'access' => true]);
+            delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'Alt', 'access' => true]);
             update_post_meta($sid, '_tix_co_token_hash', hash('sha256', str_repeat('t', 48)));
             wp_set_current_user(0);
             $r = new WP_REST_Request('POST', "/tixomat/v1/partner/co/$sid");

@@ -248,7 +248,7 @@ class TIX_Organizer_Dashboard {
         if (!$org) return false;
         $oid = intval($org->ID);
         if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) === $oid) return true;
-        if (intval(get_post_meta($event_id, '_tix_co_organizer_id', true)) === $oid) return true;
+        if (in_array($oid, array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false)), true)) return true; // mehrere Co (1.38.716)
         return false;
     }
 

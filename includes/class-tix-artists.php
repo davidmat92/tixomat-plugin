@@ -99,7 +99,7 @@ class TIX_Artists {
         if (!self::multi()) return true;
         $d = self::raw($aid);
         $mb = (array) ($d['managed_by'] ?? []);
-        $oids = array_filter([intval(get_post_meta($event_id, '_tix_organizer_id', true)), intval(get_post_meta($event_id, '_tix_co_organizer_id', true))]);
+        $oids = array_filter(array_merge([intval(get_post_meta($event_id, '_tix_organizer_id', true))], array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false))));
         return ($mb['type'] ?? '') === 'organizer' && in_array(intval($mb['id'] ?? 0), $oids, true);
     }
 

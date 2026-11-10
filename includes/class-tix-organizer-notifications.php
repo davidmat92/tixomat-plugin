@@ -716,9 +716,8 @@ class TIX_Organizer_Notifications {
         foreach ($event_ids as $eid) {
             if (self::is_event_muted($eid)) continue; // Event stummgeschaltet → kein Ping
             $oid  = intval(get_post_meta($eid, '_tix_organizer_id', true));
-            $coid = intval(get_post_meta($eid, '_tix_co_organizer_id', true));
             if ($oid)  $org_ids[$oid]  = true;
-            if ($coid) $org_ids[$coid] = true;
+            foreach ((array) get_post_meta($eid, '_tix_co_organizer_id', false) as $coid) if (intval($coid)) $org_ids[intval($coid)] = true;
         }
         return $org_ids;
     }
@@ -762,9 +761,8 @@ class TIX_Organizer_Notifications {
         $org_ids = [];
         if ($event_id) {
             $oid  = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            $coid = intval(get_post_meta($event_id, '_tix_co_organizer_id', true));
             if ($oid)  $org_ids[$oid]  = true;
-            if ($coid) $org_ids[$coid] = true;
+            foreach ((array) get_post_meta($event_id, '_tix_co_organizer_id', false) as $coid) if (intval($coid)) $org_ids[intval($coid)] = true;
         }
         // Fallback: aus order → event → organizer (nur wenn Event noch nicht bekannt)
         if (empty($org_ids) && $order_id && class_exists('TIX_Order')) {
@@ -774,9 +772,8 @@ class TIX_Organizer_Notifications {
                     $eid = method_exists($it, 'get_event_id') ? intval($it->get_event_id()) : 0;
                     if (!$eid) continue;
                     $oid  = intval(get_post_meta($eid, '_tix_organizer_id', true));
-                    $coid = intval(get_post_meta($eid, '_tix_co_organizer_id', true));
                     if ($oid)  $org_ids[$oid]  = true;
-                    if ($coid) $org_ids[$coid] = true;
+                    foreach ((array) get_post_meta($eid, '_tix_co_organizer_id', false) as $coid) if (intval($coid)) $org_ids[intval($coid)] = true;
                 }
             }
         }

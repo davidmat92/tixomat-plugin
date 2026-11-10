@@ -159,9 +159,10 @@ class TIX_App_Scope {
     /** Veranstalter-IDs eines Events (Haupt- und Co-Veranstalter). */
     public static function event_org_ids($event_id) {
         $ids = [];
-        foreach (['_tix_organizer_id', '_tix_co_organizer_id'] as $k) {
-            $v = intval(get_post_meta(intval($event_id), $k, true));
-            if ($v) $ids[] = $v;
+        $v = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
+        if ($v) $ids[] = $v;
+        foreach ((array) get_post_meta(intval($event_id), '_tix_co_organizer_id', false) as $c) { // je Co mit Zugriff eine Zeile (1.38.716)
+            if (intval($c) && !in_array(intval($c), $ids, true)) $ids[] = intval($c);
         }
         return $ids;
     }

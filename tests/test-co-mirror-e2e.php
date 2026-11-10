@@ -8,8 +8,11 @@
  *   plat eval-file … run-plat <json>                   (Admin fügt X auf dem Spiegel hinzu)
  *   kk   eval-file … check-kk <sid> <x>
  *   plat eval-file … status-plat <json>  ·  kk eval-file … status-kk <sid>
- *   plat eval-file … repair-plat <json>  ·  kk eval-file … check-kk <sid> <y>
+ *   plat eval-file … repair-plat <json>  ·  kk eval-file … check-kk <sid> <mdj,x,y>
+ *   plat eval-file … multi-plat <json>   (1.38.716: Durchgriff je Co mit eigenem Schlüssel, einen Co lösen)
+ *   kk   eval-file … check-kk <sid> <x,y>
  *   kk   eval-file … cleanup-kk  ·  plat eval-file … cleanup-plat
+ * Seit 1.38.716 (mehrere Co): Hinzufügen auf dem Spiegel ersetzt nie – MDJ bleibt, KMT kommt dazu.
  */
 if (!defined('ABSPATH') || !class_exists('TIX_Co_Remote')) { echo "Tixomat nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
@@ -64,30 +67,31 @@ if ($mode === 'setup-plat') {
 if ($mode === 'link-kk') {
     [$sid, $mir, $mdj, $tok] = [intval($args[1]), intval($args[2]), intval($args[3]), (string) $args[4]];
     update_post_meta($sid, '_tix_syndicate_remote_id', $mir);
-    update_post_meta($sid, '_tix_co_remote', ['organizer_id' => $mdj, 'name' => 'MEXTEST MDJ', 'access' => true, 'status' => 'invited', 'since' => gmdate('c')]);
+    delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', ['organizer_id' => $mdj, 'name' => 'MEXTEST MDJ', 'access' => true, 'status' => 'invited', 'since' => gmdate('c')]);
     update_post_meta($sid, '_tix_co_token_hash', hash('sha256', $tok));
     echo "link-kk ok\n"; return;
 }
 if ($mode === 'run-plat') {
     $s = json_decode((string) $args[1], true);
-    echo "== Plattform: Admin fügt KMT auf dem Spiegel hinzu\n";
+    echo "== Plattform: Admin fügt KMT auf dem Spiegel hinzu (MDJ bleibt)\n";
     [, $ed] = me_rest('GET', "/events/{$s['mir']}/edit");
     $e = $ed['event'] ?? $ed;
     me_eq('Editor des Spiegels zeigt den Co der Quelle (MDJ)', [1, $s['mdj'], 'source'], [count($e['co_organizers'] ?? []), intval($e['co_organizers'][0]['id'] ?? 0), $e['co_organizer_mode'] ?? '']);
     [$st, $d, $c] = me_rest('POST', "/platform/events/{$s['mir']}/co-organizer", ['organizer_id' => $s['x'], 'access' => true]);
     if (!in_array($st, [200, 201], true)) echo "      $st $c " . ($d['message'] ?? '') . "\n";
     clean_post_cache($s['mir']); wp_cache_flush();
-    me_eq('Weitergereicht, Spiegel hat jetzt KMT (Teil B), kein lokaler Co', [true, true, $s['x'], 0], [in_array($st, [200, 201], true), !empty($d['forwarded']), intval(get_post_meta($s['mir'], '_tix_co_remote_oid', true)), TIX_Co_Organizer::ref_id($s['mir'])]);
-    me_eq('Plattform-Zeile: KMT, änderbar über die Quelle', [$s['x'], true], [intval($d['event']['co_organizer']['id'] ?? 0), $d['event']['co_editable'] ?? null]);
+    me_eq('Weitergereicht, Spiegel hat MDJ + KMT (Teil B), kein lokaler Co', [true, true, [$s['mdj'], $s['x']], 0], [in_array($st, [200, 201], true), !empty($d['forwarded']), TIX_Co_Remote::mirror_ids($s['mir']), TIX_Co_Organizer::ref_id($s['mir'])]);
+    me_eq('Plattform-Zeile: beide, änderbar über die Quelle, 201 added', [[$s['mdj'], $s['x']], true, 'added', 201], [array_map('intval', array_column($d['event']['co_organizers'] ?? [], 'id')), $d['event']['co_editable'] ?? null, $d['changed'] ?? '', $st]);
+    me_eq('Schlüssel je Co verschieden', true, (function ($l) { return count($l) === 2 && $l[0]['token'] !== '' && $l[0]['token'] !== $l[1]['token']; })(TIX_Co_Remote::mirror_entries($s['mir'])));
     $done(); return;
 }
 if ($mode === 'check-kk') {
-    [$sid, $oid] = [intval($args[1]), intval($args[2])];
-    echo "== Lizenzseite: gleicher Co\n";
-    $m = get_post_meta($sid, '_tix_co_remote', true);
+    $sid = intval($args[1]);
+    $want = array_map('intval', explode(',', (string) $args[2]));
+    echo "== Lizenzseite: gleiche Co\n";
     [, $ed] = me_rest('GET', "/events/$sid/edit");
     $e = $ed['event'] ?? $ed;
-    me_eq('Quelle kennt denselben Co, Editor zeigt ihn', [$oid, 1, $oid], [intval($m['organizer_id'] ?? 0), count($e['co_organizers'] ?? []), intval($e['co_organizers'][0]['id'] ?? 0)]);
+    me_eq('Quelle kennt dieselben Co, Editor zeigt sie', [$want, $want], [TIX_Co_Remote::ids($sid), array_map('intval', array_column($e['co_organizers'] ?? [], 'id'))]);
     $done(); return;
 }
 if ($mode === 'status-plat') {
@@ -97,15 +101,16 @@ if ($mode === 'status-plat') {
     echo "status-plat ok\n"; return;
 }
 if ($mode === 'status-kk') {
-    $sid = intval($args[1]);
-    echo "== Lizenzseite: Status-Abgleich\n";
-    $m = get_post_meta($sid, '_tix_co_remote', true);
-    $m['status'] = 'invited';
-    update_post_meta($sid, '_tix_co_remote', $m);
+    [$sid, $x] = [intval($args[1]), intval($args[2])];
+    echo "== Lizenzseite: Status-Abgleich (KMT)\n";
+    $l = TIX_Co_Remote::entries($sid);
+    foreach ($l as $i => $d) if (intval($d['organizer_id']) === $x) $l[$i]['status'] = 'invited';
+    TIX_Co_Remote::save($sid, $l);
     delete_transient('tix_co_st_' . $sid);
     [, $ed] = me_rest('GET', "/events/$sid/edit");
     $e = $ed['event'] ?? $ed;
-    me_eq('Beim Öffnen des Editors: aktiv (von der Plattform)', ['active', 'active'], [(string) (get_post_meta($sid, '_tix_co_remote', true)['status'] ?? ''), (string) ($e['co_organizers'][0]['status'] ?? '')]);
+    $row = array_values(array_filter($e['co_organizers'] ?? [], function ($c) use ($x) { return intval($c['id']) === $x; }))[0] ?? [];
+    me_eq('Beim Öffnen des Editors: KMT aktiv (von der Plattform)', ['active', 'active'], [(string) (TIX_Co_Remote::payload($sid, $x)['status'] ?? ''), (string) ($row['status'] ?? '')]);
     $done(); return;
 }
 if ($mode === 'repair-plat') {
@@ -114,10 +119,24 @@ if ($mode === 'repair-plat') {
     TIX_Co_Organizer::set($s['mir'], $s['y'], true, 0);
     $list = TIX_Co_Organizer::mirror_conflicts();
     $hit = array_values(array_filter($list, function ($c) use ($s) { return $c['event'] === intval($s['mir']); }));
-    me_eq('Prüfung findet den Widerspruch', [1, $s['y'], $s['x']], [count($hit), $hit[0]['local']['id'] ?? 0, $hit[0]['source']['id'] ?? 0]);
+    me_eq('Prüfung findet den Widerspruch', [1, $s['y'], [$s['mdj'], $s['x']]], [count($hit), $hit[0]['local']['id'] ?? 0, array_column($hit[0]['sources'] ?? [], 'id')]);
     ob_start(); TIX_Co_Organizer::cli(['spiegel'], ['reparieren' => true]); $out = ob_get_clean();
     clean_post_cache($s['mir']); wp_cache_flush();
-    me_eq('Repariert: Quelle übernimmt Y, lokal entfernt', [$s['y'], 0], [intval(get_post_meta($s['mir'], '_tix_co_remote_oid', true)), TIX_Co_Organizer::ref_id($s['mir'])]);
+    me_eq('Repariert: Quelle bekommt Y zusätzlich, lokal entfernt', [[$s['mdj'], $s['x'], $s['y']], 0], [TIX_Co_Remote::mirror_ids($s['mir']), TIX_Co_Organizer::ref_id($s['mir'])]);
+    $done(); return;
+}
+if ($mode === 'multi-plat') {
+    $s = json_decode((string) $args[1], true);
+    echo "== Plattform: Durchgriff je Co, einen Co lösen\n";
+    $sid = intval(get_post_meta($s['mir'], '_tix_source_id', true));
+    foreach (['mdj' => 'MDJ', 'x' => 'KMT', 'y' => 'Drei'] as $k => $n) {
+        $env = TIX_Co_Remote::forward($s['mir'], 'GET', "/events/$sid/edit", [], [], ['email' => '', 'name' => $n, 'organizer_id' => $s[$k]]);
+        me_eq("Durchgriff als $n mit eigenem Schlüssel", 200, is_wp_error($env) ? $env->get_error_code() : intval($env['status'] ?? 0));
+    }
+    $src = TIX_Co_Remote::release_mirror($s['mir'], 'platform', $s['mdj']);
+    me_eq('MDJ gelöst: Quelle bestätigt, KMT + Drei bleiben', [true, [$s['x'], $s['y']]], [$src, TIX_Co_Remote::mirror_ids($s['mir'])]);
+    $env = TIX_Co_Remote::forward($s['mir'], 'GET', "/events/$sid/edit", [], [], ['email' => '', 'name' => 'KMT', 'organizer_id' => $s['x']]);
+    me_eq('KMT arbeitet weiter', 200, is_wp_error($env) ? $env->get_error_code() : intval($env['status'] ?? 0));
     $done(); return;
 }
 if ($mode === 'cleanup-kk') {

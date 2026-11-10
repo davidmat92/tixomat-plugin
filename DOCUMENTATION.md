@@ -5088,5 +5088,47 @@ Live-Befund: kitchenklub.de #1171, evendis.de #6453. Der Plattform-Admin hatte a
 - **Status:**
   - Die Lizenzseite fragt beim Öffnen des Editors, ob ein Co mit Status „eingeladen“ noch eingeladen ist (Aktion `status`, höchstens alle 5 Minuten).
   - `mirror_payload` verwendet dieselbe Regel wie Teil A.
-- **Bereinigung:** `wp tixomat co spiegel [--reparieren]` listet lokale Co auf Spiegeln bzw. reicht sie an die Quelle weiter (ersetzt deren Co) und entfernt sie lokal.
+- **Bereinigung:** `wp tixomat co spiegel [--reparieren]` listet lokale Co auf Spiegeln bzw. reicht sie an die Quelle weiter und entfernt sie lokal. Bis 1.38.715 ersetzte das den Co der Quelle, seit 1.38.716 kommt er hinzu (§123).
 - **Tests:** `tests/test-co-mirror-e2e.php` (zwei Seiten über HTTP, 8), `test-co-sites-wp.php` (Plattform 43).
+
+## 123. Mehrere Co-Veranstalter je Event (ab 1.38.716)
+Vertrag: `uebergaben/vertrag-co-mehrere.md`. Ein Event hat beliebig viele Co, gemischt aus Plattform-Veranstaltern, Kunden-Seiten und Co über den Durchgriff (Teil B). **Hinzufügen ersetzt nie;** Zugriff, Status, Einwilligung, Protokoll und Trennen gelten je Co.
+- **Daten** (maßgeblich sind Listen):
+  - evendis `_tix_co_list` `[{id, access, since, consent}]`
+  - Lizenzseite `_tix_co_remotes` `[{organizer_id, …, token_hash}]`
+  - Spiegel `_tix_co_mirror` `[{oid, access, token}]`
+  - Abgeleitet: `_tix_co_organizer_ref`/`_tix_co_organizer_id` bzw. `_tix_co_remote_oid` je Co eine Zeile (alle Abfragen nach Events eines Veranstalters finden jeden Co). Die Einzelfelder tragen den ersten Co.
+  - Alt-Events werden aus den Einzelfeldern gelesen und beim nächsten Speichern umgestellt. Lese-Stellen mit `get_post_meta(…, true)` auf `_tix_co_organizer_id` (Scope, Organizer-Dashboard, wp-admin, Mitteilungen, Künstler, Assistent) lesen jetzt alle Zeilen.
+- **Schnittstelle:**
+  - `TIX_Co_Organizer::entries/ids/access_ids/entry_of/has_access($eid, $oid)/set (fügt hinzu)/remove($eid, $oid)/clear`
+  - `TIX_Co_Remote::entries/ids/save` (Lizenzseite)
+  - `TIX_Co_Remote::mirror_entries/mirror_ids/mirror_has_access/mirror_save/mirror_payloads` (Spiegel)
+  - `ref_id()` = erster Co
+- **REST:**
+  - `co_organizers` = alle, `co_organizer` = erster, `co_organizer_multiple: true`, `shared_with_all`, öffentlich `co_organizers_info`.
+  - `{co_organizer: {id, access}}` ändert genau diesen Co (`id` Pflicht bei mehreren).
+  - `DELETE /events/{id}/co-organizer?organizer_id=` und `DELETE /platform/events/{id}/co-organizer?organizer_id=` lösen einen Co (ohne Angabe bei mehreren 400 `tix_co_choose`; Antwort `removed_id`).
+- **Teil B:**
+  - Event-Schlüssel je Co. Der Durchgriff bestimmt den Co über den Schlüssel und prüft dessen Zugriff (technisches Konto je Co).
+  - `/syndicate/{id}/co-organizer` mit `organizer_id` für `access`/`clear` (`clear` ohne ID = alle, ältere Lizenzseiten); `status` liefert `co_organizers`.
+  - `release` löst den Co des Schlüssels, `assign {clear, organizer_id?}`.
+  - `forward()` nimmt den Schlüssel des handelnden Co (`/co-remote`, Durchgriff einer Kunden-Seite).
+- **Geld** (`TIX_Co_Money`):
+  - **Geldempfänger:** `_tix_co_money` = `creator` | `o:{ID}` (Alt `co` = erster Co; `normalize()` schreibt es vor jeder Listenänderung auf die ID um). Wählbar sind nur Co mit Zugriff; eine Kunden-Seite nur, wenn gekoppelt (`owner_ok`, `choosable_ids`).
+  - **Anteile** `_tix_co_shares` `{creator|o:{ID} => %}`, Summe 100, Rest beim Geldempfänger. `_tix_co_share` bleibt die Summe der abgegebenen Anteile.
+  - **Prüfung:** `check_values($eid, $in, ['new' => ID|-1, 'new_access' => bool])` nimmt `owner|owner_id`, `shares` oder die Alt-Form `share`.
+  - **Abrechnung:** je Beteiligtem eine Position `co_share` (`share_parties`, `apply_share`, `late_share`). `balance()` liefert `parts`, das PDF eine Zeile je Empfänger.
+  - **Sperre nach Verkauf:** Geldempfänger/Anteile; Geldempfänger oder Co mit Anteil lösen; dem Geldempfänger den Zugriff nehmen.
+  - **Vor dem Verkauf:** Gelöste Co geben ihren Anteil an den Geldempfänger ab (`on_co_lost`); ein gelöster Geldempfänger fällt auf den Ersteller zurück.
+- **Verkaufsinstanz** (`TIX_Co_Seller`):
+  - `co_org()` = der Co, der das Geld einnimmt.
+  - `syndicate_money` nimmt `owner` (`o:{ID}`) + `shares`.
+  - Kunden-Seiten-Abgleich: `sell` nur für die einnehmende Seite, `parts` für ihren Ausgleich (`_tix_co_parts`), `access` je Seite.
+- **Bereinigung:** `wp tixomat co spiegel --reparieren` fügt lokale Co der Quelle hinzu (statt zu ersetzen); steht der Co dort schon, wird er nur lokal entfernt.
+- **wp-admin-Metabox:** Das Feld „Co-Veranstalter“ zeigt und ändert nur den ersten Co; weitere bleiben.
+- **Tests:**
+  - `tests/test-co-multi-wp.php` (Plattform 46, Lizenzseite 12)
+  - `tests/test-co-mirror-e2e.php` (zwei Seiten über HTTP: hinzufügen statt ersetzen, Status je Co, Reparatur fügt hinzu, Durchgriff je Schlüssel, einen Co lösen; 15)
+  - angepasst: `test-co-organizer-wp`, `test-co-platform-wp` (hinzufügen statt ersetzen, lösen je Co)
+  - `test-site-move-e2e` (veraltete Erwartung seit 1.38.712: Kunden-Seite verkauft über die Plattform)
+

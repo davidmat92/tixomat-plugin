@@ -135,10 +135,10 @@ try {
     [, $d] = cp_rest('POST', "/platform/events/$ev/co-organizer", ['organizer_id' => $ob, 'access' => true]);
     cp_eq('Zugriff wieder an', 'changed', $d['changed'] ?? '');
 
-    // Ersetzen durch Dritten
+    // Dritten hinzufügen (mehrere Co, 1.38.716: ersetzt nie)
     [$st, $d] = cp_rest('POST', "/platform/events/$ev/co-organizer", ['organizer_id' => $oc]);
-    cp_eq('ersetzen: 201 added', [201, 'added', $oc], [$st, $d['changed'] ?? '', $d['event']['co_organizer']['id'] ?? 0]);
-    cp_eq('Feed alter Co: nicht mehr', true, in_array('Nicht mehr Co-Veranstalter', cp_feed($ub), true));
+    cp_eq('hinzufügen: 201 added, beide da', [201, 'added', [$ob, $oc]], [$st, $d['changed'] ?? '', array_map('intval', array_column($d['event']['co_organizers'] ?? [], 'id'))]);
+    cp_eq('Feed alter Co: bleibt Co (kein „nicht mehr“)', false, in_array('Nicht mehr Co-Veranstalter', cp_feed($ub), true));
 
     // Neu anlegen per E-Mail
     $GLOBALS['cp_mails'] = [];
@@ -146,13 +146,14 @@ try {
     [$st, $d] = cp_rest('POST', "/platform/events/$ev/co-organizer", ['email' => $new_email, 'organizer' => 'Cpxtest Neu GmbH', 'name' => 'Nina Neu']);
     $nu = get_user_by('email', $new_email);
     if ($nu) $tmp_u[] = $nu->ID;
-    $no = intval($d['event']['co_organizer']['id'] ?? 0);
+    $ne = array_values(array_filter($d['event']['co_organizers'] ?? [], function ($x) use ($ob, $oc) { return !in_array(intval($x['id']), [$ob, $oc], true); }))[0] ?? [];
+    $no = intval($ne['id'] ?? 0);
     if ($no) $tmp_p[] = $no;
-    cp_eq('neu: 201, angelegt, eingeladen, Art co', [201, true, true, 'invited', 'co'], [$st, $d['created'] ?? null, $d['mailed'] ?? null, $d['event']['co_organizer']['status'] ?? '', get_post_meta($no, '_tix_org_kind', true)]);
+    cp_eq('neu: 201, angelegt, eingeladen, Art co, jetzt 3 Co', [201, true, true, 'invited', 'co', 3], [$st, $d['created'] ?? null, $d['mailed'] ?? null, $ne['status'] ?? '', get_post_meta($no, '_tix_org_kind', true), count($d['event']['co_organizers'] ?? [])]);
     cp_eq('Einladung: via platform gemerkt', 'platform', (get_post_meta($no, '_tix_org_co_invited_by', true)['via'] ?? ''));
     $im = ''; foreach ($GLOBALS['cp_mails'] as $m) if ($m['to'] === $new_email || (is_array($m['to']) && in_array($new_email, $m['to'], true))) $im = (string) $m['message'];
     cp_eq('Einladung: Studio-Link /passwort/ mit art=co', true, strpos($im, 'studio.example.test/passwort/?email=') !== false && strpos($im, 'art=co') !== false);
-    cp_eq('Feed alter Co (Dritter): nicht mehr', true, in_array('Nicht mehr Co-Veranstalter', cp_feed($uc), true));
+    cp_eq('Feed Dritter: bleibt Co', false, in_array('Nicht mehr Co-Veranstalter', cp_feed($uc), true));
     [$st, $d] = cp_rest('POST', "/platform/events/$ev/co-organizer", ['email' => $new_email]);
     cp_eq('gleiche E-Mail erneut: vorhandener, unchanged', [200, false, 'unchanged'], [$st, $d['created'] ?? null, $d['changed'] ?? '']);
 
@@ -162,10 +163,10 @@ try {
     cp_eq('Akte Ersteller: 3 eigene, kommende zuerst', [200, 3, $ev], [$st, count($d['own_events'] ?? []), $d['own_events'][0]['id'] ?? 0]);
     $log = $d['log'] ?? [];
     cp_eq('Akte Ersteller: Protokoll neueste zuerst, via platform', ['added', 'owner', $no, 'platform'], [$log[0]['what'] ?? '', $log[0]['role'] ?? '', $log[0]['other']['id'] ?? 0, $log[0]['via'] ?? '']);
-    cp_eq('Protokoll vollständig (7)', 7, count($log));
+    cp_eq('Protokoll vollständig (5: 3× added, 2× changed)', 5, count($log));
     $kb = TIX_Platform_Customers::canonical('v-' . $ob);
     [, $d] = cp_rest('GET', "/platform/customers/$kb/co");
-    cp_eq('Akte Partner: keine geteilten mehr, Protokoll mit removed', [0, 'removed', 'co'], [count($d['shared_events'] ?? []), $d['log'][0]['what'] ?? '', $d['log'][0]['role'] ?? '']);
+    cp_eq('Akte Partner: weiter geteilt, Protokoll changed', [1, 'changed', 'co'], [count($d['shared_events'] ?? []), $d['log'][0]['what'] ?? '', $d['log'][0]['role'] ?? '']);
     $kn = TIX_Platform_Customers::canonical('v-' . $no);
     [, $d] = cp_rest('GET', "/platform/customers/$kn/co");
     cp_eq('Akte Neuer: 1 geteiltes, 0 eigene', [1, 0, $ev], [count($d['shared_events'] ?? []), count($d['own_events'] ?? []), $d['shared_events'][0]['id'] ?? 0]);
@@ -175,11 +176,17 @@ try {
     [, $d] = cp_rest('GET', '/platform/co-organizers');
     cp_eq('Liste /platform/co-organizers enthält Neuen', true, in_array($no, array_column($d['items'] ?? [], 'organizer_id'), true));
 
-    // Lösen
+    // Lösen je Co
     [$st, $d] = cp_rest('DELETE', "/platform/events/$ev/co-organizer");
-    cp_eq('lösen: removed, leer', [200, 'removed', null], [$st, $d['changed'] ?? '', array_key_exists('co_organizer', (array) ($d['event'] ?? [])) ? $d['event']['co_organizer'] : 'x']);
-    cp_eq('Meta weg', [0, ''], [TIX_Co_Organizer::ref_id($ev), get_post_meta($ev, '_tix_co_organizer_id', true)]);
+    cp_eq('lösen ohne Angabe bei 3 Co: 400 tix_co_choose', [400, 'tix_co_choose'], [$st, $d['code'] ?? '']);
+    [$st, $d] = cp_rest('DELETE', "/platform/events/$ev/co-organizer", ['organizer_id' => $no]);
+    cp_eq('lösen Neuer: removed, 2 bleiben', [200, 'removed', $no, [$ob, $oc]], [$st, $d['changed'] ?? '', $d['removed_id'] ?? 0, array_map('intval', array_column($d['event']['co_organizers'] ?? [], 'id'))]);
     cp_eq('Feed Ersteller: entfernt', true, in_array($site . ' hat Cpxtest Neu GmbH als Co-Veranstalter entfernt', cp_feed($ua), true));
+    cp_eq('Meta: Zugriff-Zeilen ob + oc', [$ob, $oc], array_map('intval', get_post_meta($ev, '_tix_co_organizer_id', false)));
+    cp_rest('DELETE', "/platform/events/$ev/co-organizer", ['organizer_id' => $ob]);
+    [$st, $d] = cp_rest('DELETE', "/platform/events/$ev/co-organizer");
+    cp_eq('letzten ohne Angabe lösen: removed, leer', [200, 'removed', $oc, null], [$st, $d['changed'] ?? '', $d['removed_id'] ?? 0, array_key_exists('co_organizer', (array) ($d['event'] ?? [])) ? $d['event']['co_organizer'] : 'x']);
+    cp_eq('Meta weg', [0, '', []], [TIX_Co_Organizer::ref_id($ev), get_post_meta($ev, '_tix_co_organizer_id', true), TIX_Co_Organizer::ids($ev)]);
     [$st, $d] = cp_rest('DELETE', "/platform/events/$ev/co-organizer");
     cp_eq('nochmal lösen: unchanged', [200, 'unchanged'], [$st, $d['changed'] ?? '']);
     $sd = cp_rest('DELETE', "/platform/events/$syn/co-organizer"); // ab 1.38.706 erlaubt (Teil B lösen)

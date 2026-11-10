@@ -177,9 +177,9 @@ class TIX_Organizer_Admin {
         // Event: Ownership prüfen (inkl. Co-Veranstalter)
         $org_id = self::get_organizer_id($user_id);
         $event_org = intval(get_post_meta($post->ID, '_tix_organizer_id', true));
-        $event_co_org = intval(get_post_meta($post->ID, '_tix_co_organizer_id', true));
+        $event_co_orgs = array_map('intval', (array) get_post_meta($post->ID, '_tix_co_organizer_id', false)); // mehrere Co (1.38.716)
 
-        if ($org_id && ($event_org === $org_id || $event_co_org === $org_id)) {
+        if ($org_id && ($event_org === $org_id || in_array($org_id, $event_co_orgs, true))) {
             // Check-in Rolle: nur lesen, nicht bearbeiten/löschen
             if (class_exists('TIX_Team') && in_array($cap, ['edit_post', 'delete_post'], true)) {
                 if (!TIX_Team::user_can($user_id, 'edit_events')) {
@@ -569,10 +569,8 @@ class TIX_Organizer_Admin {
     private static function owns_event($event_id, $user_id = null) {
         $org_id = self::get_organizer_id($user_id);
         if (!$org_id || !$event_id) return false;
-        return in_array($org_id, [
-            intval(get_post_meta($event_id, '_tix_organizer_id', true)),
-            intval(get_post_meta($event_id, '_tix_co_organizer_id', true)),
-        ], true);
+        return in_array($org_id, array_merge([intval(get_post_meta($event_id, '_tix_organizer_id', true))],
+            array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false))), true);
     }
 
     /**
@@ -952,8 +950,8 @@ class TIX_Organizer_Admin {
         if (self::is_organizer()) {
             $org_id = self::get_organizer_id();
             $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-            $event_co_org = intval(get_post_meta($event_id, '_tix_co_organizer_id', true));
-            if ($event_org !== $org_id && $event_co_org !== $org_id) wp_die('Kein Zugriff auf dieses Event.');
+            $event_co_orgs = array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false));
+            if ($event_org !== $org_id && !in_array($org_id, $event_co_orgs, true)) wp_die('Kein Zugriff auf dieses Event.');
         }
         return $event_id;
     }
@@ -1070,8 +1068,8 @@ class TIX_Organizer_Admin {
         // Ownership (inkl. Co-Veranstalter)
         $org_id = self::get_organizer_id();
         $event_org = intval(get_post_meta($event_id, '_tix_organizer_id', true));
-        $event_co_org = intval(get_post_meta($event_id, '_tix_co_organizer_id', true));
-        if ($event_org !== $org_id && $event_co_org !== $org_id) wp_send_json_error(['message' => 'Kein Zugriff.']);
+        $event_co_orgs = array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false));
+        if ($event_org !== $org_id && !in_array($org_id, $event_co_orgs, true)) wp_send_json_error(['message' => 'Kein Zugriff.']);
 
         // Rate-Limit: max 1x pro Event pro Tag
         $today_key = '_tix_org_email_' . date('Y-m-d');
@@ -1260,7 +1258,7 @@ class TIX_Organizer_Admin {
         $notified = [];
         foreach ($by_event as $event_id => $sum) {
             // Beide Veranstalter (Haupt + Co) benachrichtigen
-            foreach (array_filter([intval(get_post_meta($event_id, '_tix_organizer_id', true)), intval(get_post_meta($event_id, '_tix_co_organizer_id', true))]) as $org_id) {
+            foreach (array_unique(array_filter(array_merge([intval(get_post_meta($event_id, '_tix_organizer_id', true))], array_map('intval', (array) get_post_meta($event_id, '_tix_co_organizer_id', false))))) as $org_id) {
                 if (isset($notified[$org_id . ':' . $event_id])) continue;
                 $email = sanitize_email((string) get_post_meta($org_id, '_tix_org_email', true));
                 if (!$email) {

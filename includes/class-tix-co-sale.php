@@ -134,7 +134,7 @@ class TIX_Co_Sale {
     /** Herkunft für syndicated_info auf der Kunden-Seite. */
     public static function syndicated_info($eid) {
         $seller = (string) (get_post_meta($eid, self::M_SELLER, true) ?: get_post_meta($eid, '_tix_platform_co_by', true));
-        if ($seller === '' && class_exists('TIX_Co_Remote') && ($d = TIX_Co_Remote::payload($eid))) $seller = (string) $d['name']; // Lizenzseite: Co verkauft
+        if ($seller === '' && class_exists('TIX_Co_Remote') && ($d = TIX_Co_Remote::payload($eid, class_exists('TIX_Co_Money') ? TIX_Co_Money::owner_id($eid) : 0))) $seller = (string) $d['name']; // Lizenzseite: Co verkauft (der Geldempfänger unter mehreren Co)
         return ['site' => $seller ?: 'Veranstalter', 'checkout_url' => '', 'sale_via_app' => true, 'terms_url' => (string) get_post_meta($eid, self::M_TERMS, true), 'brokered' => true];
     }
 

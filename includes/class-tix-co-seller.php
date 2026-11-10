@@ -25,7 +25,6 @@ class TIX_Co_Seller {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
-        add_filter('tix_co_money_choosable', [__CLASS__, 'choosable'], 10, 3);
         add_filter('tix_co_money_sold', [__CLASS__, 'sold'], 10, 2);
         add_action('tix_co_money_changed', [__CLASS__, 'on_money_changed'], 10, 3);
     }
@@ -49,21 +48,18 @@ class TIX_Co_Seller {
         return class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile($oid);
     }
 
-    /** Co-Veranstalter (Plattform-Veranstalter) des Events oder 0. */
-    private static function co_org($eid) {
-        if (get_post_meta($eid, '_tix_syndicated', true) === '1') return intval(get_post_meta($eid, '_tix_co_remote_oid', true));
-        return class_exists('TIX_Co_Organizer') ? intval(TIX_Co_Organizer::ref_id($eid)) : 0;
+    /** Co-Veranstalter, der das Geld einnimmt (Plattform-Veranstalter), oder 0 (mehrere Co: 1.38.716). */
+    public static function co_org($eid) {
+        return class_exists('TIX_Co_Money') ? TIX_Co_Money::owner_id($eid) : 0;
     }
 
     /** self | source | site (nur Plattform). */
     public static function seller($eid) {
         $eid = intval($eid);
         $syn = get_post_meta($eid, '_tix_syndicated', true) === '1';
-        $owner = class_exists('TIX_Co_Money') ? TIX_Co_Money::owner($eid) : 'creator';
-        if ($owner !== 'co') return $syn ? 'source' : 'self';
         $co = self::co_org($eid);
-        if ($co && self::is_site($co)) return 'site';
-        return $co ? 'self' : ($syn ? 'source' : 'self');
+        if (!$co) return $syn ? 'source' : 'self';
+        return self::is_site($co) ? 'site' : 'self';
     }
 
     /** Verkauft die Plattform ein geteiltes Event selbst (Fall B)? */
@@ -91,19 +87,6 @@ class TIX_Co_Seller {
         return self::multi() && self::seller($eid) === 'site';
     }
 
-    /** Wählbar: Co nur mit Zugriff; Kunden-Seite nur gekoppelt (Plattform); Lizenzseite prüft die Plattform. */
-    public static function choosable($out, $eid, $kind) {
-        $out = (array) $out;
-        if ($kind === 'local') {
-            $co = self::co_org($eid);
-            if (in_array('co', $out, true) && $co && self::is_site($co) && !self::site_partner($co)) $out = ['creator'];
-        } elseif ($kind === 'remote') {
-            $d = class_exists('TIX_Co_Remote') ? TIX_Co_Remote::payload($eid) : null;
-            if ($d && !empty($d['access']) && !in_array('co', $out, true)) $out[] = 'co';
-        }
-        return array_values(array_unique($out));
-    }
-
     public static function sold($sold, $eid) {
         if ($sold) return true;
         if (get_post_meta(intval($eid), self::M_SOLD, true) === '1') return true;
@@ -120,19 +103,26 @@ class TIX_Co_Seller {
 
     // ═══════════════ Plattform: Lizenzseite stellt um (Aktion „money“) ═══════════════
 
-    /** POST /syndicate/{id}/co-organizer {action: money, owner, share} → array | WP_Error */
+    /**
+     * POST /syndicate/{id}/co-organizer {action: money, owner, share | shares} → array | WP_Error.
+     * owner: 'creator' | 'co' (nur bei einem Co) | 'o:{ID}' bzw. ID; shares: {party => %} (1.38.716).
+     */
     public static function syndicate_money($eid, array $b) {
-        $co = intval(get_post_meta($eid, '_tix_co_remote_oid', true));
-        if (!$co) return new WP_Error('tix_invalid_field', 'Kein Co-Veranstalter gesetzt.', ['status' => 400]);
-        $owner = in_array($b['owner'] ?? '', TIX_Co_Money::OWNERS, true) ? (string) $b['owner'] : 'creator';
-        $choose = ['creator'];
-        if (get_post_meta($eid, '_tix_co_remote_access', true) === '1') {
-            if (!self::is_site($co) || self::site_partner($co)) $choose[] = 'co';
-            elseif ($owner === 'co') return new WP_Error('tix_co_money_unsupported', 'Die Seite des Co-Veranstalters ist noch nicht mit der Plattform verbunden.', ['status' => 409, 'reason' => 'site_not_ready']);
-        } elseif ($owner === 'co') {
-            return new WP_Error('tix_co_money_unsupported', 'Der Co-Veranstalter braucht Zugriff, um das Geld einzunehmen.', ['status' => 409, 'reason' => 'no_access']);
+        $ids = TIX_Co_Remote::mirror_ids($eid);
+        if (!$ids) return new WP_Error('tix_invalid_field', 'Kein Co-Veranstalter gesetzt.', ['status' => 400]);
+        $raw = $b['owner'] ?? 'creator';
+        $co = $raw === 'co' ? (count($ids) === 1 ? $ids[0] : 0) : (is_string($raw) && strpos($raw, 'o:') === 0 ? intval(substr($raw, 2)) : (is_numeric($raw) ? intval($raw) : 0));
+        if ($co) {
+            if (!in_array($co, $ids, true)) return new WP_Error('tix_invalid_field', 'Dieser Veranstalter ist kein Co-Veranstalter des Events.', ['status' => 400, 'field' => 'owner']);
+            if (!TIX_Co_Remote::mirror_has_access($eid, $co)) return new WP_Error('tix_co_money_unsupported', 'Der Co-Veranstalter braucht Zugriff, um das Geld einzunehmen.', ['status' => 409, 'reason' => 'no_access']);
+            if (self::is_site($co) && !self::site_partner($co)) return new WP_Error('tix_co_money_unsupported', 'Die Seite des Co-Veranstalters ist noch nicht mit der Plattform verbunden.', ['status' => 409, 'reason' => 'site_not_ready']);
+        } elseif ($raw === 'co') {
+            return new WP_Error('tix_invalid_field', 'Bitte angeben, welcher Co-Veranstalter das Geld einnimmt.', ['status' => 400, 'field' => 'owner']);
         }
-        $c = TIX_Co_Money::check_values($eid, ['owner' => $owner, 'share' => $b['share'] ?? null], true, $choose);
+        $in = ['owner' => $co ?: 'creator'];
+        if (isset($b['shares']) && is_array($b['shares'])) $in['shares'] = $b['shares'];
+        elseif (array_key_exists('share', $b)) $in['share'] = $b['share'];
+        $c = TIX_Co_Money::check_values($eid, $in);
         if (is_wp_error($c)) return $c;
         if ($c) TIX_Co_Money::apply($eid, $c, 'creator');
         return ['ok' => true, 'co_money' => TIX_Co_Money::payload($eid), 'seller' => self::seller($eid)];
@@ -229,6 +219,8 @@ class TIX_Co_Seller {
         update_post_meta($id, '_tix_extshop_enabled', '0');
         update_post_meta($id, TIX_Co_Money::META_OWNER, 'co');
         update_post_meta($id, TIX_Co_Money::META_SHARE, (string) floatval($it['share'] ?? 0));
+        if (isset($it['parts']) && is_array($it['parts'])) update_post_meta($id, TIX_Co_Money::META_PARTS, array_values(array_filter($it['parts'], 'is_array'))); // mehrere Beteiligte (1.38.716)
+        else delete_post_meta($id, TIX_Co_Money::META_PARTS);
         if ($first) {
             $cats = array_values(array_filter((array) ($it['categories'] ?? []), 'is_array'));
             update_post_meta($id, '_tix_ticket_categories', $cats);
@@ -253,8 +245,7 @@ class TIX_Co_Seller {
 
     /** Ziel der Vermittlung für ein eigenes Event, das der Co verkauft, sonst ''. */
     public static function source_base($eid) {
-        if (self::multi() || !class_exists('TIX_Co_Money') || TIX_Co_Money::owner($eid) !== 'co') return '';
-        if (!class_exists('TIX_Co_Remote') || !TIX_Co_Remote::payload($eid)) return '';
+        if (self::multi() || !class_exists('TIX_Co_Money') || !TIX_Co_Money::owner_id($eid)) return '';
         $remote = intval(get_post_meta($eid, '_tix_syndicate_remote_id', true));
         return $remote ? '/partner/sale/' . $remote : '';
     }

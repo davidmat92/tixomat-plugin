@@ -219,6 +219,7 @@ class TIX_Public_Events {
             'organizer_info'  => $org_info,
             // Co-Veranstalter (1.38.696): „mit …“, unabhängig vom Zugriff
             'co_organizer_info' => class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::public_ref($id) : null,
+            'co_organizers_info' => class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::public_refs($id) : [], // alle Co (1.38.716)
             'category'        => $platform ? TIX_Public_Platform::event_category($id) : null,
             'venue'           => $platform ? TIX_Public_Platform::venue($id) : null,
             'modules'         => ($platform && !empty($org_info['id'])) ? TIX_Public_Platform::modules($org_info['id']) : null,

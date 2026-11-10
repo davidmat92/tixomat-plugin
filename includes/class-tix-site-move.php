@@ -738,7 +738,7 @@ class TIX_Site_Move {
     /** Co-Events des Veranstalters (Ersteller = andere), nicht im Papierkorb. */
     private static function partner_co_ids($oid) {
         $ids = array_values(array_filter(self::co_event_ids($oid), function ($e) use ($oid) {
-            return in_array(get_post_status($e), ['publish', 'draft', 'pending', 'private', 'future'], true) && intval(TIX_Co_Organizer::ref_id($e)) === intval($oid);
+            return in_array(get_post_status($e), ['publish', 'draft', 'pending', 'private', 'future'], true) && in_array(intval($oid), TIX_Co_Organizer::ids($e), true); // einer von mehreren Co (1.38.716)
         }));
         // 1.38.706: geteilte Events von Lizenzseiten, bei denen diese Seite Co-Veranstalter ist (Teil B, Durchgriff bis zur Lizenzseite)
         return array_values(array_unique(array_merge($ids, class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirrors_of($oid) : [])));
@@ -751,7 +751,7 @@ class TIX_Site_Move {
 
     /** Spiegel einer Lizenzseite (Teil B)? */
     private static function is_source_mirror($e) {
-        return get_post_meta($e, '_tix_syndicated', true) === '1' && intval(get_post_meta($e, TIX_Co_Remote::M_OID, true)) > 0;
+        return get_post_meta($e, '_tix_syndicated', true) === '1' && TIX_Co_Remote::mirror_ids($e) !== [];
     }
 
     private static function source_site_of($e) {
@@ -776,7 +776,7 @@ class TIX_Site_Move {
                 'image' => $thumb ? (string) wp_get_attachment_image_url($thumb, 'large') : '', 'url' => (string) get_permalink($e),
                 'tickets' => get_post_meta($e, '_tix_tickets_enabled', true) === '1', 'price_from' => $price,
                 'creator' => ['id' => $creator, 'name' => html_entity_decode((string) get_the_title($creator), ENT_QUOTES, 'UTF-8')],
-                'access' => TIX_Co_Organizer::has_access($e)];
+                'access' => TIX_Co_Organizer::has_access($e, $oid)];
             // Verkauf über die Plattform (1.38.712): Kategorien für die Anzeige, Verkäufer, AGB
             if (class_exists('TIX_Co_Sale') && TIX_Co_Sale::platform_sale_ready($e)) {
                 $last = count($items) - 1;
@@ -786,18 +786,20 @@ class TIX_Site_Move {
                 $items[$last] += ['sale' => true, 'seller' => $seller['name'], 'terms_url' => $seller['terms_url'], 'categories' => array_values(array_filter($cats, 'is_array'))];
             }
             // Co verkauft selbst (1.38.713): Ticket-Felder für den verkaufsfähigen Spiegel
-            if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::seller($e) === 'site') {
+            if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::seller($e) === 'site' && TIX_Co_Seller::co_org($e) === $oid) { // nur die Seite, die das Geld einnimmt
                 $last = count($items) - 1;
                 $cats = (array) get_post_meta($e, '_tix_ticket_categories', true);
                 foreach ($cats as $ci => $cc) if (is_array($cc)) unset($cats[$ci]['product_id']);
                 $pre = [];
                 foreach (TIX_Co_Seller::TICKET_META as $k) if ($k !== '_tix_ticket_categories' && $k !== '_tix_tickets_enabled') $pre[$k] = get_post_meta($e, $k, true);
-                $items[$last] += ['sell' => true, 'categories' => array_values(array_filter($cats, 'is_array')), 'presale' => $pre, 'owner' => 'co', 'share' => TIX_Co_Money::share($e)];
+                $parts = [];
+                foreach ((array) (TIX_Co_Money::payload($e)['shares'] ?? []) as $sp) if (empty($sp['owner']) && floatval($sp['percent']) > 0) $parts[] = ['name' => (string) $sp['name'], 'percent' => floatval($sp['percent'])];
+                $items[$last] += ['sell' => true, 'categories' => array_values(array_filter($cats, 'is_array')), 'presale' => $pre, 'owner' => 'co', 'share' => TIX_Co_Money::share($e), 'parts' => $parts];
             }
             if (self::is_source_mirror($e)) {
                 $last = count($items) - 1;
                 $src = self::source_site_of($e);
-                $items[$last]['access'] = get_post_meta($e, TIX_Co_Remote::M_ACCESS, true) === '1';
+                $items[$last]['access'] = TIX_Co_Remote::mirror_has_access($e, $oid);
                 $items[$last]['source_site'] = $src;
                 if ($items[$last]['creator']['name'] === '') $items[$last]['creator'] = ['id' => 0, 'name' => $src];
             }
@@ -811,7 +813,7 @@ class TIX_Site_Move {
         $eid = absint($req['id']);
         if (!in_array($eid, self::partner_co_ids($oid), true)) return new WP_Error('tix_co_forbidden', 'Kein gemeinsames Event.', ['status' => 403]);
         $mirror = self::is_source_mirror($eid);
-        $has = $mirror ? get_post_meta($eid, TIX_Co_Remote::M_ACCESS, true) === '1' : TIX_Co_Organizer::has_access($eid);
+        $has = $mirror ? TIX_Co_Remote::mirror_has_access($eid, $oid) : TIX_Co_Organizer::has_access($eid, $oid);
         if (!$has) return new WP_Error('tix_co_no_access', 'Der Veranstalter hat den Zugriff auf dieses Event ausgeschaltet.', ['status' => 403]);
         $b = $req->get_json_params();
         if (!is_array($b)) $b = [];

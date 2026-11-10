@@ -122,9 +122,9 @@ try {
     $no = intval($d['co_organizer']['id'] ?? 0); if ($no) $tmp_p[] = $no;
     co_eq('Einladen neu: 201, angelegt, invited', [201, true, 'invited'], [$st, $d['created'] ?? null, $d['co_organizer']['status'] ?? null]);
     co_eq('neues Profil: Art co, Inhaber = neues Konto', ['co', $nu ? $nu->ID : -1], [get_post_meta($no, '_tix_org_kind', true), intval(get_post_meta($no, '_tix_org_user_id', true))]);
-    co_eq('Event jetzt beim neuen Co', $no, TIX_Co_Organizer::ref_id($ev));
+    co_eq('Neuer Co kommt hinzu, bisheriger bleibt (1.38.716)', [true, true], [in_array($no, TIX_Co_Organizer::ids($ev), true), in_array($ob, TIX_Co_Organizer::ids($ev), true)]);
     [$st, $d] = co_rest('POST', "/events/$ev/co-organizer/invite", ['email' => get_userdata($ub)->user_email, 'consent' => true]);
-    co_eq('Einladen vorhandenes Konto: 201, nicht angelegt, Partner', [201, false, $ob], [$st, $d['created'] ?? null, intval($d['co_organizer']['id'] ?? 0)]);
+    co_eq('Einladen vorhandenes Konto (schon Co): 200, nicht angelegt, Partner, Liste 2', [200, false, $ob, 2], [$st, $d['created'] ?? null, intval($d['co_organizer']['id'] ?? 0), count($d['co_organizers'] ?? [])]);
 
     // Wahl Studio / Lizenz (neues Profil)
     wp_set_current_user($nu->ID);

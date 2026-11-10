@@ -102,9 +102,8 @@ class TIX_Assistant {
     public static function in_scope($event_id, array $e = []) {
         if (!self::$org) return true;
         if (intval($e['organizer_info']['id'] ?? 0) === self::$org) return true;
-        foreach (['_tix_organizer_id', '_tix_co_organizer_id'] as $k) {
-            if (intval(get_post_meta(intval($event_id), $k, true)) === self::$org) return true;
-        }
+        if (intval(get_post_meta(intval($event_id), '_tix_organizer_id', true)) === self::$org) return true;
+        if (in_array(self::$org, array_map('intval', (array) get_post_meta(intval($event_id), '_tix_co_organizer_id', false)), true)) return true;
         return false;
     }
 

@@ -62,7 +62,7 @@ if (!$multi) {
         $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Cztest KK-Event', 'meta_input' => ['_tix_date_start' => '2027-02-27', '_tix_syndicate' => '1', '_tix_syndicate_remote_id' => 555,
             '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => [['name' => 'VVK', 'price' => 20, 'qty' => 100, 'stock' => 100]]]]);
         $tmp_p[] = $ev;
-        update_post_meta($ev, '_tix_co_remote', ['organizer_id' => 88, 'name' => 'KMT Test', 'access' => true, 'status' => 'active', 'since' => gmdate('c'), 'site' => ['key' => 'h-kmt', 'host' => 'kmt.test', 'name' => 'KMT Test']]);
+        delete_post_meta($ev, '_tix_co_remotes'); update_post_meta($ev, '_tix_co_remote', ['organizer_id' => 88, 'name' => 'KMT Test', 'access' => true, 'status' => 'active', 'since' => gmdate('c'), 'site' => ['key' => 'h-kmt', 'host' => 'kmt.test', 'name' => 'KMT Test']]);
         $m = (cz_rest('GET', "/events/$ev/edit")[1]['event'] ?? [])['co_money'] ?? [];
         cz_eq('Lizenzseite: Co wählbar', ['creator', 'co'], $m['choosable'] ?? []);
         $GLOBALS['cz_reply'] = function ($url) { return [409, ['code' => 'tix_co_money_unsupported', 'message' => 'Die Seite des Co-Veranstalters ist noch nicht mit der Plattform verbunden.', 'data' => ['status' => 409, 'reason' => 'site_not_ready']]]; };

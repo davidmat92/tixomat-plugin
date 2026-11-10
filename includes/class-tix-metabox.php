@@ -4107,15 +4107,19 @@ class TIX_Metabox {
 
         // Co-Veranstalter
         $co_org_id = intval($_POST['tix_co_organizer_id'] ?? 0);
-        if ($co_org_id && $co_org_id !== $org_id) {
+        $co_first = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::ref_id($post_id) : 0;
+        if (class_exists('TIX_Co_Organizer') && $co_org_id === $co_first) {
+            // unverändert – weitere Co (1.38.716) bleiben
+        } elseif ($co_org_id && $co_org_id !== $org_id) {
             if (class_exists('TIX_Co_Organizer')) {
+                if ($co_first) TIX_Co_Organizer::remove($post_id, $co_first); // Feld zeigt den ersten Co: ersetzt nur diesen
                 TIX_Co_Organizer::set($post_id, $co_org_id, null, get_current_user_id()); // Zugriff bleibt, wie er ist (neu: an)
             } else {
                 update_post_meta($post_id, '_tix_co_organizer_id', $co_org_id);
                 update_post_meta($post_id, '_tix_co_organizer', get_the_title($co_org_id));
             }
         } elseif (class_exists('TIX_Co_Organizer')) {
-            TIX_Co_Organizer::clear($post_id);
+            if ($co_first) TIX_Co_Organizer::remove($post_id, $co_first); // nur den angezeigten ersten Co
         } else {
             delete_post_meta($post_id, '_tix_co_organizer_id');
             delete_post_meta($post_id, '_tix_co_organizer');

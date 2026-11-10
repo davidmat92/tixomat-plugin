@@ -44,18 +44,84 @@ class TIX_Co_Organizer {
 
     // ═══════════════ Grundlagen ═══════════════
 
-    /** Co-Veranstalter des Events (unabhängig vom Zugriff) oder 0. Alt-Events: nur `_tix_co_organizer_id`. */
-    public static function ref_id($event_id) {
+    /**
+     * Mehrere Co-Veranstalter je Event (1.38.716, Vertrag `uebergaben/vertrag-co-mehrere.md`):
+     * `_tix_co_list` = [{id, access, since, consent}] ist maßgeblich. Daraus abgeleitet (für alle bestehenden Abfragen):
+     * `_tix_co_organizer_ref` (je Co eine Zeile), `_tix_co_organizer_id` (je Co mit Zugriff eine Zeile); die Einzelfelder
+     * `_tix_co_organizer_access/_since/_consent` und `_tix_co_organizer` (Name) tragen den ersten Co (alte Leser).
+     * Events ohne Liste (vor 1.38.716) werden aus den Einzelfeldern gelesen und beim nächsten Speichern umgestellt.
+     */
+    const META_LIST = '_tix_co_list';
+
+    /** Alle Co-Veranstalter des Events (Reihenfolge = Hinzufügen). */
+    public static function entries($event_id) {
         $event_id = intval($event_id);
-        $ref = intval(get_post_meta($event_id, self::META_REF, true));
-        return $ref ?: intval(get_post_meta($event_id, self::META_ID, true));
+        if (!$event_id) return [];
+        if (metadata_exists('post', $event_id, self::META_LIST)) {
+            $out = [];
+            foreach ((array) get_post_meta($event_id, self::META_LIST, true) as $e) {
+                if (!is_array($e) || !intval($e['id'] ?? 0)) continue;
+                $id = intval($e['id']);
+                if (isset($out[$id])) continue;
+                $c = $e['consent'] ?? null;
+                $out[$id] = ['id' => $id, 'access' => !empty($e['access']), 'since' => (string) ($e['since'] ?? ''), 'consent' => is_array($c) && !empty($c['at']) ? $c : null];
+            }
+            return array_values($out);
+        }
+        // Alt-Stand: ein Co in den Einzelfeldern
+        $ref = intval(get_post_meta($event_id, self::META_REF, true)) ?: intval(get_post_meta($event_id, self::META_ID, true));
+        if (!$ref) return [];
+        $a = get_post_meta($event_id, self::META_ACCESS, true);
+        $c = get_post_meta($event_id, self::META_CONSENT, true);
+        return [['id' => $ref, 'access' => $a === '' ? intval(get_post_meta($event_id, self::META_ID, true)) > 0 : $a === '1',
+            'since' => (string) get_post_meta($event_id, self::META_SINCE, true), 'consent' => is_array($c) && !empty($c['at']) ? $c : null]];
     }
 
-    public static function has_access($event_id) {
+    /** Liste speichern + abgeleitete Felder schreiben. */
+    public static function save_entries($event_id, array $list) {
         $event_id = intval($event_id);
-        if (!self::ref_id($event_id)) return false;
-        $a = get_post_meta($event_id, self::META_ACCESS, true);
-        return $a === '' ? intval(get_post_meta($event_id, self::META_ID, true)) > 0 : $a === '1';
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::normalize($event_id); // Alt-Geldempfänger „co“ an die bisherige Liste binden
+        $list = array_values(array_filter($list, function ($e) { return is_array($e) && intval($e['id'] ?? 0) > 0; }));
+        foreach ([self::META_REF, self::META_ID, self::META_ACCESS, self::META_NAME, self::META_SINCE, self::META_CONSENT] as $k) delete_post_meta($event_id, $k);
+        if (!$list) { delete_post_meta($event_id, self::META_LIST); clean_post_cache($event_id); return; }
+        $clean = [];
+        foreach ($list as $e) $clean[] = ['id' => intval($e['id']), 'access' => !empty($e['access']), 'since' => (string) ($e['since'] ?? '') ?: gmdate('c'), 'consent' => $e['consent'] ?? null];
+        update_post_meta($event_id, self::META_LIST, $clean);
+        foreach ($clean as $e) {
+            add_post_meta($event_id, self::META_REF, $e['id']);
+            if ($e['access']) add_post_meta($event_id, self::META_ID, $e['id']);
+        }
+        $f = $clean[0];
+        update_post_meta($event_id, self::META_ACCESS, $f['access'] ? '1' : '0');
+        update_post_meta($event_id, self::META_NAME, html_entity_decode((string) get_the_title($f['id']), ENT_QUOTES, 'UTF-8'));
+        update_post_meta($event_id, self::META_SINCE, $f['since']);
+        if ($f['consent']) update_post_meta($event_id, self::META_CONSENT, $f['consent']);
+        clean_post_cache($event_id);
+    }
+
+    public static function ids($event_id) {
+        return array_map(function ($e) { return $e['id']; }, self::entries($event_id));
+    }
+
+    public static function access_ids($event_id) {
+        return array_values(array_map(function ($e) { return $e['id']; }, array_filter(self::entries($event_id), function ($e) { return $e['access']; })));
+    }
+
+    public static function entry_of($event_id, $oid) {
+        foreach (self::entries($event_id) as $e) if ($e['id'] === intval($oid)) return $e;
+        return null;
+    }
+
+    /** Erster Co-Veranstalter (Alt-Schnittstelle) oder 0. */
+    public static function ref_id($event_id) {
+        $l = self::entries($event_id);
+        return $l ? $l[0]['id'] : 0;
+    }
+
+    /** Zugriff des Co $oid (ohne $oid: des ersten Co). */
+    public static function has_access($event_id, $oid = 0) {
+        $e = $oid ? self::entry_of($event_id, $oid) : (self::entries($event_id)[0] ?? null);
+        return $e ? $e['access'] : false;
     }
 
     private static function org_ok($oid) {
@@ -63,30 +129,42 @@ class TIX_Co_Organizer {
         return $p && $p->post_type === 'tix_organizer' && $p->post_status === 'publish' ? $p : null;
     }
 
-    /** Co-Veranstalter setzen/ändern (ohne Rechteprüfung). $access null = bisherigen Zugriff behalten (neu: an). */
+    /**
+     * Co-Veranstalter hinzufügen oder ändern (ohne Rechteprüfung). Ersetzt nie einen anderen Co (1.38.716).
+     * $access null = bisherigen Zugriff behalten (neu: an). → true, wenn neu hinzugefügt.
+     */
     public static function set($event_id, $oid, $access = null, $consent_by = 0) {
         $event_id = intval($event_id);
         $oid = intval($oid);
-        $old = self::ref_id($event_id);
-        if ($access === null) $access = $old === $oid ? self::has_access($event_id) : true;
-        update_post_meta($event_id, self::META_REF, $oid);
-        update_post_meta($event_id, self::META_ACCESS, $access ? '1' : '0');
-        update_post_meta($event_id, self::META_NAME, html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8'));
-        if ($access) update_post_meta($event_id, self::META_ID, $oid);
-        else delete_post_meta($event_id, self::META_ID);
-        if ($old !== $oid) {
-            update_post_meta($event_id, self::META_SINCE, gmdate('c'));
-            delete_post_meta($event_id, self::META_CONSENT);
+        $list = self::entries($event_id);
+        $new = true;
+        foreach ($list as $i => $e) {
+            if ($e['id'] !== $oid) continue;
+            $new = false;
+            if ($access !== null) $list[$i]['access'] = (bool) $access;
+            if ($list[$i]['access'] && $consent_by && !$list[$i]['consent']) $list[$i]['consent'] = ['at' => gmdate('c'), 'by' => intval($consent_by)];
         }
-        if ($access && $consent_by && !get_post_meta($event_id, self::META_CONSENT, true)) {
-            update_post_meta($event_id, self::META_CONSENT, ['at' => gmdate('c'), 'by' => intval($consent_by)]);
+        if ($new) {
+            $acc = $access === null ? true : (bool) $access;
+            $list[] = ['id' => $oid, 'access' => $acc, 'since' => gmdate('c'), 'consent' => ($acc && $consent_by) ? ['at' => gmdate('c'), 'by' => intval($consent_by)] : null];
         }
-        clean_post_cache($event_id);
-        return $old !== $oid; // neu verknüpft?
+        self::save_entries($event_id, $list);
+        return $new;
     }
 
+    /** Einen Co lösen (ohne Rechteprüfung). → war verbunden? */
+    public static function remove($event_id, $oid) {
+        $list = self::entries($event_id);
+        $rest = array_values(array_filter($list, function ($e) use ($oid) { return $e['id'] !== intval($oid); }));
+        if (count($rest) === count($list)) return false;
+        self::save_entries($event_id, $rest);
+        return true;
+    }
+
+    /** Alle Co lösen. */
     public static function clear($event_id) {
         $event_id = intval($event_id);
+        self::save_entries($event_id, []);
         foreach ([self::META_REF, self::META_ACCESS, self::META_ID, self::META_NAME, self::META_SINCE, self::META_CONSENT] as $k) delete_post_meta($event_id, $k);
         clean_post_cache($event_id);
     }
@@ -102,7 +180,7 @@ class TIX_Co_Organizer {
         if (!$oid) return null;
         if (!$event_id) return 'owner';
         if (intval(get_post_meta($event_id, '_tix_organizer_id', true)) === $oid) return 'owner';
-        if (intval(get_post_meta($event_id, self::META_ID, true)) === $oid) return 'co';
+        if (in_array($oid, self::access_ids($event_id), true)) return 'co';
         return null;
     }
 
@@ -150,21 +228,30 @@ class TIX_Co_Organizer {
         return 'active';
     }
 
-    public static function payload($event_id) {
-        $oid = self::ref_id($event_id);
-        if (!$oid || !get_post($oid)) return null;
+    /** Co $oid des Events (ohne $oid: der erste) als Antwort-Objekt oder null. */
+    public static function payload($event_id, $oid = 0) {
+        $e = $oid ? self::entry_of($event_id, $oid) : (self::entries($event_id)[0] ?? null);
+        if (!$e || !get_post($e['id'])) return null;
+        $oid = $e['id'];
         $r = self::ref($oid) ?: ['id' => $oid, 'name' => '', 'slug' => '', 'logo' => ''];
         $u = self::owner_user($oid);
         $status = self::org_status($oid);
-        $c = get_post_meta(intval($event_id), self::META_CONSENT, true);
+        $c = $e['consent'];
         return [
-            'id' => intval($r['id']), 'name' => html_entity_decode((string) $r['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $r['logo'], 'slug' => (string) $r['slug'],
-            'access' => self::has_access($event_id),
+            'id' => intval($oid), 'name' => html_entity_decode((string) $r['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $r['logo'], 'slug' => (string) $r['slug'],
+            'access' => $e['access'],
             'status' => $status,
             'invited_email' => ($status === 'invited' && $u) ? (string) $u->user_email : '',
-            'since' => (string) get_post_meta(intval($event_id), self::META_SINCE, true) ?: null,
+            'since' => $e['since'] ?: null,
             'consent' => is_array($c) && !empty($c['at']) ? ['at' => (string) $c['at'], 'by' => intval($c['by'] ?? 0)] : null,
         ];
+    }
+
+    /** Alle Co als Einträge für `co_organizers`. */
+    public static function entries_payload($event_id, $removable) {
+        $out = [];
+        foreach (self::ids($event_id) as $oid) if ($e = self::entry($event_id, $removable, $oid)) $out[] = $e;
+        return $out;
     }
 
     /** Zusatzfelder für GET /events/{id}/edit und /events/form. */
@@ -174,47 +261,58 @@ class TIX_Co_Organizer {
         $role = self::role($event_id) ?: ($event_id ? null : 'owner');
         $can = in_array($role, ['owner', 'admin'], true);
         if ($event_id && get_post_meta($event_id, '_tix_syndicated', true) === '1') return self::mirror_editor_payload($event_id, $role); // Spiegel: Co der Quelle (1.38.715)
-        $entry = $event_id ? self::entry($event_id, $can) : null;
+        $list = $event_id ? self::entries_payload($event_id, $can) : [];
         return [
             'co_organizer_available' => true,
             'co_organizer_mode'      => 'local',
             'co_organizer_editable'  => $can,
+            'co_organizer_multiple'  => true,
             'event_role'             => $role,
             'co_organizer'           => $event_id ? self::payload($event_id) : null,
-            'co_organizers'          => $entry ? [$entry] : [],
-            'co_organizer_removable' => $can && $entry !== null,
+            'co_organizers'          => $list,
+            'co_organizer_removable' => $can && $list !== [],
             'co_organizer_site_search' => $can && class_exists('TIX_Co_Sites'),
         ];
     }
 
     /** Spiegel eines Lizenz-Events: Co wie bei der Quelle (Teil B). Ändern = an die Quelle weiterreichen (nur Admin, 1.38.715). */
     private static function mirror_editor_payload($eid, $role) {
-        $m = class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirror_payload($eid) : null;
         $admin = $role === 'admin';
         $lock = self::platform_lock($eid);
         $ok = $admin && $lock !== null && !empty($lock['forward']);
-        $entry = null;
-        if ($m) {
-            $o = self::origin_of($m['id']);
-            if ($o['kind'] === 'local') $o['kind'] = 'remote';
-            $entry = $m + ['invited_email' => '', 'since' => null, 'consent' => null, 'remote' => true] + $o + ['removable' => $admin];
-        }
+        $list = self::mirror_entries_payload($eid, $admin);
         return ['co_organizer_available' => $ok, 'co_organizer_mode' => 'source', 'co_organizer_unavailable_reason' => $ok ? null : 'source',
-            'co_organizer_editable' => $ok, 'event_role' => $role, 'co_organizer' => $entry, 'co_organizers' => $entry ? [$entry] : [],
-            'co_organizer_removable' => $admin && $entry !== null, 'co_organizer_site_search' => $ok,
+            'co_organizer_editable' => $ok, 'co_organizer_multiple' => true, 'event_role' => $role, 'co_organizer' => $list[0] ?? null, 'co_organizers' => $list,
+            'co_organizer_removable' => $admin && $list !== [], 'co_organizer_site_search' => $ok,
             'co_source' => ['site' => (string) ($lock['site'] ?? ''), 'note' => 'Das Event gehört ' . (string) ($lock['site'] ?? 'der Partnerseite') . '. Änderungen am Co-Veranstalter gehen dorthin und gelten auf beiden Seiten.']];
     }
 
-    /** Spiegel mit lokalem Co (Teil A, vor 1.38.715 möglich): [{event, local {id,name}, source {id,name}}] */
+    /** Co-Einträge eines Spiegels (Teil B, von der Quelle gemeldet). */
+    public static function mirror_entries_payload($eid, $removable) {
+        $out = [];
+        foreach (class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirror_payloads($eid) : [] as $m) {
+            $o = self::origin_of($m['id']);
+            if ($o['kind'] === 'local') $o['kind'] = 'remote';
+            $out[] = $m + ['invited_email' => '', 'since' => null, 'consent' => null, 'remote' => true] + $o + ['removable' => (bool) $removable];
+        }
+        return $out;
+    }
+
+    /**
+     * Spiegel mit lokalem Co (Teil A, vor 1.38.715 möglich), je lokalem Co eine Zeile:
+     * [{event, title, local {id,name,access}, source {id,name} (erster Co der Quelle), sources [{id,name}], at_source (lokaler Co ist dort schon)}]
+     */
     public static function mirror_conflicts() {
         $out = [];
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids',
-            'meta_query' => [['key' => '_tix_syndicated', 'value' => '1'], ['relation' => 'OR', ['key' => self::META_REF, 'compare' => 'EXISTS'], ['key' => self::META_ID, 'compare' => 'EXISTS']]]]) as $eid) {
-            $l = self::ref_id($eid);
-            if (!$l) continue;
-            $s = intval(get_post_meta($eid, '_tix_co_remote_oid', true));
-            $out[] = ['event' => intval($eid), 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'), 'local' => ['id' => $l, 'name' => html_entity_decode(get_the_title($l), ENT_QUOTES, 'UTF-8'), 'access' => self::has_access($eid)],
-                'source' => $s ? ['id' => $s, 'name' => html_entity_decode(get_the_title($s), ENT_QUOTES, 'UTF-8')] : null];
+            'meta_query' => [['key' => '_tix_syndicated', 'value' => '1'], ['relation' => 'OR', ['key' => self::META_LIST, 'compare' => 'EXISTS'], ['key' => self::META_REF, 'compare' => 'EXISTS'], ['key' => self::META_ID, 'compare' => 'EXISTS']]]]) as $eid) {
+            $src = class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirror_ids($eid) : [];
+            $sources = array_map(function ($s) { return ['id' => $s, 'name' => html_entity_decode(get_the_title($s), ENT_QUOTES, 'UTF-8')]; }, $src);
+            foreach (self::entries($eid) as $e) {
+                $out[] = ['event' => intval($eid), 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'),
+                    'local' => ['id' => $e['id'], 'name' => html_entity_decode(get_the_title($e['id']), ENT_QUOTES, 'UTF-8'), 'access' => $e['access']],
+                    'source' => $sources[0] ?? null, 'sources' => $sources, 'at_source' => in_array($e['id'], $src, true)];
+            }
         }
         return $out;
     }
@@ -233,12 +331,15 @@ class TIX_Co_Organizer {
         if (($args[0] ?? '') !== 'spiegel' || !self::multi()) WP_CLI::error('Aufruf: wp tixomat co spiegel [--reparieren] (nur Plattform)');
         $list = self::mirror_conflicts();
         foreach ($list as $c) {
-            $line = sprintf('#%d %s: lokal %s (#%d)%s', $c['event'], $c['title'], $c['local']['name'], $c['local']['id'], $c['source'] ? ', Quelle ' . $c['source']['name'] . ' (#' . $c['source']['id'] . ')' : ', Quelle ohne Co');
+            $names = implode(', ', array_map(function ($x) { return $x['name'] . ' (#' . $x['id'] . ')'; }, $c['sources']));
+            $line = sprintf('#%d %s: lokal %s (#%d)%s', $c['event'], $c['title'], $c['local']['name'], $c['local']['id'], $names !== '' ? ', Quelle ' . $names : ', Quelle ohne Co');
             if (empty($assoc['reparieren'])) { WP_CLI::line($line); continue; }
-            $f = self::forward_mirror($c['event'], ['organizer_id' => $c['local']['id'], 'access' => $c['local']['access']]);
-            if (is_wp_error($f)) { WP_CLI::warning($line . ' → ' . $f->get_error_code() . ' ' . $f->get_error_message()); continue; }
-            self::clear($c['event']);
-            WP_CLI::line($line . ' → an die Quelle weitergereicht, lokal entfernt');
+            if (!$c['at_source']) { // hinzufügen, die Co der Quelle bleiben (1.38.716)
+                $f = self::forward_mirror($c['event'], ['organizer_id' => $c['local']['id'], 'access' => $c['local']['access']]);
+                if (is_wp_error($f)) { WP_CLI::warning($line . ' → ' . $f->get_error_code() . ' ' . $f->get_error_message()); continue; }
+            }
+            self::remove($c['event'], $c['local']['id']);
+            WP_CLI::line($line . ($c['at_source'] ? ' → bei der Quelle schon eingetragen, lokal entfernt' : ' → an die Quelle weitergereicht (zusätzlich), lokal entfernt'));
         }
         WP_CLI::line('ERGEBNIS ' . wp_json_encode(['ok' => true, 'count' => count($list), 'repaired' => !empty($assoc['reparieren'])]));
     }
@@ -260,8 +361,8 @@ class TIX_Co_Organizer {
     }
 
     /** Eintrag für `co_organizers` (Teil A) oder null. */
-    public static function entry($event_id, $removable) {
-        $p = self::payload($event_id);
+    public static function entry($event_id, $removable, $oid = 0) {
+        $p = self::payload($event_id, $oid);
         return $p ? $p + self::origin_of($p['id']) + ['removable' => (bool) $removable] : null;
     }
 
@@ -269,22 +370,36 @@ class TIX_Co_Organizer {
     public static function list_fields($event_id) {
         if (!self::multi()) return class_exists('TIX_Co_Remote') ? TIX_Co_Remote::list_fields($event_id) : [];
         $role = self::role($event_id);
-        $with = 0;
-        if ($role === 'co') $with = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
-        elseif ($role === 'owner' || $role === 'admin') $with = self::ref_id($event_id);
-        $r = $with ? self::ref($with) : null;
-        return ['event_role' => $role, 'shared_with' => $r ? ['id' => intval($r['id']), 'name' => html_entity_decode((string) $r['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $r['logo']] : null];
+        $with = [];
+        if ($role === 'co') {
+            $me = class_exists('TIX_App_Scope') ? TIX_App_Scope::organizer_id_for_user() : 0;
+            $with = array_merge([intval(get_post_meta(intval($event_id), '_tix_organizer_id', true))], array_diff(self::ids($event_id), [$me]));
+        } elseif ($role === 'owner' || $role === 'admin') $with = self::ids($event_id);
+        $all = [];
+        foreach (array_filter($with) as $w) {
+            $r = self::ref($w);
+            if ($r) $all[] = ['id' => intval($r['id']), 'name' => html_entity_decode((string) $r['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $r['logo']];
+        }
+        return ['event_role' => $role, 'shared_with' => $all[0] ?? null, 'shared_with_all' => $all];
     }
 
-    /** Öffentliche Angabe „mit …“ (unabhängig vom Zugriff). */
+    /** Öffentliche Angabe „mit …“ (unabhängig vom Zugriff): erster Co. */
     public static function public_ref($event_id) {
-        if (get_post_meta(intval($event_id), '_tix_syndicated', true)) { // geteilte Events: nur der Co-Veranstalter, den die Lizenzseite gemeldet hat (Teil B)
-            $r = intval(get_post_meta(intval($event_id), '_tix_co_remote_oid', true));
-            return $r && self::public_ok($r) ? self::ref($r) : null;
+        return self::public_refs($event_id)[0] ?? null;
+    }
+
+    /** Öffentliche Angabe „mit …“: alle Co (1.38.716). */
+    public static function public_refs($event_id) {
+        if (get_post_meta(intval($event_id), '_tix_syndicated', true)) { // geteilte Events: nur die Co-Veranstalter, die die Lizenzseite gemeldet hat (Teil B)
+            $ids = class_exists('TIX_Co_Remote') ? TIX_Co_Remote::mirror_ids($event_id) : [];
+        } elseif (!self::multi() && class_exists('TIX_Co_Remote')) {
+            return TIX_Co_Remote::public_refs($event_id);
+        } else {
+            $ids = self::ids($event_id);
         }
-        if (!self::multi() && class_exists('TIX_Co_Remote')) return TIX_Co_Remote::public_ref($event_id);
-        $oid = self::ref_id($event_id);
-        return $oid && self::public_ok($oid) ? self::ref($oid) : null;
+        $out = [];
+        foreach ($ids as $oid) if (self::public_ok($oid) && ($r = self::ref($oid))) $out[] = $r;
+        return $out;
     }
 
     // ═══════════════ Editor: prüfen + speichern ═══════════════
@@ -298,33 +413,37 @@ class TIX_Co_Organizer {
         $v = $body['co_organizer'];
         if (!$is_new && get_post_meta($post_id, '_tix_syndicated', true) === '1') { // Spiegel: an die Quelle (1.38.715)
             if ($role !== 'admin') return self::deny('Den Co-Veranstalter legt die Seite des Erstellers fest.');
+            $cur_ids = TIX_Co_Remote::mirror_ids($post_id);
             if ($v === null || $v === false || $v === '' || $v === 0) {
-                if (!intval(get_post_meta($post_id, '_tix_co_remote_oid', true))) return null;
-                $r = TIX_Co_Remote::release_mirror($post_id, 'platform');
+                if (!$cur_ids) return null;
+                foreach ($cur_ids as $c) TIX_Co_Remote::release_mirror($post_id, 'platform', $c);
                 return ['op' => 'remote'];
             }
             if (!is_array($v)) return new WP_Error('tix_invalid_field', 'co_organizer: null oder {id, access}.', ['status' => 400, 'field' => 'co_organizer']);
-            $cur = intval(get_post_meta($post_id, '_tix_co_remote_oid', true));
-            $oid = isset($v['id']) ? intval($v['id']) : $cur;
+            $oid = isset($v['id']) ? intval($v['id']) : (count($cur_ids) === 1 ? $cur_ids[0] : 0);
             if (!$oid) return new WP_Error('tix_invalid_field', 'Bitte einen Co-Veranstalter wählen.', ['status' => 400, 'field' => 'co_organizer']);
             $f = self::forward_mirror($post_id, ['organizer_id' => $oid, 'access' => array_key_exists('access', $v) ? (bool) filter_var($v['access'], FILTER_VALIDATE_BOOLEAN) : true]);
             return is_wp_error($f) ? $f : ['op' => 'remote'];
         }
-        if ($v === null || $v === false || $v === '' || $v === 0) {
+        if ($v === null || $v === false || $v === '' || $v === 0) { // alle lösen
             if (!$is_new && class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($post_id))) return $cc;
             return ['op' => 'clear'];
         }
         if (!is_array($v)) return new WP_Error('tix_invalid_field', 'co_organizer: null oder {id, access, consent}.', ['status' => 400, 'field' => 'co_organizer']);
-        $oid = isset($v['id']) ? intval($v['id']) : ($is_new ? 0 : self::ref_id($post_id));
-        if (!$oid) return new WP_Error('tix_invalid_field', 'Bitte einen Co-Veranstalter wählen.', ['status' => 400, 'field' => 'co_organizer']);
+        $cur_ids = $is_new ? [] : self::ids($post_id);
+        $oid = isset($v['id']) ? intval($v['id']) : (count($cur_ids) === 1 ? $cur_ids[0] : 0);
+        if (!$oid) return new WP_Error('tix_invalid_field', count($cur_ids) > 1 ? 'Bitte angeben, welcher Co-Veranstalter gemeint ist (id).' : 'Bitte einen Co-Veranstalter wählen.', ['status' => 400, 'field' => 'co_organizer.id']);
         if (!self::org_ok($oid)) return new WP_Error('tix_invalid_field', 'Diesen Veranstalter gibt es nicht oder er ist nicht freigegeben.', ['status' => 400, 'field' => 'co_organizer']);
         $own = $is_new ? TIX_App_Scope::organizer_id_for_user() : intval(get_post_meta($post_id, '_tix_organizer_id', true));
         if ($own && $own === $oid) return new WP_Error('tix_invalid_field', 'Der eigene Veranstalter kann nicht Co-Veranstalter sein.', ['status' => 400, 'field' => 'co_organizer']);
         $access = array_key_exists('access', $v) ? filter_var($v['access'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
         if (array_key_exists('access', $v) && $access === null) return new WP_Error('tix_invalid_field', 'co_organizer.access: true oder false.', ['status' => 400, 'field' => 'co_organizer.access']);
-        $same = !$is_new && self::ref_id($post_id) === $oid;
-        $eff = $access === null ? ($same ? self::has_access($post_id) : true) : $access;
-        $had = $same && get_post_meta($post_id, self::META_CONSENT, true); // Bestätigung bleibt gespeichert, auch wenn der Zugriff zwischendurch aus war
+        $cur = $is_new ? null : self::entry_of($post_id, $oid);
+        $eff = $access === null ? ($cur ? $cur['access'] : true) : $access;
+        $had = $cur && $cur['consent']; // Bestätigung bleibt gespeichert, auch wenn der Zugriff zwischendurch aus war
+        if ($cur && $access === false && $cur['access'] && class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($post_id) === $oid && TIX_Co_Money::sold($post_id)) {
+            return new WP_Error('tix_co_money_locked', 'Dieser Co-Veranstalter nimmt das Geld ein, und es gibt schon Verkäufe. Der Zugriff bleibt an.', ['status' => 409, 'field' => 'co_organizer.access']);
+        }
         if ($eff && $role !== 'admin' && !$had && empty($v['consent'])) {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'co_organizer.consent']);
         }
@@ -334,20 +453,21 @@ class TIX_Co_Organizer {
     public static function apply($post_id, $c) {
         if (!$c) return;
         if (($c['op'] ?? '') === 'remote') return; // Lizenzseite: schon bei der Prüfung an evendis gemeldet (TIX_Co_Remote::check)
-        $old = self::ref_id($post_id);
-        $old_access = $old ? self::has_access($post_id) : null;
         if ($c['op'] === 'clear') {
+            $old = self::ids($post_id);
             self::clear($post_id);
             if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($post_id);
-            if ($old) self::log_change($post_id, 'removed', $old, false, 'creator');
+            foreach ($old as $o) self::log_change($post_id, 'removed', $o, false, 'creator');
             return;
         }
-        $new = self::set($post_id, $c['id'], $c['access'], $c['consent'] ? get_current_user_id() : 0);
-        if ($new && $old && class_exists('TIX_Co_Money')) TIX_Co_Money::reset($post_id); // neuer Co: Geldempfänger zurück auf Ersteller
+        $cur = self::entry_of($post_id, $c['id']);
+        $old_access = $cur ? $cur['access'] : null;
+        $new = self::set($post_id, $c['id'], $c['access'], $c['consent'] ? get_current_user_id() : 0); // hinzufügen, ersetzt nie (1.38.716)
+        $now = self::has_access($post_id, $c['id']);
+        if (!$now && class_exists('TIX_Co_Money')) TIX_Co_Money::on_co_lost($post_id, intval($c['id']), true);
         if ($new) self::notify($post_id, $c['id'], null);
-        if ($new && $old) self::log_change($post_id, 'removed', $old, false, 'creator');
-        if ($new) self::log_change($post_id, 'added', intval($c['id']), self::has_access($post_id), 'creator');
-        elseif ($old_access !== self::has_access($post_id)) self::log_change($post_id, 'changed', intval($c['id']), self::has_access($post_id), 'creator');
+        if ($new) self::log_change($post_id, 'added', intval($c['id']), $now, 'creator');
+        elseif ($old_access !== $now) self::log_change($post_id, 'changed', intval($c['id']), $now, 'creator');
     }
 
     // ═══════════════ Sperren (Rechte) ═══════════════
@@ -501,39 +621,62 @@ class TIX_Co_Organizer {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
         }
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
-        $money = self::money_in($eid, $b, $access);
+        $existing = get_user_by('email', $email);
+        $eorg = $existing ? self::org_for_user($existing->ID) : null;
+        $money = self::money_in($eid, $b, $access, $eorg ? intval($eorg->ID) : -1);
         if (is_wp_error($money)) return $money;
         $r = self::find_or_create($email, $org_name, $name, ['event_id' => $eid, 'organizer_id' => $main]);
         if (is_wp_error($r)) return $r;
         [$org, $created, $user, $new_user] = $r;
         if (intval($org->ID) === $main) return new WP_Error('tix_co_self', 'Diese E-Mail gehört zum eigenen Veranstalter.', ['status' => 409, 'field' => 'email']);
-        $old = self::ref_id($eid);
-        $old_access = $old ? self::has_access($eid) : null;
-        $linked = self::set($eid, $org->ID, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0);
-        self::money_after($eid, $linked && $old, $money, 'creator');
-        if ($linked && $old) self::log_change($eid, 'removed', $old, false, 'creator');
-        if ($linked) self::log_change($eid, 'added', intval($org->ID), self::has_access($eid), 'creator');
-        elseif ($old_access !== self::has_access($eid)) self::log_change($eid, 'changed', intval($org->ID), self::has_access($eid), 'creator');
-        $mailed = self::notify($eid, intval($org->ID), $new_user ? $user : null, $name);
-        $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'co_organizer' => self::payload($eid)]);
-        $res->set_status(201);
-        return $res;
+        $res = self::link_one($eid, intval($org->ID), $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0, $money, 'creator');
+        if (is_wp_error($res)) return $res;
+        $mailed = $res['linked'] || $new_user ? self::notify($eid, intval($org->ID), $new_user ? $user : null, $name) : false;
+        $out = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'changed' => $res['changed'], 'co_organizer' => self::payload($eid, intval($org->ID)), 'co_organizers' => self::entries_payload($eid, true)]);
+        $out->set_status($res['linked'] ? 201 : 200);
+        return $out;
     }
 
-    /** Geldempfänger/Anteil beim Verbinden prüfen (1.38.711): {owner?, share?} aus money_owner/share → null | array | WP_Error */
-    private static function money_in($eid, array $b, $access) {
+    /**
+     * Geldempfänger/Anteil beim Verbinden prüfen (1.38.711, mehrere Co 1.38.716): money_owner ('creator' | 'co' = dieser neue Co
+     * | Veranstalter-ID), share (Anteil dieses Co), shares ([{organizer_id|party, percent}]). $new_oid = der neue Co (-1 = wird
+     * erst angelegt, 0 = unbekannt). → null | array | WP_Error
+     */
+    private static function money_in($eid, array $b, $access, $new_oid) {
         if (!class_exists('TIX_Co_Money')) return null;
         $in = [];
-        if (array_key_exists('money_owner', $b)) $in['owner'] = $b['money_owner'];
-        if (array_key_exists('share', $b)) $in['share'] = $b['share'];
+        foreach (['money_owner' => 'owner', 'share' => 'share', 'shares' => 'shares'] as $k => $t) if (array_key_exists($k, $b)) $in[$t] = $b[$k];
         if (!$in) return null;
-        return TIX_Co_Money::check_values($eid, $in, true, $access ? ['creator', 'co'] : ['creator']) ?? ['keep' => true];
+        return TIX_Co_Money::check_values($eid, $in, ['new' => intval($new_oid), 'new_access' => (bool) $access]);
     }
 
-    private static function money_after($eid, $replaced, $money, $via) {
-        if (!class_exists('TIX_Co_Money')) return;
-        if ($replaced && !(is_array($money) && empty($money['keep']))) TIX_Co_Money::reset($eid);
-        if (is_array($money) && empty($money['keep'])) TIX_Co_Money::apply($eid, $money, $via);
+    /**
+     * Einen Co hinzufügen bzw. ändern + Geld + Protokoll (gemeinsam für Einladen, Seite, Plattform). Ersetzt nie.
+     * → ['linked' => bool, 'changed' => added|changed|unchanged, 'access' => bool] | WP_Error
+     */
+    private static function link_one($eid, $oid, $access, $consent_by, $money, $via) {
+        $cur = self::entry_of($eid, $oid);
+        $old_access = $cur ? $cur['access'] : null;
+        if ($cur && $access === false && $cur['access'] && class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($eid) === $oid && TIX_Co_Money::sold($eid)) {
+            return new WP_Error('tix_co_money_locked', 'Dieser Co-Veranstalter nimmt das Geld ein, und es gibt schon Verkäufe. Der Zugriff bleibt an.', ['status' => 409, 'field' => 'access']);
+        }
+        $linked = self::set($eid, $oid, $access, $consent_by);
+        $now = self::has_access($eid, $oid);
+        if (!$now && class_exists('TIX_Co_Money')) TIX_Co_Money::on_co_lost($eid, $oid, true);
+        if (is_array($money) && class_exists('TIX_Co_Money')) TIX_Co_Money::apply($eid, TIX_Co_Money::resolve_new($money, $oid), $via);
+        $changed = $linked ? 'added' : ($old_access !== $now ? 'changed' : 'unchanged');
+        if ($changed !== 'unchanged') self::log_change($eid, $changed, $oid, $now, $via);
+        return ['linked' => $linked, 'changed' => $changed, 'access' => $now];
+    }
+
+    /** Einen Co lösen + Geld + Protokoll + Mitteilung. → true | WP_Error */
+    private static function unlink_one($eid, $oid, $via) {
+        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid, $oid))) return $cc;
+        if (!self::remove($eid, $oid)) return true;
+        if (class_exists('TIX_Co_Money')) TIX_Co_Money::on_co_lost($eid, $oid, false);
+        self::log_change($eid, 'removed', $oid, false, $via);
+        self::notify_removed_co($eid, $oid);
+        return true;
     }
 
     /** Teil A: Kunden-Seite verbinden (invite mit `site`). */
@@ -542,25 +685,21 @@ class TIX_Co_Organizer {
         if ($access && $role !== 'admin' && empty($b['consent'])) {
             return new WP_Error('tix_co_consent', 'Bitte bestätigen, dass Käuferdaten dieses Events an den Co-Veranstalter weitergegeben werden.', ['status' => 400, 'field' => 'consent']);
         }
-        $money = self::money_in($eid, $b, $access);
-        if (is_wp_error($money)) return $money;
         $r = TIX_Co_Sites::organizer_for(sanitize_text_field((string) $b['site']));
         if (is_wp_error($r)) return $r;
         [$oid, $created] = $r;
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
         if ($oid === $main) return new WP_Error('tix_co_self', 'Diese Seite gehört zum Ersteller des Events.', ['status' => 409, 'field' => 'site']);
-        $old = self::ref_id($eid);
-        $old_access = $old ? self::has_access($eid) : null;
-        $linked = self::set($eid, $oid, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0);
-        self::money_after($eid, $linked && $old, $money, 'creator');
-        if ($linked && $old) { self::log_change($eid, 'removed', $old, false, 'creator'); self::notify_removed_co($eid, $old); }
-        if ($linked) self::log_change($eid, 'added', $oid, self::has_access($eid), 'creator');
-        elseif ($old_access !== self::has_access($eid)) self::log_change($eid, 'changed', $oid, self::has_access($eid), 'creator');
+        $money = self::money_in($eid, $b, $access, $oid);
+        if (is_wp_error($money)) return $money;
+        $res = self::link_one($eid, $oid, $access, ($access && !empty($b['consent'])) || $role === 'admin' ? get_current_user_id() : 0, $money, 'creator');
+        if (is_wp_error($res)) return $res;
         $mailed = false; $note = '';
-        if ($linked) { [$mailed, $note] = TIX_Co_Sites::notify_result($eid, $oid); TIX_Co_Sites::trigger_sync($oid); }
-        $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'mail_note' => $note, 'co_organizer' => self::payload($eid), 'co_organizers' => [self::entry($eid, true)]]);
-        $res->set_status($linked ? 201 : 200);
-        return $res;
+        if ($res['linked']) [$mailed, $note] = TIX_Co_Sites::notify_result($eid, $oid);
+        if ($res['changed'] !== 'unchanged') TIX_Co_Sites::trigger_sync($oid);
+        $out = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'mail_note' => $note, 'changed' => $res['changed'], 'co_organizer' => self::payload($eid, $oid), 'co_organizers' => self::entries_payload($eid, true)]);
+        $out->set_status($res['linked'] ? 201 : 200);
+        return $out;
     }
 
     /** DELETE /events/{id}/co-organizer (Ersteller/Admin, evendis). */
@@ -569,22 +708,33 @@ class TIX_Co_Organizer {
         if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
         $role = self::role($eid);
         if (!in_array($role, ['owner', 'admin'], true)) return self::deny('Die Verbindung kann nur der Ersteller des Events trennen.');
+        $want = absint($req->get_param('organizer_id'));
         if (get_post_meta($eid, '_tix_syndicated', true)) { // Spiegel einer Partnerseite: nur der Admin, Teil B lösen
-            $was = intval(get_post_meta($eid, TIX_Co_Remote::M_OID, true));
-            $src = $was ? TIX_Co_Remote::release_mirror($eid, $role === 'admin' ? 'platform' : 'creator') : null;
-            return rest_ensure_response(['ok' => true, 'changed' => $was ? 'removed' : 'unchanged', 'co_organizers' => [], 'released' => ['platform' => $was ? true : null, 'source' => $src]]);
+            $cur = TIX_Co_Remote::mirror_ids($eid);
+            $oid = self::pick_one($cur, $want);
+            if (is_wp_error($oid)) return $oid;
+            $src = $oid ? TIX_Co_Remote::release_mirror($eid, $role === 'admin' ? 'platform' : 'creator', $oid) : null;
+            return rest_ensure_response(['ok' => true, 'changed' => $oid ? 'removed' : 'unchanged', 'removed_id' => $oid ?: null, 'co_organizers' => self::mirror_entries_payload($eid, $role === 'admin'), 'released' => ['platform' => $oid ? true : null, 'source' => $src]]);
         }
-        $old = self::ref_id($eid);
-        if (!$old) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'co_organizers' => [], 'released' => ['platform' => null, 'source' => null]]);
-        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid))) return $cc;
-        self::clear($eid);
-        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
+        $oid = self::pick_one(self::ids($eid), $want);
+        if (is_wp_error($oid)) return $oid;
+        if (!$oid) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'removed_id' => null, 'co_organizers' => self::entries_payload($eid, true), 'released' => ['platform' => null, 'source' => null]]);
         $via = $role === 'admin' && intval(get_post_meta($eid, '_tix_organizer_id', true)) !== TIX_App_Scope::organizer_id_for_user() ? 'platform' : 'creator';
-        self::log_change($eid, 'removed', $old, false, $via);
-        self::notify_removed_co($eid, $old);
-        if ($via === 'platform') self::notify_creator($eid, $old, 'removed');
+        $u = self::unlink_one($eid, $oid, $via);
+        if (is_wp_error($u)) return $u;
+        if ($via === 'platform') self::notify_creator($eid, $oid, 'removed');
         if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
-        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'co_organizers' => [], 'released' => ['platform' => true, 'source' => null]]);
+        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'removed_id' => $oid, 'co_organizers' => self::entries_payload($eid, true), 'released' => ['platform' => true, 'source' => null]]);
+    }
+
+    /**
+     * Welcher Co ist beim Lösen gemeint? $want = organizer_id aus der Anfrage. Ohne Angabe nur, wenn es genau einen gibt.
+     * → ID | 0 (keiner verbunden bzw. $want nicht verbunden) | WP_Error
+     */
+    public static function pick_one(array $ids, $want) {
+        if ($want) return in_array(intval($want), $ids, true) ? intval($want) : 0;
+        if (count($ids) > 1) return new WP_Error('tix_co_choose', 'Das Event hat mehrere Co-Veranstalter. Bitte angeben, welcher gelöst wird (organizer_id).', ['status' => 400, 'field' => 'organizer_id']);
+        return $ids[0] ?? 0;
     }
 
     // ═══════════════ Mitteilungen ═══════════════
@@ -597,7 +747,7 @@ class TIX_Co_Organizer {
         $title = html_entity_decode((string) get_the_title($event_id), ENT_QUOTES, 'UTF-8');
         $by = html_entity_decode((string) get_the_title(intval(get_post_meta($event_id, '_tix_organizer_id', true))), ENT_QUOTES, 'UTF-8') ?: $site;
         $studio = class_exists('TIX_Studio') && TIX_Studio::active() ? TIX_Studio::url('/') : admin_url();
-        $access = self::has_access($event_id);
+        $access = self::has_access($event_id, $oid);
         $hello = $name !== '' ? 'Hallo ' . esc_html(strtok($name, ' ')) . ',' : 'Hallo,';
         $html = '<p>' . $hello . '</p><p>' . esc_html($by) . ' hat dich als Co-Veranstalter von <strong>' . esc_html($title) . '</strong> eingetragen.</p>';
         if ($access) $html .= '<p>Im Studio siehst du das Event unter „Events“ mit dem Hinweis „Gemeinsam mit ' . esc_html($by) . '“. Du kannst es dort bearbeiten, Verkäufe und Gäste sehen und den Einlass machen.</p>';
@@ -707,7 +857,7 @@ class TIX_Co_Organizer {
                 $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
                 $events[] = ['id' => $eid, 'title' => html_entity_decode((string) get_the_title($eid), ENT_QUOTES, 'UTF-8'), 'date' => (string) get_post_meta($eid, '_tix_date_start', true),
                     'owner' => $main ? ['id' => $main, 'name' => html_entity_decode((string) get_the_title($main), ENT_QUOTES, 'UTF-8')] : null,
-                    'access' => get_post_meta($eid, '_tix_syndicated', true) === '1' ? get_post_meta($eid, '_tix_co_remote_access', true) === '1' : self::has_access($eid),
+                    'access' => get_post_meta($eid, '_tix_syndicated', true) === '1' ? TIX_Co_Remote::mirror_has_access($eid, $oid) : self::has_access($eid, $oid),
                     'remote' => get_post_meta($eid, '_tix_syndicated', true) === '1' ? ['site' => (string) get_post_meta($eid, '_tix_source_site', true), 'source_id' => intval(get_post_meta($eid, '_tix_source_id', true))] : null];
             }
             $key = class_exists('TIX_Platform_Customers') ? TIX_Platform_Customers::canonical('v-' . $oid) : 'v-' . $oid;
@@ -781,29 +931,18 @@ class TIX_Co_Organizer {
     public static function platform_event_row($event_id) {
         $event_id = intval($event_id);
         $lock = self::platform_lock($event_id);
-        $co = null;
-        if (get_post_meta($event_id, '_tix_syndicated', true)) {
-            $r = intval(get_post_meta($event_id, '_tix_co_remote_oid', true));
-            if ($r && get_post($r)) {
-                $ref = self::ref($r);
-                $co = ['id' => $r, 'name' => html_entity_decode((string) $ref['name'], ENT_QUOTES, 'UTF-8'), 'logo' => (string) $ref['logo'], 'slug' => (string) $ref['slug'],
-                    'access' => get_post_meta($event_id, '_tix_co_remote_access', true) === '1', 'status' => self::org_status($r), 'invited_email' => '', 'since' => null, 'consent' => null];
-                $co += self::origin_of($r);
-                if ($co['kind'] === 'local') $co['kind'] = 'remote';
-            }
-        } else {
-            $co = self::payload($event_id);
-            if ($co) $co += self::origin_of($co['id']);
-        }
+        $rm = $lock === null || $lock['reason'] === 'source';
+        $list = get_post_meta($event_id, '_tix_syndicated', true) ? self::mirror_entries_payload($event_id, $rm) : self::entries_payload($event_id, $rm);
+        $co = $list[0] ?? null;
         $img = get_the_post_thumbnail_url($event_id, 'medium');
         return [
             'id' => $event_id, 'title' => html_entity_decode((string) get_the_title($event_id), ENT_QUOTES, 'UTF-8'),
             'date' => (string) get_post_meta($event_id, '_tix_date_start', true), 'time' => (string) get_post_meta($event_id, '_tix_time_start', true),
             'status' => (string) get_post_status($event_id), 'image' => $img ? (string) $img : '',
             'owner' => self::org_mini(intval(get_post_meta($event_id, '_tix_organizer_id', true))),
-            'co_organizer' => $co, 'co_editable' => $lock === null || ($lock['reason'] === 'source' && !empty($lock['forward'])), 'co_locked' => ($lock && empty($lock['forward'])) ? $lock : null,
+            'co_organizer' => $co, 'co_organizers' => $list, 'co_editable' => $lock === null || ($lock['reason'] === 'source' && !empty($lock['forward'])), 'co_locked' => ($lock && empty($lock['forward'])) ? $lock : null,
             'co_source' => ($lock && $lock['reason'] === 'source') ? ['site' => $lock['site'], 'forward' => !empty($lock['forward']), 'note' => $lock['message']] : null,
-            'co_removable' => $co !== null && ($lock === null || $lock['reason'] === 'source'),
+            'co_removable' => $co !== null && $rm,
             'co_money' => class_exists('TIX_Co_Money') ? TIX_Co_Money::payload($event_id) : null,
         ];
     }
@@ -877,13 +1016,14 @@ class TIX_Co_Organizer {
         $lock = get_post_type($eid) === 'event' ? self::platform_lock($eid) : null;
         if ($lock && $lock['reason'] === 'source' && !empty($lock['forward'])) { // Spiegel: an die Quelle (1.38.715)
             $in = array_intersect_key($b, array_flip(['organizer_id', 'email', 'site', 'organizer', 'name', 'access', 'money_owner', 'share']));
-            if (empty($in['organizer_id']) && empty($in['email']) && empty($in['site'])) $in['organizer_id'] = intval(get_post_meta($eid, '_tix_co_remote_oid', true));
+            $was = TIX_Co_Remote::mirror_ids($eid);
+            if (empty($in['organizer_id']) && empty($in['email']) && empty($in['site']) && count($was) === 1) $in['organizer_id'] = $was[0];
             if (empty($in['organizer_id']) && empty($in['email']) && empty($in['site'])) return new WP_Error('tix_invalid_field', 'Bitte einen Veranstalter wählen (organizer_id) oder Name und E-Mail angeben.', ['status' => 400, 'field' => 'organizer_id']);
-            $was = intval(get_post_meta($eid, '_tix_co_remote_oid', true));
             $f = self::forward_mirror($eid, $in);
             if (is_wp_error($f)) return $f;
-            $res = rest_ensure_response($f + ['changed' => $was !== intval(get_post_meta($eid, '_tix_co_remote_oid', true)) ? 'added' : 'changed', 'event' => self::platform_event_row($eid)]);
-            $res->set_status($was ? 200 : 201);
+            $added = array_diff(TIX_Co_Remote::mirror_ids($eid), $was);
+            $res = rest_ensure_response($f + ['changed' => $added ? 'added' : 'changed', 'event' => self::platform_event_row($eid)]);
+            $res->set_status($added ? 201 : 200);
             return $res;
         }
         $ok = self::platform_event_or_error($eid);
@@ -893,8 +1033,6 @@ class TIX_Co_Organizer {
             $access = filter_var($b['access'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
             if ($access === null) return new WP_Error('tix_invalid_field', 'access: true oder false.', ['status' => 400, 'field' => 'access']);
         }
-        $money = self::money_in($eid, $b, $access === null ? (self::ref_id($eid) ? self::has_access($eid) : true) : $access);
-        if (is_wp_error($money)) return $money;
         $main = intval(get_post_meta($eid, '_tix_organizer_id', true));
         $created = false; $new_user = null; $name = ''; $site_oid = 0;
         if (!empty($b['site'])) {
@@ -922,26 +1060,24 @@ class TIX_Co_Organizer {
         } else {
             return new WP_Error('tix_invalid_field', 'Bitte einen Veranstalter wählen (organizer_id) oder Name und E-Mail angeben.', ['status' => 400, 'field' => 'organizer_id']);
         }
-        $old = self::ref_id($eid);
-        $old_access = $old ? self::has_access($eid) : null;
-        $linked = self::set($eid, $oid, $access, get_current_user_id());
-        self::money_after($eid, $linked && $old, $money, 'platform');
-        $now = self::has_access($eid);
-        $changed = $linked ? 'added' : ($old_access !== $now ? 'changed' : 'unchanged');
-        $mailed = false;
+        $cur = self::entry_of($eid, $oid);
+        $money = self::money_in($eid, $b, $access === null ? ($cur ? $cur['access'] : true) : $access, $oid);
+        if (is_wp_error($money)) return $money;
+        $res = self::link_one($eid, $oid, $access, get_current_user_id(), $money, 'platform');
+        if (is_wp_error($res)) return $res;
+        $linked = $res['linked'];
+        $changed = $res['changed'];
+        $mailed = false; $note = '';
         if ($linked) {
-            if ($old) { self::log_change($eid, 'removed', $old, false, 'platform'); self::notify_removed_co($eid, $old); }
-            self::log_change($eid, 'added', $oid, $now, 'platform');
-            $note = '';
             if ($site_oid) { [$mailed, $note] = TIX_Co_Sites::notify_result($eid, $oid, self::platform_by()); TIX_Co_Sites::trigger_sync($oid); }
             else $mailed = self::notify($eid, $oid, $new_user, $name);
             self::notify_creator($eid, $oid, 'added');
         } elseif ($changed === 'changed') {
-            self::log_change($eid, 'changed', $oid, $now, 'platform');
+            if (class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile($oid)) TIX_Co_Sites::trigger_sync($oid);
             self::notify_creator($eid, $oid, 'changed');
         }
         if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
-        $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'mail_note' => $note ?? '', 'changed' => $changed, 'event' => self::platform_event_row($eid)]);
+        $res = rest_ensure_response(['ok' => true, 'created' => $created, 'mailed' => (bool) $mailed, 'mail_note' => $note, 'changed' => $changed, 'event' => self::platform_event_row($eid)]);
         $res->set_status($linked ? 201 : 200);
         return $res;
     }
@@ -953,24 +1089,24 @@ class TIX_Co_Organizer {
     public static function rest_platform_clear(WP_REST_Request $req) {
         $eid = absint($req['id']);
         $lock = get_post_type($eid) === 'event' ? self::platform_lock($eid) : null;
+        $want = absint($req->get_param('organizer_id'));
         if ($lock && $lock['reason'] === 'source') { // geteiltes Event: Teil B lösen (1.38.706)
-            $was = intval(get_post_meta($eid, TIX_Co_Remote::M_OID, true));
-            $src = $was ? TIX_Co_Remote::release_mirror($eid, 'platform') : null;
+            $oid = self::pick_one(TIX_Co_Remote::mirror_ids($eid), $want);
+            if (is_wp_error($oid)) return $oid;
+            $src = $oid ? TIX_Co_Remote::release_mirror($eid, 'platform', $oid) : null;
             if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
-            return rest_ensure_response(['ok' => true, 'changed' => $was ? 'removed' : 'unchanged', 'event' => self::platform_event_row($eid), 'source_released' => $src]);
+            return rest_ensure_response(['ok' => true, 'changed' => $oid ? 'removed' : 'unchanged', 'removed_id' => $oid ?: null, 'event' => self::platform_event_row($eid), 'source_released' => $src]);
         }
         $ok = self::platform_event_or_error($eid);
         if (is_wp_error($ok)) return $ok;
-        $old = self::ref_id($eid);
-        if (!$old) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'event' => self::platform_event_row($eid)]);
-        if (class_exists('TIX_Co_Money') && is_wp_error($cc = TIX_Co_Money::can_clear($eid))) return $cc;
-        self::clear($eid);
-        if (class_exists('TIX_Co_Money')) TIX_Co_Money::reset($eid);
-        self::log_change($eid, 'removed', $old, false, 'platform');
-        self::notify_removed_co($eid, $old);
-        self::notify_creator($eid, $old, 'removed');
+        $oid = self::pick_one(self::ids($eid), $want);
+        if (is_wp_error($oid)) return $oid;
+        if (!$oid) return rest_ensure_response(['ok' => true, 'changed' => 'unchanged', 'removed_id' => null, 'event' => self::platform_event_row($eid)]);
+        $u = self::unlink_one($eid, $oid, 'platform');
+        if (is_wp_error($u)) return $u;
+        self::notify_creator($eid, $oid, 'removed');
         if (class_exists('TIX_Platform_Customers')) TIX_Platform_Customers::flush();
-        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'event' => self::platform_event_row($eid), 'source_released' => null]);
+        return rest_ensure_response(['ok' => true, 'changed' => 'removed', 'removed_id' => $oid, 'event' => self::platform_event_row($eid), 'source_released' => null]);
     }
 
     private static function feed($uid, $title, $body, $eid) {
@@ -992,7 +1128,7 @@ class TIX_Co_Organizer {
         $site = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
         $title = html_entity_decode((string) get_the_title($eid), ENT_QUOTES, 'UTF-8');
         $co = html_entity_decode((string) get_the_title($co_oid), ENT_QUOTES, 'UTF-8');
-        $acc = self::has_access($eid);
+        $acc = self::has_access($eid, $co_oid);
         $text = [
             'added' => $site . ' hat ' . $co . ' als Co-Veranstalter hinzugefügt',
             'changed' => $site . ' hat den Zugriff von ' . $co . ' ' . ($acc ? 'eingeschaltet' : 'ausgeschaltet'),

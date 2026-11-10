@@ -67,7 +67,7 @@ if (!$multi) {
     $tmp = [];
     $tok = str_repeat('t', 48);
     $set_remote = function ($sid, $site = null) use ($tok) {
-        update_post_meta($sid, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'MDJ Test', 'logo' => '', 'slug' => '', 'email' => 'mdj@example.test', 'access' => true, 'status' => 'active', 'since' => gmdate('c'), 'site' => $site]);
+        delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', ['organizer_id' => 77, 'name' => 'MDJ Test', 'logo' => '', 'slug' => '', 'email' => 'mdj@example.test', 'access' => true, 'status' => 'active', 'since' => gmdate('c'), 'site' => $site]);
         update_post_meta($sid, '_tix_co_token_hash', hash('sha256', $tok));
     };
     try {
@@ -91,13 +91,13 @@ if (!$multi) {
             return;
         }
         // 1.38.709: von Hand als JSON gesetzt, Status eingeladen
-        update_post_meta($sid, '_tix_co_remote', wp_json_encode(['organizer_id' => 9507, 'name' => 'MDJ Veranstaltungs UG', 'access' => true, 'status' => 'invited', 'since' => '2026-11-09T10:00:00+00:00']));
+        delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', wp_json_encode(['organizer_id' => 9507, 'name' => 'MDJ Veranstaltungs UG', 'access' => true, 'status' => 'invited', 'since' => '2026-11-09T10:00:00+00:00']));
         [, $d] = cs_rest('GET', "/events/$sid/edit");
         $e0 = ($d['event'] ?? $d)['co_organizers'][0] ?? [];
         cs_eq('JSON-Meta, eingeladen: angezeigt + trennbar', [9507, 'invited', true], [$e0['id'] ?? 0, $e0['status'] ?? '', $e0['removable'] ?? null]);
         // 1.38.709: erster Durchgriff von der Plattform setzt „eingeladen“ → „aktiv“
         $set_remote($sid);
-        update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited']));
+        delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited']));
         wp_set_current_user(0);
         $r = new WP_REST_Request('POST', "/tixomat/v1/partner/co/$sid");
         $r->set_header('X-Tix-Partner-Id', 'plat.test'); $r->set_header('X-Tix-Partner-Key', str_repeat('p', 32)); $r->set_header('X-Tix-Co-Token', $tok);
@@ -106,7 +106,7 @@ if (!$multi) {
         cs_eq('Durchgriff: Status wird aktiv', [200, 'active'], [$st, get_post_meta($sid, '_tix_co_remote', true)['status'] ?? '']);
         wp_set_current_user(intval($admin[0]->ID));
         // Zugriff umschalten übernimmt den Status der Plattform
-        update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited', 'consent' => ['at' => gmdate('c'), 'by' => 1]]));
+        delete_post_meta($sid, '_tix_co_remotes'); update_post_meta($sid, '_tix_co_remote', array_merge(get_post_meta($sid, '_tix_co_remote', true), ['status' => 'invited', 'consent' => ['at' => gmdate('c'), 'by' => 1]]));
         $GLOBALS['cs_reply'] = function () { return [200, ['ok' => true, 'co_organizer' => ['id' => 77, 'name' => 'MDJ Test', 'access' => false, 'status' => 'active']]]; };
         [$st] = cs_rest('POST', "/events/$sid", ['co_organizer' => ['access' => false]]);
         $dd = get_post_meta($sid, '_tix_co_remote', true);

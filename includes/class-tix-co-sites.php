@@ -196,7 +196,7 @@ class TIX_Co_Sites {
         $title = html_entity_decode((string) get_the_title($event_id), ENT_QUOTES, 'UTF-8');
         if ($by === '') $by = html_entity_decode((string) get_the_title(intval(get_post_meta($event_id, '_tix_organizer_id', true))), ENT_QUOTES, 'UTF-8') ?: self::platform_name();
         $where = $site ? $site['host'] : html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8');
-        $access = TIX_Co_Organizer::has_access($event_id) || get_post_meta($event_id, '_tix_co_remote_access', true) === '1';
+        $access = TIX_Co_Organizer::has_access($event_id, $oid) || (class_exists('TIX_Co_Remote') && TIX_Co_Remote::mirror_has_access($event_id, $oid));
         $html = '<p>Hallo,</p><p>' . esc_html($by) . ' hat deine Seite <strong>' . esc_html($where) . '</strong> als Co-Veranstalter von <strong>' . esc_html($title) . '</strong> eingetragen.</p>'
             . '<p>Das Event erscheint in deinem Studio unter „Events“ mit dem Hinweis „Gemeinsam mit ' . esc_html($by) . '“ (spätestens nach einer Stunde, sofort über „Jetzt abgleichen“).'
             . ($access ? ' Du kannst es dort bearbeiten, Verkäufe und Gäste sehen und den Einlass machen.' : ' Du wirst beim Event als Mitveranstalter genannt.') . '</p>';

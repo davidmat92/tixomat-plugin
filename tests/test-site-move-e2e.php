@@ -179,7 +179,8 @@ if ($mode === 'co-kk') { // Schritt 2 auf der neuen Seite; Phase: an | aus | weg
     }
     sm_eq('Abgleich: 1 Spiegel angelegt', [true, 1], [!is_wp_error($r), (is_wp_error($r) ? 0 : $r['created'] + $r['updated'])]);
     if (is_wp_error($r)) { echo '      ' . $r->get_error_message() . "\n"; sm_done(); return; }
-    sm_eq('Spiegel: Titel, Ersteller, Kauf beim Ersteller, nie zurückverteilt', ['SMTEST Co-Event', 'SMTEST Ersteller', '1', '0', '0', true],
+    // seit 1.38.712: Verkauf über die Plattform (Vermittlung) statt Link zum Ersteller → Tickets an, externer Shop aus
+    sm_eq('Spiegel: Titel, Ersteller, Kauf über die Plattform, nie zurückverteilt', ['SMTEST Co-Event', 'SMTEST Ersteller', '0', '1', '0', true],
         [get_the_title($m), get_post_meta($m, '_tix_platform_co_by', true), get_post_meta($m, '_tix_extshop_enabled', true), get_post_meta($m, '_tix_tickets_enabled', true), get_post_meta($m, '_tix_syndicate', true), TIX_Syndication_Push::is_system_event($m)]);
     $lf = TIX_Co_Organizer::list_fields($m);
     sm_eq('Liste: Rolle co, remote, Basis', ['co', true, "/platform-co/$m"], [$lf['event_role'] ?? null, $lf['remote'] ?? null, $lf['base'] ?? null]);
