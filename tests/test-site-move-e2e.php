@@ -68,7 +68,15 @@ if ($mode === 'setup-plat') {
     $host = sanitize_key((string) wp_parse_url((string) $args[1], PHP_URL_HOST));
     $all = (array) get_option(TIX_Partners::OPTION, []);
     $set = get_option('tix_settings', []);
-    update_option('tix_sm_backup', ['owner' => $owner, 'recv' => $set['syndication_receive_enabled'] ?? '__none__', 'partners' => $all, 'oids' => [$oid, $other], 'posts' => array_merge($evs, [$co, $loc]), 'order' => $order], false);
+    // Künstler mit Porträt (1.38.743): die Bild-ID gehört zur Plattform und darf auf der neuen Seite nicht 1:1 stehen bleiben
+    $up = wp_upload_bits('smtest-artist.png', null, (string) file_get_contents(ABSPATH . 'wp-admin/images/w-logo-blue.png'));
+    $pic = wp_insert_attachment(['post_mime_type' => 'image/png', 'post_title' => 'SMTEST Porträt', 'post_status' => 'inherit'], $up['file']);
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+    wp_update_attachment_metadata($pic, wp_generate_attachment_metadata($pic, $up['file']));
+    $art = wp_insert_post(['post_type' => 'tix_artist', 'post_status' => 'publish', 'post_title' => 'SMTEST Künstler']);
+    update_post_meta($art, '_tix_artist', ['status' => 'public', 'images' => ['portrait' => ['id' => $pic, 'credit' => 'Foto SM']], 'links' => [], 'tours' => [], 'ids' => ['spotify' => '', 'apple' => ''], 'managed_by' => ['type' => 'organizer', 'id' => $oid]]);
+    update_post_meta($evs[0], '_tix_artists', [['artist_id' => $art, 'role' => 'headliner']]);
+    update_option('tix_sm_backup', ['owner' => $owner, 'recv' => $set['syndication_receive_enabled'] ?? '__none__', 'partners' => $all, 'oids' => [$oid, $other], 'posts' => array_merge($evs, [$co, $loc, $art, $pic]), 'order' => $order], false);
     $all[$host] = ['id' => $host, 'name' => 'SMTEST Neue Seite', 'api_base' => rtrim((string) $args[1], '/'), 'key_in' => (string) ($args[2] ?? 'kin-smtest-' . str_repeat('a', 24)), 'key_out' => (string) ($args[3] ?? 'kout-smtest-' . str_repeat('b', 24)), 'organizer_id' => 0, 'created' => gmdate('c')];
     update_option(TIX_Partners::OPTION, $all, false);
     $set['syndication_receive_enabled'] = 1; update_option('tix_settings', $set);
@@ -89,12 +97,18 @@ if ($mode === 'run-kk') {
         count(get_posts(['post_type' => 'event', 'post_status' => 'any', 'meta_key' => TIX_Site_Move::META_FROM, 'fields' => 'ids', 'posts_per_page' => -1]))]);
     $probe = function ($new, $old, $post) { if ($post && $post->post_type === 'event' && $new === 'publish') { wp_mail('gast@example.test', 'Test', 'darf nicht raus'); wp_remote_get('https://push.example.test/send'); } };
     add_action('transition_post_status', $probe, 50, 3);
+    add_filter('http_request_host_is_external', '__return_true'); // Testnetz: Bilder von tqc-plat laden
     $r = TIX_Site_Move::import($api, $s['token']);
     remove_action('transition_post_status', $probe, 50);
     sm_eq('Import: ohne Fehler', [], is_wp_error($r) ? [$r->get_error_message()] : $r['errors']);
     sm_eq('Import: gemeldet, Plattform-Status imported', [true, 'imported', 'imported'], [$r['reported'] ?? null, $r['platform_status'] ?? null, get_option(TIX_Site_Move::OPT_IMPORT)['platform_status'] ?? null]);
     sm_eq('Ruhemodus: Mails und fremdes HTTP gesperrt, Hooks danach wieder da', [true, true, 35], [($r['blocked']['mails'] ?? 0) >= 2, ($r['blocked']['http'] ?? 0) >= 2, has_action('save_post_event', ['TIX_Syndication_Push', 'on_save'])]);
-    sm_eq('Import: Zahlen', [1, 1, 2, 1, 2, 1, 1, 1], [$r['counts']['organizer'], $r['counts']['locations'], $r['counts']['events'], $r['counts']['orders'], $r['counts']['tickets'], $r['counts']['newsletter'], $r['counts']['coupons'], 0 + ($r['counts']['artists'] === 0)]);
+    sm_eq('Import: Zahlen', [1, 1, 2, 1, 2, 1, 1, 1], [$r['counts']['organizer'], $r['counts']['locations'], $r['counts']['events'], $r['counts']['orders'], $r['counts']['tickets'], $r['counts']['newsletter'], $r['counts']['coupons'], $r['counts']['artists']]);
+    $art = (get_posts(['post_type' => 'tix_artist', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => TIX_Site_Move::META_FROM]) ?: [0])[0];
+    $ad = (array) get_post_meta($art, '_tix_artist', true);
+    $pa = intval($ad['images']['portrait']['id'] ?? 0);
+    sm_eq('Künstler: Porträt neu geladen (nicht die Plattform-ID), markiert, Nachweis (1.38.743)', ['attachment', $art, 'Foto SM', true, true],
+        [get_post_type($pa), intval(get_post_meta($pa, '_tix_artist_img_of', true)), $ad['images']['portrait']['credit'] ?? '', TIX_Shared_Objects::own_has_image($art), stripos((string) wp_get_attachment_url($pa), 'smtest') !== false]);
     $map = (array) get_option(TIX_Site_Move::OPT_MAP);
     $e1 = intval($map['events'][$s['events'][0]] ?? 0);
     sm_eq('Event: angelegt, Herkunft, Verteilung auf Plattform-ID', ['SMTEST Party 1', (string) $s['events'][0], '1', (string) $s['events'][0]],
@@ -215,6 +229,7 @@ if ($mode === 'cleanup-kk') {
     $map = (array) get_option(TIX_Site_Move::OPT_MAP, []);
     foreach (get_posts(['post_type' => 'event', 'post_status' => ['any', 'trash'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_platform_co']) as $p) wp_delete_post($p, true);
     delete_option('tix_platform_co_sync');
+    foreach (get_posts(['post_type' => 'attachment', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_artist_img_of']) as $p) wp_delete_attachment($p, true);
     foreach (['event', 'tix_ticket', 'tix_location', 'tix_artist', 'tix_organizer'] as $t) foreach (get_posts(['post_type' => $t, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => TIX_Site_Move::META_FROM]) as $p) {
         remove_all_actions('before_delete_post'); wp_delete_post($p, true);
     }

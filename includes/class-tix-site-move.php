@@ -66,6 +66,7 @@ class TIX_Site_Move {
         $pp = ['permission_callback' => [__CLASS__, 'perm_partner']];
         register_rest_route(self::NS, '/partner/co-events', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_partner_co_events']] + $pp);
         register_rest_route(self::NS, '/partner/co-events/(?P<id>\d+)/call', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_partner_co_call']] + $pp);
+        register_rest_route(self::NS, '/partner/move-artists', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_partner_move_artists']] + $pp); // Bilder umgezogener Künstler (1.38.743)
         $p = ['permission_callback' => ['TIX_Platform_Customers', 'perm']];
         $k = '/platform/customers/(?P<key>[a-z]-[a-z0-9_-]{1,60})/move';
         register_rest_route(self::NS, $k, [
@@ -351,7 +352,7 @@ class TIX_Site_Move {
                 break;
             case 'artists':
                 [$ids, $more] = $slice(self::artist_ids($ev));
-                foreach ($ids as $id) { $r = self::post_row($id); $r['meta'] = self::meta_of($id, false); $items[] = $r; }
+                foreach ($ids as $id) { $r = self::post_row($id); $r['meta'] = self::meta_of($id, false); $r['images_src'] = self::artist_images_src($id); $items[] = $r; }
                 break;
             case 'events':
                 [$ids, $more] = $slice($ev);
@@ -609,6 +610,8 @@ class TIX_Site_Move {
             $r = self::each_page($part, function ($p) use (&$map, &$errors, &$n, $part, $type) {
                 $id = self::upsert_post($p, $type, $errors);
                 if ($id) { $map[$part][intval($p['id'])] = $id; $n[$part]++; }
+                // Künstlerbilder (1.38.743): die kopierten Bild-IDs gehören zur Plattform → Bilder hier neu laden, sonst entfernen
+                if ($id > 0 && $type === 'tix_artist') $n['images'] += self::import_artist_images($id, array_key_exists('images_src', $p) ? $p['images_src'] : null, $errors);
             });
             if (is_wp_error($r)) return $r;
         }
@@ -1059,6 +1062,132 @@ class TIX_Site_Move {
      * [--trocken]
      * : nur zählen, nichts anlegen
      */
+    // ═══════════════ Künstlerbilder umgezogener Künstler (1.38.743) ═══════════════
+
+    /** Bilder eines Künstlers als Adressen für die neue Seite → {portrait: {url, credit}|null, cover: …} */
+    public static function artist_images_src($aid) {
+        if (!class_exists('TIX_Artists')) return ['portrait' => null, 'cover' => null];
+        $im = TIX_Artists::images_public($aid);
+        $one = function ($i) { return is_array($i) && !empty($i['large']) ? ['url' => (string) $i['large'], 'credit' => (string) ($i['credit'] ?? '')] : null; };
+        return ['portrait' => $one($im['images']['portrait'] ?? null), 'cover' => $one($im['images']['cover'] ?? null)];
+    }
+
+    /** Bild laden (über IPv4, wie die Spiegel) und als Künstlerbild markieren → Anhang-ID | 0 */
+    private static function load_artist_image($url, $aid, array &$errors) {
+        static $done = [];
+        $key = $url . '|' . $aid;
+        if (isset($done[$key])) return $done[$key];
+        $have = get_posts(['post_type' => 'attachment', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'suppress_filters' => true,
+            'meta_query' => [['key' => '_tix_moved_src', 'value' => $url], ['key' => '_tix_artist_img_of', 'value' => strval(intval($aid))]]]);
+        if ($have) return $done[$key] = intval($have[0]);
+        $ih = strtolower((string) wp_parse_url((string) $url, PHP_URL_HOST)); // Ruhemodus des Imports: Bild-Host freigeben
+        if (self::$quiet !== null && $ih !== '' && !in_array($ih, self::$allow_hosts, true)) self::$allow_hosts[] = $ih;
+        $att = class_exists('TIX_Shared_Objects') ? TIX_Shared_Objects::sideload($url, $aid, get_the_title($aid)) : new WP_Error('tix_move_img', 'Bild-Laden nicht verfügbar.');
+        if (is_wp_error($att)) { $errors[] = 'Künstlerbild ' . get_the_title($aid) . ': ' . $att->get_error_message(); return 0; }
+        delete_post_meta($att, '_tix_mirror_of');
+        update_post_meta($att, '_tix_moved_src', $url);
+        update_post_meta($att, '_tix_artist_img_of', intval($aid));
+        wp_update_post(['ID' => $att, 'post_parent' => intval($aid)]);
+        return $done[$key] = intval($att);
+    }
+
+    /**
+     * Gehört das Bild wirklich zu diesem (umgezogenen) Künstler? Beim Umzug wurden die Bild-IDs der Plattform 1:1 kopiert – auf der
+     * neuen Seite zeigen sie ins Leere oder auf ein fremdes Bild (z. B. einen Flyer). Gültig ist ein Bild hier nur, wenn es von uns für
+     * den Künstler geladen wurde oder erst nach dem Umzug auf dieser Seite entstand. Nicht umgezogene Künstler: jedes gültige Bild.
+     */
+    public static function artist_image_ok($aid, $att) {
+        $att = intval($att); $aid = intval($aid);
+        if (!$att || get_post_type($att) !== 'attachment' || strpos((string) get_post_mime_type($att), 'image/') !== 0) return false;
+        if (!intval(get_post_meta($aid, self::META_FROM, true)) || self::multi()) return true;
+        if (intval(get_post_meta($att, '_tix_artist_img_of', true)) === $aid) return true;
+        $at = strtotime((string) (((array) get_option(self::OPT_IMPORT, []))['at'] ?? ''));
+        return $at && strtotime(get_post_field('post_date_gmt', $att) . ' UTC') > $at;
+    }
+
+    /** Beim Import: Bilder der Plattform laden; ohne Angaben (alte Plattform) kopierte IDs entfernen. → Anzahl geladener Bilder */
+    private static function import_artist_images($aid, $src, array &$errors) {
+        if (self::$dry || !class_exists('TIX_Artists')) return 0;
+        $d = get_post_meta($aid, TIX_Artists::META, true);
+        $d = is_array($d) ? $d : [];
+        $n = 0;
+        foreach (['portrait', 'cover'] as $slot) {
+            $url = is_array($src) ? (string) ($src[$slot]['url'] ?? '') : '';
+            $att = $url !== '' ? self::load_artist_image($url, $aid, $errors) : 0;
+            if ($att) { $d['images'][$slot] = ['id' => $att, 'credit' => (string) ($src[$slot]['credit'] ?? ($d['images'][$slot]['credit'] ?? ''))]; $n++; }
+            elseif (isset($d['images'][$slot]) && intval(get_post_meta(intval($d['images'][$slot]['id'] ?? 0), '_tix_artist_img_of', true)) !== intval($aid)) unset($d['images'][$slot]);
+        }
+        update_post_meta($aid, TIX_Artists::META, $d);
+        return $n;
+    }
+
+    /** GET /partner/move-artists?ids=1,2 (Partner-Schlüssel) → Bilder der Künstler aus den Events des Veranstalters */
+    public static function rest_partner_move_artists(WP_REST_Request $req) {
+        $oid = intval($req->get_param('_partner_oid'));
+        $want = array_slice(array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $req->get_param('ids')))))), 0, 300);
+        $mine = array_flip(self::artist_ids(self::own_event_ids($oid)));
+        $items = [];
+        foreach ($want as $id) {
+            if (get_post_type($id) !== 'tix_artist') continue;
+            $d = (array) get_post_meta($id, class_exists('TIX_Artists') ? TIX_Artists::META : '_tix_artist', true);
+            if (!isset($mine[$id]) && !(($d['managed_by']['type'] ?? '') === 'organizer' && intval($d['managed_by']['id'] ?? 0) === $oid)) continue;
+            $items[] = ['id' => $id, 'name' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'), 'images' => self::artist_images_src($id)];
+        }
+        return rest_ensure_response(['ok' => true, 'items' => $items]);
+    }
+
+    /**
+     * Reparatur (1.38.743): Bilder umgezogener Künstler. Fremde/ungültige Bild-IDs werden durch das Bild der Plattform ersetzt
+     * (GET /partner/move-artists) bzw. entfernt; eigene, nach dem Umzug hochgeladene Bilder bleiben. → Zähler
+     */
+    public static function repair_artist_images($dry = false) {
+        $out = ['artists' => 0, 'kept' => 0, 'loaded' => 0, 'cleared' => 0, 'failed' => 0, 'platform' => null, 'errors' => []];
+        if (self::multi() || !class_exists('TIX_Artists')) return $out;
+        $st = (array) get_option(self::OPT_IMPORT, []);
+        if (!in_array($st['status'] ?? '', ['imported', 'done'], true)) return $out;
+        $from = [];
+        foreach (get_posts(['post_type' => 'tix_artist', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'meta_key' => self::META_FROM]) as $aid) {
+            $f = intval(get_post_meta($aid, self::META_FROM, true));
+            if ($f) $from[intval($aid)] = $f;
+        }
+        $out['artists'] = count($from);
+        if (!$from) return $out;
+        $remote = null;
+        if (self::co_ready()) {
+            $remote = [];
+            foreach (array_chunk(array_values(array_unique($from)), 100) as $chunk) {
+                $r = wp_remote_get(self::co_api('/partner/move-artists?ids=' . implode(',', $chunk)), ['timeout' => 30, 'headers' => self::co_headers()]);
+                $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
+                $d = $code === 200 ? json_decode((string) wp_remote_retrieve_body($r), true) : null;
+                if (!is_array($d)) { $remote = null; $out['errors'][] = 'Plattform: ' . (is_wp_error($r) ? $r->get_error_message() : 'HTTP ' . $code); break; }
+                foreach ((array) ($d['items'] ?? []) as $it) if (is_array($it)) $remote[intval($it['id'] ?? 0)] = (array) ($it['images'] ?? []);
+            }
+        }
+        $out['platform'] = $remote !== null;
+        foreach ($from as $aid => $f) {
+            $d = get_post_meta($aid, TIX_Artists::META, true);
+            $d = is_array($d) ? $d : [];
+            $ch = false;
+            foreach (['portrait', 'cover'] as $slot) {
+                $cur = intval($d['images'][$slot]['id'] ?? 0);
+                if ($cur && self::artist_image_ok($aid, $cur)) { $out['kept']++; continue; }
+                $url = (string) ($remote[$f][$slot]['url'] ?? '');
+                if ($url !== '') {
+                    if ($dry) { $out['loaded']++; continue; }
+                    $att = self::load_artist_image($url, $aid, $out['errors']);
+                    if ($att) { $d['images'][$slot] = ['id' => $att, 'credit' => (string) ($remote[$f][$slot]['credit'] ?? '')]; $out['loaded']++; $ch = true; continue; }
+                    $out['failed']++;
+                }
+                if ($cur) { if (!$dry) { unset($d['images'][$slot]); $ch = true; } $out['cleared']++; } // fremdes/ungültiges Bild: lieber keins als ein falsches
+            }
+            if ($ch) update_post_meta($aid, TIX_Artists::META, $d);
+        }
+        TIX_Artists::flush_cache();
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        $out['errors'] = array_slice($out['errors'], 0, 30);
+        return $out;
+    }
+
     public static function cli($args, $assoc) {
         $a = $args[0] ?? 'status';
         if ($a === 'status') {
@@ -1089,7 +1218,13 @@ class TIX_Site_Move {
             WP_CLI::success(sprintf('Co-Events: %d neu, %d aktualisiert, %d entfernt.', $r['created'], $r['updated'], $r['removed']));
             return;
         }
-        if ($a !== 'importieren') WP_CLI::error('Aktion: importieren | status | abschliessen | co-events');
+        if ($a === 'kuenstlerbilder') {
+            $r = self::repair_artist_images(!empty($assoc['trocken']));
+            WP_CLI::log(wp_json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            WP_CLI::success(sprintf('%d umgezogene Künstler: %d Bilder geladen, %d behalten, %d entfernt, %d fehlgeschlagen%s.', $r['artists'], $r['loaded'], $r['kept'], $r['cleared'], $r['failed'], $r['platform'] ? '' : ' (Plattform nicht erreichbar – nur ungültige Bilder entfernt)'));
+            return;
+        }
+        if ($a !== 'importieren') WP_CLI::error('Aktion: importieren | status | abschliessen | co-events | kuenstlerbilder');
         if (empty($assoc['von']) || empty($assoc['schluessel'])) WP_CLI::error('--von und --schluessel angeben.');
         $r = self::import((string) $assoc['von'], (string) $assoc['schluessel'], !empty($assoc['trocken']));
         if (is_wp_error($r)) WP_CLI::error($r->get_error_message());

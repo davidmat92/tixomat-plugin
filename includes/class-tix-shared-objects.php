@@ -21,13 +21,25 @@ class TIX_Shared_Objects {
     public static function init() {
         // Einmal nach 1.38.740: vorhandene Spiegel neu abgleichen (Bilder)
         add_action('tix_shared_objects_repair', [__CLASS__, 'repair']);
+        // 1.38.743 erneut: vollständig (alle Kopien, eigene Künstler ohne Bild, Bilder umgezogener Künstler)
         add_action('init', function () {
-            if (get_option('tix_shared_objects_repair_740', '') !== '') return;
-            update_option('tix_shared_objects_repair_740', gmdate('c'), false);
+            if (get_option('tix_shared_objects_repair_743', '') !== '') return;
+            update_option('tix_shared_objects_repair_743', gmdate('c'), false);
             if (!wp_next_scheduled('tix_shared_objects_repair')) wp_schedule_single_event(time() + 300, 'tix_shared_objects_repair');
         }, 41);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat spiegel', function ($args) {
-            if (($args[0] ?? '') === 'reparieren') { WP_CLI::success(self::repair() . ' Events neu gespiegelt.'); return; }
+            if (($args[0] ?? '') === 'reparieren') {
+                $r = self::repair(true);
+                WP_CLI::log(wp_json_encode($r, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                WP_CLI::success(sprintf('%d Events neu gespiegelt, %d Künstler ohne Bild (vorher %d).', $r['events'], $r['after']['without_image'], $r['before']['without_image']));
+                return;
+            }
+            if (($args[0] ?? '') === 'pruefen') { // alle öffentlichen Künstler mit Herkunft und Bildstand
+                $sum = self::artist_report();
+                foreach ($sum['items'] as $i) WP_CLI::line(sprintf('%-6d %-11s %-32s Bild: %s', $i['id'], $i['type'], mb_substr($i['name'], 0, 32), $i['image']));
+                WP_CLI::success(sprintf('%d Künstler, %d mit Bild, %d ohne Bild.', $sum['total'], $sum['total'] - $sum['without_image'], $sum['without_image']));
+                return;
+            }
             foreach (get_posts(['post_type' => ['tix_artist', 'tix_location'], 'post_status' => 'any', 'posts_per_page' => 500, 'fields' => 'ids', 'meta_query' => [['key' => self::META . '_key', 'compare' => 'EXISTS']]]) as $id) {
                 $m = self::mirror($id) ?: [];
                 WP_CLI::line(sprintf('%-6d %-14s %-30s von %s · Bild %s%s', $id, get_post_type($id), get_the_title($id), $m['host'] ?? '?', !empty($m['attachment']) ? '#' . $m['attachment'] : (!empty($m['image']) || !empty($m['portrait']) ? 'Quelle' : '–'), !empty($m['img_error']) ? ' (' . $m['img_error'] . ')' : ''));
@@ -102,7 +114,7 @@ class TIX_Shared_Objects {
             $name = (string) $a['name'];
             $key = TIX_Artists::act_key($name);
             if ($key === '') continue;
-            if ($own = self::own_artist($key, $eid)) { $ids[] = $own; continue; }
+            if ($own = self::own_artist($key, $eid)) { self::adopt_image($own, $a, $name); $ids[] = $own; continue; }
             $mkey = $src['host'] . '|' . (intval($a['source_id'] ?? 0) ?: $key);
             $mid = self::find_mirror(TIX_Artists::CPT, $mkey);
             if (!$mid) {
@@ -179,15 +191,92 @@ class TIX_Shared_Objects {
         return intval($aid);
     }
 
-    /** Reparatur (1.38.740): alle Kopien mit Künstler-Schnappschuss neu spiegeln (Bilder nachladen). → Anzahl Events */
-    public static function repair() {
-        $n = 0;
-        foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future', 'private'], 'posts_per_page' => 300, 'fields' => 'ids', 'suppress_filters' => true,
-            'meta_query' => [['key' => '_tix_source_artists', 'compare' => 'EXISTS']]]) as $eid) {
-            $snap = get_post_meta($eid, '_tix_source_artists', true);
-            if (is_array($snap) && $snap && self::source_of($eid)) { self::sync_artists($eid, $snap); $n++; }
+    /** Bild-Adresse eines Schnappschuss-Eintrags: Porträt, sonst Titelbild, sonst Act-Foto */
+    private static function snap_image_url(array $a) {
+        return (string) (($a['portrait']['large'] ?? '') ?: ($a['portrait']['medium'] ?? '') ?: ($a['images']['portrait']['large'] ?? '') ?: ($a['cover']['large'] ?? '') ?: ($a['cover']['medium'] ?? '') ?: ($a['images']['cover']['large'] ?? '') ?: ($a['image'] ?? ''));
+    }
+
+    /** Hat der (eigene) Künstler ein gültiges eigenes Bild? Kopierte Bild-IDs umgezogener Künstler zählen nicht. */
+    public static function own_has_image($aid) {
+        $d = get_post_meta(intval($aid), TIX_Artists::META, true);
+        foreach (['portrait', 'cover'] as $slot) {
+            $att = intval(is_array($d) ? ($d['images'][$slot]['id'] ?? 0) : 0);
+            if (!$att) continue;
+            $ok = class_exists('TIX_Site_Move') && method_exists('TIX_Site_Move', 'artist_image_ok') ? TIX_Site_Move::artist_image_ok($aid, $att)
+                : (get_post_type($att) === 'attachment' && strpos((string) get_post_mime_type($att), 'image/') === 0);
+            if ($ok) return true;
         }
-        return $n;
+        return false;
+    }
+
+    /**
+     * Eigener Künstler an einer Kopie (1.38.743): hat er kein Bild, übernimmt er das Bild der Quelle (in die Mediathek, als Porträt).
+     * Eigene Bilder bleiben unangetastet; ein übernommenes Bild wird nachgezogen, wenn sich die Quelle ändert. → true wenn ein Bild gesetzt wurde
+     */
+    private static function adopt_image($aid, array $a, $name) {
+        $url = self::snap_image_url($a);
+        if ($url === '') return false;
+        $d = get_post_meta($aid, TIX_Artists::META, true);
+        $d = is_array($d) ? $d : [];
+        $mine = intval($d['images']['portrait']['id'] ?? 0);
+        $adopted = $mine && intval(get_post_meta($mine, '_tix_adopted_for', true)) === intval($aid);
+        if (!$adopted && self::own_has_image($aid)) return false; // eigenes Bild hat Vorrang
+        if ($adopted && (string) get_post_meta($aid, '_tix_adopted_src', true) === $url && get_post($mine)) return false; // schon aktuell
+        $att = self::sideload($url, $aid, $name);
+        if (is_wp_error($att)) { update_post_meta($aid, '_tix_adopted_error', $att->get_error_message()); return false; }
+        delete_post_meta($att, '_tix_mirror_of');
+        update_post_meta($att, '_tix_adopted_for', intval($aid));
+        update_post_meta($att, '_tix_artist_img_of', intval($aid)); // gilt auch bei umgezogenen Künstlern als eigenes Bild
+        if ($adopted && $mine !== $att) wp_delete_attachment($mine, true);
+        $d['images']['portrait'] = ['id' => intval($att), 'credit' => (string) (($a['portrait']['credit'] ?? '') ?: ($a['credit'] ?? ''))];
+        unset($d['images']['cover']); // kopierte/ungültige Titelbild-ID nicht stehen lassen
+        update_post_meta($aid, TIX_Artists::META, $d);
+        update_post_meta($aid, '_tix_adopted_src', $url);
+        delete_post_meta($aid, '_tix_adopted_error');
+        return true;
+    }
+
+    /** Stand aller öffentlichen Künstler: Herkunft (eigen/umgezogen/Spiegel) und Bild (eigen/übernommen/Quelle/fremd/–) */
+    public static function artist_report() {
+        $items = []; $without = 0;
+        foreach (get_posts(['post_type' => TIX_Artists::CPT, 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'orderby' => 'title', 'order' => 'ASC']) as $aid) {
+            $m = self::mirror($aid);
+            $moved = intval(get_post_meta($aid, '_tix_moved_from', true)) > 0;
+            $d = get_post_meta($aid, TIX_Artists::META, true);
+            $att = intval(is_array($d) ? (($d['images']['portrait']['id'] ?? 0) ?: ($d['images']['cover']['id'] ?? 0)) : 0);
+            if ($m) $img = !empty($m['attachment']) && get_post($m['attachment']) ? 'Mediathek #' . $m['attachment'] : (self::snap_image_url($m) !== '' ? 'Quelle (' . ($m['img_error'] ?: 'nicht geladen') . ')' : '–');
+            elseif (self::own_has_image($aid)) $img = intval(get_post_meta($att, '_tix_adopted_for', true)) === intval($aid) ? 'übernommen #' . $att : 'eigen #' . $att;
+            else $img = $att ? 'fremd/ungültig #' . $att : ('–' . (($e = get_post_meta($aid, '_tix_adopted_error', true)) ? ' (' . $e . ')' : ''));
+            $has = $m ? $img !== '–' : self::own_has_image($aid);
+            if (!$has) $without++;
+            $items[] = ['id' => intval($aid), 'name' => html_entity_decode(get_the_title($aid), ENT_QUOTES, 'UTF-8'), 'type' => $m ? 'Spiegel' : ($moved ? 'umgezogen' : 'eigen'), 'image' => $img, 'has_image' => $has];
+        }
+        return ['total' => count($items), 'without_image' => $without, 'items' => $items];
+    }
+
+    /**
+     * Reparatur (1.38.740, vollständig seit 1.38.743): erst die Bilder umgezogener Künstler (Plattform), dann alle Kopien mit
+     * Künstler-Schnappschuss neu spiegeln – ohne Obergrenze, fehlgeschlagene Bilder werden erneut geladen, eigene Künstler ohne Bild
+     * übernehmen das Bild der Quelle. → Anzahl Events | mit $report: {events, moved, before, after}
+     */
+    public static function repair($report = false) {
+        if (function_exists('set_time_limit')) @set_time_limit(0);
+        $before = $report && class_exists('TIX_Artists') ? self::artist_report() : null;
+        $moved = class_exists('TIX_Site_Move') && method_exists('TIX_Site_Move', 'repair_artist_images') ? TIX_Site_Move::repair_artist_images() : null;
+        $n = 0; $page = 1;
+        do {
+            $ids = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future', 'private', 'pending'], 'posts_per_page' => 200, 'paged' => $page++, 'fields' => 'ids', 'suppress_filters' => true,
+                'orderby' => 'ID', 'order' => 'ASC', 'meta_query' => [['key' => '_tix_source_artists', 'compare' => 'EXISTS']]]);
+            foreach ($ids as $eid) {
+                $snap = get_post_meta($eid, '_tix_source_artists', true);
+                if (is_array($snap) && $snap && self::source_of($eid)) { self::sync_artists($eid, $snap); $n++; }
+            }
+        } while (count($ids) === 200);
+        if (!$report) return $n;
+        unset($before['items']);
+        $after = self::artist_report();
+        unset($after['items']);
+        return ['events' => $n, 'moved' => $moved, 'before' => $before, 'after' => $after];
     }
 
     // ═══════════════ Orte, Kategorien (Kunden-Seiten) ═══════════════

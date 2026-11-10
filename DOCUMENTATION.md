@@ -5795,3 +5795,30 @@ Klassen `TIX_Go_Live`, Erweiterungen in `TIX_Studio_Legal`, `TIX_Studio_Payments
   - `failed` → `failed` mit `message`
 - **Das Plugin selbst schaltet nichts scharf.** Kasse, Rücksprung-Hosts und Neu-Laden setzt der Kunden-Dienst bzw. der Server-Teil.
 - **Tests:** `test-go-live-wp` (Kunden-Seite 13, Plattform 8). Startklar-, Akte-, Zahlungs-, Lizenz- und Zugangs-Tests sind grün.
+
+## 150. Künstlerbilder nach Umzug und an Kopien (ab 1.38.743)
+Fund KMT nach 1.38.742: Von 12 Künstlern hatte nur einer ein Bild. Download und Zeitlimit waren nicht die Ursache.
+- **Ursache 1, Umzug:** `/move/export` hat die Künstler mit `_tix_artist` 1:1 kopiert, also auch die Bild-IDs der Plattform. Auf der neuen Seite zeigen diese IDs ins Leere oder zufällig auf einen fremden Anhang, etwa einen Flyer.
+- **Ursache 2, Kopien:** Gibt es an einer Kopie einen eigenen Künstler gleichen Namens (z. B. einen umgezogenen), verknüpft der Spiegel-Abgleich ihn, statt einen Spiegel anzulegen. Das Bild der Quelle wurde dabei nicht übernommen.
+- **Umzug:**
+  - Der Export liefert je Künstler `images_src {portrait|cover: {url, credit}|null}`.
+  - Der Import lädt die Bilder über IPv4 in die Mediathek (Anhang-Meta `_tix_artist_img_of`, `_tix_moved_src`) und gibt dafür den Bild-Host im Ruhemodus frei.
+  - Ohne Angaben (alte Plattform) entfernt er die kopierten IDs.
+- **Plattform:** `GET /partner/move-artists?ids=…` (Partner-Schlüssel) liefert `{items: [{id, name, images}]}`, nur für Künstler aus Events des Veranstalters oder von ihm verwaltete.
+- **Gültiges Bild:** `TIX_Site_Move::artist_image_ok()` entscheidet für umgezogene Künstler (`_tix_moved_from`). Gültig ist ein Bild nur, wenn es für den Künstler geladen wurde oder nach dem Umzug entstand. Alles andere gilt als fremd.
+- **Reparatur des Umzugs:** `TIX_Site_Move::repair_artist_images()` bzw. `wp tixomat umzug kuenstlerbilder [--trocken]`.
+  - Fremde oder ungültige IDs ersetzt sie durch das Bild der Plattform. Gibt es dort keins, entfernt sie die ID, denn lieber kein Bild als ein falsches.
+  - Eigene Bilder bleiben.
+- **Kopien:** Eigene verknüpfte Künstler ohne gültiges Bild übernehmen das Bild der Quelle als Porträt (`_tix_adopted_for`/`_tix_adopted_src`).
+  - Ändert sich das Bild an der Quelle, wird es nachgezogen.
+  - Eigene Bilder haben Vorrang.
+  - Fehler stehen in `_tix_adopted_error`; der nächste Abgleich versucht es erneut.
+- **Reparatur vollständig:** `TIX_Shared_Objects::repair()` repariert erst die Umzugs-Bilder, dann alle Kopien seitenweise, ohne Obergrenze und ohne Zeitlimit.
+  - Fehlgeschlagene Bilder werden neu versucht.
+  - Läuft einmal automatisch (Option `tix_shared_objects_repair_743`), von Hand mit `wp tixomat spiegel reparieren` (Bericht vorher/nachher).
+- **Prüfen:** `wp tixomat spiegel pruefen` listet alle öffentlichen Künstler mit Herkunft (eigen/umgezogen/Spiegel) und Bild (eigen/übernommen/Mediathek/Quelle/fremd/–).
+- **„Künstler aus Line-up übernehmen“** überspringt Kopien, sonst entstehen bildlose Doppel.
+- **Tests:**
+  - `test-artist-images-repair-wp` (Kunden-Seite 16 mit `setup|run|cleanup`, Plattform 3).
+  - `test-site-move-e2e` hat einen Künstler mit Porträt und lädt ihn echt über das Testnetz (18 + 37).
+  - `test-shared-objects-wp`, `test-lineup-artist-link-wp` und `test-image-remove-wp` bleiben grün.

@@ -1276,7 +1276,8 @@ class TIX_Artists {
             $org = self::my_org();
             $args['meta_query'] = ['relation' => 'OR', ['key' => '_tix_organizer_id', 'value' => $org], ['key' => '_tix_co_organizer_id', 'value' => $org]];
         }
-        return array_map('intval', get_posts($args));
+        // Kopien geteilter Events nicht: deren Künstler spiegelt TIX_Shared_Objects (sonst entstehen bildlose Doppel, 1.38.743)
+        return array_values(array_filter(array_map('intval', get_posts($args)), function ($e) { return !self::is_copy($e); }));
     }
 
     /**
