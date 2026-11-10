@@ -287,6 +287,8 @@ class TIX_Site_Users {
             'wp_administrator' => $wpadm && $kind === 'team', 'technical_reason' => $kind === 'technical' ? self::tech_reason($u) : null,
             'owner' => $owner, 'editable' => $kind === 'team' && !$wpadm, 'removable' => $kind === 'team' && !$wpadm,
             // 1.38.727: Konto löschen (mit Übertragung der Inhalte) und Inhaber werden
+            // 1.38.734: Passwort direkt setzen bzw. Link schicken (Inhaber + Team, nicht technisch/Kunde)
+            'can_set_password' => in_array($kind, ['owner', 'team'], true), 'can_send_link' => in_array($kind, ['owner', 'team'], true) && !self::is_fallback($u->user_email),
             'deletable' => $del === null, 'delete_hint' => $del, 'can_become_owner' => !$owner && $kind !== 'technical' && ($org ? $kind === 'team' : true),
             'last_login' => self::last_login($u), 'invite_pending' => $inv > 0, 'created_by_platform' => (bool) get_user_meta($u->ID, self::META_BY, true)];
     }
@@ -355,6 +357,16 @@ class TIX_Site_Users {
         if (!$u || self::hidden($u)) return self::bad('tix_no_user', 'Zugang nicht gefunden.', 404);
         if ($org ? intval(get_user_meta($u->ID, TIX_App_Scope::META_TEAM_ORG, true)) !== $org && !self::is_owner($u, $org) : !self::role_key($u)) return self::bad('tix_no_user', 'Zugang nicht gefunden.', 404);
         if (self::is_owner($u, $org)) return self::bad('tix_is_owner', 'Der Inhaber-Zugang lässt sich hier nicht ändern oder entfernen.', 409);
+        return $u;
+    }
+
+    /** Konto für Passwort setzen/Link (1.38.734): Inhaber oder Team des Bereichs, nicht technisch, kein Kundenkonto. */
+    private static function password_target($id, $org) {
+        $u = get_user_by('id', intval($id));
+        if (!$u) return self::bad('tix_no_user', 'Konto nicht gefunden.', 404);
+        $kind = self::kind($u, $org);
+        if ($kind === 'technical') return self::bad('tix_user_technical', 'Technisches Konto von evendis – das Passwort lässt sich hier nicht ändern.', 409);
+        if ($kind === 'customer') return self::bad('tix_no_user', 'Kundenkonten bekommen hier kein Passwort – die Person setzt es selbst („Passwort vergessen“).', 404);
         return $u;
     }
 
@@ -558,7 +570,8 @@ class TIX_Site_Users {
             return $out;
         }
 
-        $u = self::target($a['id'] ?? 0, $org);
+        // Passwort (1.38.734): auch Inhaber und weitere WordPress-Admins; nie technische Konten, nie Kundenkonten
+        $u = $action === 'password' ? self::password_target($a['id'] ?? 0, $org) : self::target($a['id'] ?? 0, $org);
         if (is_wp_error($u)) return $u;
 
         if ($action === 'update') {
@@ -593,16 +606,16 @@ class TIX_Site_Users {
                 return ['ok' => true, 'mailed' => true, 'user' => self::row($u, $org)];
             }
             if ($mode !== 'set') return self::bad('tix_invalid_field', 'mode: set oder invite.', 400, 'mode');
-            // Nur Konten, die das Team bzw. die Akte angelegt hat – sonst könnte man ein fremdes Kundenkonto übernehmen
-            if (!get_user_meta($u->ID, self::META_BY, true) && !(class_exists('TIX_Team') && get_user_meta($u->ID, TIX_Team::META_CREATED, true))) {
-                return self::bad('tix_has_password', 'Diese Person hat ein eigenes Konto. Schick ihr den Link zum Passwort-Setzen.', 409, 'mode');
-            }
+            // Plattform-Akte (Betreiber der Seite): Passwort für jedes Konto des Kunden außer technischen und Kundenkonten (User, 10.11.)
             $pw = (string) ($a['password'] ?? '');
             if ($e = self::pw_error($pw, $u)) return $e;
+            $first = !get_user_meta($u->ID, '_tix_last_login', true) && !self::last_login($u);
             wp_set_password($pw, $u->ID);
-            self::end_sessions($u->ID);
-            self::audit('team_password_set', $u, $org, $by);
-            return ['ok' => true, 'password_set' => true, 'user' => self::row(get_user_by('id', $u->ID), $org)];
+            self::end_sessions($u->ID); // alle Sitzungen und Geräte-Tokens abmelden
+            delete_user_meta($u->ID, '_tix_app_passwordless');
+            if (class_exists('TIX_Team')) delete_user_meta($u->ID, TIX_Team::META_INVITE);
+            self::audit('team_password_set', $u, $org, $by, ['kind' => self::kind($u, $org), 'first' => $first]);
+            return ['ok' => true, 'password_set' => true, 'sessions_ended' => true, 'user' => self::row(get_user_by('id', $u->ID), $org)];
         }
 
         if ($action === 'remove') {

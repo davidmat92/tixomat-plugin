@@ -5577,3 +5577,20 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
 - **Bestehende Events** ohne Angaben: Modus `manual` ohne eigene Reihenfolge, also Headliner oben und dann die bisherige Reihenfolge. Wo Künstler die Rolle Headliner tragen, rücken sie damit nach oben.
 - **Programm/Zeitplan** (`timetable`) bleibt chronologisch.
 - **Tests:** `test-lineup-acts-wp` (Plattform 27, Einzel-Seite 32).
+
+## 141. Passwort für bestehende Konten aus der Akte (ab 1.38.734)
+- **Passwort direkt setzen:** `POST /platform/customers/{key}/users/{id}/password {mode: 'set', password}` bzw. `PATCH …/users/{id} {password}`. Gilt jetzt für **jedes Konto des Kunden mit `kind` `owner` oder `team`**, auch den Inhaber, weitere WordPress-Admins und Konten, die nicht über die Akte angelegt wurden.
+  - Passwort-Regeln wie beim Anlegen: mindestens 10 Zeichen, gemischt, ohne Login/E-Mail. Fehler 400 `tix_weak_password`.
+  - Danach sind alle Sitzungen und Geräte-Tokens des Kontos abgemeldet (`sessions_ended: true`), eine offene Einladung ist erledigt.
+  - Antwort: `{ok, password_set, sessions_ended, user}`; das Passwort kommt nie zurück.
+- **Link schicken:** `mode: 'invite'` bzw. `{invite: true}` wie bisher, jetzt auch für den Inhaber. Ohne echte E-Mail (Ersatzadresse) 400.
+- **Nicht erlaubt:**
+  - technische evendis-Konten: 409 `tix_user_technical`
+  - Kundenkonten: 404 `tix_no_user` (sie setzen ihr Passwort selbst)
+  - Der frühere Fehler 409 `tix_has_password` entfällt für die Akte.
+- **Liste:** Je Konto neu `can_set_password` (owner/team) und `can_send_link` (dazu echte E-Mail). Das Studio zeigt die Auswahl „Eigenes Passwort setzen“ bzw. „Link schicken“ danach.
+- **Protokoll:**
+  - Plattform: Lizenz-Verlauf `site_user_password`.
+  - Kunde: `tix_audit_log` `team_password_set` mit `via: platform`, Admin, Kontoart und „erste Anmeldung“.
+  - Nie das Passwort.
+- **Tests:** `test-site-users-wp` (Kunden-Seite 34, Plattform 28).

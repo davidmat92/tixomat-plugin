@@ -76,6 +76,9 @@ if ($multi) {
         su_eq('Ersatzadresse: kein Passwort-Link per Mail', 400, su_rest('POST', "/platform/customers/$k/users/$kai/password", ['mode' => 'invite'])[0]);
         su_eq('Passwort-Link per Mail an Ina', [200, true], (function ($r) { return [$r[0], $r[1]['mailed'] ?? null]; })(su_rest('POST', "/platform/customers/$k/users/$ina/password", ['mode' => 'invite'])));
         su_eq('Inhaber ändern/entfernen 409', [409, 409], [su_rest('DELETE', "/platform/customers/$k/users/$owner")[0], su_rest('PATCH', "/platform/customers/$k/users/$owner", ['role' => 'dj'])[0]]);
+        [$s, $d] = su_rest('POST', "/platform/customers/$k/users/$owner/password", ['mode' => 'set', 'password' => 'Owner-Pass-2026x']);
+        su_eq('Veranstalter-Inhaber: Passwort direkt setzen (1.38.734)', [200, true], [$s, wp_check_password('Owner-Pass-2026x', get_userdata($owner)->user_pass, $owner)]);
+        su_eq('… auch über PATCH {password}', 200, su_rest('PATCH', "/platform/customers/$k/users/$owner", ['password' => 'Owner-Pass-2027y'])[0]);
         su_eq('Fremdes Konto (Admin) 404', 404, su_rest('DELETE', "/platform/customers/$k/users/$admin_id")[0]);
         // 1.38.727: Inhaberschaft wechseln (Veranstalter), Konten auf evendis nie löschen
         [$s, $d] = su_rest('POST', "/platform/customers/$k/users/$ina/owner", ['old' => 'admin']);
@@ -147,6 +150,18 @@ if ($multi) {
         $call('list', [], null, null, $nonce);
         su_eq('nonce nur einmal', 401, $call('list', [], null, null, $nonce)[0]);
         su_eq('Inhaber entfernen 409', [409, 'tix_is_owner'], (function ($r) { return [$r[0], $r[2]]; })($call('remove', ['id' => $own])));
+        // 1.38.734: Passwort direkt setzen auch für den Inhaber, alte Sitzungen/Tokens weg, nie technische/Kundenkonten
+        TIX_REST_API::issue_app_token($own, 'altes Gerät');
+        [$s, $d] = $call('password', ['id' => $own, 'mode' => 'set', 'password' => 'Inhaber-Pass-2026x']);
+        su_eq('Inhaber: Passwort gesetzt, Tokens weg, Passwort nicht in der Antwort', [200, true, true, [], false],
+            [$s, $d['password_set'] ?? null, wp_check_password('Inhaber-Pass-2026x', get_userdata($own)->user_pass, $own), (empty(get_user_meta($own, '_tix_app_tokens', true)) ? [] : ['noch da']), strpos(wp_json_encode($d), 'Inhaber-Pass') !== false]);
+        [, $d] = $call('list', ['customers' => true]);
+        $byid = array_column((array) ($d['users'] ?? []), null, 'id');
+        su_eq('Liste: can_set_password Inhaber ja, technisches Konto nein', [true, false], [$byid[$own]['can_set_password'] ?? null, $byid[$adm1]['can_set_password'] ?? null]);
+        su_eq('Technisches Konto: kein Passwort 409', [409, 'tix_user_technical'], (function ($r) { return [$r[0], $r[2]]; })($call('password', ['id' => $adm1, 'mode' => 'set', 'password' => 'Technik-Pass-2026x'])));
+        $kx = wp_insert_user(['user_login' => "sut_kx$sfx", 'user_pass' => wp_generate_password(20), 'user_email' => "sut_kx$sfx@example.test", 'role' => get_role('tix_customer') ? 'tix_customer' : 'subscriber']); $users[] = $kx;
+        su_eq('Kundenkonto: kein Passwort 404', 404, $call('password', ['id' => $kx, 'mode' => 'set', 'password' => 'Kunde-Pass-2026x'])[0]);
+        su_eq('Protokoll ohne Passwort', false, (bool) $wpdb->get_var("SELECT COUNT(*) FROM " . TIX_Customers::audit_table() . " WHERE summary LIKE '%Inhaber-Pass%'"));
         su_eq('Rolle ändern', [200, 'cashier'], (function ($r) { return [$r[0], $r[1]['user']['role'] ?? '']; })($call('update', ['id' => $eva, 'role' => 'cashier'])));
         su_eq('Entfernen', [200, true], (function ($r) { return [$r[0], $r[1]['removed'] ?? null]; })($call('remove', ['id' => $eva])));
 
