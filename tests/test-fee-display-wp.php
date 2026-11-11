@@ -46,7 +46,8 @@ if ($mode === 'setup') {
             '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => $cats]]);
     };
     $e1 = $mk('FD-Test A', [['name' => 'VVK', 'price' => 20, 'qty' => 100, 'stock' => 100], ['name' => 'VIP', 'price' => 30, 'qty' => 10, 'stock' => 10]]);
-    $e2 = $mk('FD-Test B', [['name' => 'Frei', 'price' => 0, 'qty' => 100, 'stock' => 100], ['name' => 'Gast', 'price' => 15, 'qty' => 50, 'stock' => 50, 'no_fee' => 1], ['name' => 'VVK', 'price' => 25, 'qty' => 50, 'stock' => 50], ['name' => 'Gutschein', 'price' => 50, 'qty' => 0, 'gift_card' => 1]]);
+    $e2 = $mk('FD-Test B', [['name' => 'Frei', 'price' => 0, 'qty' => 100, 'stock' => 100], ['name' => 'Gast', 'price' => 15, 'qty' => 50, 'stock' => 50, 'no_fee' => 1], ['name' => 'VVK', 'price' => 25, 'qty' => 50, 'stock' => 50], ['name' => 'Gutschein', 'price' => 50, 'qty' => 0, 'gift_card' => 1],
+        ['name' => 'Early', 'price' => 25, 'qty' => 10, 'stock' => 10, 'phases' => [['name' => 'Early Bird', 'price' => 15, 'until' => '2099-12-31']]]]);
     update_option($T, ['settings' => $bk, 'posts' => [$e1, $e2], 'e1' => $e1, 'e2' => $e2, 'scheduled' => (bool) wp_next_scheduled('tix_refresh_price_meta')], false);
     echo "setup ok (Gebühr 1,00 € je Ticket, Käufer zahlen)\n"; return;
 }
@@ -70,6 +71,7 @@ echo "-- API /public/events\n";
 $ev = $d['event'] ?? $d;
 $c = array_column((array) ($ev['categories'] ?? []), null, 'name');
 fd_eq('A: VVK 20 € → fee_per_ticket 1, price_total 21; VIP 30 → 31', [200, 1.0, 21.0, 31.0], [$st, $c['VVK']['fee_per_ticket'] ?? null, $c['VVK']['price_total'] ?? null, $c['VIP']['price_total'] ?? null]);
+fd_eq('A: ohne Preisphase base_total = price_total (21)', 21.0, $c['VVK']['base_total'] ?? null);
 fd_eq('A: price_from 20, price_from_total 21, service_fee', [20.0, 21.0, ['label' => 'Vorverkaufsgebühr', 'per_ticket' => true, 'per_order' => 0.0, 'max_per_order' => 0.0]],
     [$ev['price_from'] ?? null, $ev['price_from_total'] ?? null, $ev['service_fee'] ?? null]);
 [$st, $d] = fd_rest('GET', '/public/events');
@@ -82,6 +84,9 @@ fd_eq('B: Freiticket (0/0), gebührenfrei (0/15), VVK (1/26), Gutschein (0/50)',
     [$c['Frei']['fee_per_ticket'] ?? null, $c['Frei']['price_total'] ?? null, $c['Gast']['fee_per_ticket'] ?? null, $c['Gast']['price_total'] ?? null, $c['VVK']['fee_per_ticket'] ?? null, $c['VVK']['price_total'] ?? null,
      $c['Gutschein']['fee_per_ticket'] ?? null, $c['Gutschein']['price_total'] ?? null]);
 fd_eq('B: price_from_total 0 (Freiticket)', 0.0, $ev['price_from_total'] ?? null);
+fd_eq('B: Preisphase 15 statt 25: price_total 16, base_total 26 (durchgestrichener Normalpreis)', [15.0, 25.0, 16.0, 26.0],
+    [$c['Early']['price'] ?? null, $c['Early']['base_price'] ?? null, $c['Early']['price_total'] ?? null, $c['Early']['base_total'] ?? null]);
+fd_eq('B: Gutschein base_total ohne Gebühr (50)', 50.0, $c['Gutschein']['base_total'] ?? null);
 
 echo "-- App-Quote\n";
 [$st, $d] = fd_rest('POST', '/customer/cart/quote', ['event_id' => $e2, 'items' => [['index' => 0, 'qty' => 2], ['index' => 1, 'qty' => 1], ['index' => 2, 'qty' => 1]]]);

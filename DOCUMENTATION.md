@@ -5930,3 +5930,9 @@ User-Klarstellung 11.11.: Auf der Plattform evendis sind die Zahlungskosten enth
   - „Eigener Shop“ (Jahres- und Monatsvertrag): Die Beschreibung nennt „0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: 2,9 % + 0,49 € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters“. Neuer Vorteil `evendis_kanal`; der Satz kommt aus der Kanal-Gebühr der Plattform.
 - **Vermittlungsvertrag §5 Abs. 4:** Nach dem USt-Hinweis folgt „Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter.“ Die Anlage nennt bei der Kanal-Gebühr „…, zzgl. Zahlungskosten des eigenen Zahlungsanbieters“.
 - **Tests:** `test-fee-followups-wp` 34, `test-fee-rate-wp` 9, `test-platform-offers-wp` 41 grün.
+
+## 159. `base_total` je Kategorie (ab 1.38.754)
+- Neues Feld `categories[].base_total` (öffentliche Events und App-Quote): Normalpreis `base_price` ohne Preisphase oder Aktion, inkl. Servicegebühr, gerechnet wie `price_total` (`TIX_Fees::ticket_total`).
+- Gedacht für den durchgestrichenen Normalpreis bei Preisphasen. Ohne Phase ist es gleich `price_total`; bei Gutscheinen kommt keine Gebühr dazu.
+- Vertrag: `vertrag-servicegebuehr.md` §5a.
+- Test: `test-fee-display-wp` 28 grün.

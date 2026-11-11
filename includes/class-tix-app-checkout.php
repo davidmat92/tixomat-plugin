@@ -352,6 +352,8 @@ class TIX_App_Checkout {
                 'fee_per_ticket'     => $tt['fee'],
                 'price_total'        => $tt['total'],
                 'base_price'         => round($base, 2),
+                // Normalpreis (ohne Preisphase/Aktion) inkl. Gebühr, gerechnet wie price_total – für den durchgestrichenen Preis (1.38.754)
+                'base_total'         => ($fee_cfg && empty($cat['gift_card'])) ? TIX_Fees::ticket_total($event_id, $i, $base, 1, $fee_cfg)['total'] : round($base, 2),
                 'description'        => (string) ($cat['desc'] ?? ($cat['description'] ?? '')),
                 'quantity_available' => $stock,
                 'sold_out'           => $stock === 0,
