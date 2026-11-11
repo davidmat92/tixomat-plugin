@@ -25,7 +25,7 @@ try {
     // Katalog (Vorgabe)
     delete_option('tix_offer_catalog');
     $it = TIX_Platform_Offers::catalog_item('tickets');
-    fr_eq('Katalog „Tickets über evendis“: 2,9 % + 0,49 €, inkl. MwSt., Preis-Hinweis vorhanden', [2.9, 0.49, 'inkl. MwSt.', 'je verkauftem Ticket, inkl. MwSt. und Zahlung'], [floatval($it['fee_percent']), floatval($it['fee_fixed']), $it['tax_note'], $it['price_note']]);
+    fr_eq('Katalog „Tickets über evendis“: 2,9 % + 0,49 €, inkl. MwSt., Preis-Hinweis vorhanden', [2.9, 0.49, 'inkl. MwSt.', 'je verkauftem Ticket, inkl. MwSt. – Zahlungskosten enthalten, evendis trägt sie'], [floatval($it['fee_percent']), floatval($it['fee_fixed']), $it['tax_note'], $it['price_note']]);
     // Kanal-Gebühr (Vorgabe, Einzelsatz bleibt)
     update_option(TIX_Channel_Fee::OPTION, ['new_partners' => 0], false);
     $cs = TIX_Channel_Fee::settings();

@@ -112,6 +112,15 @@ try {
     echo "-- Vertrag Kanal-Gebühr\n";
     $tpl = (string) file_get_contents(TIXOMAT_PATH . 'includes/contract/vermittlungsvertrag.md');
     ff_eq('Kanal-Gebühr mit USt-Hinweis, kein „Tixomat“ im Vertrag', [true, false], [strpos($tpl, '{{kanal_gebuehr_fix}} € je Ticket ({{gebuehr_mwst_hinweis}}) an') !== false, stripos($tpl, 'tixomat') !== false]);
+    ff_eq('Kanal-Gebühr: Zahlungskosten nicht enthalten (eigener Anbieter)', true, strpos($tpl, 'Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter.') !== false);
+    echo "-- Katalog-Texte\n";
+    delete_option('tix_offer_catalog');
+    $tk = TIX_Platform_Offers::catalog_item('tickets'); $sh = TIX_Platform_Offers::catalog_item('shop');
+    $bn = array_column((array) (TIX_Platform_Offers::catalog()['benefits'] ?? []), null, 'key');
+    ff_eq('Plattform: Zahlungskosten enthalten, evendis trägt sie', [true, true], [strpos($tk['price_note'], 'Zahlungskosten enthalten, evendis trägt sie') !== false, strpos($bn['zahlung_inklusive']['text'] ?? '', 'evendis trägt sie') !== false]);
+    ff_eq('Eigener Shop: Verkäufe über evendis.de 2,9 % + 0,49 € inkl. MwSt., zzgl. Zahlungskosten des eigenen Anbieters', [true, true, true],
+        [strpos($sh['description'], 'Verkäufe über evendis.de: 2,9 % + 0,49 € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters') !== false,
+         in_array('evendis_kanal', (array) $sh['benefits'], true), strpos($bn['evendis_kanal']['text'] ?? '', 'zzgl. Zahlungskosten deines eigenen Anbieters') !== false]);
 } catch (Throwable $e) {
     $GLOBALS['t_fails']++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

@@ -5922,3 +5922,11 @@ User-Entscheid 11.11. (alle vier Folgepakete); Vertrag `vertrag-servicegebuehr.m
 - **Breakdance:** Die aktiven Vorlagen nutzen `_tix_price_label` (KK) bzw. `_tix_price_range` (Mallorca), beide sind Endpreise (§156).
 - **Vertrag:** `includes/contract/vermittlungsvertrag.md` §5 Abs. 4 mit „({{gebuehr_mwst_hinweis}})“ bei der Kanal-Gebühr und ohne „Tixomat-Shop“ (Wortlaut wie die Vorlage der Rechtstexte); die Anlage „Aktuelle Konditionen“ nennt bei der Kanal-Gebühr den USt-Hinweis.
 - **Tests:** `test-fee-followups-wp` 31, `test-fee-display-wp` 25, `test-studio-fees-wp` 36 + 4, `test-fees` 97, license 90, Co 25/61/15/59/47/46/17, Angebote 41, Gebührensatz 9, Promoter 44, Löschfristen 41 grün.
+
+## 158. Zahlungskosten: Plattform inkl., Kanal-Gebühr zzgl. (ab 1.38.753)
+User-Klarstellung 11.11.: Auf der Plattform evendis sind die Zahlungskosten enthalten (`gateway_fee_included = 1` auf evendis.de, gesetzt von der Zentrale). Die Kanal-Gebühr für Selbstgehostete beträgt 2,9 % + 0,49 € inkl. MwSt., **zzgl.** der Zahlungskosten ihres eigenen Anbieters.
+- **Katalog:**
+  - „Tickets über evendis“ hat jetzt `price_note` „je verkauftem Ticket, inkl. MwSt. – Zahlungskosten enthalten, evendis trägt sie“; Vorteil `zahlung_inklusive` heißt „Zahlungskosten enthalten“ mit „evendis trägt sie“.
+  - „Eigener Shop“ (Jahres- und Monatsvertrag): Die Beschreibung nennt „0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: 2,9 % + 0,49 € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters“. Neuer Vorteil `evendis_kanal`; der Satz kommt aus der Kanal-Gebühr der Plattform.
+- **Vermittlungsvertrag §5 Abs. 4:** Nach dem USt-Hinweis folgt „Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter.“ Die Anlage nennt bei der Kanal-Gebühr „…, zzgl. Zahlungskosten des eigenen Zahlungsanbieters“.
+- **Tests:** `test-fee-followups-wp` 34, `test-fee-rate-wp` 9, `test-platform-offers-wp` 41 grün.

@@ -122,6 +122,9 @@ class TIX_Platform_Offers {
 
     /** Startwerte des Katalogs: Preise und Texte von veranstalter.evendis.de/preise/ und der Startseite (Stand 06.11.2026, User-Entscheid). */
     public static function default_catalog() {
+        // Verkäufe Selbstgehosteter über evendis.de: Kanal-Gebühr inkl. MwSt., Zahlungskosten beim eigenen Anbieter (User 11.11.2026)
+        $chs = class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::settings() : ['percent' => 2.9, 'fixed' => 0.49];
+        $ch_txt = rtrim(rtrim(number_format(floatval($chs['percent']), 2, ',', '.'), '0'), ',') . ' % + ' . number_format(floatval($chs['fixed']), 2, ',', '.') . ' € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters';
         $b = function ($key, $title, $text, $group = 'shop') { return ['key' => $key, 'title' => $title, 'text' => $text, 'group' => $group]; };
         $benefits = [
             // In jedem evendis-Konto ohne Aufpreis
@@ -138,14 +141,15 @@ class TIX_Platform_Offers {
             // Tickets über evendis
             $b('eigene_seite', 'Deine eigene Seite', 'evendis.de/v/deinname – auf deiner Seite stehen nur deine Events.', 'plattform'),
             $b('keine_grundgebuehr', 'Keine Grundgebühr', 'Keine Kosten ohne Verkauf, Freitickets kostenlos.', 'plattform'),
-            $b('zahlung_inklusive', 'Zahlung inklusive', 'Kartenzahlung, Apple Pay & Co. sind enthalten – keine zweite Rechnung vom Zahlungsanbieter.', 'plattform'),
+            $b('zahlung_inklusive', 'Zahlungskosten enthalten', 'Zahlungskosten enthalten, evendis trägt sie: Kartenzahlung, Apple Pay & Co. – keine zweite Rechnung vom Zahlungsanbieter.', 'plattform'),
             $b('gebuehr_weitergeben', 'Du entscheidest, wer die Gebühr trägt', 'Deine Gäste, du – oder ihr teilt sie euch.', 'plattform'),
             $b('einlass_kasse', 'Einlass, Abendkasse und Statistik', 'Einlass-Scanner, Abendkasse, Gästeliste und Statistik inklusive.', 'plattform'),
             $b('abrechnung', 'Abrechnung je Event', 'Umsatz, Gebühren, Erstattungen und Auszahlung je Event als PDF.', 'plattform'),
             // Eigener Shop
             $b('shop_domain', 'Shop unter deiner Domain', 'In deinem Look, Betrieb durch uns.', 'shop'),
             $b('daten_gehoeren_dir', 'Gäste und Bestellungen gehören dir', 'Deine Gäste kaufen direkt bei dir.', 'shop'),
-            $b('null_je_ticket', '0 € je Ticket', 'Keine Gebühr je verkauftem Ticket.', 'shop'),
+            $b('null_je_ticket', '0 € je Ticket', 'Keine Gebühr je Ticket in deinem eigenen Shop.', 'shop'),
+            $b('evendis_kanal', 'Zusätzlich auf evendis.de', 'Verkäufe über evendis.de: ' . $ch_txt . '.', 'shop'),
             $b('einrichtung_inklusive', 'Einrichtung inklusive', 'Beim Jahresvertrag richten wir deinen Shop für dich ein.', 'shop'),
             $b('updates', 'Updates und Support inklusive', 'Neue Funktionen kommen automatisch dazu.', 'shop'),
             // Eigene App
@@ -157,20 +161,20 @@ class TIX_Platform_Offers {
             return $a + ['type' => 'module', 'short' => '', 'description' => '', 'prices' => [], 'default_interval' => 'monthly', 'fee_percent' => null, 'fee_fixed' => null,
                 'price_note' => '', 'tax_note' => '', 'term' => '', 'benefits' => [], 'adds' => [], 'recommended' => false, 'active' => true];
         };
-        $shop = ['shop_domain', 'daten_gehoeren_dir', 'null_je_ticket', 'updates'];
+        $shop = ['shop_domain', 'daten_gehoeren_dir', 'null_je_ticket', 'evendis_kanal', 'updates'];
         $items = [
             $i(['key' => 'kostenlos', 'type' => 'plan', 'name' => 'Kostenlos eintragen', 'short' => 'Ohne Ticketverkauf',
                 'description' => 'Event auf evendis.de und in der evendis-App, ohne Ticketverkauf. Eintritt frei, Abendkasse oder Link zu deinem eigenen Ticketshop.',
                 'prices' => ['once' => 0], 'default_interval' => 'once', 'price_note' => 'ohne Gebühr', 'benefits' => ['reichweite', 'eintritt_frei', 'follower']]),
             $i(['key' => 'tickets', 'type' => 'plan', 'name' => 'Tickets über evendis', 'short' => 'Mit Ticketverkauf',
                 'description' => 'Verkauf über evendis.de und die evendis-App. Keine Grundgebühr, keine Kosten ohne Verkauf, Freitickets kostenlos. Verkauf startet nach Freigabe deines Kontos.',
-                'default_interval' => 'per_ticket', 'fee_percent' => 2.9, 'fee_fixed' => 0.49, /* 11.11.2026, vorher 2,5 % + 0,59 € */ 'price_note' => 'je verkauftem Ticket, inkl. MwSt. und Zahlung',
+                'default_interval' => 'per_ticket', 'fee_percent' => 2.9, 'fee_fixed' => 0.49, /* 11.11.2026, vorher 2,5 % + 0,59 € */ 'price_note' => 'je verkauftem Ticket, inkl. MwSt. – Zahlungskosten enthalten, evendis trägt sie',
                 'tax_note' => 'inkl. MwSt.', 'term' => 'keine Bindung', 'benefits' => ['eigene_seite', 'keine_grundgebuehr', 'zahlung_inklusive', 'gebuehr_weitergeben', 'einlass_kasse', 'abrechnung'], 'recommended' => true]),
             $i(['key' => 'shop', 'type' => 'plan', 'name' => 'Eigener Shop', 'short' => 'Jahresvertrag',
-                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket. Einrichtung inklusive.',
+                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: ' . $ch_txt . '. Einrichtung inklusive.',
                 'prices' => ['monthly' => 79], 'price_note' => 'bei Jahresvertrag, Einrichtung inklusive', 'term' => 'Jahresvertrag', 'benefits' => array_merge($shop, ['einrichtung_inklusive'])]),
             $i(['key' => 'shop_monatlich', 'type' => 'plan', 'name' => 'Eigener Shop – monatlich kündbar', 'short' => 'Ohne Jahresbindung',
-                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket.',
+                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: ' . $ch_txt . '.',
                 'prices' => ['monthly' => 99], 'price_note' => 'monatlich kündbar', 'term' => 'monatlich kündbar', 'benefits' => $shop]),
             $i(['key' => 'app', 'name' => 'Eigene App – Basis', 'short' => 'In App Store und Google Play',
                 'description' => 'Deine App unter deinem Namen in App Store und Google Play. Setzt eigenen Shop oder Lizenz voraus.',

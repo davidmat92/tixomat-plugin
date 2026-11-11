@@ -63,7 +63,7 @@ und
    - **der Gast** (die Gebühr wird als Servicegebühr zum Ticketpreis hinzugefügt).
    
    Die Vorgabe für neue Veranstalter ist „{{gebuehr_modus_vorgabe}}“. Der Veranstalter kann den Modus jederzeit im Veranstalter-Bereich ändern. Die Änderung gilt für Bestellungen ab diesem Zeitpunkt.
-4. Verkauft der Veranstalter Tickets über einen eigenen Shop mit lizenzierter Ticket-Software von evendis und werden seine Veranstaltungen zusätzlich über evendis angeboten (geteilte Veranstaltungen), fällt für Verkäufe über evendis die Kanal-Gebühr von {{kanal_gebuehr_prozent}} % zzgl. {{kanal_gebuehr_fix}} € je Ticket ({{gebuehr_mwst_hinweis}}) an. Sie wird monatlich in Rechnung gestellt, sofern sie für den Veranstalter aktiviert ist.
+4. Verkauft der Veranstalter Tickets über einen eigenen Shop mit lizenzierter Ticket-Software von evendis und werden seine Veranstaltungen zusätzlich über evendis angeboten (geteilte Veranstaltungen), fällt für Verkäufe über evendis die Kanal-Gebühr von {{kanal_gebuehr_prozent}} % zzgl. {{kanal_gebuehr_fix}} € je Ticket ({{gebuehr_mwst_hinweis}}) an. Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter. Sie wird monatlich in Rechnung gestellt, sofern sie für den Veranstalter aktiviert ist.
 5. Abweichende Konditionen (z. B. eine eigene Gebührenhöhe) gelten nur, wenn sie in einer **Zusatzvereinbarung** festgehalten sind, der der Veranstalter auf der Plattform zugestimmt hat. Die jeweils gültigen Konditionen des Veranstalters stehen in der **Anlage „Aktuelle Konditionen“**.
 6. **[PRÜFEN: Ausweis der Gebühr gegenüber Gästen bei „Gast trägt“ (Preisangabenverordnung, Gesamtpreis); Umsatzsteuer auf die Gebühr und auf durchgereichte Zahlungskosten]**
 
