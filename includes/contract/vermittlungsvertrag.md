@@ -28,7 +28,7 @@ und
    - Angaben zur Steuer
    - Auszahlungsdaten
    - Zustimmung zu diesem Vertrag
-   
+
    evendis kann die Freigabe ohne Angabe von Gründen ablehnen.
 4. evendis kann einen Veranstalter sperren, wenn ein wichtiger Grund vorliegt, insbesondere bei falschen Angaben, Verstößen gegen diesen Vertrag oder gegen geltendes Recht, Verdacht auf Missbrauch oder ungewöhnlich hohen Rückbuchungen. Bereits verkaufte Tickets bleiben gültig, laufende Abrechnungen werden nach § 6 erstellt.
 
@@ -38,7 +38,14 @@ und
 2. Der Veranstalter hält alle für die Veranstaltung geltenden Vorschriften ein, insbesondere Genehmigungen, Jugendschutz, Sicherheit, Versammlungs- und Gewerberecht, GEMA und sonstige Rechte Dritter sowie Steuern.
 3. Der Veranstalter ist gegenüber den Gästen Vertragspartner und Ansprechpartner für alle Fragen zur Veranstaltung. evendis übernimmt nur Fragen zur Bestellung und zur Plattform.
 4. Bilder, Texte, Logos und sonstige Inhalte stellt der Veranstalter nur ein, wenn er die nötigen Rechte hat. Er räumt evendis das einfache, unentgeltliche Recht ein, diese Inhalte für die Dauer des Vertrags auf der Plattform, in der App, in Mitteilungen und zur Bewerbung der Veranstaltung zu nutzen. Er stellt evendis von Ansprüchen Dritter frei, die auf seinen Inhalten beruhen.
-5. Angebote wie Awareness-Team, „Hilfe vor Ort“, Muttizettel oder Gutscheine richtet der Veranstalter freiwillig ein. Er ist für deren Durchführung verantwortlich. Die Funktionen der Plattform unterstützen ihn dabei, ersetzen aber keinen Notruf und keine eigene Organisation vor Ort.
+5. **Event-Import:** Übernimmt der Veranstalter Angaben zu einer Veranstaltung über einen Link (z. B. von einer eigenen Website, Facebook, Instagram, TikTok oder einer anderen Eventplattform), einen Flyer oder einen Screenshot, sichert er zu:
+   - Er importiert nur **eigene Veranstaltungen** bzw. solche, die er selbst veranstaltet oder für die er vom Veranstalter beauftragt ist.
+   - Er hat an den übernommenen Texten, Bildern, Flyern und sonstigen Inhalten die nötigen **Nutzungsrechte**, auch für die Nutzung nach Abs. 4.
+   - Er beachtet die Nutzungsbedingungen der Seite, von der er importiert.
+   - Er prüft die übernommenen Angaben vor der Veröffentlichung auf Richtigkeit.
+
+   Er stellt evendis von allen Ansprüchen Dritter frei, die aus einem Verstoß gegen diese Zusicherungen entstehen, einschließlich angemessener Kosten der Rechtsverteidigung. evendis darf importierte Inhalte bei begründeten Hinweisen auf Rechtsverletzungen sperren.
+6. Angebote wie Awareness-Team, „Hilfe vor Ort“, Muttizettel oder Gutscheine richtet der Veranstalter freiwillig ein. Er ist für deren Durchführung verantwortlich. Die Funktionen der Plattform unterstützen ihn dabei, ersetzen aber keinen Notruf und keine eigene Organisation vor Ort.
 
 ### § 4 Leistungen von evendis
 
@@ -61,9 +68,9 @@ und
    - **der Veranstalter selbst** (sie wird vom Auszahlungsbetrag abgezogen),
    - **geteilt** ({{anteil_gast_prozent}} % trägt der Gast als Servicegebühr, den Rest der Veranstalter), oder
    - **der Gast** (die Gebühr wird als Servicegebühr zum Ticketpreis hinzugefügt).
-   
+
    Die Vorgabe für neue Veranstalter ist „{{gebuehr_modus_vorgabe}}“. Der Veranstalter kann den Modus jederzeit im Veranstalter-Bereich ändern. Die Änderung gilt für Bestellungen ab diesem Zeitpunkt.
-4. Verkauft der Veranstalter Tickets über einen eigenen Shop mit lizenzierter Ticket-Software von evendis und werden seine Veranstaltungen zusätzlich über evendis angeboten (geteilte Veranstaltungen), fällt für Verkäufe über evendis die Kanal-Gebühr von {{kanal_gebuehr_prozent}} % zzgl. {{kanal_gebuehr_fix}} € je Ticket ({{gebuehr_mwst_hinweis}}) an. Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter. Die Kanal-Gebühr trägt der Veranstalter; den Gästen wird sie nicht berechnet. Gäste zahlen bei diesen Verkäufen nur die eigene Service- bzw. Vorverkaufsgebühr des Veranstalters. Die Kanal-Gebühr wird monatlich in Rechnung gestellt, sofern sie für den Veranstalter aktiviert ist.
+4. Verkauft der Veranstalter Tickets über einen eigenen Shop mit lizenzierter Ticket-Software von evendis und werden seine Veranstaltungen zusätzlich über evendis angeboten (geteilte Veranstaltungen), fällt für Verkäufe über evendis die Kanal-Gebühr von {{kanal_gebuehr_prozent}} % zzgl. {{kanal_gebuehr_fix}} € je Ticket ({{gebuehr_mwst_hinweis}}) an. Die Kosten der Zahlungsabwicklung sind darin nicht enthalten; sie trägt der Veranstalter gegenüber seinem eigenen Zahlungsanbieter. Die Kanal-Gebühr trägt der Veranstalter; den Gästen wird sie nicht berechnet. Gäste zahlen bei diesen Verkäufen höchstens die Servicegebühr, die der Veranstalter für seine Veranstaltung selbst festgelegt hat. Die Kanal-Gebühr wird monatlich in Rechnung gestellt, sofern sie für den Veranstalter aktiviert ist.
 5. Abweichende Konditionen (z. B. eine eigene Gebührenhöhe) gelten nur, wenn sie in einer **Zusatzvereinbarung** festgehalten sind, der der Veranstalter auf der Plattform zugestimmt hat. Die jeweils gültigen Konditionen des Veranstalters stehen in der **Anlage „Aktuelle Konditionen“**.
 6. **[PRÜFEN: Ausweis der Gebühr gegenüber Gästen bei „Gast trägt“ (Preisangabenverordnung, Gesamtpreis); Umsatzsteuer auf die Gebühr und auf durchgereichte Zahlungskosten]**
 
@@ -116,7 +123,7 @@ und
 
 ### § 8e Auftragsverarbeitung
 
-1. Soweit evendis für den Veranstalter personenbezogene Daten im Auftrag verarbeitet (Gästeliste, Einlass, Mitteilungen an Gäste, Awareness-Hinweise und -Meldungen, Statistik und Werbung nach § 8f), gilt dieser Paragraf als Vereinbarung nach Art. 28 Abs. 3 DSGVO. Für die Daten aus dem Ticketverkauf bleibt es bei § 8 Abs. 1.
+1. Soweit evendis für den Veranstalter personenbezogene Daten im Auftrag verarbeitet (Gästeliste, Einlass, Mitteilungen an Gäste, Awareness-Hinweise und -Meldungen, Statistik und Werbung nach § 8f, Zugriff von Co-Veranstaltern nach § 8g), gilt dieser Paragraf als Vereinbarung nach Art. 28 Abs. 3 DSGVO. Für die Daten aus dem Ticketverkauf bleibt es bei § 8 Abs. 1.
 2. evendis verarbeitet diese Daten nur auf dokumentierte Weisung des Veranstalters; als Weisung gelten dieser Vertrag und die Einstellungen im Veranstalter-Bereich. Personen, die Zugriff haben, sind zur Vertraulichkeit verpflichtet.
 3. evendis trifft angemessene technische und organisatorische Maßnahmen nach Art. 32 DSGVO, unter anderem verschlüsselte Übertragung, Rollen und Rechte, Trennung der Daten je Veranstalter, Protokolle und Datensicherung.
 4. Der Veranstalter genehmigt die in der Datenschutzerklärung von evendis genannten Unterauftragsverarbeiter (u. a. Hosting, E-Mail-Versand, Push-Dienste). Über neue Unterauftragsverarbeiter informiert evendis vorher; der Veranstalter kann aus wichtigem Grund widersprechen.
@@ -132,6 +139,37 @@ und
 5. Unterauftragsverarbeiter für diese Leistungen ist die Hetzner Online GmbH (Server für Matomo). Die Werbedienste sind Empfänger im Auftrag des Veranstalters, keine Unterauftragsverarbeiter von evendis.
 6. Das Modul „Marketing“ ist kostenpflichtig; Preis und Laufzeit ergeben sich aus den Konditionen. Endet das Modul oder dieser Vertrag, trennt evendis alle Verbindungen und löscht Zugangsschlüssel und abgerufene Werbekosten innerhalb von 30 Tagen.
 
+### § 8g Co-Veranstalter
+
+1. Der Veranstalter kann für ein Event einen oder mehrere andere Veranstalter als Co-Veranstalter eintragen oder per E-Mail einladen. Er entscheidet, ob der Co-Veranstalter Zugriff auf das Event erhält. Ohne Zugriff wird der Co-Veranstalter nur genannt (Event-Seite, Kauf, Ticket) und erhält keine Daten. Sind mehrere Co-Veranstalter eingetragen, gilt dieser Paragraf für jeden von ihnen.
+2. Mit Zugriff darf der Co-Veranstalter das Event bearbeiten, Verkäufe und Statistik sehen, die Gästeliste führen, den Einlass durchführen und an der Abendkasse verkaufen. Er darf das Event nicht löschen, keinen Co-Veranstalter ändern, keine Auszahlungen oder Abrechnungen sehen und keine Daten der Käufer exportieren. Den Zugriff gibt der Veranstalter erst, nachdem er im Studio bzw. in der App bestätigt hat, dass er die Daten der Käufer und Gäste an den Co-Veranstalter weitergibt; evendis speichert diese Bestätigung mit Zeitpunkt. Der Zugriff beginnt erst, wenn der Co-Veranstalter die Einladung angenommen hat, und endet sofort, wenn der Veranstalter ihn entfernt oder den Zugriff ausschaltet.
+3. Für jedes gemeinsame Event legt der Veranstalter, der es angelegt hat, fest, wer das Geld einnimmt (**Geldempfänger**): er selbst oder ein Co-Veranstalter mit Zugriff. Ein Co-Veranstalter wird erst Geldempfänger, wenn er dem im Studio bzw. in der App zugestimmt hat; evendis speichert die Zustimmung mit Zeitpunkt. Vertragspartner der Gäste und Verkäufer der Tickets ist allein der Geldempfänger. Er wird in der Kasse vor der Bestellung als Verkäufer genannt, empfängt die Auszahlung, schuldet die Gebühren nach § 5 und trägt gegenüber den Gästen Absage, Verlegung und Erstattung (§ 7). Die übrigen Beteiligten und evendis vermitteln nur. Im Verhältnis untereinander trägt die Folgen einer Absage oder Verlegung, wer sie zu vertreten hat. Nach dem ersten bezahlten Verkauf lassen sich Geldempfänger und Anteile (Abs. 7) nicht mehr ändern.
+4. Für die Daten der Käufer und Gäste des gemeinsamen Events sind der Veranstalter und der Co-Veranstalter gemeinsam verantwortlich (Art. 26 DSGVO). Mit der Bestätigung nach Abs. 2 und der Annahme der Einladung vereinbaren sie: (a) Bestellung, Zahlung, Erstattung, Rechnung sowie die Information der Gäste nach Art. 13 DSGVO übernimmt der Geldempfänger; (b) beide nutzen die Daten nur zur Durchführung des Events (Einlass, Kasse, Gästeliste, Informationen zum Event), nicht für eigene Werbung, es sei denn, die Gäste haben gegenüber dem Co-Veranstalter selbst eingewilligt; (c) Anfragen betroffener Personen beantwortet der Veranstalter, der Co-Veranstalter leitet bei ihm eingehende Anfragen unverzüglich weiter und unterstützt ihn; (d) eine Verletzung des Schutzes dieser Daten meldet jeder dem anderen unverzüglich, die Meldung an die Aufsichtsbehörde übernimmt der Veranstalter; (e) jeder verpflichtet sein Personal mit Zugriff zur Vertraulichkeit. Das Wesentliche dieser Vereinbarung stellt evendis den Gästen in der Datenschutzerklärung bereit.
+5. evendis verarbeitet die Daten des gemeinsamen Events im Auftrag beider (§ 8e gilt für beide). Auch der Co-Veranstalter schließt dazu diesen Vertrag ab, wenn er die Einladung annimmt; §§ 5 und 6 gelten für ihn nur für eigene Events und für gemeinsame Events, bei denen er Geldempfänger ist oder einen Anteil erhält. Wer wann zugegriffen hat, protokolliert evendis.
+6. Liegt das Event auf der Seite eines Veranstalters mit eigener Lizenz der Ticket-Software von evendis und wird es auf evendis geteilt, gelten Abs. 1 bis 4 entsprechend zwischen dem Lizenznehmer und dem Co-Veranstalter. Die Daten bleiben auf der Seite des Lizenznehmers; evendis ruft sie für den Co-Veranstalter nur für dieses Event und nur im freigegebenen Umfang ab und speichert sie nicht. evendis handelt dabei als Auftragsverarbeiter des Lizenznehmers und des Co-Veranstalters.
+
+7. **Anteile und Ausgleich.** Die Beteiligten können den Erlös eines gemeinsamen Events prozentual aufteilen; die Anteile ergeben zusammen 100 %. Grundlage ist das Netto des Events: Ticketumsatz ohne Servicegebühren der Gäste, abzüglich Erstattungen sowie der Gebühren von evendis und des Zahlungsdienstleisters. Die Gebühren trägt damit wirtschaftlich jeder nach seinem Anteil; Schuldner gegenüber evendis bleibt der Geldempfänger.
+   - (a) Verkauft evendis.de, verrechnet evendis die Anteile in der Abrechnung (§ 6): beim Geldempfänger als Abzug, bei den übrigen Beteiligten als Gutschrift in ihrer nächsten Abrechnung. Die Auszahlung an die übrigen Beteiligten nimmt evendis im Auftrag des Geldempfängers vor; damit ist dessen Ausgleichspflicht in dieser Höhe erfüllt.
+   - (b) Verkauft die Seite eines Lizenznehmers, erstellt die Ticket-Software eine Ausgleichsübersicht. Den Betrag überweist der Geldempfänger selbst. evendis überweist dabei nichts, verbucht nichts und haftet nicht für die Zahlung.
+   - (c) Die Ausgleichsübersicht und die Position „Anteil“ in der Abrechnung sind keine Rechnungen. Ob über den Anteil eine Rechnung oder eine Gutschrift erteilt wird und wie er umsatzsteuerlich zu behandeln ist, klären die Beteiligten selbst.
+   - (d) Durch die Aufteilung entsteht keine nach außen auftretende Gesellschaft; jeder Beteiligte handelt im eigenen Namen.
+8. **Verkauf über andere Seiten.** Bietet eine andere Seite das gemeinsame Event an (evendis.de oder die Seite eines beteiligten Lizenznehmers), vermittelt sie den Kauf im Namen und für Rechnung des Geldempfängers über evendis. Dabei gilt:
+   - Sie nennt den Geldempfänger vor der Bestellung als Verkäufer, mit Name, Anschrift und Link zu seinen AGB und seiner Datenschutzerklärung.
+   - Sie übermittelt die Bestelldaten über evendis an den Geldempfänger.
+   - Die Tickets zeigt sie anschließend auch selbst beim Käufer an.
+
+   Für die Gäste gilt immer die Servicegebühr nach der Gebührenregel des Veranstalters, der das Event angelegt hat, auch wenn ein Co-Veranstalter Geldempfänger ist oder eine andere Seite den Kauf vermittelt. Der Geldempfänger nimmt sie zusammen mit dem Ticketpreis ein. Eine weitere Gebühr der vermittelnden Seite oder von evendis wird den Gästen nicht berechnet. Bestätigung, Tickets, Rechnung, Storno und Erstattung übernimmt der Geldempfänger. Für Vermittlungen zwischen den Beteiligten eines gemeinsamen Events fällt keine Kanal-Gebühr nach § 5 Abs. 4 an. Einen eigenen Zahlungsdienstleister braucht die vermittelnde Seite dafür nicht.
+
+### § 8h Wechsel auf eine eigene Website
+
+1. Der Veranstalter kann jederzeit eine eigene Website mit der Ticket-Software von evendis einrichten lassen (Lizenz). Sie läuft auf einem von evendis betriebenen Kunden-Server oder auf einem eigenen Server des Veranstalters, nie auf den Servern der Plattform. Für Lizenz, Hosting und Betreuung gilt ein eigener Vertrag; erbringt evendis dabei Hosting oder Fernwartung, enthält er eine Vereinbarung zur Auftragsverarbeitung (Art. 28 DSGVO).
+2. Beim Wechsel überträgt evendis auf Weisung des Veranstalters die Daten seiner eigenen Veranstaltungen auf die neue Seite: Veranstaltungen, Ticket-Kategorien, Bestellungen, Tickets, Gästelisten, Check-ins, Gutscheine, Veranstalterprofil, Orte und Bilder sowie Kontakte, die in Mitteilungen gerade dieses Veranstalters eingewilligt haben. Der Veranstalter löst die Übertragung im Veranstalter-Bereich aus und bestätigt den Umfang vorher. Ticket-Codes bleiben gültig.
+3. Nicht übertragen werden Kundenkonten der Plattform (Zugangsdaten, Profil, Merklisten, Folgen), plattformweites Guthaben, Einwilligungen gegenüber evendis selbst und Daten zu Veranstaltungen anderer Veranstalter. Gäste melden sich auf der neuen Seite neu an, zum Beispiel mit einem Code an ihre Bestell-E-Mail.
+4. Für die übertragenen Daten bleibt der Veranstalter Verantwortlicher (§ 8 Abs. 1). Er informiert die Gäste vor der Übertragung über die neue Seite; evendis stellt dafür eine Mitteilung bereit und weist in seiner Datenschutzerklärung darauf hin. Nach der Übertragung löscht evendis die Daten auf der Plattform, soweit keine Aufbewahrungspflicht besteht; Buchungs- und Abrechnungsdaten der über die Plattform bezahlten Bestellungen bewahrt evendis nach § 147 AO und § 257 HGB auf.
+5. Für Tickets, die vor dem Wechsel über die Plattform verkauft wurden, gelten §§ 5 bis 7 weiter: Abrechnung, Auszahlung, Erstattung und Rückbuchung laufen über evendis. Danach verkauft der Veranstalter auf seiner Seite selbst. Bietet er seine Veranstaltungen weiter über evendis an, gilt für diese Verkäufe § 5 Abs. 4.
+6. Veranstaltungen, bei denen der Veranstalter Co-Veranstalter ist, bleiben beim Ersteller. Er sieht sie auf seiner neuen Seite im bisherigen Umfang (§ 8g); deren Daten werden dort nicht gespeichert.
+7. Dieser Vertrag bleibt für geteilte Veranstaltungen, Co-Veranstaltungen und die Abwicklung nach Abs. 5 bestehen.
+
 ### § 9 Haftung
 
 1. evendis haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit, bei Verletzung von Leben, Körper oder Gesundheit sowie nach dem Produkthaftungsgesetz.
@@ -142,7 +180,7 @@ und
 
 1. Der Vertrag läuft auf unbestimmte Zeit. Er kann von beiden Seiten mit einer Frist von {{kuendigungsfrist}} zum Monatsende in Textform gekündigt werden; im Veranstalter-Bereich genügt die Funktion „Konto schließen“, sobald vorhanden.
 2. Das Recht zur außerordentlichen Kündigung aus wichtigem Grund bleibt unberührt.
-3. Nach Vertragsende werden bereits verkaufte Tickets noch abgewickelt und abgerechnet. Daten exportiert der Veranstalter vorher selbst (CSV-Export im Veranstalter-Bereich).
+3. Nach Vertragsende werden bereits verkaufte Tickets noch abgewickelt und abgerechnet. Daten exportiert der Veranstalter vorher selbst (CSV-Export im Veranstalter-Bereich) oder lässt sie nach § 8h auf eine eigene Website übertragen.
 
 ### § 11 Änderungen dieses Vertrags und der Konditionen
 

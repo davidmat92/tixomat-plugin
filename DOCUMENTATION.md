@@ -5998,3 +5998,16 @@ User-Entscheide 11.11.
   - Katalog „Zusätzlich auf evendis.de“: „Die Gebühr trägst du; deine Gäste zahlen nur deine eigene Service- bzw. Vorverkaufsgebühr.“
   - Vermittlungsvertrag §5 Abs. 4: „Die Kanal-Gebühr trägt der Veranstalter; den Gästen wird sie nicht berechnet …“.
 - **Tests:** `test-fee-creator-rule-wp` (Plattform 7, Einzel-Seite 8), Co/Gebühren/Spiegel grün.
+
+## 165. Vermittlungsvertrag an die Vorlage der Rechtstexte angeglichen (ab 1.38.761)
+Wortlaut der Rechtstexte („Abgleich 1.38.760“, `docs/rechtstexte/pruefmappe/wortlaut-gebuehren-plugin.md`).
+- **§ 5 Abs. 4:** „Gäste zahlen bei diesen Verkäufen höchstens die Servicegebühr, die der Veranstalter für seine Veranstaltung selbst festgelegt hat.“
+- **§ 8g Abs. 8:** immer die Gebührenregel des Erstellers; der Geldempfänger nimmt die Gebühr ein; keine weitere Gebühr der vermittelnden Seite oder von evendis.
+- **Vollständig angeglichen:** `includes/contract/vermittlungsvertrag.md` entspricht jetzt der Vorlage `docs/rechtstexte/vorlagen/vermittlungsvertrag.md`. Die Schalter für evendis (`co_veranstalter`, `co_geld`, `eigene_website`) sind aufgelöst; `[AUTOMATISCH: x]` wird zu `{{x}}`; ohne Entwurfs-Hinweis.
+- **Neu gegenüber der bisherigen Plugin-Kopie:**
+  - § 3 Abs. 5 Event-Import (folgende Absätze neu nummeriert);
+  - § 8e Abs. 1 Zusatz Co-Veranstalter;
+  - § 8g Co-Veranstalter (Abs. 1–8);
+  - § 8h Wechsel auf eine eigene Website;
+  - § 10 Abs. 3 Zusatz „oder lässt sie nach § 8h … übertragen“.
+- **Prüfvermerke:** In §§ 8a–8h stehen keine `[PRÜFEN …]`-Vermerke (wie bisher in der Plugin-Kopie); die übrigen blendet die Darstellung aus. Eine neue Vertragsversion entsteht erst, wenn die Vorlage auf evendis aktiv ist (`terms_source = template`).
