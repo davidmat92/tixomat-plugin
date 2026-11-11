@@ -339,6 +339,32 @@ class TIX_Fees {
         return is_array($cat) && !empty($cat['no_fee']);
     }
 
+    /**
+     * Anzeige (PAngV, 1.38.750): Käuferanteil der Gebühr für EIN Ticket ohne Bestell-Effekte (Höchstbetrag je Bestellung,
+     * Rundung, Zahlungskosten) – für die Summe der Ticketauswahl. 0 bei gebührenfreier Kategorie, Freiticket oder ohne Käuferanteil.
+     */
+    public static function ticket_fee($event_id, $cat_index, $price, $cfg = null): float {
+        $price = floatval($price);
+        if ($price <= 0) return 0.0;
+        if ($cat_index !== null && self::is_item_fee_exempt(['event_id' => intval($event_id), 'cat_index' => intval($cat_index)])) return 0.0;
+        if (!$cfg) $cfg = self::get_fee_config(self::get_organizer_for_event($event_id));
+        $share = self::customer_share($cfg);
+        if ($share <= 0) return 0.0;
+        return round(self::calc_platform_fee($price, null, $cfg) * $share, 2);
+    }
+
+    /**
+     * Anzeige (PAngV, 1.38.750): Gesamtpreis für den Kauf von $qty Tickets dieser Kategorie, genau wie die Kasse
+     * (inkl. Höchstbeträge, Rundung, Zahlungskosten zu Lasten des Käufers) → {fee, total, label}.
+     */
+    public static function ticket_total($event_id, $cat_index, $price, $qty = 1, $cfg = null): array {
+        if (!$cfg) $cfg = self::get_fee_config(self::get_organizer_for_event($event_id));
+        $item = ['price' => floatval($price), 'qty' => max(1, intval($qty)), 'event_id' => intval($event_id)];
+        if ($cat_index !== null) $item['cat_index'] = intval($cat_index);
+        $r = self::calc_with_config([$item], $cfg);
+        return ['fee' => round(floatval($r['customer_fee_line']), 2), 'total' => round(floatval($r['customer_total']), 2), 'label' => (string) ($cfg['fee_label'] ?: 'Servicegebühr')];
+    }
+
     public static function calc_order_fees(array $items): array {
         if (empty($items)) {
             return [
@@ -390,6 +416,7 @@ class TIX_Fees {
             $qty   = intval($item['qty']);
             $subtotal     += $price * $qty;
             if (self::is_item_fee_exempt($item)) continue;
+            if ($price <= 0) continue; // Freitickets tragen keine Gebühr („Frei“ muss frei bleiben, 1.38.750)
             $platform_fee += self::calc_platform_fee($price, null, $cfg) * $qty;
         }
         $platform_fee = round($platform_fee, 2);

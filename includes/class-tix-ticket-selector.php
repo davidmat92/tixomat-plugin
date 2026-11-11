@@ -224,11 +224,24 @@ class TIX_Ticket_Selector {
         // Settings
         $tix_s = tix_get_settings();
         $vat_text = $tix_s['vat_text_selector'] ?? 'inkl. MwSt.';
+        // Gebühr zu Lasten des Käufers: Preise inkl. Gebühr anzeigen (PAngV, 1.38.750); data-fee je Zeile für die Summe
+        $sel_fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($post_id)) : null;
+        $sel_fee_share = $sel_fee_cfg ? TIX_Fees::customer_share($sel_fee_cfg) : 0.0;
+        $sel_fee_on = $sel_fee_share > 0 && (floatval($sel_fee_cfg['fee_fixed']) > 0 || floatval($sel_fee_cfg['fee_percent']) > 0);
+        $sel_fee_label = $sel_fee_cfg ? (string) ($sel_fee_cfg['fee_label'] ?: 'Servicegebühr') : 'Servicegebühr';
+        $sel_fee = function ($cat_index, $price) use ($post_id, $sel_fee_cfg, $sel_fee_on) {
+            return $sel_fee_on ? TIX_Fees::ticket_fee($post_id, $cat_index, $price, $sel_fee_cfg) : 0.0;
+        };
+        $sel_fee_note = function ($fee) use ($sel_fee_label) {
+            return $fee > 0 ? '<span class="tix-sel-fee-note">inkl. ' . number_format($fee, 2, ',', '.') . '&nbsp;€ ' . esc_html($sel_fee_label) . '</span>' : '';
+        };
+        $sel_fee_attrs = $sel_fee_on ? ' data-fee-label="' . esc_attr($sel_fee_label) . '" data-fee-max-order="' . esc_attr((string) round(floatval($sel_fee_cfg['fee_max_per_order']) * $sel_fee_share, 2)) . '"'
+            . ' data-fee-rounding="' . esc_attr((string) $sel_fee_cfg['fee_rounding']) . '" data-fee-rounding-custom="' . esc_attr((string) floatval($sel_fee_cfg['fee_rounding_custom'])) . '"' : '';
 
         ob_start();
         ?>
         <?php $tix_v = intval($atts['variant']) === 2 ? 2 : 1; ?>
-        <div class="tix-sel<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event-id="<?php echo $post_id; ?>"<?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
+        <div class="tix-sel<?php echo $atts['fullwidth'] === '1' ? ' tix-fullwidth' : ''; ?>" data-event-id="<?php echo $post_id; ?>"<?php echo $sel_fee_attrs; ?><?php if ($tix_v === 2): ?> style="--tix-btn1-bg:var(--tix-btn2-bg,transparent);--tix-btn1-color:var(--tix-btn2-color,inherit);--tix-btn1-hover-bg:var(--tix-btn2-hover-bg,transparent);--tix-btn1-hover-color:var(--tix-btn2-hover-color,inherit);--tix-btn1-radius:var(--tix-btn2-radius,8px);--tix-btn1-border:var(--tix-btn2-border,1px solid currentColor);--tix-btn1-font-size:var(--tix-btn2-font-size,0.9rem)"<?php endif; ?>>
 
             <?php
             // ── Charity-Banner ──
@@ -397,6 +410,8 @@ class TIX_Ticket_Selector {
                     <div class="tix-sel-cat <?php echo $is_offline ? 'tix-sel-offline' : (!$in_stock ? 'tix-sel-soldout' : ''); ?>"
                          data-product-id="<?php echo $is_offline ? '0' : $product_id; ?>"
                          data-price="<?php echo $is_offline ? '0' : $effective; ?>"
+                         <?php $row_fee = $is_offline ? 0.0 : $sel_fee($i, $effective); $row_fee_old = ($has_sale && !$is_offline) ? $sel_fee($i, $price) : $row_fee; ?>
+                         data-fee="<?php echo $row_fee; ?>"
                          data-index="<?php echo $i; ?>"
                          data-has-phase="<?php echo $active_phase ? '1' : '0'; ?>">
 
@@ -472,12 +487,13 @@ class TIX_Ticket_Selector {
 
                         <div class="tix-sel-cat-price">
                             <?php if ($has_sale && !$is_offline): ?>
-                                <span class="tix-sel-price-sale"><?php echo number_format($effective, 2, ',', '.'); ?>&nbsp;€</span>
-                                <span class="tix-sel-price-old"><?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€</span>
+                                <span class="tix-sel-price-sale"><?php echo number_format($effective + $row_fee, 2, ',', '.'); ?>&nbsp;€</span>
+                                <span class="tix-sel-price-old"><?php echo number_format($price + $row_fee_old, 2, ',', '.'); ?>&nbsp;€</span>
                             <?php else: ?>
-                                <span class="tix-sel-price-regular"><?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€</span>
+                                <span class="tix-sel-price-regular"><?php echo number_format($price + $row_fee, 2, ',', '.'); ?>&nbsp;€</span>
                             <?php endif; ?>
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
+                            <?php echo $sel_fee_note($row_fee); ?>
                             <?php
                             // ── Low-Stock-Badge ──
                             // Priorität: Kategorie-Override → Event-Override → Global
@@ -559,6 +575,8 @@ class TIX_Ticket_Selector {
                     <div class="tix-sel-cat tix-sel-bundle"
                          data-product-id="<?php echo $product_id; ?>"
                          data-price="<?php echo $b_total; ?>"
+                         <?php $b_fee = round($sel_fee($i, $bundle_buy > 0 ? $b_total / $bundle_buy : 0) * $bundle_buy, 2); ?>
+                         data-fee="<?php echo $b_fee; ?>"
                          data-index="<?php echo $i; ?>b"
                          data-bundle="1"
                          data-bundle-buy="<?php echo $bundle_buy; ?>"
@@ -578,9 +596,10 @@ class TIX_Ticket_Selector {
                         </div>
 
                         <div class="tix-sel-cat-price">
-                            <span class="tix-sel-price-sale"><?php echo number_format($b_total, 2, ',', '.'); ?>&nbsp;€</span>
-                            <span class="tix-sel-price-old"><?php echo number_format($b_orig, 2, ',', '.'); ?>&nbsp;€</span>
+                            <span class="tix-sel-price-sale"><?php echo number_format($b_total + $b_fee, 2, ',', '.'); ?>&nbsp;€</span>
+                            <span class="tix-sel-price-old"><?php echo number_format($b_orig + round($sel_fee($i, $effective) * $bundle_buy, 2), 2, ',', '.'); ?>&nbsp;€</span>
                             <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
+                            <?php echo $sel_fee_note($b_fee); ?>
                         </div>
 
                         <div class="tix-sel-cat-qty">
@@ -620,10 +639,18 @@ class TIX_Ticket_Selector {
                     $all_in_stock = $rc['in_stock'];
                     $savings = $original_sum - $combo_price;
                     $savings_pct = $original_sum > 0 ? round(($savings / $original_sum) * 100) : 0;
+                    // Gebühr je enthaltenem Ticket, Preise anteilig auf den Kombi-Preis umgelegt
+                    $c_fee = 0.0;
+                    if ($sel_fee_on) foreach ($rc['items'] as $_it) {
+                        $_p = $original_sum > 0 ? floatval($_it['price']) * $combo_price / $original_sum : 0;
+                        $c_fee += $sel_fee_cfg ? TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event(intval($_it['event_id'])))) : 0;
+                    }
+                    $c_fee = round($c_fee, 2);
                 ?>
-                <div class="tix-sel-cat tix-sel-combo <?php echo !$all_in_stock ? 'tix-sel-soldout' : ''; ?>"
+                <div class="tix-sel-cat tix-sel-combo" <?php echo !$all_in_stock ? 'tix-sel-soldout' : ''; ?>"
                      data-combo-id="<?php echo $combo_id; ?>"
                      data-combo-price="<?php echo $combo_price; ?>"
+                     data-fee="<?php echo $c_fee; ?>"
                      data-combo-items='<?php echo esc_attr(json_encode($combo_items)); ?>'
                      data-combo-label="<?php echo esc_attr($combo['label']); ?>"
                      data-index="combo<?php echo $ci; ?>">
@@ -643,12 +670,13 @@ class TIX_Ticket_Selector {
 
                     <div class="tix-sel-cat-price">
                         <?php if ($savings > 0): ?>
-                            <span class="tix-sel-price-sale"><?php echo number_format($combo_price, 2, ',', '.'); ?>&nbsp;€</span>
+                            <span class="tix-sel-price-sale"><?php echo number_format($combo_price + $c_fee, 2, ',', '.'); ?>&nbsp;€</span>
                             <span class="tix-sel-price-old"><?php echo number_format($original_sum, 2, ',', '.'); ?>&nbsp;€</span>
                         <?php else: ?>
-                            <span class="tix-sel-price-regular"><?php echo number_format($combo_price, 2, ',', '.'); ?>&nbsp;€</span>
+                            <span class="tix-sel-price-regular"><?php echo number_format($combo_price + $c_fee, 2, ',', '.'); ?>&nbsp;€</span>
                         <?php endif; ?>
                         <span class="tix-sel-vat"><?php echo esc_html($vat_text); ?></span>
+                        <?php echo $sel_fee_note($c_fee); ?>
                     </div>
 
                     <div class="tix-sel-cat-qty">
@@ -785,6 +813,7 @@ class TIX_Ticket_Selector {
                     <span class="tix-sel-total-label">Gesamt <span class="tix-sel-vat-note"><?php echo esc_html($vat_text); ?></span></span>
                     <span class="tix-sel-total-price">0,00 €</span>
                 </div>
+                <?php if ($sel_fee_on): ?><div class="tix-sel-fee-line" style="display:none;font-size:12px;opacity:.75;text-align:right;"></div><?php endif; ?>
                 <button type="button" class="tix-sel-buy" disabled>
                     <?php $buy_text = $tix_s['btn_text_buy'] ?? 'Weiter zur Kasse'; ?>
                     <span class="tix-sel-buy-text"><?php echo esc_html($buy_text); ?></span>
@@ -967,6 +996,10 @@ class TIX_Ticket_Selector {
             $ec_client = TIX_Fees::client_fee_config($ec_cfg);
             if ($ec_client) $ec_fee_json = wp_json_encode($ec_client);
         }
+        // Preise inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.750); data-fee je Zeile für die Summe
+        $ec_fee_on = !empty($ec_client) && (floatval($ec_cfg['fee_fixed']) > 0 || floatval($ec_cfg['fee_percent']) > 0);
+        $ec_fee = function ($cat_index, $price) use ($post_id, $ec_cfg, $ec_fee_on) { return $ec_fee_on ? TIX_Fees::ticket_fee($post_id, $cat_index, $price, $ec_cfg) : 0.0; };
+        $ec_note = function ($fee) use ($ec_cfg) { return $fee > 0 ? '<span class="tix-ec-fee-note" style="display:block;font-size:11px;opacity:.75;">inkl. ' . number_format($fee, 2, ',', '.') . '&nbsp;€ ' . esc_html((string) ($ec_cfg['fee_label'] ?: 'Servicegebühr')) . '</span>' : ''; };
         ?>
         <div class="tix-ec-overlay" id="<?php echo esc_attr($modal_id); ?>" style="display:none;" data-event-id="<?php echo $post_id; ?>"<?php if ($ec_fee_json) echo ' data-fee-config="' . esc_attr($ec_fee_json) . '"'; ?>>
             <div class="tix-ec-modal">
@@ -1020,20 +1053,23 @@ class TIX_Ticket_Selector {
                             }
                             if (!$in_stock) continue;
                         ?>
+                        <?php $ec_f = $ec_fee($i, $effective); $ec_f_old = $has_sale ? $ec_fee($i, $price) : $ec_f; ?>
                         <div class="tix-ec-cat"
                              data-product-id="<?php echo $product_id; ?>"
                              data-price="<?php echo $effective; ?>"
+                             data-fee="<?php echo $ec_f; ?>"
                              data-max="<?php echo $qty_max; ?>">
                             <div class="tix-ec-cat-info">
                                 <span class="tix-ec-cat-name"><?php echo $name; ?></span>
                                 <span class="tix-ec-cat-price">
                                     <?php if ($has_sale): ?>
-                                        <span class="tix-ec-price-sale"><?php echo number_format($effective, 2, ',', '.'); ?>&nbsp;€</span>
-                                        <span class="tix-ec-price-old"><?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€</span>
+                                        <span class="tix-ec-price-sale"><?php echo number_format($effective + $ec_f, 2, ',', '.'); ?>&nbsp;€</span>
+                                        <span class="tix-ec-price-old"><?php echo number_format($price + $ec_f_old, 2, ',', '.'); ?>&nbsp;€</span>
                                     <?php else: ?>
-                                        <?php echo number_format($price, 2, ',', '.'); ?>&nbsp;€
+                                        <?php echo number_format($price + $ec_f, 2, ',', '.'); ?>&nbsp;€
                                     <?php endif; ?>
                                     <span class="tix-ec-vat"><?php echo esc_html($vat_text); ?></span>
+                                    <?php echo $ec_note($ec_f); ?>
                                 </span>
                             </div>
                             <div class="tix-ec-cat-qty">
@@ -1125,8 +1161,10 @@ class TIX_Ticket_Selector {
                                     // Max Pakete = floor(max_qty / bundle_buy)
                                     $pkg_max = max(1, floor($qty_max / $bb));
                                 ?>
+                                <?php $ec_bf = round($ec_fee($i, $bb > 0 ? $b_total / $bb : 0) * $bb, 2); ?>
                                 <div class="tix-ec-cat tix-ec-bundle"
                                      data-product-id="<?php echo $product_id; ?>"
+                                     data-fee="<?php echo $ec_bf; ?>"
                                      data-price="<?php echo $b_total; ?>"
                                      data-max="<?php echo $pkg_max; ?>"
                                      data-bundle="1"
@@ -1136,9 +1174,10 @@ class TIX_Ticket_Selector {
                                     <div class="tix-ec-cat-info">
                                         <span class="tix-ec-cat-name">🎁 <?php echo esc_html($b_label); ?></span>
                                         <span class="tix-ec-cat-price">
-                                            <span class="tix-ec-price-sale"><?php echo number_format($b_total, 2, ',', '.'); ?>&nbsp;€</span>
-                                            <span class="tix-ec-price-old"><?php echo number_format($b_orig, 2, ',', '.'); ?>&nbsp;€</span>
+                                            <span class="tix-ec-price-sale"><?php echo number_format($b_total + $ec_bf, 2, ',', '.'); ?>&nbsp;€</span>
+                                            <span class="tix-ec-price-old"><?php echo number_format($b_orig + round($ec_fee($i, $effective) * $bb, 2), 2, ',', '.'); ?>&nbsp;€</span>
                                             <span class="tix-ec-vat"><?php echo esc_html($vat_text); ?></span>
+                                            <?php echo $ec_note($ec_bf); ?>
                                         </span>
                                         <span class="tix-ec-offer-desc"><?php echo $bb; ?>× – nur <?php echo $bp; ?> zahlen, <?php echo $b_free; ?> gratis <span class="tix-ec-offer-save"><?php echo $b_save; ?>% sparen</span></span>
                                     </div>
@@ -1177,6 +1216,12 @@ class TIX_Ticket_Selector {
                     $all_in_stock = $rc['in_stock'];
                     $savings = $original_sum - $combo_price;
                     $savings_pct = $original_sum > 0 ? round(($savings / $original_sum) * 100) : 0;
+                    $ec_cf = 0.0;
+                    if ($ec_fee_on) foreach ($rc['items'] as $_it) {
+                        $_p = $original_sum > 0 ? floatval($_it['price']) * $combo_price / $original_sum : 0;
+                        $ec_cf += TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event(intval($_it['event_id']))));
+                    }
+                    $ec_cf = round($ec_cf, 2);
                                 ?>
                                 <div class="tix-ec-cat tix-ec-combo"
                                      data-combo-id="<?php echo $combo_id; ?>"
@@ -1184,17 +1229,19 @@ class TIX_Ticket_Selector {
                                      data-combo-items='<?php echo esc_attr(json_encode($combo_items)); ?>'
                                      data-combo-label="<?php echo esc_attr($combo['label']); ?>"
                                      data-price="<?php echo $combo_price; ?>"
+                                     data-fee="<?php echo $ec_cf; ?>"
                                      data-max="20">
                                     <div class="tix-ec-cat-info">
                                         <span class="tix-ec-cat-name">🎫 <?php echo $combo_label; ?></span>
                                         <span class="tix-ec-cat-price">
                                             <?php if ($savings > 0): ?>
-                                                <span class="tix-ec-price-sale"><?php echo number_format($combo_price, 2, ',', '.'); ?>&nbsp;€</span>
+                                                <span class="tix-ec-price-sale"><?php echo number_format($combo_price + $ec_cf, 2, ',', '.'); ?>&nbsp;€</span>
                                                 <span class="tix-ec-price-old"><?php echo number_format($original_sum, 2, ',', '.'); ?>&nbsp;€</span>
                                             <?php else: ?>
-                                                <?php echo number_format($combo_price, 2, ',', '.'); ?>&nbsp;€
+                                                <?php echo number_format($combo_price + $ec_cf, 2, ',', '.'); ?>&nbsp;€
                                             <?php endif; ?>
                                             <span class="tix-ec-vat"><?php echo esc_html($vat_text); ?></span>
+                                            <?php echo $ec_note($ec_cf); ?>
                                         </span>
                                         <span class="tix-ec-offer-desc">
                                             <?php echo implode(' + ', $combo_event_labels); ?>

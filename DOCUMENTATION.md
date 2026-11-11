@@ -5873,3 +5873,16 @@ Vertrag: `uebergaben/vertrag-servicegebuehr.md`. Klasse `TIX_Studio_Fees`. Diese
   - Gebührenfreie Kategorien (`no_fee`) bleiben ohne Gebühr.
 - **Tests:** `test-studio-fees-wp` (Einzel-Seite: run 33 + kasse 4, Plattform 3), `test-studio-payments-wp` 33, `test-fees` 97 grün.
 - **`/me.service_fee {available, can_edit}`** (ab 1.38.749): `available` = kein Mehr-Veranstalter-Modus, `can_edit` = Admin oder `tix_organizer`. Studio und Apps blenden die Zeile „Servicegebühr“ danach aus; `GET /studio/fees` liefert zusätzlich `available: true`. Test `test-studio-fees-wp` jetzt 36 + 4, Plattform 4.
+
+## 155. Gesamtpreis inkl. Servicegebühr (PAngV, ab 1.38.750)
+Rechtsprüfung `docs/rechtstexte/pruefmappe/servicegebuehr.md` §2 Nr. 1 und 5, Vertrag `vertrag-servicegebuehr.md` §5a.
+- **`TIX_Fees::ticket_total($event, $cat, $price, $qty, $cfg)`** → `{fee, total, label}`: rechnet wie die Kasse. **`TIX_Fees::ticket_fee(...)`** liefert den Käuferanteil je Ticket ohne Bestell-Effekte; damit rechnet die Summe der Ticketauswahl.
+- **API:**
+  - `categories[].fee` und `categories[].total` (öffentliche Events und App-Quote), `bundle.package_total`.
+  - Am Event `price_from_total` und `fee_label`.
+- **Website:**
+  - Ticketauswahl und Schnellkauf-Fenster zeigen Preise inkl. Gebühr mit „inkl. … € <Bezeichnung>“; `data-fee` je Zeile, die Summe enthält die Gebühr.
+  - Das Schnellkauf-JS nutzt `data-fee`, damit werden gebührenfreie Kategorien, Freitickets, Pakete und Kombis wie auf dem Server behandelt.
+- **Kasse:** Freitickets (Preis ≤ 0) tragen keine Gebühr mehr (`calc_with_config`).
+- **Grenze:** Spiegel geteilter Events rechnen mit der Gebühr der eigenen Seite (siehe Vertrag §5a).
+- **Tests:** `test-fee-display-wp` 14 (setup/check/cleanup), `test-studio-fees-wp` 36 + 4, `test-fees` 97, Co/Angebote/Gebührensatz grün.

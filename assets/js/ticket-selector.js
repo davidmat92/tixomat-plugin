@@ -252,6 +252,32 @@
                 totalDiscount = Math.min(totalDiscount, sum);
                 var finalTotal = sum - totalDiscount;
 
+                // Gebühr zu Lasten des Käufers (PAngV, 1.38.750): data-fee je Zeile (Käuferanteil je Ticket/Paket/Kombi),
+                // Höchstbetrag je Bestellung und Rundung wie die Kasse; die Kasse rechnet verbindlich nach
+                var feeSum = 0;
+                if (sel.dataset.feeLabel !== undefined) {
+                    sel.querySelectorAll('.tix-sel-cat').forEach(function(row) {
+                        var v = row.querySelector('.tix-sel-qty-val');
+                        var q = v ? (parseInt(v.dataset.qty, 10) || 0) : 0;
+                        if (q > 0) feeSum += q * (parseFloat(row.dataset.fee) || 0);
+                    });
+                    var maxOrder = parseFloat(sel.dataset.feeMaxOrder) || 0;
+                    if (maxOrder > 0) feeSum = Math.min(feeSum, maxOrder);
+                    feeSum = Math.round(feeSum * 100) / 100;
+                    var rnd = sel.dataset.feeRounding || 'none';
+                    if (feeSum > 0 && rnd !== 'none') {
+                        var target = rnd === 'custom' ? (parseFloat(sel.dataset.feeRoundingCustom) || 0) : parseFloat(rnd);
+                        var gross = finalTotal + feeSum, fl = Math.floor(gross), t = fl + target;
+                        var rounded = gross <= t + 0.001 ? t : fl + 1 + target;
+                        feeSum = Math.round((rounded - finalTotal) * 100) / 100;
+                    }
+                    var feeLine = sel.querySelector('.tix-sel-fee-line');
+                    if (feeLine) {
+                        feeLine.textContent = feeSum > 0 ? 'inkl. ' + formatPrice(feeSum) + ' ' + sel.dataset.feeLabel : '';
+                        feeLine.style.display = feeSum > 0 ? '' : 'none';
+                    }
+                }
+
                 // Gruppenrabatt-Badge
                 if (gdEl) {
                     var badge = gdEl.querySelector('.tix-sel-gd-badge');
@@ -267,9 +293,9 @@
 
                 if (total) {
                     if (totalDiscount > 0) {
-                        total.innerHTML = '<span class="tix-sel-total-original">' + formatPrice(sum) + '</span> ' + formatPrice(finalTotal);
+                        total.innerHTML = '<span class="tix-sel-total-original">' + formatPrice(sum + feeSum) + '</span> ' + formatPrice(finalTotal + feeSum);
                     } else {
-                        total.textContent = formatPrice(finalTotal);
+                        total.textContent = formatPrice(finalTotal + feeSum);
                     }
                 }
 

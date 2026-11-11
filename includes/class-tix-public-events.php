@@ -231,6 +231,10 @@ class TIX_Public_Events {
             // Verkäufer, wenn ein Co das Geld einnimmt und diese Seite selbst verkauft (Fall B: kein „Tickets über …“, 1.38.717)
             'seller'          => ($detailed && !$syndicated && class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($id) && class_exists('TIX_Co_Legal')) ? TIX_Co_Legal::for_event($id) : null,
             'price_from'      => $prices ? round(min($prices), 2) : null,
+            // Gesamtpreis „ab“ inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.750); ohne kaufbare Kategorien = price_from
+            'price_from_total' => $cats ? round(min(array_map(function ($c) { return floatval($c['total'] ?? ($c['price'] ?? 0)); }, $cats)), 2) : ($prices ? round(min($prices), 2) : null),
+            // Bezeichnung der Gebühr, wenn Käufer bei mindestens einer Kategorie eine zahlen, sonst null
+            'fee_label'       => ($fl = array_filter($cats, function ($c) { return floatval($c['fee'] ?? 0) > 0; })) && class_exists('TIX_Fees') ? (string) (TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($id))['fee_label'] ?: 'Servicegebühr') : null,
             'price_range'     => (string) get_post_meta($id, '_tix_price_range', true),
             'categories'      => $cats,
             'is_past'         => $end > 0 && $end < self::now(),

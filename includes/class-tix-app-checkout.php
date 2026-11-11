@@ -334,9 +334,12 @@ class TIX_App_Checkout {
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
         if (!is_array($cats)) return [];
         $out = [];
+        $fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($event_id)) : null;
         foreach ($cats as $i => $cat) {
             if (!is_array($cat) || !self::is_public_category($cat)) continue;
             $price = self::price_for($event_id, $i, $cat);
+            // Gesamtpreis für 1 Ticket inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.750); Gutschein-Kategorien ohne
+            $tt = ($fee_cfg && empty($cat['gift_card'])) ? TIX_Fees::ticket_total($event_id, $i, $price, 1, $fee_cfg) : ['fee' => 0.0, 'total' => round($price, 2)];
             $base  = floatval($cat['price'] ?? 0);
             $stock = isset($cat['stock']) ? intval($cat['stock']) : -1; // -1 = unbegrenzt
             $phase  = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::active_phase($event_id, $i) : null;
@@ -345,6 +348,9 @@ class TIX_App_Checkout {
                 'index'              => intval($i),
                 'name'               => (string) ($cat['name'] ?? 'Ticket'),
                 'price'              => round($price, 2),
+                // Käufer zahlt für 1 Ticket: total = price + fee (Servicegebühr, Zahlungskosten zu Lasten des Käufers, Rundung)
+                'fee'                => $tt['fee'],
+                'total'              => $tt['total'],
                 'base_price'         => round($base, 2),
                 'description'        => (string) ($cat['desc'] ?? ($cat['description'] ?? '')),
                 'quantity_available' => $stock,
@@ -366,6 +372,8 @@ class TIX_App_Checkout {
                     'pay'           => $bundle['pay'],
                     'name'          => $bundle['label'] !== '' ? $bundle['label'] : $bundle['buy'] . 'er-Paket ' . (string) ($cat['name'] ?? 'Ticket'),
                     'package_price' => round($price * $bundle['pay'], 2),
+                    // Paket inkl. Gebühr (je enthaltenem Ticket, wie die Kasse)
+                    'package_total' => ($fee_cfg && $bundle['buy'] > 0) ? round($price * $bundle['pay'] + TIX_Fees::ticket_total($event_id, $i, $price * $bundle['pay'] / $bundle['buy'], $bundle['buy'], $fee_cfg)['fee'], 2) : round($price * $bundle['pay'], 2),
                     'max_packages'  => $stock >= 0 ? min(self::MAX_QTY, intdiv($stock, $bundle['buy'])) : self::MAX_QTY,
                 ] : null,
             ];

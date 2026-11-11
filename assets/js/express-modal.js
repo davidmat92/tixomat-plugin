@@ -161,22 +161,21 @@
             var feeAmount = 0;
             if (feeConfig && total > 0) {
                 // Fees pro Ticket berechnen (mit Max pro Ticket)
-                cats.forEach(function(cat) {
-                    var q = parseInt(cat.querySelector('.tix-ec-qty-val').dataset.qty, 10) || 0;
-                    if (q > 0) {
-                        var p = parseFloat(cat.dataset.price);
-                        var ticketFee = feeConfig.fixed + (p * feeConfig.percent / 100);
-                        if (feeConfig.maxTicket > 0) ticketFee = Math.min(ticketFee, feeConfig.maxTicket);
-                        feeAmount += ticketFee * q;
-                    }
+                // data-fee je Zeile (1.38.750): Käuferanteil, gebührenfreie Kategorien/Freitickets/Pakete/Kombis wie der Server
+                var share = (typeof feeConfig.share === 'number') ? feeConfig.share : 1;
+                overlay.querySelectorAll('.tix-ec-cat').forEach(function(cat) {
+                    var qv = cat.querySelector('.tix-ec-qty-val');
+                    var q = qv ? (parseInt(qv.dataset.qty, 10) || 0) : 0;
+                    if (q <= 0) return;
+                    if (cat.dataset.fee !== undefined) { feeAmount += (parseFloat(cat.dataset.fee) || 0) * q; return; }
+                    var p = parseFloat(cat.dataset.price);
+                    var ticketFee = feeConfig.fixed + (p * feeConfig.percent / 100);
+                    if (feeConfig.maxTicket > 0) ticketFee = Math.min(ticketFee, feeConfig.maxTicket);
+                    feeAmount += ticketFee * q * share;
                 });
-                // Max pro Bestellung
-                if (feeConfig.maxOrder > 0) feeAmount = Math.min(feeAmount, feeConfig.maxOrder);
+                // Max pro Bestellung (Käuferanteil)
+                if (feeConfig.maxOrder > 0) feeAmount = Math.min(feeAmount, feeConfig.maxOrder * share);
                 feeAmount = Math.round(feeAmount * 100) / 100;
-                // Modus „geteilt“: Kunde trägt nur seinen Anteil (share 0–1, Vorgabe 1)
-                if (typeof feeConfig.share === 'number' && feeConfig.share < 1) {
-                    feeAmount = Math.round(feeAmount * feeConfig.share * 100) / 100;
-                }
             }
 
             if (feeLineEl) {
