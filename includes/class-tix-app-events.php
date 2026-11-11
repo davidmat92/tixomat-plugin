@@ -75,6 +75,9 @@ class TIX_App_Events {
             'callback'            => [__CLASS__, 'import_url'],
             'permission_callback' => $perm,
         ]);
+        register_rest_route($ns, '/orders/(?P<id>\d+)/refund-quote', [
+            'methods' => 'GET', 'callback' => [__CLASS__, 'order_refund_quote'], 'permission_callback' => [__CLASS__, 'perm_money'],
+        ]);
         register_rest_route($ns, '/orders/(?P<id>\d+)/refund', [
             'methods'             => 'POST',
             'callback'            => [__CLASS__, 'order_refund'],
@@ -996,12 +999,27 @@ class TIX_App_Events {
                 'refunded_total' => class_exists('TIX_Order_Admin') ? TIX_Order_Admin::refunded_total($order_id) : 0.0];
     }
 
-    /** POST /orders/{id}/refund {amount?, cancel_tickets? (Vorgabe: true ohne amount, false mit amount), reason?} */
+    /** POST /orders/{id}/refund {amount? | tickets?: [ids], cancel_tickets? (Vorgabe: true ohne amount, false mit amount), reason?} */
     public static function order_refund(WP_REST_Request $req) {
         $order = self::order_or_error($req['id']);
         if (is_wp_error($order)) return $order;
         $id = intval($order->get_id());
         if (self::is_pos_order($id)) return new WP_Error('pos_order', 'Kassen-Bestellungen bitte an der Kasse stornieren.', ['status' => 409]);
+        // Einzelne Tickets: Ticketpreis + anteilige Servicegebühr, genau diese Tickets stornieren (1.38.752)
+        $tix = $req->get_param('tickets');
+        if (is_array($tix) && $tix) {
+            if ($req->get_param('amount') !== null && $req->get_param('amount') !== '') return new WP_Error('tix_invalid_field', 'Bitte entweder Tickets oder einen Betrag angeben.', ['status' => 400, 'field' => 'amount']);
+            $q = TIX_Fees::refund_quote($id, $tix);
+            if (is_wp_error($q)) return $q;
+            $open = round(self::order_state($id)['total'] - self::order_state($id)['refunded_total'], 2);
+            $amt = $q['all'] ? null : min($q['amount'], $open);
+            if ($amt !== null && $amt <= 0) $amt = null;
+            $r = TIX_Order_Admin::process_refund($id, $amt, $q['all'], mb_substr(sanitize_textarea_field((string) $req->get_param('reason')), 0, 500), 'studio');
+            if (is_wp_error($r)) return $r;
+            if (!$q['all']) self::cancel_tickets(array_column($q['tickets'], 'id'));
+            if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($id, count($q['tickets']) . ' Ticket(s) storniert, davon ' . number_format($q['fee'], 2, ',', '.') . ' € ' . $q['fee_label'] . ' erstattet', 'refund');
+            return rest_ensure_response(['ok' => true, 'refunded' => $r['amount'], 'full' => $r['full'], 'tickets_cancelled' => true, 'quote' => $q, 'order' => self::order_state($id)]);
+        }
         $amount = $req->get_param('amount');
         if ($amount !== null && $amount !== '' && !is_numeric(str_replace(',', '.', (string) $amount))) return new WP_Error('amount_invalid', 'Ungültiger Erstattungsbetrag.', ['status' => 400, 'field' => 'amount']);
         $amount = ($amount === null || $amount === '') ? null : floatval(str_replace(',', '.', (string) $amount));
@@ -1010,6 +1028,40 @@ class TIX_App_Events {
         $r = TIX_Order_Admin::process_refund($id, $amount, $cancel, mb_substr(sanitize_textarea_field((string) $req->get_param('reason')), 0, 500), 'studio');
         if (is_wp_error($r)) return $r;
         return rest_ensure_response(['ok' => true, 'refunded' => $r['amount'], 'full' => $r['full'], 'tickets_cancelled' => $r['tickets_cancelled'], 'order' => self::order_state($id)]);
+    }
+
+    /** GET /orders/{id}/refund-quote?tickets=1,2 – was die Erstattung dieser Tickets kostet (Ticketpreis + anteilige Servicegebühr). */
+    public static function order_refund_quote(WP_REST_Request $req) {
+        $order = self::order_or_error($req['id']);
+        if (is_wp_error($order)) return $order;
+        $id = intval($order->get_id());
+        $raw = $req->get_param('tickets');
+        $ids = is_array($raw) ? $raw : array_filter(array_map('intval', explode(',', (string) $raw)));
+        $q = TIX_Fees::refund_quote($id, $ids);
+        if (is_wp_error($q)) return $q;
+        $st = self::order_state($id);
+        if ($q['all']) $q['amount'] = round($st['total'] - $st['refunded_total'], 2); // alle Tickets: voller offener Betrag
+        return rest_ensure_response(['ok' => true, 'quote' => $q, 'order' => $st]);
+    }
+
+    /** Einzelne Tickets stornieren und Bestand zurückgeben (Teil-Erstattung). */
+    private static function cancel_tickets(array $ids) {
+        $restock = [];
+        foreach ($ids as $tid) {
+            $tid = intval($tid);
+            if ((string) get_post_meta($tid, '_tix_ticket_status', true) === 'cancelled') continue;
+            update_post_meta($tid, '_tix_ticket_status', 'cancelled');
+            $eid = intval(get_post_meta($tid, '_tix_ticket_event_id', true));
+            $ci = get_post_meta($tid, '_tix_ticket_cat_index', true);
+            if ($eid && $ci !== '' && $ci !== false && intval($ci) >= 0) $restock[$eid][intval($ci)] = ($restock[$eid][intval($ci)] ?? 0) + 1;
+        }
+        foreach ($restock as $eid => $by) {
+            wp_cache_delete($eid, 'post_meta');
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (!is_array($cats)) continue;
+            foreach ($by as $ci => $n) if (isset($cats[$ci]['stock']) && $cats[$ci]['stock'] !== '' && intval($cats[$ci]['stock']) >= 0) $cats[$ci]['stock'] = intval($cats[$ci]['stock']) + $n;
+            update_post_meta($eid, '_tix_ticket_categories', $cats);
+        }
     }
 
     /** POST /orders/{id}/cancel – nur unbezahlte Bestellungen (offen/wartend). */

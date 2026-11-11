@@ -225,7 +225,7 @@ class TIX_Ticket_Selector {
         $tix_s = tix_get_settings();
         $vat_text = $tix_s['vat_text_selector'] ?? 'inkl. MwSt.';
         // Gebühr zu Lasten des Käufers: Preise inkl. Gebühr anzeigen (PAngV, 1.38.750); data-fee je Zeile für die Summe
-        $sel_fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($post_id)) : null;
+        $sel_fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::display_config($post_id) : null;
         $sel_fee_share = $sel_fee_cfg ? TIX_Fees::customer_share($sel_fee_cfg) : 0.0;
         $sel_fee_on = $sel_fee_share > 0 && (floatval($sel_fee_cfg['fee_fixed']) > 0 || floatval($sel_fee_cfg['fee_percent']) > 0);
         $sel_fee_label = $sel_fee_cfg ? (string) ($sel_fee_cfg['fee_label'] ?: 'Servicegebühr') : 'Servicegebühr';
@@ -643,7 +643,7 @@ class TIX_Ticket_Selector {
                     $c_fee = 0.0;
                     if ($sel_fee_on) foreach ($rc['items'] as $_it) {
                         $_p = $original_sum > 0 ? floatval($_it['price']) * $combo_price / $original_sum : 0;
-                        $c_fee += $sel_fee_cfg ? TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event(intval($_it['event_id'])))) : 0;
+                        $c_fee += $sel_fee_cfg ? TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::display_config(intval($_it['event_id']))) : 0;
                     }
                     $c_fee = round($c_fee, 2);
                 ?>
@@ -992,7 +992,7 @@ class TIX_Ticket_Selector {
         $ec_fee_json = '';
         if (class_exists('TIX_Fees')) {
             $ec_org = TIX_Fees::get_organizer_for_event($post_id);
-            $ec_cfg = TIX_Fees::get_fee_config($ec_org);
+            $ec_cfg = TIX_Fees::display_config($post_id);
             $ec_client = TIX_Fees::client_fee_config($ec_cfg);
             if ($ec_client) $ec_fee_json = wp_json_encode($ec_client);
         }
@@ -1219,7 +1219,7 @@ class TIX_Ticket_Selector {
                     $ec_cf = 0.0;
                     if ($ec_fee_on) foreach ($rc['items'] as $_it) {
                         $_p = $original_sum > 0 ? floatval($_it['price']) * $combo_price / $original_sum : 0;
-                        $ec_cf += TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event(intval($_it['event_id']))));
+                        $ec_cf += TIX_Fees::ticket_fee(intval($_it['event_id']), intval($_it['cat_index']), $_p, TIX_Fees::display_config(intval($_it['event_id'])));
                     }
                     $ec_cf = round($ec_cf, 2);
                                 ?>

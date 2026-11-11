@@ -157,7 +157,7 @@ class TIX_Public_Events {
 
     /** {label, per_ticket, per_order, max_per_order} – immer vorhanden (Vertrag servicegebuehr §5a). */
     private static function service_fee($id, array $cats) {
-        $cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($id)) : [];
+        $cfg = class_exists('TIX_Fees') ? TIX_Fees::display_config($id) : [];
         $share = class_exists('TIX_Fees') && $cfg ? TIX_Fees::customer_share($cfg) : 0.0;
         $per_ticket = (bool) array_filter($cats, function ($c) { return floatval($c['fee_per_ticket'] ?? 0) > 0; });
         return [

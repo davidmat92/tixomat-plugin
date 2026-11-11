@@ -13,6 +13,34 @@ class TIX_Fees {
     const MODES = ['organizer', 'split', 'customer'];
 
     /** Mehr-Veranstalter-Modus (evendis.de): nur der Modus ist je Veranstalter wählbar. */
+    /** Bezeichnung der Gebühr: höchstens 30 Zeichen, nicht irreführend (Rechtsprüfung servicegebuehr.md Nr. 4, 1.38.752). */
+    const LABEL_MAX = 30;
+    const LABEL_DEFAULT = 'Servicegebühr';
+    const LABEL_SUGGESTIONS = ['Servicegebühr', 'Vorverkaufsgebühr', 'Systemgebühr'];
+    /** Wortteile, die eine Zahlungs-, Bank-, Karten- oder Versandgebühr oder eine staatliche Abgabe nahelegen */
+    const LABEL_BLOCKED = ['zahlung', 'karte', 'kredit', 'transaktion', 'bank', 'paypal', 'sepa', 'lastschrift', 'überweis', 'ueberweis', 'klarna', 'apple pay', 'google pay',
+        'versand', 'porto', 'liefer', 'steuer', 'abgabe', 'mwst', 'ust', 'gema', 'kultur', 'staat', 'behörd', 'behoerd', 'pflicht'];
+
+    /** Fehlertext oder null, wenn die Bezeichnung zulässig ist. */
+    public static function label_error($label) {
+        $l = trim((string) $label);
+        if ($l === '') return 'Bitte eine Bezeichnung angeben, z. B. „Servicegebühr“.';
+        if (mb_strlen($l) > self::LABEL_MAX) return 'Die Bezeichnung darf höchstens ' . self::LABEL_MAX . ' Zeichen haben.';
+        $low = mb_strtolower($l);
+        foreach (self::LABEL_BLOCKED as $w) {
+            if ($w === 'ust' ? preg_match('/\bust\b/u', $low) : mb_strpos($low, $w) !== false) {
+                return 'Diese Bezeichnung ist nicht erlaubt: Sie klingt nach einer Zahlungs-, Versandgebühr oder einer Abgabe. Möglich sind z. B. „Servicegebühr“, „Vorverkaufsgebühr“ oder „Systemgebühr“.';
+            }
+        }
+        return null;
+    }
+
+    /** Zulässige Bezeichnung (unzulässige oder leere → „Servicegebühr“). */
+    public static function safe_label($label) {
+        $l = trim((string) $label);
+        return self::label_error($l) === null ? $l : self::LABEL_DEFAULT;
+    }
+
     public static function multi(): bool {
         return function_exists('get_option') && get_option('tix_multi_organizer', '0') === '1';
     }
@@ -172,6 +200,7 @@ class TIX_Fees {
         ];
 
         if (!in_array($config['fee_mode'], self::MODES, true)) $config['fee_mode'] = 'organizer';
+        $config['fee_label'] = self::safe_label($config['fee_label']);
         $config['fee_split_share'] = self::split_share($s);
 
         // Partner-Anfrage mit Gebühr im evendis-Kanal: ersetzt die eigene Gebühr der Quelle (TIX_Channel_Fee)
@@ -200,7 +229,7 @@ class TIX_Fees {
             $config['fee_percent'] = floatval(get_post_meta($organizer_id, '_tix_fee_percent', true));
             $config['fee_mode']    = in_array($org_mode, self::MODES, true) ? $org_mode : 'organizer';
             $label = get_post_meta($organizer_id, '_tix_fee_label', true);
-            if (!empty($label)) $config['fee_label'] = $label;
+            if (!empty($label)) $config['fee_label'] = self::safe_label($label);
             $org_max_ticket = floatval(get_post_meta($organizer_id, '_tix_fee_max_per_ticket', true));
             $org_max_order  = floatval(get_post_meta($organizer_id, '_tix_fee_max_per_order', true));
             if ($org_max_ticket > 0) $config['fee_max_per_ticket'] = $org_max_ticket;
@@ -350,10 +379,113 @@ class TIX_Fees {
         $price = floatval($price);
         if ($price <= 0) return 0.0;
         if ($cat_index !== null && self::is_item_fee_exempt(['event_id' => intval($event_id), 'cat_index' => intval($cat_index)])) return 0.0;
-        if (!$cfg) $cfg = self::get_fee_config(self::get_organizer_for_event($event_id));
+        if (!$cfg) $cfg = self::display_config($event_id);
         $share = self::customer_share($cfg);
         if ($share <= 0) return 0.0;
         return round(self::calc_platform_fee($price, null, $cfg) * $share, 2);
+    }
+
+    /**
+     * Erstattung einzelner Tickets (Rechtsprüfung servicegebuehr.md Nr. 7, 1.38.752): Ticketpreis + anteilige Käufer-Gebühr.
+     * Gebühr je Ticket aus der an der Bestellung gespeicherten Aufteilung (`lines`), skaliert auf die tatsächlich gezahlte Gebühr
+     * (Höchstbetrag, Rundung); ältere Bestellungen: Verteilung nach der Gebührenformel, sonst gleichmäßig auf gebührenpflichtige Tickets.
+     * Sind alle gültigen Tickets gewählt, gilt der volle offene Betrag (`all: true`, inkl. Rundungsrest).
+     * @return array {tickets: [{id, price, fee, amount}], tickets_amount, fee, amount, all, fee_label} | WP_Error
+     */
+    public static function refund_quote($order_id, array $ticket_ids) {
+        $order_id = intval($order_id);
+        $all = get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'orderby' => 'ID', 'order' => 'ASC',
+            'meta_query' => [['key' => '_tix_ticket_order_id', 'value' => (string) $order_id]]]);
+        $valid = array_values(array_filter(array_map('intval', $all), function ($id) { return (string) (get_post_meta($id, '_tix_ticket_status', true) ?: 'valid') !== 'cancelled'; }));
+        $want = array_values(array_unique(array_map('intval', $ticket_ids)));
+        if (!$want) return new WP_Error('tix_invalid_field', 'Bitte mindestens ein Ticket wählen.', ['status' => 400, 'field' => 'tickets']);
+        foreach ($want as $id) if (!in_array($id, $valid, true)) return new WP_Error('tix_invalid_field', 'Ticket ' . $id . ' gehört nicht zu dieser Bestellung oder ist schon storniert.', ['status' => 400, 'field' => 'tickets']);
+        $fd = get_option('_tix_order_fees_' . $order_id, []);
+        $F = round(floatval(is_array($fd) ? ($fd['customer_fee_line'] ?? 0) : 0), 2);
+        $tk = function ($id) {
+            $ci = get_post_meta($id, '_tix_ticket_cat_index', true);
+            return ['id' => $id, 'event_id' => intval(get_post_meta($id, '_tix_ticket_event_id', true)), 'cat_index' => ($ci === '' || $ci === false) ? -1 : intval($ci),
+                'price' => round(floatval(get_post_meta($id, '_tix_ticket_price', true)), 2)];
+        };
+        $tickets_all = array_map($tk, array_map('intval', $all));
+        // Gewicht je Ticket (alle Tickets der Bestellung; schon stornierte haben ihren Anteil bereits zurückbekommen)
+        $w = [];
+        $lines = is_array($fd) ? (array) ($fd['lines'] ?? []) : [];
+        if ($lines) {
+            foreach ($tickets_all as $t) {
+                $per = 0.0;
+                foreach ($lines as $l) if (intval($l['event_id']) === $t['event_id'] && intval($l['cat_index']) === $t['cat_index'] && intval($l['qty']) > 0) { $per = floatval($l['fee']) / intval($l['qty']); break; }
+                $w[$t['id']] = $per;
+            }
+        }
+        if (!$lines || array_sum($w) <= 0) {
+            $cfg = self::get_fee_config(self::get_organizer_for_event($tickets_all[0]['event_id'] ?? 0));
+            foreach ($tickets_all as $t) $w[$t['id']] = ($t['price'] > 0 && !self::is_item_fee_exempt($t)) ? max(0.0, self::calc_platform_fee($t['price'], null, $cfg)) : 0.0;
+            if (array_sum($w) <= 0) foreach ($tickets_all as $t) $w[$t['id']] = ($t['price'] > 0 && !self::is_item_fee_exempt($t)) ? 1.0 : 0.0;
+        }
+        $all_w = array_sum($w);
+        $tickets = array_values(array_filter($tickets_all, function ($t) use ($valid) { return in_array($t['id'], $valid, true); }));
+        // Rabatt/Gutschein: Ticketpreise auf den tatsächlich gezahlten Warenwert (Summe − Gebühr) skalieren
+        global $wpdb;
+        $paid = floatval($wpdb->get_var($wpdb->prepare("SELECT total FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id)));
+        $sum_all = array_sum(array_column($tickets_all, 'price'));
+        $k = ($sum_all > 0 && $paid - $F < $sum_all - 0.009) ? max(0.0, ($paid - $F) / $sum_all) : 1.0;
+        $out = []; $sum_p = 0.0; $sum_f = 0.0;
+        foreach ($tickets as $t) {
+            if (!in_array($t['id'], $want, true)) continue;
+            $fee = ($F > 0 && $all_w > 0) ? round($F * ($w[$t['id']] ?? 0) / $all_w, 2) : 0.0;
+            $t['price'] = round($t['price'] * $k, 2);
+            $out[] = ['id' => $t['id'], 'price' => $t['price'], 'fee' => $fee, 'amount' => round($t['price'] + $fee, 2)];
+            $sum_p += $t['price']; $sum_f += $fee;
+        }
+        $is_all = count($want) === count($valid);
+        return ['tickets' => $out, 'tickets_amount' => round($sum_p, 2), 'fee' => round($sum_f, 2), 'amount' => round($sum_p + $sum_f, 2), 'all' => $is_all,
+            'fee_label' => (string) (is_array($fd) ? ($fd['fee_label'] ?? '') : '') ?: 'Servicegebühr'];
+    }
+
+    /**
+     * Gebühr für die ANZEIGE eines Events (1.38.752): eigene Seite wie die Kasse (get_fee_config); Spiegel eines geteilten Events,
+     * den diese Seite nicht selbst verkauft, mit der Gebühr, die der Käufer tatsächlich zahlt:
+     *  - Verkauf über die Vermittlung mit Kanal-Gebühr des Partners → Kanal-Gebühr (wer sie trägt: Einstellung der Quelle),
+     *  - sonst die eigene Gebühr der Quelle (`_tix_source_fee` aus der Verteilung); fehlt sie (alte Quelle) → keine Gebühr.
+     */
+    public static function display_config($event_id): array {
+        $event_id = intval($event_id);
+        $own = self::get_fee_config(self::get_organizer_for_event($event_id));
+        if (!$event_id || get_post_meta($event_id, '_tix_syndicated', true) !== '1') return $own;
+        if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)) return $own;
+        $src = get_post_meta($event_id, '_tix_source_fee', true);
+        $src = is_array($src) ? $src : [];
+        $none = ['fee_fixed' => 0.0, 'fee_percent' => 0.0, 'fee_mode' => 'organizer', 'fee_label' => self::LABEL_DEFAULT, 'gateway_fee_fixed' => 0.0, 'gateway_fee_percent' => 0.0,
+            'gateway_fee_mode' => 'organizer', 'gateway_fee_included' => false, 'fee_rounding' => 'none', 'fee_rounding_custom' => 0.0, 'fee_max_per_ticket' => 0.0, 'fee_max_per_order' => 0.0,
+            'fee_show_in_selector' => 0, 'fee_split_share' => 50.0, 'source_fee' => true];
+        $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
+        $cf = ($broker && class_exists('TIX_Channel_Fee')) ? TIX_Channel_Fee::for_partner($broker) : null;
+        if ($cf) {
+            $mode = in_array($src['channel_mode'] ?? '', self::MODES, true) ? $src['channel_mode'] : 'customer';
+            return array_merge($none, ['fee_fixed' => floatval($cf['fixed']), 'fee_percent' => floatval($cf['percent']), 'fee_mode' => $mode, 'fee_label' => self::safe_label($cf['label']), 'channel_fee' => true]);
+        }
+        if (!$src) return $none;
+        $g = (array) ($src['gateway'] ?? []);
+        return array_merge($none, [
+            'fee_fixed' => max(0.0, floatval($src['fixed'] ?? 0)), 'fee_percent' => max(0.0, min(100.0, floatval($src['percent'] ?? 0))),
+            'fee_mode' => in_array($src['mode'] ?? '', self::MODES, true) ? $src['mode'] : 'organizer', 'fee_label' => self::safe_label($src['label'] ?? ''),
+            'fee_max_per_ticket' => max(0.0, floatval($src['max_per_ticket'] ?? 0)), 'fee_max_per_order' => max(0.0, floatval($src['max_per_order'] ?? 0)),
+            'fee_rounding' => in_array((string) ($src['rounding'] ?? 'none'), ['none', '0.90', '0.99', '0.50', '0.00', 'custom'], true) ? (string) $src['rounding'] : 'none',
+            'fee_rounding_custom' => floatval($src['rounding_custom'] ?? 0), 'fee_split_share' => max(0.0, min(100.0, floatval($src['split_share'] ?? 50))),
+            'gateway_fee_fixed' => max(0.0, floatval($g['fixed'] ?? 0)), 'gateway_fee_percent' => max(0.0, floatval($g['percent'] ?? 0)),
+            'gateway_fee_mode' => ($g['mode'] ?? '') === 'customer' ? 'customer' : 'organizer', 'gateway_fee_included' => !empty($g['included']),
+        ]);
+    }
+
+    /** Für die Verteilung (Quelle → Plattform): eigene Gebühr dieses Events, ohne Kanal-Gebühr. */
+    public static function source_fee_payload($event_id): array {
+        $c = self::get_fee_config(self::get_organizer_for_event(intval($event_id)));
+        return ['fixed' => round(floatval($c['fee_fixed']), 2), 'percent' => round(floatval($c['fee_percent']), 4), 'mode' => $c['fee_mode'], 'label' => (string) $c['fee_label'],
+            'max_per_ticket' => round(floatval($c['fee_max_per_ticket']), 2), 'max_per_order' => round(floatval($c['fee_max_per_order']), 2), 'rounding' => (string) $c['fee_rounding'],
+            'rounding_custom' => floatval($c['fee_rounding_custom']), 'split_share' => floatval($c['fee_split_share'] ?? 50),
+            'gateway' => ['fixed' => round(floatval($c['gateway_fee_fixed']), 2), 'percent' => round(floatval($c['gateway_fee_percent']), 4), 'mode' => $c['gateway_fee_mode'], 'included' => !empty($c['gateway_fee_included'])],
+            'channel_mode' => class_exists('TIX_Channel_Fee') ? TIX_Channel_Fee::mode() : 'customer'];
     }
 
     /** Endpreis „ab“/„bis“ eines Events aus den Preis-Feldern (TIX_Sync::apply_fee_display), Rückfall Ticketpreis. */
@@ -378,7 +510,7 @@ class TIX_Fees {
      * (inkl. Höchstbeträge, Rundung, Zahlungskosten zu Lasten des Käufers) → {fee, total, label}.
      */
     public static function ticket_total($event_id, $cat_index, $price, $qty = 1, $cfg = null): array {
-        if (!$cfg) $cfg = self::get_fee_config(self::get_organizer_for_event($event_id));
+        if (!$cfg) $cfg = self::display_config($event_id);
         $item = ['price' => floatval($price), 'qty' => max(1, intval($qty)), 'event_id' => intval($event_id)];
         if ($cat_index !== null) $item['cat_index'] = intval($cat_index);
         $r = self::calc_with_config([$item], $cfg);

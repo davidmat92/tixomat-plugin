@@ -334,7 +334,7 @@ class TIX_App_Checkout {
         $cats = get_post_meta($event_id, '_tix_ticket_categories', true);
         if (!is_array($cats)) return [];
         $out = [];
-        $fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($event_id)) : null;
+        $fee_cfg = class_exists('TIX_Fees') ? TIX_Fees::display_config($event_id) : null;
         foreach ($cats as $i => $cat) {
             if (!is_array($cat) || !self::is_public_category($cat)) continue;
             $price = self::price_for($event_id, $i, $cat);

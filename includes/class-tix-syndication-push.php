@@ -292,6 +292,8 @@ class TIX_Syndication_Push {
             'source_checkout' => get_permalink($post_id),
             // Verkäufer-Angaben (Name, Anschrift, Impressum, Datenschutz, AGB) für die Kasse der Plattform (1.38.717)
             'source_seller'   => class_exists('TIX_Co_Legal') ? TIX_Co_Legal::site() : null,
+            // Eigene Servicegebühr dieses Events (Endpreise auf der Plattform, 1.38.752)
+            'source_fee'      => class_exists('TIX_Fees') && method_exists('TIX_Fees', 'source_fee_payload') ? TIX_Fees::source_fee_payload($post_id) : null,
             'title'           => $post->post_title,
             'excerpt'         => $post->post_excerpt,
             'status'          => $post->post_status,

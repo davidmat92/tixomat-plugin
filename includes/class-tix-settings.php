@@ -1276,6 +1276,11 @@ class TIX_Settings {
         $clean['fee_percent']       = max(0, min(100, floatval($input['fee_percent'] ?? 0)));
         $clean['fee_mode']          = in_array($input['fee_mode'] ?? '', ['organizer', 'split', 'customer']) ? $input['fee_mode'] : 'organizer';
         $clean['fee_label']         = sanitize_text_field($input['fee_label'] ?? 'Servicegebühr');
+        // Bezeichnung: höchstens 30 Zeichen, keine irreführenden Begriffe (1.38.752) – sonst „Servicegebühr“ mit Hinweis
+        if (class_exists('TIX_Fees') && ($lerr = TIX_Fees::label_error($clean['fee_label']))) {
+            add_settings_error('tix_settings', 'tix_fee_label', 'Gebühr-Bezeichnung: ' . $lerr . ' Gespeichert wurde „Servicegebühr“.');
+            $clean['fee_label'] = 'Servicegebühr';
+        }
         $valid_rounding = ['none', '0.90', '0.99', '0.50', '0.00', 'custom'];
         $clean['fee_rounding']      = in_array($input['fee_rounding'] ?? 'none', $valid_rounding) ? $input['fee_rounding'] : 'none';
         $clean['fee_rounding_custom'] = max(0, min(0.99, floatval($input['fee_rounding_custom'] ?? 0)));

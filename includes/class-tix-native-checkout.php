@@ -2141,6 +2141,11 @@ class TIX_Native_Checkout {
                 'platform_fee_organizer' => $fee_data['platform_fee_organizer'] ?? null,
                 'rounding_surplus'       => $fee_data['rounding_surplus'] ?? 0,
                 'gateway_fee_included'   => !empty($fee_data['gateway_fee_included']),
+                // Käufer-Gebühr je Zeile (vor Höchstbetrag/Rundung) – für anteilige Erstattung einzelner Tickets (1.38.752)
+                'lines' => class_exists('TIX_Fees') && method_exists('TIX_Fees', 'item_fee') ? array_values(array_map(function ($it) {
+                    return ['event_id' => intval($it['event_id'] ?? 0), 'cat_index' => isset($it['cat_index']) ? intval($it['cat_index']) : -1, 'price' => round(floatval($it['price'] ?? 0), 2),
+                        'qty' => intval($it['qty'] ?? 0), 'fee' => TIX_Fees::item_fee($it)];
+                }, (array) $cart['items'])) : [],
             ], false);
         }
 

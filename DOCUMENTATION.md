@@ -5904,3 +5904,21 @@ User-Entscheid 11.11. „Ja, jetzt mitbauen“; Vertrag `vertrag-servicegebuehr.
   - Meta-Katalog: je Kategorie der Endpreis.
 - **Grenze:** Spiegel geteilter Events rechnen mit der Gebühr der eigenen Seite.
 - **Tests:** `test-fee-display-wp` 25 (setup/check/cleanup), `test-studio-fees-wp` 36 + 4, `test-fees` 97, license 90, Co 25/61/15, Angebote 41, Gebührensatz 9 grün.
+
+## 157. Servicegebühr – Bezeichnung, Erstattung, Spiegel, Kanal-Gebühr im Vertrag (ab 1.38.752)
+User-Entscheid 11.11. (alle vier Folgepakete); Vertrag `vertrag-servicegebuehr.md` §5a/§5b.
+- **Bezeichnung:**
+  - `TIX_Fees::label_error/safe_label`: höchstens 30 Zeichen und Sperrliste (`LABEL_BLOCKED`).
+  - Geprüft in `/studio/fees` (+ `label_rules`), in den WP-Admin-Einstellungen (Rückfall „Servicegebühr“ mit Hinweis) und beim Lesen (`get_fee_config`).
+- **Erstattung einzelner Tickets:**
+  - `TIX_Fees::refund_quote(order, tickets)`.
+  - `GET /orders/{id}/refund-quote`, `POST /orders/{id}/refund {tickets}`: Ticketpreis + anteilige Gebühr, nur diese Tickets stornieren; alle übrigen = volle Erstattung.
+  - Die Kasse speichert in `_tix_order_fees_{id}` jetzt `lines` (Gebühr je Zeile).
+- **Gebührenfrei:** Gutscheine und Guthaben-Aufladung in allen Kaufwegen (seit 1.38.751, gegengeprüft).
+- **Spiegel:**
+  - Die Verteilung sendet `source_fee` (`TIX_Fees::source_fee_payload`); der Empfänger speichert `_tix_source_fee` (geschützt) und rechnet die Preis-Felder neu.
+  - `TIX_Fees::display_config($event)` liefert für Anzeige-Zwecke die Kanal-Gebühr (Verkauf über die Vermittlung mit Kanal-Gebühr) bzw. die Gebühr der Quelle, sonst die eigene.
+  - Neurechnen auch bei Änderung von Kanal-Gebühr oder Partnern.
+- **Breakdance:** Die aktiven Vorlagen nutzen `_tix_price_label` (KK) bzw. `_tix_price_range` (Mallorca), beide sind Endpreise (§156).
+- **Vertrag:** `includes/contract/vermittlungsvertrag.md` §5 Abs. 4 mit „({{gebuehr_mwst_hinweis}})“ bei der Kanal-Gebühr und ohne „Tixomat-Shop“ (Wortlaut wie die Vorlage der Rechtstexte); die Anlage „Aktuelle Konditionen“ nennt bei der Kanal-Gebühr den USt-Hinweis.
+- **Tests:** `test-fee-followups-wp` 31, `test-fee-display-wp` 25, `test-studio-fees-wp` 36 + 4, `test-fees` 97, license 90, Co 25/61/15/59/47/46/17, Angebote 41, Gebührensatz 9, Promoter 44, Löschfristen 41 grün.

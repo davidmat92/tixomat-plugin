@@ -236,7 +236,7 @@ class TIX_Contract_Template {
             foreach ((array) TIX_Partners::all() as $p) {
                 if (intval($p['organizer_id'] ?? 0) !== intval($oid)) continue;
                 $r = TIX_Channel_Fee::for_partner($p);
-                if ($r) $ch = self::num($r['percent']) . ' % + ' . self::eur($r['fixed']) . ' € je Ticket';
+                if ($r) $ch = self::num($r['percent']) . ' % + ' . self::eur($r['fixed']) . ' € je Ticket' . (($mh = trim((string) (self::values_settings()['mwst_hinweis'] ?? ''))) !== '' ? ' (' . $mh . ')' : ''); // USt-Hinweis (1.38.752)
             }
         }
         $add = [];

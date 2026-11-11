@@ -106,7 +106,8 @@ class TIX_Studio_Fees {
                 $out[$k] = $v;
             } elseif ($k === 'label') {
                 $l = trim(sanitize_text_field((string) $v));
-                if ($l === '' || mb_strlen($l) > 40) return self::invalid('label', 'Die Bezeichnung braucht 1 bis 40 Zeichen.');
+                $err = TIX_Fees::label_error($l); // höchstens 30 Zeichen, Sperrliste (1.38.752)
+                if ($err) return self::invalid('label', $err);
                 $out[$k] = $l;
             } elseif ($k === 'rounding') {
                 if (!in_array((string) $v, self::ROUNDINGS, true)) return self::invalid('rounding', 'Unbekannte Rundung.');
@@ -192,6 +193,8 @@ class TIX_Studio_Fees {
                 ['key' => 'organizer', 'label' => 'Keine Servicegebühr für Käufer', 'text' => 'Käufer zahlen nur den Ticketpreis.'],
             ],
             'roundings' => self::ROUNDINGS,
+            'label_rules' => ['max' => TIX_Fees::LABEL_MAX, 'suggestions' => TIX_Fees::LABEL_SUGGESTIONS,
+                'hint' => 'Die Bezeichnung sieht der Käufer in der Kasse. Nicht erlaubt sind Begriffe wie Zahlungs-, Karten-, Bank- oder Versandgebühr, Steuer oder Abgabe.'],
         ];
     }
 

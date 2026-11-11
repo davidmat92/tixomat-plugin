@@ -22,7 +22,7 @@ class TIX_Syndication_Receive {
         '_tix_co_organizer_id', '_tix_co_organizer_ref', '_tix_co_organizer_access', '_tix_co_organizer_consent', '_tix_co_organizer_since',
         '_tix_co_remote', '_tix_co_token_hash', '_tix_co_remote_oid', '_tix_co_remote_access', '_tix_co_remote_token', // Teil B: evendis setzt diese selbst
         '_tix_co_list', '_tix_co_remotes', '_tix_co_mirror', '_tix_co_shares', '_tix_co_parts', // mehrere Co (1.38.716)
-        '_tix_co_money_pending', '_tix_co_money_consents', '_tix_co_money_pending_site', '_tix_source_seller', '_tix_sale_seller_info', '_tix_sale_url', // Zustimmung, Verkäufer (1.38.717), Adresse beim Co (1.38.745)
+        '_tix_co_money_pending', '_tix_co_money_consents', '_tix_co_money_pending_site', '_tix_source_seller', '_tix_sale_seller_info', '_tix_sale_url', '_tix_source_fee', // Zustimmung, Verkäufer (1.38.717), Adresse beim Co (1.38.745)
         '_tix_artists', '_tix_artist_ref', '_tix_source_artists', // Künstler-IDs der Quelle gelten hier nicht; Schnappschuss über `artists` (1.38.723)
     ];
 
@@ -266,6 +266,12 @@ class TIX_Syndication_Receive {
     private static function apply_source($event_id, $data) {
         $source_url = (string) get_post_meta($event_id, '_tix_source_url', true);
         if (is_array($data['source_seller'] ?? null) && class_exists('TIX_Co_Legal')) update_post_meta($event_id, TIX_Co_Legal::M_SOURCE, TIX_Co_Legal::clean($data['source_seller'])); // 1.38.717
+        // Servicegebühr der Quelle für Endpreise im Spiegel (1.38.752); danach Preis-Felder neu
+        if (array_key_exists('source_fee', (array) $data)) {
+            if (is_array($data['source_fee'])) update_post_meta($event_id, '_tix_source_fee', array_intersect_key($data['source_fee'], array_flip(['fixed', 'percent', 'mode', 'label', 'max_per_ticket', 'max_per_order', 'rounding', 'rounding_custom', 'split_share', 'gateway', 'channel_mode'])));
+            else delete_post_meta($event_id, '_tix_source_fee');
+            if (class_exists('TIX_Sync') && method_exists('TIX_Sync', 'apply_fee_display')) TIX_Sync::apply_fee_display($event_id, true);
+        }
         if (self::$partner) {
             update_post_meta($event_id, '_tix_source_partner', self::$partner['id']);
             update_post_meta($event_id, '_tix_source_site', self::$partner['name']);

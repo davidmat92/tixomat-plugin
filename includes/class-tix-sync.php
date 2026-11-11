@@ -931,7 +931,7 @@ class TIX_Sync {
         if (!class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'ticket_total')) return;
         $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
         if (!is_array($cats) || !$cats) return;
-        $cfg = TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($post_id));
+        $cfg = TIX_Fees::display_config($post_id);
         $on = TIX_Fees::customer_share($cfg) > 0 && (floatval($cfg['fee_fixed']) > 0 || floatval($cfg['fee_percent']) > 0);
         $label = (string) ($cfg['fee_label'] ?: 'Servicegebühr');
         $fmt = function ($amount, $fee) use ($label) {
