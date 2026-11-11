@@ -643,6 +643,9 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_label', '');
         }
 
+        // ── Endpreise inkl. Servicegebühr zu Lasten des Käufers (PAngV, 1.38.751) ──
+        self::apply_fee_display($post_id, true);
+
         // ── Freier Eintritt (ohne Online-Tickets): Anzeige-Texte überschreiben ──
         self::apply_free_entry_display($post_id);
 
@@ -914,7 +917,102 @@ class TIX_Sync {
             update_post_meta($post_id, '_tix_price_card', '');
             update_post_meta($post_id, '_tix_price_label', '');
         }
+        self::apply_fee_display($post_id, false);
         self::apply_free_entry_display($post_id);
+    }
+
+    /**
+     * Endpreise in den gespeicherten Anzeige-Feldern (PAngV, Vertrag servicegebuehr §5a, 1.38.751): Trägt der Käufer eine
+     * Gebühr, werden „ab“-Preis, Spanne, Karten-Text und die Preise je Kategorie (`_tix_ticket_N_*_formatted`) zu Endpreisen mit
+     * „inkl. … € <Bezeichnung>“. `_tix_price_min/_max` bleiben Ticketpreise; `_tix_price_min_total/_max_total` sind die Endpreise.
+     * Abendkasse-Preise (offline) ohne Gebühr; $with_offline wie der jeweilige Aufrufer.
+     */
+    public static function apply_fee_display($post_id, $with_offline = true) {
+        if (!class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'ticket_total')) return;
+        $cats = get_post_meta($post_id, '_tix_ticket_categories', true);
+        if (!is_array($cats) || !$cats) return;
+        $cfg = TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($post_id));
+        $on = TIX_Fees::customer_share($cfg) > 0 && (floatval($cfg['fee_fixed']) > 0 || floatval($cfg['fee_percent']) > 0);
+        $label = (string) ($cfg['fee_label'] ?: 'Servicegebühr');
+        $fmt = function ($amount, $fee) use ($label) {
+            return self::fmt_price($amount) . ($fee > 0 ? ' <span class="tix-fee">inkl. ' . number_format($fee, 2, ',', '.') . ' € ' . esc_html($label) . '</span>' : '');
+        };
+        $totals = [];
+        $n = 0;
+        foreach ($cats as $i => $cat) {
+            if (!is_array($cat) || ($cat['online'] ?? '1') !== '1' || !empty($cat['offline_ticket'])) continue;
+            $n++;
+            $price = floatval($cat['price'] ?? 0);
+            $sale = null;
+            $phase = class_exists('TIX_Metabox') ? TIX_Metabox::get_active_phase($cat['phases'] ?? []) : null;
+            if ($phase) { $pp = floatval($phase['price']); if ($pp < $price) $sale = $pp; else $price = $pp; }
+            else { $sp = $cat['sale_price'] ?? ''; if ($sp !== '' && $sp !== null && $sp !== false) $sale = floatval($sp); }
+            $eff = $sale !== null ? $sale : $price;
+            $t_eff = TIX_Fees::ticket_total($post_id, $i, $eff, 1, $cfg);
+            $totals[] = $t_eff['total'];
+            if (!$on) continue;
+            $t_base = $sale !== null ? TIX_Fees::ticket_total($post_id, $i, $price, 1, $cfg) : $t_eff;
+            update_post_meta($post_id, "_tix_ticket_{$n}_price_formatted", $fmt($t_base['total'], $t_base['fee']));
+            if ($sale !== null) update_post_meta($post_id, "_tix_ticket_{$n}_sale_price_formatted", $fmt($t_eff['total'], $t_eff['fee']));
+        }
+        $all = $totals;
+        if ($with_offline) foreach ($cats as $cat) {
+            if (!is_array($cat) || empty($cat['offline_ticket'])) continue;
+            $sp = $cat['sale_price'] ?? '';
+            $all[] = ($sp !== '' && $sp !== null && $sp !== false) ? floatval($sp) : floatval($cat['price'] ?? 0);
+        }
+        if (!$all) { delete_post_meta($post_id, '_tix_price_min_total'); delete_post_meta($post_id, '_tix_price_max_total'); return; }
+        $min = min($all); $max = max($all);
+        update_post_meta($post_id, '_tix_price_min_total', $min);
+        update_post_meta($post_id, '_tix_price_max_total', $max);
+        if (!$on || !array_filter($totals, function ($t) { return $t > 0; })) return;
+        $note = ' <span class="tix-fee">inkl. ' . esc_html($label) . '</span>';
+        update_post_meta($post_id, '_tix_price_min_formatted', self::fmt_price($min) . $note);
+        update_post_meta($post_id, '_tix_price_max_formatted', self::fmt_price($max) . $note);
+        update_post_meta($post_id, '_tix_price_from_display', $min > 0 ? number_format($min, 2, ',', '.') . ' €' : '');
+        if ($min == $max && $min > 0) {
+            update_post_meta($post_id, '_tix_price_range', self::fmt_price($min) . $note);
+            update_post_meta($post_id, '_tix_price_range_full', self::fmt_price($min) . $note);
+            update_post_meta($post_id, '_tix_price_card', number_format($min, 2, ',', '.') . ' €');
+            update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€ inkl. ' . $label);
+        } elseif ($min > 0) {
+            update_post_meta($post_id, '_tix_price_range', 'ab ' . self::fmt_price($min) . $note);
+            update_post_meta($post_id, '_tix_price_range_full', number_format($min, 2, ',', '.') . ' € – ' . self::fmt_price($max) . $note);
+            update_post_meta($post_id, '_tix_price_card', 'Ab ' . number_format($min, 2, ',', '.') . ' €');
+            update_post_meta($post_id, '_tix_price_label', 'Tickets ab ' . number_format($min, 2, ',', '.') . '€ inkl. ' . $label);
+        }
+    }
+
+    /** Gebühr geändert (Einstellungen, Veranstalter): Preis-Felder aller Events im nächsten Aufruf neu rechnen (Cache je Aufruf). */
+    public static function schedule_price_refresh() {
+        if (!wp_next_scheduled('tix_refresh_price_meta')) wp_schedule_single_event(time() + 5, 'tix_refresh_price_meta');
+    }
+
+    public static function on_settings_changed($old, $new) {
+        $old = is_array($old) ? $old : []; $new = is_array($new) ? $new : [];
+        foreach (['fee_fixed', 'fee_percent', 'fee_mode', 'fee_label', 'fee_rounding', 'fee_rounding_custom', 'fee_max_per_ticket', 'fee_max_per_order', 'fee_split_customer_share',
+            'gateway_fee_fixed', 'gateway_fee_percent', 'gateway_fee_mode', 'gateway_fee_included'] as $k) {
+            if ((string) ($old[$k] ?? '') !== (string) ($new[$k] ?? '')) { self::schedule_price_refresh(); return; }
+        }
+    }
+
+    public static function on_org_fee_meta($meta_id, $post_id, $meta_key) {
+        if (strpos((string) $meta_key, '_tix_fee_') === 0 && get_post_type($post_id) === 'tix_organizer') self::schedule_price_refresh();
+    }
+
+    /** Alle nicht vergangenen Events neu rechnen (Cron `tix_refresh_price_meta`, WP-CLI). */
+    public static function refresh_all_price_meta() {
+        $ids = get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future', 'pending', 'private'], 'numberposts' => -1, 'fields' => 'ids',
+            'meta_query' => ['relation' => 'AND', ['key' => '_tix_ticket_categories', 'compare' => 'EXISTS'],
+                ['relation' => 'OR', ['key' => '_tix_is_past', 'compare' => 'NOT EXISTS'], ['key' => '_tix_is_past', 'value' => '1', 'compare' => '!=']]]]);
+        $n = 0;
+        foreach ($ids as $id) {
+            $cats = get_post_meta($id, '_tix_ticket_categories', true);
+            if (!is_array($cats) || !$cats) continue;
+            self::update_price_meta($id, $cats);
+            $n++;
+        }
+        return $n;
     }
 
     /**

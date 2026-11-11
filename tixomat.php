@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.750
+ * Version: 1.38.751
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.750');
+define('TIXOMAT_VERSION', '1.38.751');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1084,6 +1084,12 @@ if (!class_exists('TIX_Sync')) {
 }
 add_action('updated_postmeta', ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
 add_action('added_post_meta',  ['TIX_Sync', 'auto_update_price_on_meta_change'], 10, 4);
+// Gebühr geändert → Endpreise aller Events neu rechnen (PAngV, 1.38.751)
+add_action('update_option_tix_settings', ['TIX_Sync', 'on_settings_changed'], 10, 2);
+add_action('updated_postmeta', ['TIX_Sync', 'on_org_fee_meta'], 10, 3);
+add_action('added_post_meta',  ['TIX_Sync', 'on_org_fee_meta'], 10, 3);
+add_action('deleted_post_meta', function ($ids, $post_id, $key) { TIX_Sync::on_org_fee_meta(0, $post_id, $key); }, 10, 3);
+add_action('tix_refresh_price_meta', ['TIX_Sync', 'refresh_all_price_meta']);
 
 // ── Live-Aktualisierung von _tix_sold_total (WC-unabhängig) ──
 // Jeder Order-Status-Wechsel + jede Ticket-Stornierung triggert Neuberechnung

@@ -155,6 +155,19 @@ class TIX_Public_Events {
         return wp_kses_post($v);
     }
 
+    /** {label, per_ticket, per_order, max_per_order} – immer vorhanden (Vertrag servicegebuehr §5a). */
+    private static function service_fee($id, array $cats) {
+        $cfg = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($id)) : [];
+        $share = class_exists('TIX_Fees') && $cfg ? TIX_Fees::customer_share($cfg) : 0.0;
+        $per_ticket = (bool) array_filter($cats, function ($c) { return floatval($c['fee_per_ticket'] ?? 0) > 0; });
+        return [
+            'label' => (string) (($cfg['fee_label'] ?? '') ?: 'Servicegebühr'),
+            'per_ticket' => $per_ticket,
+            'per_order' => 0.0,
+            'max_per_order' => ($per_ticket && floatval($cfg['fee_max_per_order'] ?? 0) > 0) ? round(floatval($cfg['fee_max_per_order']) * $share, 2) : 0.0,
+        ];
+    }
+
     /** Event im App-Format; $detailed = inkl. Info-Texte + Galerie. */
     public static function payload($id, $detailed = false) {
         $post = get_post($id);
@@ -232,9 +245,9 @@ class TIX_Public_Events {
             'seller'          => ($detailed && !$syndicated && class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($id) && class_exists('TIX_Co_Legal')) ? TIX_Co_Legal::for_event($id) : null,
             'price_from'      => $prices ? round(min($prices), 2) : null,
             // Gesamtpreis „ab“ inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.750); ohne kaufbare Kategorien = price_from
-            'price_from_total' => $cats ? round(min(array_map(function ($c) { return floatval($c['total'] ?? ($c['price'] ?? 0)); }, $cats)), 2) : ($prices ? round(min($prices), 2) : null),
-            // Bezeichnung der Gebühr, wenn Käufer bei mindestens einer Kategorie eine zahlen, sonst null
-            'fee_label'       => ($fl = array_filter($cats, function ($c) { return floatval($c['fee'] ?? 0) > 0; })) && class_exists('TIX_Fees') ? (string) (TIX_Fees::get_fee_config(TIX_Fees::get_organizer_for_event($id))['fee_label'] ?: 'Servicegebühr') : null,
+            'price_from_total' => $cats ? round(min(array_map(function ($c) { return floatval($c['price_total'] ?? ($c['price'] ?? 0)); }, $cats)), 2) : ($prices ? round(min($prices), 2) : null),
+            // Gebühr für Hinweise „inkl. … € <label>“ (Vertrag servicegebuehr §5a); per_order: Plugin kennt keine Gebühr je Bestellung → 0
+            'service_fee'     => self::service_fee($id, $cats),
             'price_range'     => (string) get_post_meta($id, '_tix_price_range', true),
             'categories'      => $cats,
             'is_past'         => $end > 0 && $end < self::now(),

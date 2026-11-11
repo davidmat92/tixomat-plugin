@@ -1,10 +1,10 @@
 <?php
 /**
- * Gesamtpreis inkl. Servicegebühr (PAngV, 1.38.750): API (categories[].fee/total, price_from_total, fee_label), App-Quote,
+ * Gesamtpreis inkl. Servicegebühr (PAngV, 1.38.751): API (categories[].fee/total, price_from_total, fee_label), App-Quote,
  * Website-Ticketauswahl, Freitickets ohne Gebühr. tix_get_settings hält Einstellungen je Aufruf fest → drei Aufrufe:
  *   Einzel-Seite: wp eval-file …/test-fee-display-wp.php setup | check | cleanup
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'ticket_total')) { echo "Tixomat ab 1.38.750 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'ticket_total')) { echo "Tixomat ab 1.38.751 nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
 if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) { echo "Nur Einzel-Seite.\n"; return; }
@@ -31,6 +31,7 @@ if ($mode === 'cleanup') {
         foreach ((array) $t['posts'] as $id) wp_delete_post($id, true);
     }
     delete_option($T);
+    wp_clear_scheduled_hook('tix_refresh_price_meta');
     echo "cleanup ok\n"; return;
 }
 if ($mode === 'setup') {
@@ -45,8 +46,8 @@ if ($mode === 'setup') {
             '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => $cats]]);
     };
     $e1 = $mk('FD-Test A', [['name' => 'VVK', 'price' => 20, 'qty' => 100, 'stock' => 100], ['name' => 'VIP', 'price' => 30, 'qty' => 10, 'stock' => 10]]);
-    $e2 = $mk('FD-Test B', [['name' => 'Frei', 'price' => 0, 'qty' => 100, 'stock' => 100], ['name' => 'Gast', 'price' => 15, 'qty' => 50, 'stock' => 50, 'no_fee' => 1], ['name' => 'VVK', 'price' => 25, 'qty' => 50, 'stock' => 50]]);
-    update_option($T, ['settings' => $bk, 'posts' => [$e1, $e2], 'e1' => $e1, 'e2' => $e2], false);
+    $e2 = $mk('FD-Test B', [['name' => 'Frei', 'price' => 0, 'qty' => 100, 'stock' => 100], ['name' => 'Gast', 'price' => 15, 'qty' => 50, 'stock' => 50, 'no_fee' => 1], ['name' => 'VVK', 'price' => 25, 'qty' => 50, 'stock' => 50], ['name' => 'Gutschein', 'price' => 50, 'qty' => 0, 'gift_card' => 1]]);
+    update_option($T, ['settings' => $bk, 'posts' => [$e1, $e2], 'e1' => $e1, 'e2' => $e2, 'scheduled' => (bool) wp_next_scheduled('tix_refresh_price_meta')], false);
     echo "setup ok (Gebühr 1,00 € je Ticket, Käufer zahlen)\n"; return;
 }
 
@@ -54,28 +55,51 @@ $t = get_option($T);
 if (!is_array($t)) { echo "Erst setup.\n"; return; }
 $e1 = intval($t['e1']); $e2 = intval($t['e2']);
 
+echo "-- Neurechnen nach Gebühren-Änderung\n";
+fd_eq('Einstellung geändert → Neurechnen eingeplant (Cron tix_refresh_price_meta)', true, !empty($t['scheduled']));
+fd_eq('Neurechnen läuft (mind. 2 Events)', true, TIX_Sync::refresh_all_price_meta() >= 2);
+fd_eq('Preis-Felder A: Endpreise mit Hinweis', [21.0, 31.0, 'Ab 21,00 €', true, true],
+    [floatval(get_post_meta($e1, '_tix_price_min_total', true)), floatval(get_post_meta($e1, '_tix_price_max_total', true)), get_post_meta($e1, '_tix_price_card', true),
+     strpos((string) get_post_meta($e1, '_tix_price_range', true), 'ab 21,00 €') === 0 && strpos((string) get_post_meta($e1, '_tix_price_range', true), 'inkl. Vorverkaufsgebühr') !== false,
+     strpos((string) get_post_meta($e1, '_tix_ticket_1_price_formatted', true), 'inkl. 1,00 € Vorverkaufsgebühr') !== false]);
+fd_eq('Preis-Felder A: _tix_price_min bleibt Ticketpreis 20', 20.0, floatval(get_post_meta($e1, '_tix_price_min', true)));
+fd_eq('event_price_total A: 21 / 31', [21.0, 31.0], [TIX_Fees::event_price_total($e1), TIX_Fees::event_price_total($e1, 'max')]);
+
 echo "-- API /public/events\n";
 [$st, $d] = fd_rest('GET', "/public/events/$e1");
 $ev = $d['event'] ?? $d;
 $c = array_column((array) ($ev['categories'] ?? []), null, 'name');
-fd_eq('A: VVK 20 € → fee 1, total 21; VIP 30 → 31', [200, 1.0, 21.0, 31.0], [$st, $c['VVK']['fee'] ?? null, $c['VVK']['total'] ?? null, $c['VIP']['total'] ?? null]);
-fd_eq('A: price_from 20, price_from_total 21, fee_label', [20.0, 21.0, 'Vorverkaufsgebühr'], [$ev['price_from'] ?? null, $ev['price_from_total'] ?? null, $ev['fee_label'] ?? null]);
+fd_eq('A: VVK 20 € → fee_per_ticket 1, price_total 21; VIP 30 → 31', [200, 1.0, 21.0, 31.0], [$st, $c['VVK']['fee_per_ticket'] ?? null, $c['VVK']['price_total'] ?? null, $c['VIP']['price_total'] ?? null]);
+fd_eq('A: price_from 20, price_from_total 21, service_fee', [20.0, 21.0, ['label' => 'Vorverkaufsgebühr', 'per_ticket' => true, 'per_order' => 0.0, 'max_per_order' => 0.0]],
+    [$ev['price_from'] ?? null, $ev['price_from_total'] ?? null, $ev['service_fee'] ?? null]);
+[$st, $d] = fd_rest('GET', '/public/events');
+$li = array_column((array) ($d['events'] ?? ($d['items'] ?? $d)), null, 'id')[$e1] ?? null;
+fd_eq('Liste: price_from_total und service_fee auch dort', [21.0, true], [$li['price_from_total'] ?? null, $li['service_fee']['per_ticket'] ?? null]);
 [$st, $d] = fd_rest('GET', "/public/events/$e2");
 $ev = $d['event'] ?? $d;
 $c = array_column((array) ($ev['categories'] ?? []), null, 'name');
-fd_eq('B: Freiticket ohne Gebühr (0/0), gebührenfreie Kategorie ohne (15/15), VVK 25 → 26', [0.0, 0.0, 0.0, 15.0, 1.0, 26.0],
-    [$c['Frei']['fee'] ?? null, $c['Frei']['total'] ?? null, $c['Gast']['fee'] ?? null, $c['Gast']['total'] ?? null, $c['VVK']['fee'] ?? null, $c['VVK']['total'] ?? null]);
+fd_eq('B: Freiticket (0/0), gebührenfrei (0/15), VVK (1/26), Gutschein (0/50)', [0.0, 0.0, 0.0, 15.0, 1.0, 26.0, 0.0, 50.0],
+    [$c['Frei']['fee_per_ticket'] ?? null, $c['Frei']['price_total'] ?? null, $c['Gast']['fee_per_ticket'] ?? null, $c['Gast']['price_total'] ?? null, $c['VVK']['fee_per_ticket'] ?? null, $c['VVK']['price_total'] ?? null,
+     $c['Gutschein']['fee_per_ticket'] ?? null, $c['Gutschein']['price_total'] ?? null]);
 fd_eq('B: price_from_total 0 (Freiticket)', 0.0, $ev['price_from_total'] ?? null);
 
 echo "-- App-Quote\n";
 [$st, $d] = fd_rest('POST', '/customer/cart/quote', ['event_id' => $e2, 'items' => [['index' => 0, 'qty' => 2], ['index' => 1, 'qty' => 1], ['index' => 2, 'qty' => 1]]]);
 $tt = $d['totals'] ?? [];
 $qc = array_column((array) ($d['categories'] ?? []), null, 'name');
-fd_eq('Quote: 2 × frei + Gast + VVK → Gebühr nur VVK 1 €, Summe 41 €; Kategorien mit total', [200, 1.0, 41.0, 26.0], [$st, floatval($tt['fee'] ?? -1), floatval($tt['total'] ?? -1), $qc['VVK']['total'] ?? null]);
+fd_eq('Quote: 2 × frei + Gast + VVK → Gebühr nur VVK 1 €, Summe 41 €; Kategorien mit price_total', [200, 1.0, 41.0, 26.0], [$st, floatval($tt['fee'] ?? -1), floatval($tt['total'] ?? -1), $qc['VVK']['price_total'] ?? null]);
+fd_eq('Quote: Gebühr je Zeile (frei 0, Gast 0, VVK 1)', [0.0, 0.0, 1.0], array_map(function ($l) { return floatval($l['fee'] ?? -1); }, (array) ($tt['lines'] ?? [])));
+[$st, $d] = fd_rest('POST', '/customer/cart/quote', ['event_id' => $e2, 'items' => [['index' => 3, 'qty' => 1]]]);
+fd_eq('Quote: Gutschein-Kauf ohne Gebühr', [200, 0.0, 50.0], [$st, floatval($d['totals']['fee'] ?? -1), floatval($d['totals']['total'] ?? -1)]);
 
 echo "-- Kasse: Freitickets\n";
 $f = TIX_Fees::calc_order_fees([['price' => 0, 'qty' => 3, 'event_id' => $e2, 'cat_index' => 0]]);
 fd_eq('nur Freitickets: keine Gebühr, Summe 0', [0.0, 0.0], [floatval($f['customer_fee_line']), floatval($f['customer_total'])]);
+$f = TIX_Fees::calc_order_fees([['price' => 30, 'qty' => 1, 'event_id' => $e2, 'cat_index' => -1, 'meta' => ['wallet_topup' => 1]]]);
+fd_eq('Guthaben-Aufladung: keine Gebühr', 0.0, floatval($f['customer_fee_line']));
+$f = TIX_Fees::calc_order_fees([['price' => 50, 'qty' => 1, 'event_id' => $e2, 'cat_index' => 3]]);
+fd_eq('Gutschein-Kategorie in der Kasse: keine Gebühr', 0.0, floatval($f['customer_fee_line']));
+fd_eq('CTA-Knopf [tix_cta_button]: ab 21,00 €', true, strpos(TIX_Single_Event::shortcode_cta_button(['id' => $e1]), 'ab 21,00') !== false);
 
 echo "-- Website-Ticketauswahl\n";
 $html = TIX_Ticket_Selector::render(['id' => $e1]);

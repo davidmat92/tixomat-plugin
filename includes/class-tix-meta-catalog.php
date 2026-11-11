@@ -89,7 +89,7 @@ class TIX_Meta_Catalog {
             $address     = get_post_meta($id, '_tix_address', true);
             $categories  = get_post_meta($id, '_tix_ticket_categories', true);
             $status      = get_post_meta($id, '_tix_status', true) ?: 'available';
-            $price_min   = get_post_meta($id, '_tix_price_min', true);
+            $price_min   = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'event_price_total') ? TIX_Fees::event_price_total($id) : get_post_meta($id, '_tix_price_min', true);
             $price_max   = get_post_meta($id, '_tix_price_max', true);
 
             // Organizer
@@ -110,6 +110,8 @@ class TIX_Meta_Catalog {
                 foreach ($categories as $i => $cat) {
                     $cat_name  = $cat['name'] ?? 'Ticket';
                     $cat_price = floatval($cat['price'] ?? 0);
+                    // Endpreis inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.751)
+                    if (class_exists('TIX_Fees') && method_exists('TIX_Fees', 'ticket_total') && empty($cat['offline_ticket'])) $cat_price = TIX_Fees::ticket_total($id, $i, $cat_price)['total'];
                     $cat_stock = ($cat['sold_out'] ?? false) ? 'out of stock' : 'in stock';
 
                     $xml .= self::feed_entry(

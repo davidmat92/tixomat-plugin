@@ -304,8 +304,9 @@ class TIX_Frontend {
         if ($thumb_id) $image = wp_get_attachment_image_url($thumb_id, 'large');
 
         // Preise
-        $price_min = get_post_meta($post_id, '_tix_price_min', true);
-        $price_max = get_post_meta($post_id, '_tix_price_max', true);
+        // Endpreise inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.751)
+        $price_min = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'event_price_total') ? TIX_Fees::event_price_total($post_id) : get_post_meta($post_id, '_tix_price_min', true);
+        $price_max = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'event_price_total') ? TIX_Fees::event_price_total($post_id, 'max') : get_post_meta($post_id, '_tix_price_max', true);
 
         // Status
         $status     = get_post_meta($post_id, '_tix_status', true);

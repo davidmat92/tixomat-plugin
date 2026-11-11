@@ -165,7 +165,7 @@ class TIX_App_Look {
         $cancel  = $status === 'cancelled';
         $soldout = $status === 'sold_out';
         $free    = !empty($p['free_entry']) && empty($p['tickets_enabled']);
-        $price   = $free ? 0.0 : $p['price_from'];
+        $price   = $free ? 0.0 : ($p['price_from_total'] ?? $p['price_from']); // Endpreis (PAngV)
 
         // Etikett wie flyerBadge() der App: „Vorverkauf“ vor „Freier Eintritt“, nie doppelt
         if ($cancel)                           $tag = ['Abgesagt', 'off'];

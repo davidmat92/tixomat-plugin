@@ -68,7 +68,7 @@ class TIX_Single_Event {
         if (!is_array($categories) || empty($categories)) return '';
 
         $min_price = null;
-        foreach ($categories as $cat) {
+        foreach ($categories as $ci => $cat) {
             if (($cat['online'] ?? '1') !== '1') continue;
             if (!empty($cat['admin_only']) || !empty($cat['hidden'])) continue;
             $p = floatval($cat['price'] ?? 0);
@@ -78,6 +78,7 @@ class TIX_Single_Event {
             }
             $sp = $cat['sale_price'] ?? '';
             if ($sp !== '' && $sp !== null && floatval($sp) < $p) $p = floatval($sp);
+            if (class_exists('TIX_Fees') && method_exists('TIX_Fees', 'ticket_total')) $p = TIX_Fees::ticket_total($post_id, $ci, $p)['total']; // Endpreis (PAngV)
             if ($min_price === null || $p < $min_price) $min_price = $p;
         }
         if ($min_price === null) return '';
@@ -389,7 +390,7 @@ class TIX_Single_Event {
                 $min_price = null;
                 $min_label = '';
                 if (is_array($categories)) {
-                    foreach ($categories as $cat) {
+                    foreach ($categories as $ci => $cat) {
                         if (($cat['online'] ?? '1') !== '1') continue;
                         if (!empty($cat['admin_only']) || !empty($cat['hidden'])) continue;
                         $p = floatval($cat['price'] ?? 0);
@@ -401,6 +402,7 @@ class TIX_Single_Event {
                         // Sale-Preis prüfen
                         $sp = $cat['sale_price'] ?? '';
                         if ($sp !== '' && $sp !== null && floatval($sp) < $p) $p = floatval($sp);
+                        if (class_exists('TIX_Fees') && method_exists('TIX_Fees', 'ticket_total')) $p = TIX_Fees::ticket_total($post_id, $ci, $p)['total']; // Endpreis (PAngV)
                         if ($min_price === null || $p < $min_price) {
                             $min_price = $p;
                             $min_label = $cat['name'] ?? '';

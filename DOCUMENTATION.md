@@ -5886,3 +5886,21 @@ Rechtsprüfung `docs/rechtstexte/pruefmappe/servicegebuehr.md` §2 Nr. 1 und 5, 
 - **Kasse:** Freitickets (Preis ≤ 0) tragen keine Gebühr mehr (`calc_with_config`).
 - **Grenze:** Spiegel geteilter Events rechnen mit der Gebühr der eigenen Seite (siehe Vertrag §5a).
 - **Tests:** `test-fee-display-wp` 14 (setup/check/cleanup), `test-studio-fees-wp` 36 + 4, `test-fees` 97, Co/Angebote/Gebührensatz grün.
+
+## 156. Endpreise inkl. Servicegebühr überall (ab 1.38.751)
+User-Entscheid 11.11. „Ja, jetzt mitbauen“; Vertrag `vertrag-servicegebuehr.md` §5a (Feldnamen nach Vorschlag der Apps). Ersetzt die Felder aus §155 (`fee`/`total`/`fee_label`, nie live).
+- **API** (`/public/events` Liste und Detail, App-Quote):
+  - je Kategorie `fee_per_ticket` und `price_total`, `bundle.package_total`
+  - am Event `price_from_total` und `service_fee {label, per_ticket, per_order (immer 0), max_per_order}`
+  - in der Quote `totals.lines[].fee` (`TIX_Fees::item_fee`)
+- **Gebührenfrei** (`TIX_Fees::is_item_fee_exempt`): Guthaben-Aufladung (`meta.wallet_topup`), Gutschein-Kategorien (`gift_card`), Gutschein-Systemevent, dazu wie bisher `no_fee` und Freitickets.
+- **Gespeicherte Preis-Felder** (`TIX_Sync::apply_fee_display`, nach beiden Preis-Läufen):
+  - Bei Käufer-Gebühr werden diese Felder zu Endpreisen mit „inkl. … € <Bezeichnung>“: `_tix_price_range`, `_range_full`, `_card`, `_label`, `_from_display`, `_min/_max_formatted`, `_tix_ticket_N_price_formatted`, `_tix_ticket_N_sale_price_formatted`.
+  - Neu `_tix_price_min_total` / `_tix_price_max_total`; `_tix_price_min/_max` bleiben Ticketpreise.
+- **Neurechnen:** Ändert sich eine Gebühr-Einstellung (`update_option_tix_settings`) oder `_tix_fee_*` eines Veranstalters, plant das Plugin `tix_refresh_price_meta` ein. Der Lauf rechnet alle nicht vergangenen Events neu (`TIX_Sync::refresh_all_price_meta`), im nächsten Aufruf wegen des Einstellungs-Caches.
+- **Website/Shortcodes mit Endpreis:**
+  - Ticketauswahl und Schnellkauf (§155), `[tix_cta_button]` und CTA auf der Event-Seite.
+  - Event-Karten (über `_tix_price_card`), JSON-LD der Event-Seite und der Startseite (`TIX_Fees::event_price_total`), App-Look-Karten, Künstler-JSON-LD, Newsletter-KI.
+  - Meta-Katalog: je Kategorie der Endpreis.
+- **Grenze:** Spiegel geteilter Events rechnen mit der Gebühr der eigenen Seite.
+- **Tests:** `test-fee-display-wp` 25 (setup/check/cleanup), `test-studio-fees-wp` 36 + 4, `test-fees` 97, license 90, Co 25/61/15, Angebote 41, Gebührensatz 9 grün.

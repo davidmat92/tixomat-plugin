@@ -193,7 +193,7 @@ class TIX_Newsletter_AI {
         }
         if (!$lineup && !empty($p['lineup'])) foreach (array_values(array_filter(array_map('trim', explode("\n", self::plain($p['lineup']))))) as $n) { $lineup[] = $n; $items[] = ['name' => $n, 'picture' => '', 'time' => '', 'stage' => '']; }
         $prices = [];
-        foreach ((array) ($p['categories'] ?? []) as $c) if (empty($c['gift_card'])) $prices[] = ['name' => (string) $c['name'], 'price' => self::money($c['price']), 'sold_out' => !empty($c['sold_out']), 'note' => (string) ($c['low_stock_text'] ?? '')];
+        foreach ((array) ($p['categories'] ?? []) as $c) if (empty($c['gift_card'])) $prices[] = ['name' => (string) $c['name'], 'price' => self::money($c['price_total'] ?? $c['price']), 'sold_out' => !empty($c['sold_out']), 'note' => (string) ($c['low_stock_text'] ?? '')];
         $gallery = array_slice(array_values(array_filter(array_map('strval', (array) ($p['gallery'] ?? [])))), 0, 4);
         $time = $p['time_start'] !== '' ? $p['time_start'] . ' Uhr' : '';
         $img = $p['image'] ?: (string) (($p['placeholder'] ?? null)['url'] ?? '');
@@ -202,7 +202,7 @@ class TIX_Newsletter_AI {
             'date' => (string) $p['date_start'], 'date_end' => (string) $p['date_end'], 'date_label' => self::date_label($p['date_start']),
             'time_label' => $time, 'doors_label' => $p['time_doors'] !== '' ? 'Einlass ' . $p['time_doors'] . ' Uhr' : '',
             'location' => (string) $p['location'], 'address' => (string) $p['address'],
-            'price_from' => $p['price_from'] !== null && !$p['free_entry'] ? 'ab ' . self::money($p['price_from']) : '', 'free_entry' => !empty($p['free_entry']),
+            'price_from' => $p['price_from'] !== null && !$p['free_entry'] ? 'ab ' . self::money($p['price_from_total'] ?? $p['price_from']) : '', 'free_entry' => !empty($p['free_entry']),
             'tickets' => !empty($p['tickets_enabled']), 'status' => (string) $p['status'], 'age' => (string) $p['age_label'], 'is_past' => !empty($p['is_past']),
             'excerpt' => self::plain($p['excerpt'] ?: ($p['description'] ?? ''), 600),
             'lineup' => array_slice($lineup, 0, 40), 'lineup_items' => array_slice($items, 0, 40), 'program' => array_slice($program, 0, 30), 'time_start' => (string) $p['time_start'], 'prices' => array_slice($prices, 0, 8), 'gallery' => $gallery,

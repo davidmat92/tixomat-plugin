@@ -318,8 +318,11 @@ class TIX_Fees {
      * Native Cart: event_id + cat_index. WC Cart: product_id → _tix_cat_index Meta.
      */
     public static function is_item_fee_exempt(array $item): bool {
+        // Guthaben-Aufladung und Gutscheine tragen keine Gebühr (Rechtsprüfung servicegebuehr.md Nr. 8, 1.38.751)
+        if (!empty($item['meta']['wallet_topup'])) return true;
         $event_id = intval($item['event_id'] ?? 0);
         if ($event_id <= 0) return false;
+        if (get_post_meta($event_id, '_tix_system_giftcard_event', true) === '1') return true;
 
         $cat_index = null;
         if (isset($item['cat_index']) && intval($item['cat_index']) >= 0) {
@@ -336,7 +339,7 @@ class TIX_Fees {
             $cache[$event_id] = is_array($cats) ? $cats : [];
         }
         $cat = $cache[$event_id][$cat_index] ?? null;
-        return is_array($cat) && !empty($cat['no_fee']);
+        return is_array($cat) && (!empty($cat['no_fee']) || !empty($cat['gift_card']));
     }
 
     /**
@@ -351,6 +354,23 @@ class TIX_Fees {
         $share = self::customer_share($cfg);
         if ($share <= 0) return 0.0;
         return round(self::calc_platform_fee($price, null, $cfg) * $share, 2);
+    }
+
+    /** Endpreis „ab“/„bis“ eines Events aus den Preis-Feldern (TIX_Sync::apply_fee_display), Rückfall Ticketpreis. */
+    public static function event_price_total($post_id, $which = 'min'): float {
+        $t = get_post_meta(intval($post_id), $which === 'max' ? '_tix_price_max_total' : '_tix_price_min_total', true);
+        if ($t !== '' && $t !== null && $t !== false) return floatval($t);
+        return floatval(get_post_meta(intval($post_id), $which === 'max' ? '_tix_price_max' : '_tix_price_min', true));
+    }
+
+    /** Käuferanteil der Gebühr für eine Warenkorb-Zeile (vor Höchstbetrag je Bestellung und Rundung), 0 bei Ausnahmen. */
+    public static function item_fee(array $item): float {
+        $price = floatval($item['price'] ?? 0);
+        $qty = max(0, intval($item['qty'] ?? 0));
+        if ($price <= 0 || !$qty || self::is_item_fee_exempt($item)) return 0.0;
+        $cfg = self::get_fee_config(self::get_organizer_for_event(intval($item['event_id'] ?? 0)));
+        $share = self::customer_share($cfg);
+        return $share > 0 ? round(self::calc_platform_fee($price, null, $cfg) * $share * $qty, 2) : 0.0;
     }
 
     /**

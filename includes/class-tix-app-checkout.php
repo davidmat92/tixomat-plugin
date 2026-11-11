@@ -348,9 +348,9 @@ class TIX_App_Checkout {
                 'index'              => intval($i),
                 'name'               => (string) ($cat['name'] ?? 'Ticket'),
                 'price'              => round($price, 2),
-                // Käufer zahlt für 1 Ticket: total = price + fee (Servicegebühr, Zahlungskosten zu Lasten des Käufers, Rundung)
-                'fee'                => $tt['fee'],
-                'total'              => $tt['total'],
+                // Endpreis (PAngV, Vertrag servicegebuehr §5a): Käuferanteil für 1 Ticket und was 1 Ticket kostet (wie die Kasse)
+                'fee_per_ticket'     => $tt['fee'],
+                'price_total'        => $tt['total'],
                 'base_price'         => round($base, 2),
                 'description'        => (string) ($cat['desc'] ?? ($cat['description'] ?? '')),
                 'quantity_available' => $stock,
@@ -694,6 +694,8 @@ class TIX_App_Checkout {
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
                 $row['bundle'] = ['buy' => $b['buy'], 'pay' => $b['pay'], 'packages' => intdiv(intval($it['qty']), $b['buy'])];
             }
+            // Käuferanteil der Gebühr je Zeile (fee_per_ticket × Menge, vor Höchstbetrag je Bestellung/Rundung; totals.fee ist verbindlich)
+            $row['fee'] = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'item_fee') ? TIX_Fees::item_fee($it) : 0.0;
             $lines[] = $row;
         }
         $subtotal = round($subtotal, 2);

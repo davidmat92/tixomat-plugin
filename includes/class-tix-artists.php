@@ -1133,7 +1133,7 @@ class TIX_Artists {
                 'organizer' => ['@type' => 'Organization', 'name' => (string) ($e['organizer_info']['name'] ?? $e['organizer'])]];
             if ($e['ends_at']) $node['endDate'] = $e['ends_at'];
             if ($e['image']) $node['image'] = $e['image'];
-            if ($e['price_from'] !== null || $e['state'] === 'free') $node['offers'] = ['@type' => 'Offer', 'price' => $e['state'] === 'free' ? 0 : $e['price_from'], 'priceCurrency' => 'EUR', 'availability' => $avail, 'url' => $e['url']];
+            if ($e['price_from'] !== null || $e['state'] === 'free') $node['offers'] = ['@type' => 'Offer', 'price' => $e['state'] === 'free' ? 0 : ($e['price_from_total'] ?? $e['price_from']), 'priceCurrency' => 'EUR', 'availability' => $avail, 'url' => $e['url']];
             $ev[] = $node;
         }
         $base = class_exists('TIX_Customer_URL') ? (TIX_Customer_URL::base() ?: home_url('/')) : home_url('/');

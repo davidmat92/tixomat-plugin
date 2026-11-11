@@ -1189,8 +1189,9 @@ class TIX_Event_Homepage {
         $loc_postcode   = $location_id ? get_post_meta($location_id, '_tix_loc_postcode', true) : '';
         $loc_country    = $location_id ? (get_post_meta($location_id, '_tix_loc_country', true) ?: 'DE') : 'DE';
 
-        $price_min = floatval(get_post_meta($id, '_tix_price_min', true));
-        $price_max = floatval(get_post_meta($id, '_tix_price_max', true));
+        // Endpreise inkl. Gebühr zu Lasten des Käufers (PAngV, 1.38.751)
+        $price_min = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'event_price_total') ? TIX_Fees::event_price_total($id) : floatval(get_post_meta($id, '_tix_price_min', true));
+        $price_max = class_exists('TIX_Fees') && method_exists('TIX_Fees', 'event_price_total') ? TIX_Fees::event_price_total($id, 'max') : floatval(get_post_meta($id, '_tix_price_max', true));
         $thumb_url = get_the_post_thumbnail_url($id, 'large');
         $thumb_sq  = get_the_post_thumbnail_url($id, 'medium_large') ?: $thumb_url;
 
