@@ -5964,3 +5964,8 @@ Fund KK #1171 (KK-App: „Micha Schuh“ und „Maurice Die Partykanone“ ohne 
   - Zusätze („(DJ/Moderation)“, „(live)“) und Zeit-Präfixe bleiben; danach werden geteilte Events neu verteilt.
   - Läuft nicht automatisch: Es ändert Inhalte des Veranstalters und wird nur per Button ausgeführt.
 - **Test:** `test-artists-assign-wp` 13.
+
+## 162. `wp tixomat artists verknuepfen` ohne Warnungen (ab 1.38.757)
+- Die Zeilen „zugeordnet“ aus 1.38.755 haben keine Act-Felder. Die CLI-Ausgabe gab deshalb „Undefined array key act/artist_id/suggestion“ aus; jetzt erscheint je Event „N verknüpfte Künstler zugeordnet“, und die Summe nennt die Zuordnungen.
+- `repair_links` läuft nur im Cron und in der CLI, nicht über REST.
+- **Hinweis:** Die einmaligen Reparaturen (`tix_artist_links_repair_755`, `tix_shared_objects_repair_755`) setzen die Option sofort und laufen 4 bzw. 5 Minuten später per Cron. Auf KK lief die Zuordnung von Andreas Köhler am 11.11. um 00:54 UTC; die Prüfung um 00:50 kam zu früh.

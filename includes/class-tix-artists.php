@@ -1786,8 +1786,11 @@ class TIX_Artists {
         if ($cmd === 'verknuepfen') {
             $dry = isset($assoc['trocken']);
             $r = self::repair_links(intval($assoc['event'] ?? 0), $dry);
-            foreach ($r['rows'] as $row) WP_CLI::line(sprintf('Event %d · %s → %s', $row['event_id'], $row['act'], $row['artist_id'] ? 'Künstler ' . $row['artist_id'] . ' (' . $row['via'] . ')' : 'Vorschlag „' . $row['suggestion'] . '“ (nicht automatisch)'));
-            WP_CLI::success(sprintf('%d Events, %d Verknüpfungen %s.', $r['events'], $r['linked'], $dry ? 'würden gespeichert (trocken)' : 'gespeichert'));
+            foreach ($r['rows'] as $row) {
+                if (isset($row['assigned'])) { WP_CLI::line(sprintf('Event %d · %d verknüpfte Künstler %s', $row['event_id'], $row['assigned'], $dry ? 'würden zugeordnet' : 'zugeordnet')); continue; } // 1.38.757: keine Warnungen
+                WP_CLI::line(sprintf('Event %d · %s → %s', $row['event_id'], (string) ($row['act'] ?? ''), !empty($row['artist_id']) ? 'Künstler ' . $row['artist_id'] . ' (' . ($row['via'] ?? '') . ')' : 'Vorschlag „' . (string) ($row['suggestion'] ?? '') . '“ (nicht automatisch)'));
+            }
+            WP_CLI::success(sprintf('%d Events, %d Verknüpfungen, %d Zuordnungen %s.', $r['events'], $r['linked'], intval($r['assigned'] ?? 0), $dry ? 'würden gespeichert (trocken)' : 'gespeichert'));
             return;
         }
         if ($cmd === 'check-event' && !empty($args[1])) {
