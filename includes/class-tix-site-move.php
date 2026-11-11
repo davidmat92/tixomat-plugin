@@ -823,6 +823,9 @@ class TIX_Site_Move {
                 $items[$last] += ['sell' => true, 'categories' => array_values(array_filter($cats, 'is_array')), 'presale' => $pre, 'owner' => 'co', 'share' => TIX_Co_Money::share($e), 'parts' => $parts];
             }
             if (class_exists('TIX_Co_Money') && ($pend = TIX_Co_Money::pending_for_site($e, $oid))) $items[count($items) - 1]['money_pending'] = $pend; // Zustimmung (1.38.717)
+            // Servicegebühr (1.38.759, User-Regel): nimmt der Ersteller das Geld ein, gilt überall SEINE Gebühr – Spiegel: die der Quelle,
+            // eigenes Plattform-Event: die der Plattform. null = Co nimmt ein (die Co-Seite rechnet mit eigener Regel).
+            if (class_exists('TIX_Fees') && method_exists('TIX_Fees', 'creator_fee_rule')) $items[count($items) - 1]['source_fee'] = TIX_Fees::creator_fee_rule($e);
             if (self::is_source_mirror($e)) {
                 $last = count($items) - 1;
                 $src = self::source_site_of($e);
@@ -971,6 +974,12 @@ class TIX_Site_Move {
             }
             if (class_exists('TIX_Co_Money')) TIX_Co_Money::site_pending_sync($id, $it['money_pending'] ?? null); // wartende Zustimmung (1.38.717)
             if (class_exists('TIX_Co_Legal')) { if (is_array($it['seller_info'] ?? null)) update_post_meta($id, TIX_Co_Legal::M_SITE, TIX_Co_Legal::clean($it['seller_info'])); else delete_post_meta($id, TIX_Co_Legal::M_SITE); }
+            // Gebührenregel des Erstellers (1.38.759): Endpreise der Kopie damit rechnen; ältere Plattform ohne Feld: unverändert
+            if (array_key_exists('source_fee', $it)) {
+                if (is_array($it['source_fee'])) update_post_meta($id, '_tix_source_fee', array_intersect_key($it['source_fee'], array_flip(['fixed', 'percent', 'mode', 'label', 'max_per_ticket', 'max_per_order', 'rounding', 'rounding_custom', 'split_share', 'gateway', 'channel_mode'])));
+                else delete_post_meta($id, '_tix_source_fee');
+                if (class_exists('TIX_Sync') && method_exists('TIX_Sync', 'apply_fee_display')) TIX_Sync::apply_fee_display($id, true);
+            }
         }
         foreach ($sells as $sid) TIX_Co_Seller::report($sid);
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {

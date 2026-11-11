@@ -5969,3 +5969,16 @@ Fund KK #1171 (KK-App: „Micha Schuh“ und „Maurice Die Partykanone“ ohne 
 - Die Zeilen „zugeordnet“ aus 1.38.755 haben keine Act-Felder. Die CLI-Ausgabe gab deshalb „Undefined array key act/artist_id/suggestion“ aus; jetzt erscheint je Event „N verknüpfte Künstler zugeordnet“, und die Summe nennt die Zuordnungen.
 - `repair_links` läuft nur im Cron und in der CLI, nicht über REST.
 - **Hinweis:** Die einmaligen Reparaturen (`tix_artist_links_repair_755`, `tix_shared_objects_repair_755`) setzen die Option sofort und laufen 4 bzw. 5 Minuten später per Cron. Auf KK lief die Zuordnung von Andreas Köhler am 11.11. um 00:54 UTC; die Prüfung um 00:50 kam zu früh.
+
+## 163. Servicegebühr bei Co-Events: Regel des Erstellers (ab 1.38.759)
+User-Regel 11.11.: Nimmt der Ersteller das Geld ein, gilt überall seine Gebührenregel.
+- **Ist-Stand Kasse:** schon so. Die Co-Seite verkauft über die Plattform (`TIX_Co_Sale::run`, `$no_fee` = keine Kanal-Gebühr); die Plattform vermittelt an die Quelle, und die Quelle rechnet mit ihrer Regel. Bestellung, Erstattung und Rechnung liegen bei der Quelle.
+- **Neu, Anzeige auf der Co-Seite:**
+  - `TIX_Fees::creator_fee_rule($event)` (Plattform): Spiegel → `_tix_source_fee` der Quelle; eigenes Event → Gebühr der Plattform; Co nimmt ein → null.
+  - `/partner/co-events` liefert `source_fee`; die Kunden-Seite speichert `_tix_source_fee` an der Kopie und rechnet die Preis-Felder neu.
+  - `TIX_Fees::display_config` nutzt bei Kopien (`_tix_platform_co`) die Regel des Erstellers, außer die Seite verkauft selbst (`TIX_Co_Seller::sells_local`). Ohne Feld (ältere Plattform) bleibt es wie bisher.
+- **Offen:**
+  - Kanal-Gebühr im evendis-Spiegel ersetzt bei aktiver Kanal-Gebühr die Regel der Quelle (bisher bei keinem Partner aktiv).
+  - Co nimmt ein: Regel der verkaufenden Seite.
+  - Beides entscheidet der User über die Zentrale.
+- **Tests:** `test-fee-creator-rule-wp` (Plattform 4, Einzel-Seite 5); Co-, Spiegel- und Gebühren-Tests grün.

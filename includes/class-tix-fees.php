@@ -452,14 +452,21 @@ class TIX_Fees {
     public static function display_config($event_id): array {
         $event_id = intval($event_id);
         $own = self::get_fee_config(self::get_organizer_for_event($event_id));
-        if (!$event_id || get_post_meta($event_id, '_tix_syndicated', true) !== '1') return $own;
-        if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)) return $own;
+        if (!$event_id) return $own;
+        // Kunden-Seite: Kopie eines Co-Events der Plattform (1.38.759). Nimmt der Ersteller ein, gilt seine Regel (`_tix_source_fee` aus dem
+        // Co-Abgleich); verkauft diese Seite selbst (Co nimmt ein), gilt die eigene.
+        $co_copy = !self::multi() && intval(get_post_meta($event_id, '_tix_platform_co', true)) > 0;
+        if ($co_copy) {
+            if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_local($event_id)) return $own;
+            if (!metadata_exists('post', $event_id, '_tix_source_fee')) return $own; // ältere Plattform ohne Regel
+        } elseif (get_post_meta($event_id, '_tix_syndicated', true) !== '1') return $own;
+        if (!$co_copy && class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)) return $own;
         $src = get_post_meta($event_id, '_tix_source_fee', true);
         $src = is_array($src) ? $src : [];
         $none = ['fee_fixed' => 0.0, 'fee_percent' => 0.0, 'fee_mode' => 'organizer', 'fee_label' => self::LABEL_DEFAULT, 'gateway_fee_fixed' => 0.0, 'gateway_fee_percent' => 0.0,
             'gateway_fee_mode' => 'organizer', 'gateway_fee_included' => false, 'fee_rounding' => 'none', 'fee_rounding_custom' => 0.0, 'fee_max_per_ticket' => 0.0, 'fee_max_per_order' => 0.0,
             'fee_show_in_selector' => 0, 'fee_split_share' => 50.0, 'source_fee' => true];
-        $broker = class_exists('TIX_Partner_Broker') ? TIX_Partner_Broker::partner_for_event($event_id) : null;
+        $broker = (!$co_copy && class_exists('TIX_Partner_Broker')) ? TIX_Partner_Broker::partner_for_event($event_id) : null;
         $cf = ($broker && class_exists('TIX_Channel_Fee')) ? TIX_Channel_Fee::for_partner($broker) : null;
         if ($cf) {
             $mode = in_array($src['channel_mode'] ?? '', self::MODES, true) ? $src['channel_mode'] : 'customer';
@@ -476,6 +483,22 @@ class TIX_Fees {
             'gateway_fee_fixed' => max(0.0, floatval($g['fixed'] ?? 0)), 'gateway_fee_percent' => max(0.0, floatval($g['percent'] ?? 0)),
             'gateway_fee_mode' => ($g['mode'] ?? '') === 'customer' ? 'customer' : 'organizer', 'gateway_fee_included' => !empty($g['included']),
         ]);
+    }
+
+    /**
+     * Plattform → Co-Seite (1.38.759, User-Regel „Ersteller ist Geldempfänger → seine Gebühr gilt überall“): Gebührenregel des
+     * Erstellers für ein Co-Event. Spiegel einer Lizenzseite: die mitgesendete Regel der Quelle (`_tix_source_fee`, ohne Kanal-Gebühr –
+     * der Verkauf über die Co-Seite läuft ohne Kanal-Gebühr); eigenes Plattform-Event: die Gebühr der Plattform für den Ersteller.
+     * null, wenn ein Co das Geld einnimmt (dann rechnet die Seite des Co mit ihrer Regel).
+     */
+    public static function creator_fee_rule($event_id) {
+        $event_id = intval($event_id);
+        if (class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($event_id)) return null;
+        if (get_post_meta($event_id, '_tix_syndicated', true) === '1') {
+            $src = get_post_meta($event_id, '_tix_source_fee', true);
+            return is_array($src) ? $src : ['fixed' => 0.0, 'percent' => 0.0, 'mode' => 'organizer', 'label' => self::LABEL_DEFAULT, 'gateway' => ['mode' => 'organizer']];
+        }
+        return self::source_fee_payload($event_id);
     }
 
     /** Für die Verteilung (Quelle → Plattform): eigene Gebühr dieses Events, ohne Kanal-Gebühr. */
