@@ -203,8 +203,8 @@ class TIX_Fees {
         $config['fee_label'] = self::safe_label($config['fee_label']);
         $config['fee_split_share'] = self::split_share($s);
 
-        // Partner-Anfrage mit Gebühr im evendis-Kanal: ersetzt die eigene Gebühr der Quelle (TIX_Channel_Fee)
-        if (class_exists('TIX_Channel_Fee') && TIX_Channel_Fee::current()) return TIX_Channel_Fee::override($config);
+        // Partner-Anfrage mit Gebühr im evendis-Kanal: seit 1.38.760 zahlt der Käufer die eigene Gebühr der Quelle; die Kanal-Gebühr
+        // trägt die Quelle (TIX_Channel_Fee::record) – die Konfiguration bleibt also die eigene (inkl. Veranstalter-Gebühr).
 
         // Mehr-Veranstalter-Modus (evendis): zentrale Gebühr; eigene Höhe je Veranstalter nur durch
         // Plattform-Admins (`_tix_fee_custom`), „wer trägt sie“ wählt der Veranstalter selbst (`_tix_fee_override`).
@@ -453,25 +453,19 @@ class TIX_Fees {
         $event_id = intval($event_id);
         $own = self::get_fee_config(self::get_organizer_for_event($event_id));
         if (!$event_id) return $own;
-        // Kunden-Seite: Kopie eines Co-Events der Plattform (1.38.759). Nimmt der Ersteller ein, gilt seine Regel (`_tix_source_fee` aus dem
-        // Co-Abgleich); verkauft diese Seite selbst (Co nimmt ein), gilt die eigene.
+        // Regel des Erstellers gilt IMMER (User-Entscheide 11.11., 1.38.759/760) – auch wenn ein Co das Geld einnimmt und diese Seite
+        // selbst verkauft. Kunden-Seite: Kopie eines Co-Events (`_tix_source_fee` aus dem Co-Abgleich); Plattform: Spiegel (`_tix_source_fee`
+        // aus der Verteilung). Eine Kanal-Gebühr zahlt der Käufer nie (trägt die Quelle). Ohne mitgesendete Regel (ältere Gegenseite):
+        // verkauft diese Seite selbst → eigene Regel, sonst keine Gebühr in der Anzeige.
         $co_copy = !self::multi() && intval(get_post_meta($event_id, '_tix_platform_co', true)) > 0;
-        if ($co_copy) {
-            if (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_local($event_id)) return $own;
-            if (!metadata_exists('post', $event_id, '_tix_source_fee')) return $own; // ältere Plattform ohne Regel
-        } elseif (get_post_meta($event_id, '_tix_syndicated', true) !== '1') return $own;
-        if (!$co_copy && class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id)) return $own;
+        if (!$co_copy && get_post_meta($event_id, '_tix_syndicated', true) !== '1') return $own;
+        $sells_here = $co_copy ? (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_local($event_id)) : (class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id));
+        if (!metadata_exists('post', $event_id, '_tix_source_fee') && ($co_copy || $sells_here)) return $own;
         $src = get_post_meta($event_id, '_tix_source_fee', true);
         $src = is_array($src) ? $src : [];
         $none = ['fee_fixed' => 0.0, 'fee_percent' => 0.0, 'fee_mode' => 'organizer', 'fee_label' => self::LABEL_DEFAULT, 'gateway_fee_fixed' => 0.0, 'gateway_fee_percent' => 0.0,
             'gateway_fee_mode' => 'organizer', 'gateway_fee_included' => false, 'fee_rounding' => 'none', 'fee_rounding_custom' => 0.0, 'fee_max_per_ticket' => 0.0, 'fee_max_per_order' => 0.0,
             'fee_show_in_selector' => 0, 'fee_split_share' => 50.0, 'source_fee' => true];
-        $broker = (!$co_copy && class_exists('TIX_Partner_Broker')) ? TIX_Partner_Broker::partner_for_event($event_id) : null;
-        $cf = ($broker && class_exists('TIX_Channel_Fee')) ? TIX_Channel_Fee::for_partner($broker) : null;
-        if ($cf) {
-            $mode = in_array($src['channel_mode'] ?? '', self::MODES, true) ? $src['channel_mode'] : 'customer';
-            return array_merge($none, ['fee_fixed' => floatval($cf['fixed']), 'fee_percent' => floatval($cf['percent']), 'fee_mode' => $mode, 'fee_label' => self::safe_label($cf['label']), 'channel_fee' => true]);
-        }
         if (!$src) return $none;
         $g = (array) ($src['gateway'] ?? []);
         return array_merge($none, [
@@ -489,11 +483,10 @@ class TIX_Fees {
      * Plattform → Co-Seite (1.38.759, User-Regel „Ersteller ist Geldempfänger → seine Gebühr gilt überall“): Gebührenregel des
      * Erstellers für ein Co-Event. Spiegel einer Lizenzseite: die mitgesendete Regel der Quelle (`_tix_source_fee`, ohne Kanal-Gebühr –
      * der Verkauf über die Co-Seite läuft ohne Kanal-Gebühr); eigenes Plattform-Event: die Gebühr der Plattform für den Ersteller.
-     * null, wenn ein Co das Geld einnimmt (dann rechnet die Seite des Co mit ihrer Regel).
+     * Seit 1.38.760 auch, wenn ein Co das Geld einnimmt (User: „immer die Regel des Erstellers“).
      */
     public static function creator_fee_rule($event_id) {
         $event_id = intval($event_id);
-        if (class_exists('TIX_Co_Money') && TIX_Co_Money::owner_id($event_id)) return null;
         if (get_post_meta($event_id, '_tix_syndicated', true) === '1') {
             $src = get_post_meta($event_id, '_tix_source_fee', true);
             return is_array($src) ? $src : ['fixed' => 0.0, 'percent' => 0.0, 'mode' => 'organizer', 'label' => self::LABEL_DEFAULT, 'gateway' => ['mode' => 'organizer']];
@@ -523,7 +516,7 @@ class TIX_Fees {
         $price = floatval($item['price'] ?? 0);
         $qty = max(0, intval($item['qty'] ?? 0));
         if ($price <= 0 || !$qty || self::is_item_fee_exempt($item)) return 0.0;
-        $cfg = self::get_fee_config(self::get_organizer_for_event(intval($item['event_id'] ?? 0)));
+        $cfg = self::display_config(intval($item['event_id'] ?? 0));
         $share = self::customer_share($cfg);
         return $share > 0 ? round(self::calc_platform_fee($price, null, $cfg) * $share * $qty, 2) : 0.0;
     }
@@ -561,8 +554,8 @@ class TIX_Fees {
 
         // Ermittle Organizer (alle Items eines Warenkorbs gehören typischerweise einem Veranstalter)
         $first_event = $items[0]['event_id'] ?? null;
-        $organizer_id = $first_event ? self::get_organizer_for_event($first_event) : null;
-        $cfg = self::get_fee_config($organizer_id);
+        // Regel des Events: eigene bzw. bei Kopien/Spiegeln, die diese Seite verkauft, die des Erstellers (1.38.760)
+        $cfg = $first_event ? self::display_config(intval($first_event)) : self::get_fee_config(null);
 
         return self::calc_with_config($items, $cfg);
     }

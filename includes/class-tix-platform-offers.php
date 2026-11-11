@@ -149,7 +149,7 @@ class TIX_Platform_Offers {
             $b('shop_domain', 'Shop unter deiner Domain', 'In deinem Look, Betrieb durch uns.', 'shop'),
             $b('daten_gehoeren_dir', 'Gäste und Bestellungen gehören dir', 'Deine Gäste kaufen direkt bei dir.', 'shop'),
             $b('null_je_ticket', '0 € je Ticket', 'Keine Gebühr je Ticket in deinem eigenen Shop.', 'shop'),
-            $b('evendis_kanal', 'Zusätzlich auf evendis.de', 'Verkäufe über evendis.de: ' . $ch_txt . '.', 'shop'),
+            $b('evendis_kanal', 'Zusätzlich auf evendis.de', 'Verkäufe über evendis.de: ' . $ch_txt . '. Die Gebühr trägst du; deine Gäste zahlen nur deine eigene Service- bzw. Vorverkaufsgebühr.', 'shop'),
             $b('einrichtung_inklusive', 'Einrichtung inklusive', 'Beim Jahresvertrag richten wir deinen Shop für dich ein.', 'shop'),
             $b('updates', 'Updates und Support inklusive', 'Neue Funktionen kommen automatisch dazu.', 'shop'),
             // Eigene App

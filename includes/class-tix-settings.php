@@ -7531,13 +7531,9 @@ class TIX_Settings {
                                             <?php self::text_row('partner_api_key', 'Partner-Schlüssel (von der Plattform)', $s, 'tix_pout_...'); ?>
                                             <div class="tix-field">
                                                 <label class="tix-field-label">Gebühr der Plattform (evendis-Kanal)</label>
-                                                <?php $cfm = (string) ($s['channel_fee_mode'] ?? 'customer'); ?>
-                                                <select name="tix_settings[channel_fee_mode]" style="width:280px;">
-                                                    <option value="customer" <?php selected($cfm, 'customer'); ?>>Gäste zahlen (wird aufgeschlagen)</option>
-                                                    <option value="split" <?php selected($cfm, 'split'); ?>>Halb-halb</option>
-                                                    <option value="organizer" <?php selected($cfm, 'organizer'); ?>>Ich trage sie (Gäste zahlen den Ticketpreis)</option>
-                                                </select>
-                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Nur für Verkäufe über die App/Website der Plattform, wenn die Plattform eine Gebühr vereinbart hat. Verkäufe in deinem eigenen Shop sind nicht betroffen. Die Plattform rechnet die Gebühr monatlich ab.</p>
+                                                <input type="hidden" name="tix_settings[channel_fee_mode]" value="organizer">
+                                                <p style="margin:4px 0 0;">Du trägst sie. Gäste zahlen bei Verkäufen über die Plattform nur deine eigene Service-/Vorverkaufsgebühr.</p>
+                                                <p class="tix-field-hint" style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Nur für Verkäufe über die App/Website der Plattform, wenn die Plattform eine Gebühr vereinbart hat. Verkäufe in deinem eigenen Shop sind nicht betroffen. Die Plattform rechnet die Gebühr monatlich mit dir ab.</p>
                                             </div>
                                             <div class="tix-field tix-field-full" style="border-top:1px solid #e5e7eb;padding-top:12px;margin-top:4px;">
                                                 <label class="tix-field-label">Mit Plattform verbinden</label>

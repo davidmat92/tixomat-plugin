@@ -9,10 +9,11 @@ if (!defined('ABSPATH')) exit;
  * ohne Feld = aus (KitchenKlub, Mallorca: „keine Provision“). Die Vermittlung schickt den Satz bei
  * Angebot und Bestellung als `channel_fee {percent, fixed, label}` an die Partner-API der Quelle.
  *
- * Quelle: Wer die Gebühr trägt, wählt die Quelle (Einstellung `channel_fee_mode`: customer | split |
- * organizer, Vorgabe customer). Für die Dauer der Partner-Anfrage ersetzt die Kanal-Gebühr die eigene
- * Gebühr der Quelle (TIX_Fees::get_fee_config), erscheint also im Partner-Angebot. Je Bestellung
- * Option `_tix_order_channel_fee_{id}`; Status-Antwort und Webhooks tragen `channel_fee`.
+ * Quelle (ab 1.38.760, User-Entscheid 11.11.): Der Käufer zahlt bei vermittelten Quell-Events NUR die eigene Service-/
+ * Vorverkaufsgebühr der Quelle (Regel des Erstellers). Die Kanal-Gebühr trägt die Quelle intern – unabhängig von der früheren
+ * Einstellung `channel_fee_mode` (wird ignoriert). Sie wird je Bestellung aus den Positionen berechnet (Prozent vom Ticketpreis
+ * + Fixbetrag je Ticket, ohne Freitickets/gebührenfreie Kategorien/Gutscheine) und als Option `_tix_order_channel_fee_{id}`
+ * festgehalten (fee_customer 0, fee_organizer = fee); Status-Antwort und Webhooks tragen `channel_fee`.
  * Kassiert wird per Monatsrechnung der Plattform (TIX_Channel_Invoice).
  */
 class TIX_Channel_Fee {
@@ -65,7 +66,7 @@ class TIX_Channel_Fee {
             'percent' => round($pct, 4),
             'fixed'   => round($fix, 2),
             'label'   => mb_substr(sanitize_text_field((string) ($cf['label'] ?? 'Servicegebühr')), 0, 60) ?: 'Servicegebühr',
-            'mode'    => self::mode(),
+            'mode'    => 'organizer', // trägt die Quelle (1.38.760)
         ];
     }
 
@@ -77,45 +78,53 @@ class TIX_Channel_Fee {
         return self::$current;
     }
 
-    /** Wer trägt die Kanal-Gebühr? (Einstellung der Quelle) */
+    /** Wer trägt die Kanal-Gebühr? Seit 1.38.760 immer die Quelle (Veranstalter), nie der Käufer. */
     public static function mode() {
-        $m = function_exists('tix_get_settings') ? (string) tix_get_settings('channel_fee_mode') : '';
-        return in_array($m, self::MODES, true) ? $m : 'customer';
+        return 'organizer';
     }
 
-    /** Gebühren-Konfiguration für die Dauer der Partner-Anfrage ersetzen. */
+    /**
+     * Gebühren-Konfiguration während der Partner-Anfrage: seit 1.38.760 unverändert – der Käufer zahlt die eigene Gebühr der Quelle
+     * (Regel des Erstellers); die Kanal-Gebühr berechnet record() separat zu Lasten der Quelle.
+     */
     public static function override(array $config) {
-        $cf = self::$current;
-        if (!$cf) return $config;
-        $config['fee_percent']        = $cf['percent'];
-        $config['fee_fixed']          = $cf['fixed'];
-        $config['fee_mode']           = $cf['mode'];
-        $config['fee_label']          = $cf['label'];
-        $config['fee_max_per_ticket'] = 0.0;
-        $config['fee_max_per_order']  = 0.0;
-        $config['fee_rounding']       = 'none';
-        $config['fee_custom']         = false;
-        $config['gateway_fee_included'] = false;
-        $config['channel_fee']        = true;
         return $config;
     }
 
-    /** Je Bestellung festhalten (nach dem Gebühren-Schnappschuss der Kasse). */
+    /** Kanal-Gebühr einer Bestellung aus den Positionen (Prozent + Fixbetrag je Ticket), ohne Freitickets/Ausnahmen. */
+    public static function amount_for_order($order_id, array $cf) {
+        $fd = get_option('_tix_order_fees_' . intval($order_id));
+        $lines = is_array($fd) ? (array) ($fd['lines'] ?? []) : [];
+        if (!$lines) { // ältere Kasse ohne `lines`: Positionen der Bestellung
+            global $wpdb;
+            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT event_id, quantity, total FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", intval($order_id))) as $r) {
+                $q = max(0, intval($r->quantity));
+                if ($q) $lines[] = ['event_id' => intval($r->event_id), 'cat_index' => -1, 'price' => round(floatval($r->total) / $q, 2), 'qty' => $q];
+            }
+        }
+        $fee = 0.0;
+        foreach ($lines as $l) {
+            $p = floatval($l['price'] ?? 0); $q = intval($l['qty'] ?? 0);
+            if ($p <= 0 || $q <= 0) continue;
+            if (class_exists('TIX_Fees') && TIX_Fees::is_item_fee_exempt(['event_id' => intval($l['event_id'] ?? 0), 'cat_index' => intval($l['cat_index'] ?? -1), 'meta' => (array) ($l['meta'] ?? [])])) continue;
+            $fee += ($p * floatval($cf['percent']) / 100 + floatval($cf['fixed'])) * $q;
+        }
+        return round($fee, 2);
+    }
+
+    /** Je Bestellung festhalten: Kanal-Gebühr zu Lasten der Quelle (1.38.760). */
     public static function record($order_id) {
         $cf = self::$current;
         if (!$cf) return;
-        $f = get_option('_tix_order_fees_' . intval($order_id));
-        $fee = is_array($f) ? round(floatval($f['platform_fee'] ?? 0), 2) : 0.0;
-        $cust = is_array($f) && isset($f['platform_fee_customer']) ? round(floatval($f['platform_fee_customer']), 2)
-            : ($cf['mode'] === 'customer' ? $fee : 0.0);
+        $fee = self::amount_for_order($order_id, $cf);
         update_option('_tix_order_channel_fee_' . intval($order_id), [
             'partner'       => class_exists('TIX_App_Checkout') && !empty(TIX_App_Checkout::$partner['id']) ? (string) TIX_App_Checkout::$partner['id'] : '',
             'percent'       => $cf['percent'],
             'fixed'         => $cf['fixed'],
-            'mode'          => $cf['mode'],
+            'mode'          => 'organizer',
             'fee'           => $fee,
-            'fee_customer'  => $cust,
-            'fee_organizer' => round($fee - $cust, 2),
+            'fee_customer'  => 0.0,
+            'fee_organizer' => $fee,
         ], false);
     }
 

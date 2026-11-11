@@ -1,10 +1,10 @@
 <?php
 /**
- * Servicegebühr bei Co-Events (1.38.759, User-Regel): nimmt der Ersteller das Geld ein, gilt überall SEINE Gebührenregel.
+ * Servicegebühr bei Co-Events (1.38.759/760, User-Regeln): nimmt der Ersteller das Geld ein, gilt überall SEINE Gebührenregel.
  *   Plattform:    wp eval-file …/test-fee-creator-rule-wp.php   (creator_fee_rule: Spiegel → Regel der Quelle, eigenes Event → Plattform, Co nimmt ein → null)
  *   Einzel-Seite: wp eval-file …/test-fee-creator-rule-wp.php   (Kopie rechnet mit der Regel des Erstellers statt eigener)
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'creator_fee_rule')) { echo "Tixomat ab 1.38.759 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'creator_fee_rule')) { echo "Tixomat ab 1.38.760 nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
@@ -36,7 +36,15 @@ try {
             $oc = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'CR Co']); $tmp[] = $oc;
             TIX_Co_Organizer::set($own, $oc, true, 0);
             update_post_meta($own, TIX_Co_Money::META_OWNER, 'co');
-            cr_eq('Co nimmt ein: null (Co-Seite rechnet mit eigener Regel)', null, TIX_Fees::creator_fee_rule($own));
+            cr_eq('Co nimmt ein: trotzdem Regel des Erstellers (1.38.760)', true, is_array(TIX_Fees::creator_fee_rule($own)));
+            update_post_meta($mir, '_tix_co_remote_oid', $oc); update_post_meta($mir, '_tix_co_remote_access', '1'); update_post_meta($mir, TIX_Co_Money::META_OWNER, 'co');
+            cr_eq('Spiegel, Co nimmt ein: Regel der Quelle (1,50 €)', 1.5, floatval((TIX_Fees::creator_fee_rule($mir) ?: [])['fixed'] ?? 0));
+            if (TIX_Co_Seller::sells_here($mir)) {
+                $cfg = TIX_Fees::display_config($mir);
+                cr_eq('Fall B (Plattform verkauft selbst): Kasse/Anzeige mit Regel der Quelle', [1.5, 'Vorverkaufsgebühr'], [$cfg['fee_fixed'], $cfg['fee_label']]);
+                $f = TIX_Fees::calc_order_fees([['price' => 20, 'qty' => 2, 'event_id' => $mir, 'cat_index' => 0]]);
+                cr_eq('Fall B Kasse: 2 × 1,50 € = 3,00 €', 3.0, floatval($f['customer_fee_line']));
+            }
         }
     } else {
         echo "== Einzel-Seite (Co-Seite, z. B. KMT)\n";
@@ -55,6 +63,26 @@ try {
         cr_eq('Kopie Preis-Felder: Endpreis 21,50', 21.5, floatval(get_post_meta($cp, '_tix_price_min_total', true)));
         delete_post_meta($cp, '_tix_source_fee');
         cr_eq('ältere Plattform ohne Regel: eigene Regel (unverändert wie bisher)', TIX_Fees::get_fee_config()['fee_mode'], TIX_Fees::display_config($cp)['fee_mode']);
+        // Co-Seite verkauft selbst (Co nimmt ein): trotzdem Regel des Erstellers, auch in der Kasse (1.38.760)
+        update_post_meta($cp, '_tix_source_fee', $kk_rule);
+        update_post_meta($cp, '_tix_platform_co_sells', '1'); update_post_meta($cp, '_tix_platform_co_sale', '0');
+        $f = TIX_Fees::calc_order_fees([['price' => 20, 'qty' => 2, 'event_id' => $cp, 'cat_index' => 0]]);
+        cr_eq('Kopie verkauft selbst: Kasse 2 × 1,50 € (Regel des Erstellers) statt 2 × 3 €', [3.0, 'Vorverkaufsgebühr'], [floatval($f['customer_fee_line']), $f['fee_label']]);
+        echo "-- Kanal-Gebühr trägt die Quelle\n";
+        $o = 990000 + wp_rand(1, 9999);
+        update_option('_tix_order_fees_' . $o, ['customer_fee_line' => 3.0, 'lines' => [['event_id' => $own_ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CR Quelle', 'meta_input' => ['_tix_ticket_categories' => $cats + [1 => ['name' => 'Frei', 'price' => 0]]]]), 'cat_index' => 0, 'price' => 20, 'qty' => 2, 'fee' => 6.0],
+            ['event_id' => $own_ev, 'cat_index' => 1, 'price' => 0, 'qty' => 3, 'fee' => 0]]], false);
+        $tmp[] = $own_ev;
+        $rq = new WP_REST_Request('POST', '/tixomat/v1/partner/quote'); $rq->set_param('channel_fee', ['percent' => 2.9, 'fixed' => 0.49, 'label' => 'Servicegebühr']);
+        TIX_Channel_Fee::begin($rq);
+        $c1 = TIX_Fees::get_fee_config(); 
+        TIX_Channel_Fee::record($o);
+        TIX_Channel_Fee::end();
+        $c0 = TIX_Fees::get_fee_config();
+        $rec = get_option('_tix_order_channel_fee_' . $o);
+        cr_eq('während der Vermittlung: Käufer-Regel unverändert (keine Kanal-Gebühr für den Käufer)', [$c0['fee_fixed'], $c0['fee_mode'], $c0['fee_label']], [$c1['fee_fixed'], $c1['fee_mode'], $c1['fee_label']]);
+        cr_eq('Kanal-Gebühr: 2 × (20 € × 2,9 % + 0,49 €) = 2,14 € zu Lasten der Quelle, Freitickets ohne', [2.14, 0.0, 2.14, 'organizer'], [$rec['fee'] ?? null, $rec['fee_customer'] ?? null, $rec['fee_organizer'] ?? null, $rec['mode'] ?? null]);
+        delete_option('_tix_order_fees_' . $o); delete_option('_tix_order_channel_fee_' . $o);
         $own = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CR eigenes KMT', 'meta_input' => ['_tix_date_start' => '2027-10-05', '_tix_ticket_categories' => $cats]]);
         $tmp[] = $own;
         cr_eq('eigenes Event der Co-Seite: eigene Regel', [TIX_Fees::get_fee_config()['fee_fixed'], TIX_Fees::get_fee_config()['fee_label']], [TIX_Fees::display_config($own)['fee_fixed'], TIX_Fees::display_config($own)['fee_label']]);

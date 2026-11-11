@@ -5982,3 +5982,19 @@ User-Regel 11.11.: Nimmt der Ersteller das Geld ein, gilt überall seine Gebühr
   - Co nimmt ein: Regel der verkaufenden Seite.
   - Beides entscheidet der User über die Zentrale.
 - **Tests:** `test-fee-creator-rule-wp` (Plattform 4, Einzel-Seite 5); Co-, Spiegel- und Gebühren-Tests grün.
+
+## 164. Immer die Regel des Erstellers; Kanal-Gebühr trägt die Quelle (ab 1.38.760)
+User-Entscheide 11.11.
+- **(1) Kanal-Gebühr:**
+  - Der Käufer zahlt bei vermittelten Quell-Events nur die eigene Gebühr der Quelle. `TIX_Channel_Fee::override` ändert nichts mehr; `get_fee_config` kehrt nicht mehr früh zurück, die Veranstalter-Gebühr der Quelle gilt also mit.
+  - `record` berechnet die Kanal-Gebühr aus `lines` der Bestellung (`amount_for_order`, Rückfall Positionen), zu Lasten der Quelle (`fee_customer` 0); die Monatsrechnung bleibt.
+  - `channel_fee_mode` wird ignoriert (`mode()` = organizer); im WP-Admin steht ein Hinweis statt der Auswahl.
+  - Anzeige auf der Plattform: Der Spiegel zeigt die Gebühr der Quelle (kein Kanal-Zweig mehr in `display_config`).
+- **(2) Co nimmt ein:**
+  - `creator_fee_rule` liefert immer die Regel des Erstellers.
+  - `display_config` nutzt `_tix_source_fee` auch dann, wenn diese Seite selbst verkauft (`sells_here` / `sells_local`); ohne Feld gilt die eigene Regel.
+  - `calc_order_fees` und `item_fee` rechnen mit `display_config` des Events, damit gilt die Regel auch in der Kasse.
+- **Texte:**
+  - Katalog „Zusätzlich auf evendis.de“: „Die Gebühr trägst du; deine Gäste zahlen nur deine eigene Service- bzw. Vorverkaufsgebühr.“
+  - Vermittlungsvertrag §5 Abs. 4: „Die Kanal-Gebühr trägt der Veranstalter; den Gästen wird sie nicht berechnet …“.
+- **Tests:** `test-fee-creator-rule-wp` (Plattform 7, Einzel-Seite 8), Co/Gebühren/Spiegel grün.
