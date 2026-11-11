@@ -226,6 +226,9 @@ class TIX_Site_Config {
             'features' => [
                 // 1.38.742: „Keine Zahlungen anbieten“ ohne Anbieter → keine Online-Kasse auf der Website
                 'checkout' => !(class_exists('TIX_Studio_Payments') && method_exists('TIX_Studio_Payments', 'state_of') && TIX_Studio_Payments::state_of() === 'none'),
+                // 1.38.762: vermittelte Co-Events (Verkauf über die Plattform, Zahlung beim Geldempfänger) bleiben auch ohne eigene Kasse
+                // kaufbar – die Website erlaubt die Kasse je Event, wenn checkout ODER (checkout_brokered UND event.syndicated.brokered)
+                'checkout_brokered' => class_exists('TIX_Co_Sale') && !(class_exists('TIX_App_Scope') && TIX_App_Scope::multi()),
                 'music' => class_exists('TIX_Music') && TIX_Music::enabled(),
                 'awareness' => class_exists('TIX_Awareness_Live') ? (bool) (TIX_Awareness_Live::flags()['report_enabled'] ?? false) : false,
                 'wallet' => $wallet,

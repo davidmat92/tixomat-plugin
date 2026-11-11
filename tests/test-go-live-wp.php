@@ -63,6 +63,7 @@ if (!$multi) {
         [$s, $d] = $rest('POST', '/studio/payments', ['none' => true]);
         $eq('„Keine Zahlungen anbieten“ gespeichert, Zustand none', [200, true], [$s, in_array(TIX_Studio_Payments::state_of(), ['none', 'ok'], true)]);
         $eq('Website: keine Online-Kasse bei „keine Zahlungen“ ohne Anbieter', TIX_Studio_Payments::state_of() === 'none' ? false : true, (bool) (TIX_Site_Config::payload()['features']['checkout'] ?? true));
+        $eq('Website: vermittelte Co-Events bleiben kaufbar (checkout_brokered, 1.38.762)', true, (bool) (TIX_Site_Config::payload()['features']['checkout_brokered'] ?? false));
         $rd = TIX_Owner_Access::readiness();
         $eq('Startklar an die Plattform: payment true, payment_mode, legal_detail', [true, true, 4], [$rd['payment'], in_array($rd['payment_mode'], ['none', 'ok'], true), count((array) $rd['legal_detail'])]);
         // Anfrage

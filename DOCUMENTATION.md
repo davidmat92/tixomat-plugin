@@ -6011,3 +6011,8 @@ Wortlaut der Rechtstexte („Abgleich 1.38.760“, `docs/rechtstexte/pruefmappe/
   - § 8h Wechsel auf eine eigene Website;
   - § 10 Abs. 3 Zusatz „oder lässt sie nach § 8h … übertragen“.
 - **Prüfvermerke:** In §§ 8a–8h stehen keine `[PRÜFEN …]`-Vermerke (wie bisher in der Plugin-Kopie); die übrigen blendet die Darstellung aus. Eine neue Vertragsversion entsteht erst, wenn die Vorlage auf evendis aktiv ist (`terms_source = template`).
+
+## 166. `features.checkout_brokered` (ab 1.38.762)
+- **Fund KMT (live):** „Keine Zahlungen anbieten“ setzt `features.checkout = false`. Die Homepages sperren daraufhin die Kasse aller Events, auch vermittelter Co-Events (KK #1171 über die Plattform, Zahlung bei KK). Readiness, Live-Schalten und die App-Quote sperren nicht.
+- **Neu:** `/public/site-config` → `features.checkout_brokered` (Kunden-Seiten: true). Die Homepage erlaubt die Kasse je Event bei `checkout || (checkout_brokered && syndicated.brokered)`. Vertrag: `vertrag-live-durch-kunde.md`, Nachtrag.
+- **Test:** `test-go-live-wp` 17.
