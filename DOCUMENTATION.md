@@ -5947,3 +5947,20 @@ Fund 11.11. (KMT-Studio „Deine Künstler“: 12 eigene, 1 geteilt; Andreas Kö
   - `TIX_Shared_Objects::accidental_own($aid)` erkennt versehentlich eigene Künstler: aus dem Line-up angelegt, nur Kopien zugeordnet, ohne eigene Angaben, eigenes Bild oder Follower, nicht umgezogen.
   - `sync_artists` ersetzt solche Künstler durch den Spiegel der Quelle (`drop_own`, Protokoll `tix_shared_objects_dropped`). Die Spiegel-Reparatur läuft einmal automatisch (`tix_shared_objects_repair_755`).
 - **Tests:** `test-artists-assign-wp` 9 (neu); artist-images, artists-import, lineup-acts, lineup-artist-link, shared-objects grün auf Einzel-Seite und Plattform. `test-artist-images-repair-wp` hat auf der Test-Einzel-Seite 2 Fehler im Umzug-Teil (Plattform nicht erreichbar); die gab es schon vor dieser Änderung (15f20dc).
+
+## 161. Schreibweise im Line-up angleichen (ab 1.38.756)
+Fund KK #1171 (KK-App: „Micha Schuh“ und „Maurice Die Partykanone“ ohne Bild): drei verschiedene Schreibweisen.
+
+| Quelle | Micha | Maurice |
+|---|---|---|
+| Künstler | „Micha Schue“ (Adresse `micha-schuh`) | „Maurice Die Partykanone“ |
+| Line-up-Text | „Micha Schuh“ | „Maurice Die Partykanone“ |
+| Programm | „Micha Schue“ | „Maurice Die Partykanona“ |
+
+- Die Plattform führt Tippfehler zu einem Act zusammen (`similar_norm`); `lineup_acts` stimmen (Name des Künstlers, Bild).
+- Die KK-App nimmt die Namen aus dem Line-up-Text und findet die Zeile in `lineup_acts` (Zeile aus dem Programm) nur bei genau gleicher Schreibweise. Bei Abweichung zeigt sie den falschen Namen ohne Bild.
+- **Neu:** `TIX_Artists::align_spelling($event, $dry)` und `wp tixomat artists schreibweise [--event=<id>] [--trocken]`.
+  - Line-up-Text und Programm werden an den Namen des verknüpften Künstlers angeglichen, nur bei Tippfehler-Ähnlichkeit.
+  - Zusätze („(DJ/Moderation)“, „(live)“) und Zeit-Präfixe bleiben; danach werden geteilte Events neu verteilt.
+  - Läuft nicht automatisch: Es ändert Inhalte des Veranstalters und wird nur per Button ausgeführt.
+- **Test:** `test-artists-assign-wp` 13.

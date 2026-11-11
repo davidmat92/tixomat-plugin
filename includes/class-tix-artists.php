@@ -254,6 +254,74 @@ class TIX_Artists {
         return $n;
     }
 
+    /**
+     * Schreibweise angleichen (1.38.756, Fund KK #1171): Line-up-Text (_tix_info_lineup) und Programm (_tix_timetable) nennen
+     * verknüpfte Acts mit Tippfehlern („Micha Schuh“ / „Maurice Die Partykanona“), der Künstler heißt anders. Die Plattform erkennt
+     * das als denselben Act, Apps mit genauem Vergleich nicht (falscher Name, kein Bild). Angeglichen wird nur bei Tippfehler-Ähnlichkeit
+     * an den Namen des verknüpften Künstlers; Zusätze wie „(DJ/Moderation)“ und Zeit-Präfixe bleiben. → {events, rows[{event_id, where, from, to}]}
+     */
+    public static function align_spelling($event_id = 0, $dry = false) {
+        if (!class_exists('TIX_Lineup_Links')) return ['events' => 0, 'rows' => []];
+        $ids = $event_id ? [intval($event_id)] : array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future'], 'posts_per_page' => 500, 'fields' => 'ids',
+            'meta_query' => [['key' => self::EV_LINEMAP, 'compare' => 'EXISTS'], ['key' => '_tix_date_start', 'value' => current_time('Y-m-d'), 'compare' => '>=', 'type' => 'DATE']]]));
+        $out = ['events' => 0, 'rows' => []];
+        foreach ($ids as $eid) {
+            if (self::is_copy($eid)) continue;
+            $names = [];
+            foreach (self::line_map($eid) as $k => $aid) if (($aid = self::usable(intval($aid)))) $names[] = html_entity_decode((string) get_the_title($aid), ENT_QUOTES, 'UTF-8');
+            if (!$names) continue;
+            $out['events']++;
+            // Ein Eintrag: [Präfix „Zeit: “][Name][ (Zusatz)] → angeglichener Text oder null
+            $fix = function ($text) use ($names) {
+                $t = (string) $text;
+                $pre = ''; $core = $t; $suf = '';
+                $i = mb_strpos($core, ':'); if ($i !== false && $i < 12) { $pre = mb_substr($core, 0, $i + 1) . ' '; $core = ltrim(mb_substr($core, $i + 1)); }
+                if (preg_match('/^(.*?)(\s*\(.*\))\s*$/u', $core, $m)) { $core = $m[1]; $suf = $m[2]; }
+                $cn = TIX_Lineup_Links::norm($core);
+                if ($cn === '') return null;
+                foreach ($names as $nm) {
+                    $nn = TIX_Lineup_Links::norm($nm);
+                    if ($nn === $cn) return null; // stimmt schon (Groß-/Kleinschreibung, Akzente egal)
+                    if (TIX_Lineup_Links::similar_norm($nn, $cn)) return rtrim($pre) . ($pre !== '' ? ' ' : '') . $nm . $suf;
+                }
+                return null;
+            };
+            // Line-up-Text
+            $html = (string) get_post_meta($eid, '_tix_info_lineup', true);
+            $new_html = preg_replace_callback('/(<p[^>]*>)(.*?)(<\/p>)/su', function ($m) use ($fix, &$out, $eid) {
+                $plain = html_entity_decode(wp_strip_all_tags($m[2]), ENT_QUOTES, 'UTF-8');
+                $to = $fix($plain);
+                if ($to === null) return $m[0];
+                $out['rows'][] = ['event_id' => $eid, 'where' => 'lineup', 'from' => $plain, 'to' => $to];
+                return $m[1] . esc_html($to) . $m[3];
+            }, $html);
+            // Programm
+            $tt = get_post_meta($eid, '_tix_timetable', true);
+            $tt_changed = false;
+            if (is_array($tt)) foreach ($tt as $day => &$slots) {
+                if (!is_array($slots)) continue;
+                foreach ($slots as &$sl) {
+                    if (!is_array($sl) || !isset($sl['title'])) continue;
+                    $to = $fix((string) $sl['title']);
+                    if ($to === null) continue;
+                    $out['rows'][] = ['event_id' => $eid, 'where' => 'programm', 'from' => (string) $sl['title'], 'to' => $to];
+                    $sl['title'] = $to; $tt_changed = true;
+                }
+                unset($sl);
+            }
+            unset($slots);
+            if ($dry) continue;
+            if ($new_html !== $html) update_post_meta($eid, '_tix_info_lineup', $new_html);
+            if ($tt_changed) update_post_meta($eid, '_tix_timetable', $tt);
+            if ($new_html !== $html || $tt_changed) {
+                self::flush_cache();
+                if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+                if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
+            }
+        }
+        return $out;
+    }
+
     /** POST /events/{id}/lineup-artist {name, artist_id: <id>|0|null} → Zeilen wie lineup_links (Studio, App-Veranstalterbereich) */
     public static function rest_link_line(WP_REST_Request $req) {
         $eid = absint($req['id']);
@@ -1733,7 +1801,14 @@ class TIX_Artists {
             }
             return;
         }
-        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id> | verknuepfen [--event=<id>] [--trocken]');
+        if ($cmd === 'schreibweise') {
+            $dry = isset($assoc['trocken']);
+            $r = self::align_spelling(intval($assoc['event'] ?? 0), $dry);
+            foreach ($r['rows'] as $row) WP_CLI::line(sprintf('Event %d · %s: „%s“ → „%s“', $row['event_id'], $row['where'] === 'lineup' ? 'Line-up' : 'Programm', $row['from'], $row['to']));
+            WP_CLI::success(sprintf('%d Events geprüft, %d Einträge %s.', $r['events'], count($r['rows']), $dry ? 'würden angeglichen (trocken, nichts geändert)' : 'angeglichen'));
+            return;
+        }
+        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id> | verknuepfen [--event=<id>] [--trocken] | schreibweise [--event=<id>] [--trocken]');
     }
 }
 

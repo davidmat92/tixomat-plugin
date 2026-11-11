@@ -56,6 +56,29 @@ try {
     $roles = array_column(TIX_Artists::event_list($ev), 'role', 'artist_id');
     aa_eq('link_line ordnet zu (Rolle dj aus „(DJ)“)', 'dj', $roles[$dj] ?? null);
 
+    echo "-- (C) Schreibweise angleichen (Line-up-Text, Programm)\n";
+    $ms = $mk_artist('AA Micha Schue'); $mp = $mk_artist('AA Maurice Die Partykanone'); $an = $mk_artist('AA Anna Klar');
+    $ev2 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'AA Schreibweise', 'meta_input' => ['_tix_date_start' => '2027-09-05',
+        '_tix_info_lineup' => "<p>AA Andreas Köhler (DJ/Moderation)</p>\n<p>AA Micha Schuh</p>\n<p>AA Maurice Die Partykanone</p>\n<p>AA Ganz Anders</p>",
+        '_tix_timetable' => ['2027-09-05' => [['time' => '12:30', 'title' => 'AA Andreas Köhler (DJ/Moderation)'], ['time' => '15:30', 'title' => 'AA Maurice Die Partykanona'],
+            ['time' => '16:30', 'title' => 'AA Micha Schue'], ['time' => '17:00', 'title' => 'AA Anna Klaar (live)']]]]]);
+    $tmp[] = $ev2;
+    update_post_meta($ev2, TIX_Artists::EV_LINEMAP, [TIX_Artists::act_key('AA Andreas Köhler') => $ak, TIX_Artists::act_key('AA Micha Schue') => $ms,
+        TIX_Artists::act_key('AA Maurice Die Partykanone') => $mp, TIX_Artists::act_key('AA Anna Klar') => $an]);
+    TIX_Artists::flush_cache();
+    $r = TIX_Artists::align_spelling($ev2, true);
+    $pairs = array_map(function ($x) { return $x['where'] . ': ' . $x['from'] . ' → ' . $x['to']; }, $r['rows']);
+    sort($pairs);
+    aa_eq('trocken: Line-up „Micha Schuh“, Programm „Partykanona“ und „Anna Klaar (live)“ – Zusatz bleibt, fremde Namen unberührt',
+        ['lineup: AA Micha Schuh → AA Micha Schue', 'programm: AA Anna Klaar (live) → AA Anna Klar (live)', 'programm: AA Maurice Die Partykanona → AA Maurice Die Partykanone'], $pairs);
+    aa_eq('trocken: nichts geschrieben', true, strpos((string) get_post_meta($ev2, '_tix_info_lineup', true), 'AA Micha Schuh') !== false);
+    TIX_Artists::align_spelling($ev2);
+    $tt = get_post_meta($ev2, '_tix_timetable', true)['2027-09-05'];
+    aa_eq('angeglichen: Text und Programm, Andreas und „Ganz Anders“ unverändert', [true, true, 'AA Maurice Die Partykanone', 'AA Anna Klar (live)', 'AA Andreas Köhler (DJ/Moderation)'],
+        [strpos((string) get_post_meta($ev2, '_tix_info_lineup', true), '<p>AA Micha Schue</p>') !== false, strpos((string) get_post_meta($ev2, '_tix_info_lineup', true), '<p>AA Ganz Anders</p>') !== false,
+         $tt[1]['title'], $tt[3]['title'], $tt[0]['title']]);
+    aa_eq('zweiter Lauf: nichts mehr zu tun', 0, count(TIX_Artists::align_spelling($ev2, true)['rows']));
+
     echo "-- (B) versehentlich eigene Künstler an Kopien → Spiegel\n";
     $cp = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'AA Kopie', 'meta_input' => ['_tix_date_start' => '2027-09-02',
         '_tix_syndicated' => '1', '_tix_source_url' => 'https://quelle.test/events/aa/']]);
