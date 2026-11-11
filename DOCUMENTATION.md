@@ -5936,3 +5936,14 @@ User-Klarstellung 11.11.: Auf der Plattform evendis sind die Zahlungskosten enth
 - Gedacht für den durchgestrichenen Normalpreis bei Preisphasen. Ohne Phase ist es gleich `price_total`; bei Gutscheinen kommt keine Gebühr dazu.
 - Vertrag: `vertrag-servicegebuehr.md` §5a.
 - Test: `test-fee-display-wp` 28 grün.
+
+## 160. Verknüpfte Acts zuordnen, versehentlich eigene Künstler an Kopien → Spiegel (ab 1.38.755)
+Fund 11.11. (KMT-Studio „Deine Künstler“: 12 eigene, 1 geteilt; Andreas Köhler ohne Bild):
+- **Quelle KK #1171:** Der Act „Andreas Köhler (DJ/Moderation)“ war mit Künstler #1170 verknüpft (`_tix_lineup_artist_map`), aber nicht zugeordnet (`_tix_artists`). Folge: nicht öffentlich, keine Künstlerseite, fehlt im Schnappschuss für evendis/KMT. Die Reparatur 1.38.737 hatte nur Verknüpfungen gesetzt, nicht zugeordnet.
+- **KMT:** Am 10.11. hatte „Künstler aus Line-up übernehmen“ an der Kopie (#7, vor 1.38.743) 13 eigene Künstler angelegt. Der Spiegel-Abgleich hat 12 davon als „eigene gleichen Namens“ verknüpft (Bild übernommen) statt Spiegel anzulegen. Andreas Köhler blieb ohne Bild, weil er im Schnappschuss fehlte.
+- **Behoben:**
+  - `TIX_Artists::assign_linked($event)` ordnet verknüpfte Acts zu. Die Rolle kommt aus der Line-up-Liste bzw. dem Stern, „(…Moderation…)“ ergibt host, „(…DJ…)“ ergibt dj, sonst support.
+  - Aufgerufen wird es in `link_line` (Studio „Künstler verknüpfen“) und in `repair_links`. `repair_links` verteilt geteilte Events danach neu und läuft einmal automatisch (`tix_artist_links_repair_755`).
+  - `TIX_Shared_Objects::accidental_own($aid)` erkennt versehentlich eigene Künstler: aus dem Line-up angelegt, nur Kopien zugeordnet, ohne eigene Angaben, eigenes Bild oder Follower, nicht umgezogen.
+  - `sync_artists` ersetzt solche Künstler durch den Spiegel der Quelle (`drop_own`, Protokoll `tix_shared_objects_dropped`). Die Spiegel-Reparatur läuft einmal automatisch (`tix_shared_objects_repair_755`).
+- **Tests:** `test-artists-assign-wp` 9 (neu); artist-images, artists-import, lineup-acts, lineup-artist-link, shared-objects grün auf Einzel-Seite und Plattform. `test-artist-images-repair-wp` hat auf der Test-Einzel-Seite 2 Fehler im Umzug-Teil (Plattform nicht erreichbar); die gab es schon vor dieser Änderung (15f20dc).

@@ -44,8 +44,8 @@ class TIX_Artists {
         // Einmal nach 1.38.736: Act ↔ Künstler reparieren (kommende Events), geteilte Events neu verteilen
         add_action('tix_artist_links_repair', function () { TIX_Artists::repair_links(); });
         add_action('init', function () {
-            if (get_option('tix_artist_links_repair_737', '') !== '') return; // 1.38.737: erneut, mit zugeordneten Künstlern (eine Liste)
-            update_option('tix_artist_links_repair_737', gmdate('c'), false);
+            if (get_option('tix_artist_links_repair_755', '') !== '') return; // 1.38.755: erneut, verknüpfte Acts auch zuordnen
+            update_option('tix_artist_links_repair_755', gmdate('c'), false);
             if (!wp_next_scheduled('tix_artist_links_repair')) wp_schedule_single_event(time() + 240, 'tix_artist_links_repair');
         }, 40);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artists', [__CLASS__, 'cli']);
@@ -212,7 +212,46 @@ class TIX_Artists {
         }
         if ($map) update_post_meta($event_id, self::EV_LINEMAP, $map); else delete_post_meta($event_id, self::EV_LINEMAP);
         self::flush_cache();
+        if ($aid) self::assign_linked($event_id); // verknüpft = auch zugeordnet (1.38.755)
         return true;
+    }
+
+    /**
+     * Verknüpfte Acts dem Event auch zuordnen (1.38.755): Ein Act mit gespeicherter Verknüpfung (Studio „Künstler verknüpfen“ bzw.
+     * Reparatur) gehört in die Künstler-Zuordnung (_tix_artists), sonst fehlt der Künstler öffentlich, auf seiner Künstlerseite
+     * und im Schnappschuss für geteilte Events (Fund KK #1171: „Andreas Köhler (DJ/Moderation)“ verknüpft, nicht zugeordnet).
+     * Rolle: Rolle der Line-up-Liste, Stern = headliner, „(…Moderation…)“ = host, „(…DJ…)“ = dj, sonst support. → Anzahl neu
+     */
+    public static function assign_linked($event_id, $dry = false) {
+        $event_id = intval($event_id);
+        if (!$event_id || self::is_copy($event_id)) return 0;
+        $map = self::line_map($event_id);
+        if (!$map) return 0;
+        $list = self::event_list($event_id);
+        $have = array_map('intval', array_column($list, 'artist_id'));
+        $roles = (array) get_post_meta($event_id, '_tix_lineup_roles', true);
+        $heads = array_map([__CLASS__, 'act_key'], (array) get_post_meta($event_id, '_tix_lineup_headliners', true));
+        $lines = [];
+        if (class_exists('TIX_Lineup_Links')) foreach (TIX_Lineup_Links::acts($event_id) as $act) {
+            $line = (string) ($act['line'] ?? ($act['name'] ?? ''));
+            foreach ([(string) ($act['name'] ?? ''), $line] as $nm) if (($ak = self::act_key($nm)) !== '' && !isset($lines[$ak])) $lines[$ak] = $line;
+        }
+        $n = 0;
+        foreach ($map as $k => $aid) {
+            $aid = self::usable(intval($aid));
+            if (!$aid || in_array($aid, $have, true)) continue;
+            $line = mb_strtolower($lines[$k] ?? '');
+            $role = in_array($roles[$k] ?? '', self::ROLES, true) ? $roles[$k] : (in_array($k, $heads, true) ? 'headliner'
+                : (strpos($line, 'moderation') !== false ? 'host' : (preg_match('/\(([^)]*\b)?dj\b/u', $line) ? 'dj' : 'support')));
+            if (!in_array($role, self::ROLES, true)) $role = 'support';
+            $list[] = ['artist_id' => $aid, 'role' => $role, 'tour' => null, 'by_organizer' => 0, 'at' => gmdate('c'), 'notified' => false];
+            $have[] = $aid; $n++;
+        }
+        if ($n && !$dry) {
+            self::apply($event_id, $list);
+            if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        }
+        return $n;
     }
 
     /** POST /events/{id}/lineup-artist {name, artist_id: <id>|0|null} → Zeilen wie lineup_links (Studio, App-Veranstalterbereich) */
@@ -272,8 +311,11 @@ class TIX_Artists {
             if ($changed && !$dry) {
                 update_post_meta($eid, self::EV_LINEMAP, $map);
                 self::flush_cache();
-                if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
             }
+            // 1.38.755: verknüpfte, aber nicht zugeordnete Künstler zuordnen
+            $assigned = self::assign_linked($eid, $dry);
+            if ($assigned) { $out['assigned'] = ($out['assigned'] ?? 0) + $assigned; $out['rows'][] = ['event_id' => $eid, 'assigned' => $assigned]; }
+            if (($changed || $assigned) && !$dry && class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
         }
         if (!$dry && class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return $out;

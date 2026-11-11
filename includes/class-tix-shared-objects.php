@@ -23,8 +23,8 @@ class TIX_Shared_Objects {
         add_action('tix_shared_objects_repair', [__CLASS__, 'repair']);
         // 1.38.743 erneut: vollständig (alle Kopien, eigene Künstler ohne Bild, Bilder umgezogener Künstler)
         add_action('init', function () {
-            if (get_option('tix_shared_objects_repair_743', '') !== '') return;
-            update_option('tix_shared_objects_repair_743', gmdate('c'), false);
+            if (get_option('tix_shared_objects_repair_755', '') !== '') return; // 1.38.755: versehentlich eigene → Spiegel
+            update_option('tix_shared_objects_repair_755', gmdate('c'), false);
             if (!wp_next_scheduled('tix_shared_objects_repair')) wp_schedule_single_event(time() + 300, 'tix_shared_objects_repair');
         }, 41);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat spiegel', function ($args) {
@@ -97,6 +97,53 @@ class TIX_Shared_Objects {
         return 0;
     }
 
+    /**
+     * Eigener Künstler, der nur versehentlich „eigen“ ist (1.38.755, Fund KMT): aus dem Line-up angelegt („Künstler aus Line-up
+     * übernehmen“ an einer Kopie, vor 1.38.743), nur Kopien geteilter Events zugeordnet, keine eigenen Angaben (Text, Links, Genres,
+     * Touren, eigenes Bild), keine Follower, nicht umgezogen. Solche Einträge ersetzt der Spiegel der Quelle.
+     */
+    public static function accidental_own($aid) {
+        $aid = intval($aid);
+        if (!$aid || self::mirror($aid) || intval(get_post_meta($aid, '_tix_moved_from', true)) > 0 || get_post_meta($aid, TIX_Artists::META_REDIRECT, true)) return false;
+        $log = (array) get_post_meta($aid, TIX_Artists::META_LOG, true);
+        $from_lineup = false;
+        foreach ($log as $l) {
+            $act = (string) ($l['action'] ?? '');
+            if ($act === 'created' && ($l['from'] ?? '') === 'lineup') $from_lineup = true;
+            elseif (!in_array($act, ['created', 'assigned', 'unassigned'], true)) return false; // bearbeitet, zusammengeführt …
+        }
+        if (!$from_lineup) return false;
+        $d = get_post_meta($aid, TIX_Artists::META, true);
+        $d = is_array($d) ? $d : [];
+        if (trim((string) ($d['short_bio'] ?? '')) !== '' || trim(wp_strip_all_tags((string) ($d['bio'] ?? ''))) !== '' || array_filter((array) ($d['links'] ?? []))
+            || array_filter((array) ($d['genres'] ?? [])) || array_filter((array) ($d['tours'] ?? [])) || !empty($d['verified'])) return false;
+        foreach (['portrait', 'cover'] as $slot) {
+            $att = intval($d['images'][$slot]['id'] ?? 0);
+            if ($att && intval(get_post_meta($att, '_tix_adopted_for', true)) !== $aid) return false; // eigenes Bild
+        }
+        if (class_exists('TIX_Artist_Follow') && method_exists('TIX_Artist_Follow', 'count') && intval(TIX_Artist_Follow::count($aid)) > 0) return false;
+        $evs = TIX_Artists::event_ids($aid, ['publish', 'draft', 'future', 'private', 'pending']);
+        foreach ($evs as $e) if (!TIX_Artists::is_copy($e)) return false;
+        return true;
+    }
+
+    /** Versehentlich eigenen Künstler entfernen (übernommenes Bild mit), Zuordnungen an Kopien lösen. */
+    private static function drop_own($aid) {
+        $aid = intval($aid);
+        $d = get_post_meta($aid, TIX_Artists::META, true);
+        foreach (['portrait', 'cover'] as $slot) {
+            $att = intval(is_array($d) ? ($d['images'][$slot]['id'] ?? 0) : 0);
+            if ($att && intval(get_post_meta($att, '_tix_adopted_for', true)) === $aid) wp_delete_attachment($att, true);
+        }
+        foreach (TIX_Artists::event_ids($aid, ['publish', 'draft', 'future', 'private', 'pending']) as $e) {
+            $list = array_values(array_filter((array) get_post_meta($e, TIX_Artists::EV_META, true), function ($r) use ($aid) { return intval($r['artist_id'] ?? 0) !== $aid; }));
+            if ($list) update_post_meta($e, TIX_Artists::EV_META, $list); else delete_post_meta($e, TIX_Artists::EV_META);
+            delete_post_meta($e, TIX_Artists::EV_REF, (string) $aid);
+        }
+        wp_delete_post($aid, true);
+        update_option('tix_shared_objects_dropped', array_slice(array_merge((array) get_option('tix_shared_objects_dropped', []), [['id' => $aid, 'at' => gmdate('c')]]), -200), false);
+    }
+
     private static function find_mirror($type, $key) {
         $ids = get_posts(['post_type' => $type, 'post_status' => ['publish', 'draft'], 'posts_per_page' => 1, 'fields' => 'ids', 'suppress_filters' => true,
             'meta_query' => [['key' => self::META . '_key', 'value' => $key]]]);
@@ -114,7 +161,11 @@ class TIX_Shared_Objects {
             $name = (string) $a['name'];
             $key = TIX_Artists::act_key($name);
             if ($key === '') continue;
-            if ($own = self::own_artist($key, $eid)) { self::adopt_image($own, $a, $name); $ids[] = $own; continue; }
+            if ($own = self::own_artist($key, $eid)) {
+                // 1.38.755: versehentlich „eigen“ (aus dem Line-up einer Kopie angelegt, ohne eigene Angaben) → durch Spiegel ersetzen
+                if (self::accidental_own($own)) self::drop_own($own);
+                else { self::adopt_image($own, $a, $name); $ids[] = $own; continue; }
+            }
             $mkey = $src['host'] . '|' . (intval($a['source_id'] ?? 0) ?: $key);
             $mid = self::find_mirror(TIX_Artists::CPT, $mkey);
             if (!$mid) {
