@@ -6211,3 +6211,11 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
 - **Tests:**
   - `test-event-history-wp` (24)
   - `test-co-remote-e2e` (zwei Seiten über HTTP): Die Co-Änderung steht auf der Lizenzseite mit Name des Co und Seite der Plattform.
+## 177. Programm auf Co-Kopien der Kunden-Seiten (ab 1.38.778)
+- **Fund (12.11.):** KK #1171 und der evendis-Spiegel #6453 haben das Programm. Die KMT-Kopie #7 lieferte `timetable: null`, weil der Abgleich Plattform → Kunden-Seite (`GET /partner/co-events`) das Programm nicht mitnahm. `lineup_acts` hatten die Zeiten, das Programm fehlte.
+- **Neu:** Im Abgleich gibt es je Event `program: {timetable, stages, hidden, times_tba}` (Rohdaten wie auf der Quelle, `TIX_Site_Move::program_payload`).
+  - Die Kopie übernimmt das gesäubert (`apply_program`: nur gültige Tage, Texte ohne HTML, Farben geprüft).
+  - Damit baut sie `timetable` und die Zeiten in `lineup_acts` wie die Quelle; ausgeblendet und „Zeiten folgen“ gelten ebenfalls.
+- **evendis-Spiegel:** Die Verteilung (Quelle → evendis) überträgt alle `_tix_*`-Felder und hatte das Programm schon. Keine Änderung.
+- **Bestehende Kopien:** ziehen mit dem nächsten Abgleich nach (stündlich bzw. ~20 s nach einer Änderung auf evendis), sobald Plattform **und** Kunden-Seite 1.38.778 haben. Sofort: auf der Kunden-Seite `wp eval 'TIX_Site_Move::sync_co_events();'`.
+- **Test:** `test-co-program-wp` (6), `test-co-sites-wp` (48).

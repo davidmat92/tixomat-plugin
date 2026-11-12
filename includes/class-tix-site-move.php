@@ -799,6 +799,7 @@ class TIX_Site_Move {
                 'lineup' => (string) get_post_meta($e, '_tix_info_lineup', true),
                 'lineup_acts' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::acts($e) : [],
                 'history' => class_exists('TIX_Event_History') ? TIX_Event_History::last_head_out($e) : null, // Verlauf (1.38.776)
+                'program' => self::program_payload($e), // Programm mit Zeiten, Bühnen, ausgeblendet/Zeiten folgen (1.38.778)
                 'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : [],
                 // Ort und Kategorien für lokale Spiegel auf der Kunden-Seite (1.38.738)
                 'venue' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($e) + ['address' => (string) get_post_meta($e, '_tix_address', true)] : null,
@@ -919,6 +920,39 @@ class TIX_Site_Move {
     }
 
     /** Abgleich: Co-Events der Plattform als Anzeige-Spiegel (Ticketkauf beim Ersteller). → {ok, created, updated, removed} | WP_Error */
+    /**
+     * Programm eines Events für Kunden-Seiten (1.38.778, Fund KMT #7: `timetable` fehlte): Rohdaten wie auf der Quelle,
+     * die Kunden-Seite baut daraus `timetable` und die Zeiten in `lineup_acts` wie die Quelle.
+     */
+    public static function program_payload($eid) {
+        $tt = get_post_meta($eid, '_tix_timetable', true);
+        $st = get_post_meta($eid, '_tix_stages', true);
+        return ['timetable' => is_array($tt) ? $tt : [], 'stages' => is_array($st) ? array_values($st) : [],
+            'hidden' => get_post_meta($eid, '_tix_timetable_hidden', true) === '1', 'times_tba' => get_post_meta($eid, '_tix_timetable_times_tba', true) === '1'];
+    }
+
+    /** Programm auf der Kopie übernehmen (nur bekannte Felder, Texte gesäubert). */
+    public static function apply_program($id, $p) {
+        if (!is_array($p)) return;
+        $days = [];
+        foreach ((array) ($p['timetable'] ?? []) as $date => $slots) {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date) || !is_array($slots)) continue;
+            $out = [];
+            foreach ($slots as $sl) {
+                if (!is_array($sl)) continue;
+                $out[] = ['time' => sanitize_text_field((string) ($sl['time'] ?? '')), 'end' => sanitize_text_field((string) ($sl['end'] ?? '')), 'stage' => intval($sl['stage'] ?? 0),
+                    'title' => sanitize_text_field((string) ($sl['title'] ?? '')), 'desc' => sanitize_textarea_field((string) ($sl['desc'] ?? ''))];
+            }
+            if ($out) $days[(string) $date] = $out;
+        }
+        if ($days) update_post_meta($id, '_tix_timetable', $days); else delete_post_meta($id, '_tix_timetable');
+        $stages = [];
+        foreach ((array) ($p['stages'] ?? []) as $s) if (is_array($s)) $stages[] = ['name' => sanitize_text_field((string) ($s['name'] ?? '')), 'color' => sanitize_hex_color((string) ($s['color'] ?? '')) ?: ''];
+        if ($stages) update_post_meta($id, '_tix_stages', $stages); else delete_post_meta($id, '_tix_stages');
+        update_post_meta($id, '_tix_timetable_hidden', !empty($p['hidden']) ? '1' : '0');
+        update_post_meta($id, '_tix_timetable_times_tba', !empty($p['times_tba']) ? '1' : '0');
+    }
+
     public static function sync_co_events() {
         if (self::multi() || !self::co_ready()) return new WP_Error('tix_co_not_ready', 'Keine Verbindung zur Plattform eingerichtet.');
         $r = wp_remote_get(self::co_api('/partner/co-events'), ['timeout' => 30, 'headers' => self::co_headers()]);
@@ -972,6 +1006,7 @@ class TIX_Site_Move {
                 $acts = array_values(array_filter((array) $it['lineup_acts'], 'is_array'));
                 if ($acts) update_post_meta($id, '_tix_lineup_acts', $acts); else delete_post_meta($id, '_tix_lineup_acts');
             }
+            if (array_key_exists('program', $it)) self::apply_program($id, $it['program']); // Programm (1.38.778); ältere Plattform ohne Feld: unverändert
             if (array_key_exists('artists', $it) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) TIX_Artists::store_snapshot($id, (array) $it['artists']);
             if (class_exists('TIX_Shared_Objects')) { // Ort und Kategorien als lokale Spiegel (1.38.738)
                 if (is_array($it['venue'] ?? null)) TIX_Shared_Objects::sync_location($id, $it['venue']);
