@@ -6235,3 +6235,16 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
   - Öffentlich wirkt weiterhin nur `hidden` (Zeiten aus).
   - `mode` reist im Abgleich der Co-Kopien mit (`program.mode`) und steht im Event-Verlauf.
   - Test: `test-timetable-mode-wp` (9).
+
+## 178. Co-Kopien: Event-Links immer zur eigenen Seite (ab 1.38.784)
+- **Fund (12.11., KMT):**
+  - Das „Auge“ im Studio, Teilen-Links und die App führten bei der KK-Kopie #7 auf kitchenklub.de. Lokal liefert das Plugin richtige Links (`/events`, `/public/events/7`: `share_url`/`url` mit Host der Kunden-Seite).
+  - Das Studio holt Events mit Zugriff aber über den Durchgriff `/platform-co/{id}/…`. Diese Antworten kommen von der Quelle (KK) und trugen deren Links.
+  - `/platform-co/events` gab als `url` die evendis-Adresse.
+- **Neu:**
+  - `TIX_Site_Move::local_urls_back` ersetzt in Durchgriff-Antworten auf der Kunden-Seite die Event-Link-Felder (`share_url`, `url`, `permalink`, `public_url`, `event_url`) mit fremdem Host und `/events/`-Pfad durch die eigene Kopie. `share_url` bekommt die Herkunft `veranstalter-link`.
+  - Bilder, Rechtstexte und Künstlerseiten bleiben unverändert.
+  - `/platform-co/events`: `url` = eigene Kopie, neu `platform_url` (evendis-Seite) und `share_url`.
+- **Gespeicherte Daten:** Auf KMT stehen keine KK-Links am Event (geprüft); nichts zu korrigieren.
+- **Mails:** Nachrichten an Käufer, die ein Co über den Durchgriff auslöst, verschickt weiterhin die Quelle (deren Käufer); die Links darin zeigen auf die Quelle.
+- **Test:** `test-co-local-urls-wp` (5/4).

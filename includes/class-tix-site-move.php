@@ -1056,7 +1056,8 @@ class TIX_Site_Move {
         foreach (get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => 200, 'fields' => 'ids', 'meta_key' => self::CO_META]) as $id) {
             $items[] = ['id' => intval($id), 'platform_id' => self::platform_co_id($id), 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'),
                 'date_start' => (string) get_post_meta($id, '_tix_date_start', true), 'time_start' => (string) get_post_meta($id, '_tix_time_start', true),
-                'image' => (string) get_the_post_thumbnail_url($id, 'large'), 'url' => (string) get_post_meta($id, '_tix_platform_co_url', true)] + self::co_list_fields($id);
+                'image' => (string) get_the_post_thumbnail_url($id, 'large'), 'url' => self::local_event_url($id), // eigene Event-Seite (1.38.784)
+                'platform_url' => (string) get_post_meta($id, '_tix_platform_co_url', true), 'share_url' => self::local_event_url($id, true)] + self::co_list_fields($id);
         }
         return rest_ensure_response(['ok' => true, 'items' => $items, 'sync' => get_option('tix_platform_co_sync', null)]);
     }
@@ -1078,6 +1079,32 @@ class TIX_Site_Move {
         return $a;
     }
 
+    /** Öffentliche Adresse der Kopie auf dieser Seite; $share: mit Herkunft „veranstalter-link“ wie TIX_REST_API (1.38.784). */
+    public static function local_event_url($id, $share = false) {
+        $u = (string) get_permalink($id);
+        if (class_exists('TIX_Customer_URL')) $u = TIX_Customer_URL::to($u);
+        if ($u === '' || get_post_status($id) !== 'publish') return $share ? '' : $u;
+        return $share ? add_query_arg(['utm_source' => 'veranstalter-link'], $u) : $u;
+    }
+
+    /**
+     * Antworten des Durchgriffs kommen von der Quelle (z. B. kitchenklub.de) und tragen deren Event-Links. Auf der Kunden-Seite
+     * zeigen Studio, Mails und App aber auf die eigene Kopie (Fund KMT 12.11.: „Auge“ führte auf KK). Ersetzt werden die Link-Felder
+     * eines Events (share_url, url, permalink, public_url, event_url), nicht Bilder, Rechtstexte oder Künstlerseiten.
+     */
+    public static function local_urls_back($data, $local_id) {
+        if (!is_array($data) || !$local_id) return $data;
+        $own = (string) wp_parse_url(home_url(), PHP_URL_HOST);
+        foreach ($data as $k => $v) {
+            if (is_array($v)) { $data[$k] = self::local_urls_back($v, $local_id); continue; }
+            if (!is_string($v) || !in_array($k, ['share_url', 'url', 'permalink', 'public_url', 'event_url'], true)) continue;
+            $h = (string) wp_parse_url($v, PHP_URL_HOST);
+            if ($h === '' || $h === $own || strpos((string) wp_parse_url($v, PHP_URL_PATH), '/events/') === false) continue;
+            $data[$k] = self::local_event_url($local_id, $k === 'share_url');
+        }
+        return $data;
+    }
+
     /** GET|POST|DELETE /platform-co/{id}/{route} → Antwort der Plattform (gleiches Format wie die Route dort). */
     public static function rest_co_proxy(WP_REST_Request $req) {
         $pid = self::platform_co_id(absint($req['id']));
@@ -1091,7 +1118,7 @@ class TIX_Site_Move {
         if ($code !== 200 || !is_array($env) || !array_key_exists('status', $env)) {
             return new WP_Error(is_array($env) && !empty($env['code']) ? (string) $env['code'] : 'tix_co_remote_error', is_array($env) && !empty($env['message']) ? (string) $env['message'] : 'Die Plattform hat die Anfrage abgelehnt.', ['status' => in_array($code, [401, 403, 404, 409, 429], true) ? $code : 502]);
         }
-        $res = new WP_REST_Response($env['data'], intval($env['status']));
+        $res = new WP_REST_Response(self::local_urls_back($env['data'], absint($req['id'])), intval($env['status']));
         foreach ((array) ($env['headers'] ?? []) as $h => $v) if (in_array($h, ['Content-Type', 'Content-Disposition'], true)) $res->header($h, (string) $v);
         return $res;
     }
