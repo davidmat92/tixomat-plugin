@@ -52,6 +52,7 @@ class TIX_Migrations {
             'support_mail_zeit'  => function () { if (class_exists('TIX_Support_Mail')) TIX_Support_Mail::ensure_schedule(); },
             'bestand'            => function () { if (class_exists('TIX_Stock')) { TIX_Stock::install(); TIX_Stock::backfill(); } },
             'objekt_daten'       => function () { if (class_exists('TIX_Object_Data')) TIX_Object_Data::migrate(); },
+            'verlauf'            => function () { if (class_exists('TIX_Event_History')) TIX_Event_History::install(); },
         ];
     }
 

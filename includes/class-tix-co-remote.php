@@ -473,7 +473,7 @@ class TIX_Co_Remote {
             if ($method === 'POST' && array_key_exists('co_organizer', $b)) return $no('Den Co-Veranstalter kann nur der Veranstalter ändern.');
             return true;
         }
-        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf)';
+        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf|history|history/[0-9]+|history/[0-9]+/restore)';
         if (preg_match('#^/events/' . $id . '/' . $ev_sub . '$#', $path, $m)) {
             if ($method === 'DELETE' && strpos($m[2], 'guestlist/') !== 0) return $no();
             return true;
@@ -563,6 +563,8 @@ class TIX_Co_Remote {
         if (($d['status'] ?? '') === 'invited') { $d['status'] = 'active'; self::put($sid, $d); }
         $uid = self::actor_user(intval($d['organizer_id']), (string) $d['name']);
         if (!$uid) return new WP_Error('tix_co_actor', 'Technisches Konto fehlt.', ['status' => 500]);
+        // Verlauf (1.38.776): handelnde Person und Seite aus dem Durchgriff, sonst der Co-Veranstalter
+        if (class_exists('TIX_Event_History')) TIX_Event_History::context_from_actor(is_array($b['actor'] ?? null) ? $b['actor'] + ['name' => (string) $d['name']] : ['name' => (string) $d['name']], 'evendis.de', 'evendis');
         self::$acting = $uid;
         add_filter('get_user_metadata', [__CLASS__, 'caps_filter'], 1, 4);
         clean_user_cache($uid);
@@ -860,7 +862,7 @@ class TIX_Co_Remote {
         $u = wp_get_current_user();
         $body = $req->get_json_params();
         $env = self::forward($eid, $req->get_method(), '/' . ltrim((string) $req['path'], '/'), $req->get_query_params(), is_array($body) ? $body : [],
-            ['email' => (string) $u->user_email, 'name' => (string) $u->display_name, 'organizer_id' => TIX_App_Scope::organizer_id_for_user()]);
+            ['email' => (string) $u->user_email, 'name' => (string) $u->display_name, 'organizer_id' => TIX_App_Scope::organizer_id_for_user()] + self::history_actor());
         if (is_wp_error($env)) return $env;
         $res = new WP_REST_Response($env['data'], intval($env['status']));
         foreach ((array) ($env['headers'] ?? []) as $h => $v) if (in_array($h, ['Content-Type', 'Content-Disposition'], true)) $res->header($h, (string) $v);
@@ -872,6 +874,13 @@ class TIX_Co_Remote {
         if (!intval($oid)) return [];
         return array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'pending', 'private', 'future'], 'posts_per_page' => 200, 'fields' => 'ids',
             'meta_query' => [['key' => self::M_OID, 'value' => strval(intval($oid))], ['key' => '_tix_syndicated', 'value' => '1']]]));
+    }
+
+    /** Seite/Kanal/origin dieses Aufrufs für den Verlauf an der Quelle (1.38.776). */
+    public static function history_actor() {
+        if (!class_exists('TIX_Event_History')) return [];
+        $o = TIX_Event_History::outgoing();
+        return ['site' => $o['site'], 'site_name' => $o['site_name'], 'channel' => TIX_Event_History::request_channel(), 'origin' => $o['origin']];
     }
 
     /** Anfrage an die Lizenzseite weiterleiten → Umschlag {ok, status, data, headers?} | WP_Error */

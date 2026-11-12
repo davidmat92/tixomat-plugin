@@ -176,6 +176,18 @@ e2e_eq('Speichern mit co_organizer: 403 tix_co_forbidden', [403, 'tix_co_forbidd
 [$st, $d] = e2e_http($plat, 'DELETE', "$B/events/$sid", [], $co);
 e2e_eq('Löschen: 403', 403, $st);
 
+// 4b. Verlauf über den Durchgriff (1.38.776): Liste der Lizenzseite mit Person/Seite, Wiederherstellen an der Quelle
+if (class_exists('TIX_Event_History')) {
+    [$st, $d] = e2e_http($plat, 'GET', "$B/events/$sid/history", [], $co);
+    $top = $d['items'][0] ?? [];
+    e2e_eq('Verlauf: Liste von der Lizenzseite, oberste Änderung vom Co mit Seite der Plattform', [200, true, false], [$st, ($top['site'] ?? '') === (string) wp_parse_url($plat, PHP_URL_HOST) && ($top['actor']['name'] ?? '') !== '', !empty($d['source']['copy'])]);
+    $first = end($d['items']);
+    [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid/history/" . intval($first['rev'] ?? 1) . "/restore", ['areas' => ['basis']], $co);
+    [, $e] = e2e_http($kk, 'GET', "/events/$sid/edit", [], $adm);
+    e2e_eq('Verlauf: Wiederherstellen über den Durchgriff setzt den Titel auf der Lizenzseite zurück', [200, 'E2E-CO Lizenz-Event'], [$st, html_entity_decode((string) ($e['event']['title'] ?? $e['title'] ?? ''), ENT_QUOTES)]);
+    [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid", ['title' => 'E2E-CO Lizenz-Event (geändert)'], $co); // Stand für die folgenden Schritte
+}
+
 // 5. Gästeliste
 [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid/guestlist", ['name' => 'E2E Gast Zwei'], $co);
 e2e_eq('Gästeliste: Gast angelegt', true, $st >= 200 && $st < 300);

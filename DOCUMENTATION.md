@@ -6181,3 +6181,31 @@ Plan `uebergaben/plan-wordpress/f7-breakdance.md`. Ziel: `breakdance.sh <site> a
 - **Glücksrad:** `/gewinnspiel/` (`tix_gluecksrad`, eigenes Plugin) steckt nur im Breakdance-Layout. Das entscheidet der User (Stufe 2).
 - **Rückweg:** Option `tix_tool_frame` = `0` (oder Filter `tix_tool_frame_enabled`).
 - **Test:** `bash tests/test-tool-frame.sh <container>` (8) – echte HTTP-Antworten über den PHP-Webserver mit leerem Ersatz-Theme ohne `header.php`.
+
+## 176. Event-Verlauf mit Wiederherstellen (ab 1.38.776)
+Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchronität, Aufbewahrung).
+- **`TIX_Event_History`**, Tabelle `{prefix}tix_event_history`:
+  - Je Aufruf und Event eine Revision, erfasst bei `shutdown`, nur wenn sich der Stand der **Quellfelder** geändert hat (`AREAS`: basis, termin, ort, texte, tickets, lineup, bilder, weiteres).
+  - Abgeleitete Felder, Bestand/verkauft und Gäste-Daten zählen nicht.
+  - Vor der ersten erfassten Änderung wird der Stand als Revision `bestand` gesichert.
+  - Spalten: wer (`actor_*`), Seite (`site`, `site_name`), Kanal (`studio|app|wp-admin|api|cli|sync|restore|system|bestand|neu`), `origin` (seitenübergreifende Kennung), `areas`, `diff` (lesbar), `snapshot`, `hash`, `restored_from`.
+- **Routen** (Rechte wie der Event-Editor):
+  - `GET /events/{id}/history`, `GET /events/{id}/history/{rev}` (mit `diff`)
+  - `POST /events/{id}/history/{rev}/restore {areas?}`
+- **Wiederherstellen:** Es entsteht eine neue Revision `restore`; ein normales Speichern stößt Anzeige-Felder, Verteilung und Homepages an. Geschützt (`restore_plan`, rein):
+  - verkaufte Kategorien bleiben an ihrer Stelle, Kontingent ≥ verkauft, Bestand = Kontingent − verkauft
+  - vergangener Termin bei Verkäufen
+  - Papierkorb
+  - Ohne Snapshot (Aufbewahrung) gibt es 410.
+- **Geteilte Events:**
+  - Kopien (`_tix_syndicated`, `_tix_platform_co`) bekommen Revisionen `sync` mit Person, Seite und `origin` der Quelle. Die Quellen dafür: Verteilung (`history` im Payload), Abgleich der Kunden-Seiten (`history` = Kopf der letzten Revision des Spiegels).
+  - Lokal wiederherstellen auf einer Kopie gibt `409 tix_history_copy`. Co mit Zugriff nutzen den Durchgriff (`history`-Routen sind in `TIX_Co_Remote::allowed` freigegeben) und sehen und stellen damit an der Quelle wieder her.
+  - Durchgriff: Person, Seite, Kanal und `origin` reisen im `actor` mit (Kunden-Seite → Plattform → Lizenzseite). Das technische Konto erscheint nie als Person.
+- **Aufbewahrung** (täglich, `tix_event_history_cleanup`):
+  - Köpfe 3 Jahre (`tix_history_keep_days`)
+  - Snapshots 2 Jahre bzw. die letzten 200 je Event (`tix_history_snapshot_days`, `tix_history_snapshot_max`)
+  - Endgültig gelöschtes Event → Verlauf weg; gelöschtes Konto → „Gelöschtes Konto“
+- **Alt:** `TIX_Event_Revisions` (Feld-Protokoll) schreibt nicht mehr; Tabelle und Metabox bleiben lesbar. Migrations-Schritt `verlauf` legt die Tabelle an.
+- **Tests:**
+  - `test-event-history-wp` (24)
+  - `test-co-remote-e2e` (zwei Seiten über HTTP): Die Co-Änderung steht auf der Lizenzseite mit Name des Co und Seite der Plattform.

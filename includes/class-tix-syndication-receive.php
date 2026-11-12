@@ -144,6 +144,7 @@ class TIX_Syndication_Receive {
             return new WP_Error('create_failed', $event_id->get_error_message(), ['status' => 500]);
         }
 
+        if (class_exists('TIX_Event_History')) TIX_Event_History::incoming($event_id, $data['history'] ?? null); // Verlauf (1.38.776)
         // Syndication-Meta setzen
         update_post_meta($event_id, '_tix_syndicated', '1');
         update_post_meta($event_id, '_tix_source_url', $source_url);
@@ -296,6 +297,7 @@ class TIX_Syndication_Receive {
      * Event updaten
      */
     private static function update_event($event_id, $data) {
+        if (class_exists('TIX_Event_History') && empty($data['stock_only'])) TIX_Event_History::incoming($event_id, $data['history'] ?? null); // Verlauf (1.38.776)
         $was_published = get_post_status($event_id) === 'publish';
         // Im Papierkorb, die Quelle ist aber veröffentlicht → wiederherstellen (nie still in den Papierkorb synchronisieren)
         $restored = false;

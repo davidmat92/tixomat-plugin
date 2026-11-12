@@ -15,9 +15,7 @@ class TIX_Event_Revisions {
 
     public static function init() {
         add_action('plugins_loaded',   [__CLASS__, 'maybe_install']);
-        add_action('post_updated',     [__CLASS__, 'on_post_updated'], 20, 3);
-        add_action('updated_post_meta',[__CLASS__, 'on_meta_updated'], 20, 4);
-        add_action('added_post_meta',  [__CLASS__, 'on_meta_updated'], 20, 4);
+        // Seit 1.38.776 abgelöst durch TIX_Event_History (Revision je Speichern, Wiederherstellen); Tabelle/Metabox bleiben lesbar.
 
         // Metabox
         add_action('add_meta_boxes_event', [__CLASS__, 'register_metabox']);

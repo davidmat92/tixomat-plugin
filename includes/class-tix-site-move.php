@@ -798,6 +798,7 @@ class TIX_Site_Move {
                 // Line-up und Künstler (1.38.723): Text, fertige Liste mit Bildern, Künstler als Schnappschuss
                 'lineup' => (string) get_post_meta($e, '_tix_info_lineup', true),
                 'lineup_acts' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::acts($e) : [],
+                'history' => class_exists('TIX_Event_History') ? TIX_Event_History::last_head_out($e) : null, // Verlauf (1.38.776)
                 'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : [],
                 // Ort und Kategorien für lokale Spiegel auf der Kunden-Seite (1.38.738)
                 'venue' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($e) + ['address' => (string) get_post_meta($e, '_tix_address', true)] : null,
@@ -859,7 +860,9 @@ class TIX_Site_Move {
             foreach (['event_id'] as $k) { if (intval($q[$k] ?? 0) === $eid) $q[$k] = $sid; if (intval($body[$k] ?? 0) === $eid) $body[$k] = $sid; }
             $ok = TIX_Co_Remote::allowed($method, $path, $q, $body, $sid);
             if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
-            $env = TIX_Co_Remote::forward($eid, $method, $path, $q, $body, ['email' => '', 'name' => html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8'), 'organizer_id' => $oid]);
+            $who = is_array($b['actor'] ?? null) ? array_intersect_key($b['actor'], array_flip(['name', 'email', 'site', 'site_name', 'channel', 'origin'])) : [];
+            if (empty($who['name'])) $who['name'] = html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8');
+            $env = TIX_Co_Remote::forward($eid, $method, $path, $q, $body, ['organizer_id' => $oid] + $who + ['email' => '']); // Verlauf: Person und Seite der Kunden-Seite (1.38.776)
             if (is_wp_error($env)) return $env;
             if (isset($env['data'])) $env['data'] = self::source_ids_back($env['data'], $sid, $eid, (bool) preg_match('#^/(?:studio/)?events/' . $sid . '(?:/(?:edit|form))?$#', $path)); // Kunden-Seite kennt nur die Plattform-ID (1.38.718)
             return rest_ensure_response($env);
@@ -869,6 +872,7 @@ class TIX_Site_Move {
         $u = TIX_Co_Organizer::owner_user($oid);
         if (!$u) return new WP_Error('tix_co_actor', 'Zum Veranstalter gibt es kein Konto auf der Plattform.', ['status' => 409]);
         wp_set_current_user($u->ID);
+        if (class_exists('TIX_Event_History') && is_array($b['actor'] ?? null)) TIX_Event_History::context_from_actor($b['actor']); // Verlauf (1.38.776)
         try {
             $sub = new WP_REST_Request($method, '/' . self::NS . $path);
             $sub->set_query_params($q);
@@ -960,6 +964,7 @@ class TIX_Site_Move {
                 if ($att) set_post_thumbnail($id, $att); elseif ($it['image'] === '') delete_post_thumbnail($id);
                 update_post_meta($id, '_tix_platform_co_img', (string) $it['image']);
             }
+            if (class_exists('TIX_Event_History')) TIX_Event_History::incoming($id, $it['history'] ?? null); // Verlauf: Person/Seite der Quelle (1.38.776)
             if (class_exists('TIX_Co_Seller')) { TIX_Co_Seller::apply_sync($id, $it); if (!empty($it['sell'])) $sells[] = $id; } // Co verkauft hier (1.38.713)
             // Line-up und Künstler der Plattform (1.38.723); ältere Plattform ohne Felder: unverändert
             if (array_key_exists('lineup', $it)) update_post_meta($id, '_tix_info_lineup', wp_kses_post((string) $it['lineup']));
@@ -1021,12 +1026,21 @@ class TIX_Site_Move {
         return true;
     }
 
+    /** Person/Seite/Kanal/origin für den Verlauf an der Quelle (1.38.776). */
+    private static function history_actor() {
+        $u = wp_get_current_user();
+        $a = ['name' => $u && $u->ID ? (string) $u->display_name : '', 'email' => $u && $u->ID ? (string) $u->user_email : ''];
+        if (class_exists('TIX_Co_Remote') && method_exists('TIX_Co_Remote', 'history_actor')) $a += TIX_Co_Remote::history_actor();
+        return $a;
+    }
+
     /** GET|POST|DELETE /platform-co/{id}/{route} → Antwort der Plattform (gleiches Format wie die Route dort). */
     public static function rest_co_proxy(WP_REST_Request $req) {
         $pid = self::platform_co_id(absint($req['id']));
         $body = $req->get_json_params();
         $resp = wp_remote_post(self::co_api('/partner/co-events/' . $pid . '/call'), ['timeout' => 25, 'headers' => self::co_headers(),
-            'body' => wp_json_encode(['method' => $req->get_method(), 'path' => '/' . ltrim((string) $req['path'], '/'), 'query' => $req->get_query_params() ?: new stdClass(), 'body' => is_array($body) ? $body : new stdClass()])]);
+            'body' => wp_json_encode(['method' => $req->get_method(), 'path' => '/' . ltrim((string) $req['path'], '/'), 'query' => $req->get_query_params() ?: new stdClass(), 'body' => is_array($body) ? $body : new stdClass(),
+                'actor' => self::history_actor()])]);
         if (is_wp_error($resp)) return new WP_Error('tix_partner_unreachable', 'Die Plattform ist gerade nicht erreichbar.', ['status' => 502]);
         $code = intval(wp_remote_retrieve_response_code($resp));
         $env = json_decode((string) wp_remote_retrieve_body($resp), true);
