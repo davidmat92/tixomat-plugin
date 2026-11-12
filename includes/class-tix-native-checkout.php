@@ -2529,7 +2529,9 @@ class TIX_Native_Checkout {
             <?php
         }, 99);
 
-        get_header();
+        // F7 Stufe 1 (1.38.774): eigener Rahmen statt Theme-Kopf/-Fuß (ohne Breakdance sonst leer); Schalter tix_tool_frame
+        $framed = class_exists('TIX_Tool_Frame') && TIX_Tool_Frame::enabled();
+        if ($framed) ob_start(); else get_header();
         ?>
         <div class="tix-ty-wrap">
             <?php if ($order->status === 'completed' || $order->status === 'processing'): ?>
@@ -2655,7 +2657,8 @@ class TIX_Native_Checkout {
             <?php endif; ?>
         </div>
         <?php
-        get_footer();
+        if ($framed) TIX_Tool_Frame::render($order->status === 'completed' || $order->status === 'processing' ? 'Danke für deine Bestellung' : 'Deine Bestellung', ob_get_clean(), ['noindex' => true, 'class' => 'tix-frame-thankyou']);
+        else get_footer();
     }
 
     // ──────────────────────────────────────────

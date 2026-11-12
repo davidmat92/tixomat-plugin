@@ -6059,7 +6059,7 @@ Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
   - Ergebnis über `TIX_Go_Live::set_result` (auch die REST-Route): Nachricht 300 Zeichen, done_at, Protokoll `go_live_<status>` (by `kunden-dienst`), Ping.
 - **Test:** `tests/test-golive-cli.sh <container>` (12 Prüfungen); `test-go-live-wp` grün.
 
-## 171. Phase 0 für die WordPress-Zukunft (ab 1.38.773; entwickelt als 767, nie einzeln live)
+## 171. Phase 0 für die WordPress-Zukunft (ab 1.38.775; entwickelt als 767, nie einzeln live)
 Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/plugin-inventar.md`.
 
 ### Weg-1-Regeln (gelten ab jetzt für jedes neue Paket)
@@ -6108,7 +6108,7 @@ Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/p
 - **`time`** unverändert (nur die Uhrzeit).
 - **Test:** `test-lineup-acts-wp` 31 (kk) / 30 (Plattform).
 
-## 173. Optionen je Objekt in Tabelle, Rollout mit geteiltem Plugin-Ordner (ab 1.38.773; entwickelt als 769)
+## 173. Optionen je Objekt in Tabelle, Rollout mit geteiltem Plugin-Ordner (ab 1.38.775; entwickelt als 769)
 ### `TIX_Object_Data` (Tabelle `{prefix}tix_object_data`)
 - **Tabelle:** `kind, object_id, data (JSON), updated_at`, PK `(kind, object_id)`.
 - **Umgezogen (Präfix der alten Option → Art):**
@@ -6158,3 +6158,26 @@ Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/p
   - durch jedes Speichern eines Events auf der Plattform (`save_post_event`)
 - **Stündlicher Abgleich:** bleibt als Rückfall.
 - **Test:** `test-co-site-sync-wp` (5, Plattform).
+
+## 175. Werkzeugseiten und Danke-Seite ohne Theme (F7 Stufe 1, ab 1.38.774)
+Plan `uebergaben/plan-wordpress/f7-breakdance.md`. Ziel: `breakdance.sh <site> aus` ohne leere Seiten.
+- **Befund (live, lesend):** Auf KK stehen `/checkin/` (#336) und `/pos/` (#128), auf Mallorca `/checkin/`, `/promoter/` und `/sponsoren-dashboard/` mit ihrem Shortcode **nur im Breakdance-Layout** (`_breakdance_data`); der Seiteninhalt ist leer. Die Danke-Seite (`?tix_thankyou=`) rief `get_header()`/`get_footer()`.
+- **`TIX_Tool_Frame`** (`template_redirect` Priorität 50: nach den eigenen `?tix_…`-Handlern, vor dem Theme):
+  - **Werkzeugseite** erkennt es über einen Werkzeug-Shortcode (`TOOLS`: Einlass, Kasse, Promoter, Sponsoren, Konto, Meine Tickets, Bestellungen, Übertragen, Support, Feedback, Veranstalter-Dashboard, Event melden) im Seiteninhalt, im Breakdance-Layout oder über einen bekannten Slug (`checkin`, `pos`, `promoter`, `sponsoren-dashboard`).
+  - **Shortcode im Inhalt:** Der ganze Inhalt wird ausgegeben, auch der Text drumherum (ohne `the_content`, dort hängt sich Breakdance ein).
+  - **Shortcode nur im Layout bzw. per Slug:** Nur der Shortcode wird ausgegeben.
+  - **Rahmen:** eigenes HTML-Gerüst, Markenleiste (Logo für hellen Grund bzw. Name aus der Site-Config, Link zur Startseite), Impressum/Datenschutz unten, `wp_head()`/`wp_footer()` für die Plugin-Assets, kein Theme-Template. Werkzeuge mit Konten oder Kasse bekommen `noindex`.
+  - **Danke-Seite:** im selben Rahmen.
+- **Nicht übernommen:**
+  - Breakdance-Editor (`?breakdance…`), Vorschau
+  - Seiten ohne Werkzeug
+  - Werkzeuge, deren Shortcode nicht registriert ist (Modul aus); dort bleibt das Theme
+- **`?tix_…`-Links:** Die übrigen Handler antworten schon ohne Theme und brauchen keine Änderung:
+  - Ticket-Download, `tix_bundle`, `download_ticket`: PDF bzw. `wp_die`
+  - Gäste-QR, Abmeldung, Angebot, Einbettung: eigenes HTML
+  - Zahlungs-Rückwege: Weiterleitung zur Danke-Seite
+  - Konto-Links (`?tix_auth…` auf `/mein-konto/`): gehen über die Werkzeugseite
+- **Tippspiel** (Mallorca `/tippspiel/…`): gehört zum Plugin `mfxxl-tippspiel` und rendert sich schon selbst ohne Theme (App-Modus).
+- **Glücksrad:** `/gewinnspiel/` (`tix_gluecksrad`, eigenes Plugin) steckt nur im Breakdance-Layout. Das entscheidet der User (Stufe 2).
+- **Rückweg:** Option `tix_tool_frame` = `0` (oder Filter `tix_tool_frame_enabled`).
+- **Test:** `bash tests/test-tool-frame.sh <container>` (8) – echte HTTP-Antworten über den PHP-Webserver mit leerem Ersatz-Theme ohne `header.php`.
