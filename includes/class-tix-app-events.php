@@ -821,7 +821,9 @@ class TIX_App_Events {
             $new[$new_index] = $cat;
         }
 
-        update_post_meta($post_id, '_tix_ticket_categories', array_values($new));
+        // Bestand absolut übernehmen (Kontingent − verkauft), nicht als Änderung (TIX_Stock, 1.38.767)
+        TIX_Stock::$absolute = true;
+        try { update_post_meta($post_id, '_tix_ticket_categories', array_values($new)); } finally { TIX_Stock::$absolute = false; }
         return true;
     }
 

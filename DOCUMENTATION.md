@@ -6057,3 +6057,45 @@ Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
   - Nur bei pending und passender nonce, sonst `tix_golive_changed`; unbekannte Lizenz `tix_not_found`.
   - Ergebnis über `TIX_Go_Live::set_result` (auch die REST-Route): Nachricht 300 Zeichen, done_at, Protokoll `go_live_<status>` (by `kunden-dienst`), Ping.
 - **Test:** `tests/test-golive-cli.sh <container>` (12 Prüfungen); `test-go-live-wp` grün.
+
+## 171. Phase 0 für die WordPress-Zukunft (ab 1.38.767)
+Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/plugin-inventar.md`.
+
+### Weg-1-Regeln (gelten ab jetzt für jedes neue Paket)
+1. **Neue Daten:** in eigene Tabellen (`tix_*`, JSON-Spalten erlaubt). Keine neuen Optionen je Objekt (`_tix_<x>_<id>`) und keine neuen Postmeta-Strukturen für Zähler oder Bestände.
+2. **Einstellungen:** nur über Studio-Routen (`/studio/*`), REST oder WP-CLI. Keine neuen WP-Einstellungsseiten (`register_setting`, `add_menu_page`, `add_meta_box`).
+3. **Logik:** in reinen Funktionen ohne WP-Aufrufe, wo es geht (Beispiel `TIX_Stock::limit_of/plan`). WP-Funktionen nur am Rand (Speichern, Hooks).
+4. **Keine neuen Shortcodes, keine `wp_ajax_`-Endpunkte.** Webhooks und Aktionen gehen als REST-Route.
+5. **Keine Fremd-Plugins:** keine neuen Abhängigkeiten von WooCommerce, Breakdance & Co.
+6. **Weg 3 („Die Daten liegen stets bei dir“):** Was für einen künftigen Dienst vorbereitet wird, muss auch auf dem Kundenserver laufen können. Daher keine zentrale evendis-Datenbank als Voraussetzung: lokale Tabellen, schlichtes SQL, kein Netz für Kernfunktionen.
+- **Prüfung:** `bash tests/check-weg1.sh` zählt Shortcodes, Menüs, Metaboxen, `wp_ajax_`, `register_setting`, WooCommerce-Aufrufe und Optionen je Objekt gegen `tests/weg1-baseline.txt`. Mehr als die Grundlinie ergibt Exit 1. Weniger ist gut: dann mit `--update` die Grundlinie senken.
+
+### Migrationen beim ersten Aufruf (`TIX_Migrations`)
+- **Wann:** Die Versions-Migrationen (`tix_version_migrations($stored)` in `tixomat.php`, früher eine `admin_init`-Closure) laufen jetzt auf `init` (Priorität 999). Das gilt beim ersten Aufruf jeder Art: Web, REST, App, Cron, WP-CLI.
+- **Sperre:** `add_option('tix_migrate_lock')`; nach 10 Minuten gilt die Sperre als frei.
+- **Protokoll:** `tix_migrate_log` (letzte 10). `tix_db_version` wird erst gesetzt, wenn alle Schritte ok sind; nach einem Fehler gibt es höchstens alle 15 Minuten einen neuen Versuch.
+- **Schritte:** versionen, ki_schluessel, lizenz_server, rechnungen_alt, support_nachrichten (`migrate_messages_storage(true)`), support_mail_zeit, bestand.
+- **Weg von `admin_init`:** Lizenz-Server `maybe_install` (jetzt `init`), `TIX_Invoicing::maybe_migrate_legacy_settings`, `TIX_Support::migrate_messages_storage`, die ai_guard-Schlüssel-Migration. `TIX_Support_Mail::ensure_schedule` bleibt zusätzlich auf admin_init.
+- **CLI:** `wp tixomat migrate status | run [--force]` → `ERGEBNIS <json>`.
+- **Neue Migrationen:** in `tix_version_migrations` (versioniert) oder als Schritt in `TIX_Migrations::steps`. Nie auf `admin_init`.
+
+### Bestand mit Sperre (`TIX_Stock`, Tabelle `{prefix}tix_stock`)
+- **Tabelle:** `event_id, cat_index, available, updated_at`, PK `(event_id, cat_index)`. Nur begrenzte Kategorien haben eine Zeile; unbegrenzt heißt: `stock` fehlt, ist leer oder negativ.
+- **Reservieren:** `TIX_Stock::reserve($items)` am Anfang von `TIX_Native_Checkout::create_order`, vor der Bestellnummer.
+  - Bedingtes UPDATE `available = available - q WHERE available >= q`; gleiche Kategorien werden zusammengefasst.
+  - Ganz oder gar nicht: Fehlt eine Position, wird das schon Reservierte zurückgebucht.
+  - Ausverkauft: `create_order` liefert `null`, und `TIX_Native_Checkout::$last_error` ist `WP_Error tix_sold_out` (409, `event_id`, `cat_index`, `available`). Meldung: „<Kategorie>: Nur noch N verfügbar.“ bzw. „<Kategorie> ist leider ausverkauft.“
+  - Weitergereicht an: Web-Kasse (`code` im JSON-Fehler), App-Kasse (`tix_stock` 409 – derselbe Code wie die Vorprüfung – statt `tix_order_failed` 500), Kasse/POS, Tischreservierung.
+  - Demo-Daten übergeben `allow_oversell` (alter Weg: nie ablehnen).
+- **Zurückgeben / erneut abziehen:** `restore_stock`/`reclaim_stock` buchen über `TIX_Stock::adjust` (Tabelle). `_tix_order_stock_taken_<id>` bleibt wie bisher.
+- **Anzeige-Kopie:** `stock` in `_tix_ticket_categories` bleibt für alle Leser und wird nach jeder Buchung nachgezogen (`mirror`). Schreibt jemand die Kategorien (Editor, Bestell-Admin, Kasse, Storno, Kopie), gleicht ein Postmeta-Hook die Tabelle ab:
+  - Gleiche Schlüssel und Namen: Es wird nur die Änderung neu − alt übernommen; gleichzeitige Verkäufe bleiben erhalten.
+  - Sonst, und beim App-Editor (`TIX_Stock::$absolute`, Kontingent − verkauft), wird der Wert übernommen.
+- **Bestehende Seiten:** Migrations-Schritt `bestand` (install + backfill). Zusätzlich legt `ensure()` fehlende Zeilen vor jeder Buchung an.
+- **Weg 3:** Regeln als reine Funktionen (`limit_of`, `plan`), Daten lokal. Ein künftiger Dienst auf dem Kundenserver nutzt dieselbe Tabelle und dieselben Anweisungen.
+
+### Soll-Einstellungen für die Wache (`TIX_Soll`)
+- **Vertrag:** `uebergaben/vertrag-soll-einstellungen.md` (Server-Chat bestätigt).
+- **Befehle:** `wp tixomat soll ist | pruefen --soll='<json>' | setzen <schluessel> <wert>`.
+- **Setzbar:** nur `timezone_string`, `multi`, `blog_public`; Protokoll `soll_setzen`. Der Rest wird nur gelesen (display_errors, Cron-Rückstand, Mail, Versionen, Migration, Bestand …).
+- **Tests:** `test-stock-wp.php` (21), `tests/test-stock-race.sh` (12 gleichzeitige Käufe auf 5 Plätze → genau 5), `tests/test-migrate-soll.sh` (15), `tests/check-weg1.sh`.

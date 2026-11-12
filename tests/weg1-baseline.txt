@@ -1,0 +1,7 @@
+shortcode 65
+admin_menu 63
+meta_box 28
+wp_ajax 277
+register_setting 2
+woocommerce 466
+option_je_objekt 31

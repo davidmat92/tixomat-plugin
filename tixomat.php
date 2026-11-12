@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.766
+ * Version: 1.38.767
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.766');
+define('TIXOMAT_VERSION', '1.38.767');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -153,17 +153,17 @@ add_filter('sanitize_title', function($title, $raw_title, $context) {
     return $title;
 }, 5, 3);
 
-// ── Migration: ai_guard_api_key → anthropic_api_key ──
-add_action('admin_init', function() {
-    $s = get_option('tix_settings', []);
-    if (!empty($s['ai_guard_api_key']) && empty($s['anthropic_api_key'])) {
-        $s['anthropic_api_key'] = $s['ai_guard_api_key'];
-        update_option('tix_settings', $s);
-    }
-}, 1);
+// Migration ai_guard_api_key → anthropic_api_key: seit 1.38.767 Schritt „ki_schluessel“ in TIX_Migrations.
 
 // ── Immer laden (CPT, leichtgewichtig) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-client-ip.php';
+// Phase 0 (1.38.767): Migrationen beim ersten Aufruf jeder Art (init) + Bestand mit Sperre (Tabelle tix_stock)
+require_once TIXOMAT_PATH . 'includes/class-tix-migrations.php';
+TIX_Migrations::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-stock.php';
+TIX_Stock::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-soll.php'; // Soll-Einstellungen für die Wache (wp tixomat soll)
+TIX_Soll::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-consent.php';
 TIX_Consent::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-consent-banner.php';
@@ -1821,9 +1821,9 @@ add_filter('get_post_metadata', function($value, $post_id, $meta_key, $single) {
 }, 10, 4);
 
 // ── Einmalige Migrationen bei Versions-Update ──
-add_action('admin_init', function() {
-    $stored = get_option('tix_db_version', '0');
-    if (version_compare($stored, TIXOMAT_VERSION, '>=')) return;
+// Seit 1.38.767 aufgerufen vom zentralen Migrations-Lauf (TIX_Migrations, Hook init, unter Sperre),
+// nicht mehr nur auf admin_init. Die Versionsnummer setzt TIX_Migrations, wenn alle Schritte geklappt haben.
+function tix_version_migrations($stored) {
 
     // v1.15.8: wpautop auf ALLE Info-Meta-Keys (Source + Breakdance-Kopie)
     if (version_compare($stored, '1.15.8', '<')) {
@@ -1920,6 +1920,4 @@ add_action('admin_init', function() {
             TIX_Sponsor_DB::create_tables();
         }
     }
-
-    update_option('tix_db_version', TIXOMAT_VERSION);
-});
+}

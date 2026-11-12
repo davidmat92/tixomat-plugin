@@ -83,7 +83,7 @@ class TIX_Support {
         add_action('transition_post_status', [__CLASS__, 'invalidate_open_count_cache'], 10, 3);
 
         // One-shot Migration für Legacy-JSON-Strings mit kaputten Unicode-Escapes
-        add_action('admin_init', [__CLASS__, 'migrate_messages_storage']);
+        // 1.38.767: läuft im zentralen Migrations-Lauf (TIX_Migrations, Schritt support_nachrichten), nicht mehr auf admin_init
     }
 
     /**
@@ -2260,16 +2260,16 @@ class TIX_Support {
      * decodiert Legacy-JSON-Strings + repariert kaputte Unicode-Escapes
      * und speichert die Messages als Array.
      *
-     * Wird einmalig auf admin_init ausgeführt (idempotent, danach skip).
+     * Wird einmalig im Migrations-Lauf ausgeführt ($system = true; idempotent, danach skip).
      */
-    public static function migrate_messages_storage() {
+    public static function migrate_messages_storage($system = false) {
         $current = get_option('tix_sp_messages_migrated_v2');
         // Versions-String erlaubt Re-Runs nach Heuristik-Verbesserungen
         $migration_version = 'v4-newline-heuristic';
         if ($current && strpos($current, $migration_version) !== false) return;
         // Sicherheit: nur Admin oder WP-CLI (für manuellen Trigger)
         $is_cli = defined('WP_CLI') && WP_CLI;
-        if (!$is_cli && (!is_admin() || !current_user_can('manage_options'))) return;
+        if (!$system && !$is_cli && (!is_admin() || !current_user_can('manage_options'))) return;
 
         global $wpdb;
         $post_ids = $wpdb->get_col(

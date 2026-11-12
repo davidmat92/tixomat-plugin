@@ -37,7 +37,7 @@ class TIX_Invoicing {
         add_action('tix_order_completed', [__CLASS__, 'maybe_create_for_order'], 30, 1);
 
         // Einmalige Migration alter standalone-Option → tix_settings.invoicing
-        add_action('admin_init', [__CLASS__, 'maybe_migrate_legacy_settings'], 5);
+        // 1.38.767: läuft im zentralen Migrations-Lauf (TIX_Migrations, Schritt rechnungen_alt), nicht mehr auf admin_init
     }
 
     public static function maybe_migrate_legacy_settings() {

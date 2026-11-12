@@ -1571,7 +1571,15 @@ class TIX_App_Checkout {
         } else {
             TIX_Native_Checkout::clear_cart();
         }
-        if (!$order_id) return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
+        if (!$order_id) {
+            $err = TIX_Native_Checkout::$last_error;
+            if (is_wp_error($err) && $err->get_error_code() === 'tix_sold_out') {
+                $ed = (array) $err->get_error_data();
+                // gleicher Code wie die Vorprüfung (Apps kennen tix_stock), Status 409: zwischen Prüfung und Kauf ausverkauft
+                return new WP_Error('tix_stock', $err->get_error_message(), ['status' => 409, 'event_id' => $ed['event_id'] ?? null, 'cat_index' => $ed['cat_index'] ?? null, 'available' => $ed['available'] ?? null]);
+            }
+            return self::error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', 500);
+        }
         // Guthaben-Anteil atomar abbuchen; reicht es nicht mehr (zweite Bestellung zugleich), Bestellung abbrechen
         if ($wallet) {
             $wtx = TIX_Wallet_Balance::pay_order($order_id, $wallet['wallet_id'], TIX_Wallet_Balance::cents($wallet['applied']));

@@ -2277,6 +2277,8 @@ class TIX_REST_API {
             if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);
             else TIX_Native_Checkout::clear_cart();
             if ($receipt) do_action('tix_pos_sign_cancel', $receipt, 'order_failed'); // Bon zurücknehmen (1.38.557)
+            $err = TIX_Native_Checkout::$last_error;
+            if (is_wp_error($err) && $err->get_error_code() === 'tix_sold_out') return new WP_Error('tix_sold_out', $err->get_error_message(), (array) $err->get_error_data());
             return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);

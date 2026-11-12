@@ -276,7 +276,7 @@ class TIX_Demo {
             $qty = mt_rand(1, 4);
             $fn = self::FIRST[mt_rand(0, count(self::FIRST) - 1)]; $ln = self::LAST[mt_rand(0, count(self::LAST) - 1)];
             $email = strtolower(remove_accents($fn . '.' . $ln)) . $i . '.' . $eid . '@demo.invalid';
-            $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $fn, 'billing_last_name' => $ln, 'billing_email' => $email, 'payment_method' => 'demo', 'total' => $w[2] * $qty,
+            $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $fn, 'billing_last_name' => $ln, 'billing_email' => $email, 'payment_method' => 'demo', 'allow_oversell' => true, 'total' => $w[2] * $qty,
                 'items' => [['event_id' => $eid, 'cat_index' => $w[1], 'name' => (string) ($cats[$w[1]]['name'] ?? 'Ticket'), 'event_title' => get_the_title($eid), 'price' => $w[2], 'qty' => $qty, 'meta' => []]]]);
             if (!$order_id || is_wp_error($order_id)) continue;
             TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
@@ -514,7 +514,7 @@ class TIX_Demo {
         if ($e = self::ticket_limit_error('demo_ticket')) return $e;
         $parts = preg_split('/\s+/', $name, 2);
         $order_id = TIX_Native_Checkout::create_order(['billing_first_name' => $parts[0], 'billing_last_name' => $parts[1] ?? '', 'billing_email' => $email !== '' ? $email : 'gast-' . strtolower(wp_generate_password(8, false, false)) . '@demo.invalid',
-            'payment_method' => 'demo', 'total' => 0, 'items' => [['event_id' => $eid, 'cat_index' => $ci, 'name' => (string) ($cats[$ci]['name'] ?? self::DEMO_CAT), 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => []]]]);
+            'payment_method' => 'demo', 'allow_oversell' => true, 'total' => 0, 'items' => [['event_id' => $eid, 'cat_index' => $ci, 'name' => (string) ($cats[$ci]['name'] ?? self::DEMO_CAT), 'event_title' => get_the_title($eid), 'price' => 0, 'qty' => 1, 'meta' => []]]]);
         if (!$order_id || is_wp_error($order_id)) return new WP_Error('tix_demo_failed', 'Das Beispiel-Ticket konnte nicht erstellt werden.', ['status' => 500]);
         TIX_Native_Checkout::update_order_status($order_id, 'completed', 'demo');
         global $wpdb;

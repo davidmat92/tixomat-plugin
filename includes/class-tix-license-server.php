@@ -36,7 +36,7 @@ class TIX_License_Server {
     public static function init() {
         if (!self::enabled()) return;
         add_action('init', [__CLASS__, 'record_release'], 20);
-        add_action('admin_init', [__CLASS__, 'maybe_install']);
+        add_action('init', [__CLASS__, 'maybe_install'], 5); // 1.38.767: nicht nur im WP-Backend (Weg 1)
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         add_action('admin_menu', [__CLASS__, 'menu'], 40);
         add_action('admin_post_tix_license_admin', [__CLASS__, 'handle_admin']);

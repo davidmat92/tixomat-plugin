@@ -71,22 +71,13 @@ class TIX_Native_Checkout {
      */
     public static $refund_cancels_tickets = true;
 
-    /** Bestand nach Kategorie ändern (+ zurückgeben, − abziehen); unbegrenzt (-1) bleibt. */
+    /** Bestand nach Kategorie ändern (+ zurückgeben, − abziehen); unbegrenzt bleibt. Quelle: Tabelle tix_stock (1.38.767). */
     private static function adjust_stock(array $lines, $sign) {
-        foreach ($lines as $l) {
-            $event_id  = intval($l['event_id'] ?? 0);
-            $cat_index = intval($l['cat_index'] ?? -1);
-            $qty       = intval($l['qty'] ?? 0);
-            if (!$event_id || $cat_index < 0 || $qty <= 0) continue;
-            wp_cache_delete($event_id, 'post_meta');
-            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (!is_array($categories) || !isset($categories[$cat_index])) continue;
-            $current = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;
-            if ($current < 0) continue;
-            $categories[$cat_index]['stock'] = max(0, $current + $sign * $qty);
-            update_post_meta($event_id, '_tix_ticket_categories', $categories);
-        }
+        TIX_Stock::adjust($lines, $sign);
     }
+
+    /** Letzter Grund, warum create_order nichts angelegt hat (WP_Error, z. B. tix_sold_out), sonst null. */
+    public static $last_error = null;
 
     /** Bestand einer stornierten/fehlgeschlagenen Bestellung zurückgeben (einmalig). */
     public static function restore_stock($order_id) {
@@ -1946,7 +1937,8 @@ class TIX_Native_Checkout {
         ]);
 
         if (!$order_id) {
-            wp_send_json_error(['message' => 'Bestellung konnte nicht erstellt werden.']);
+            $err = self::$last_error;
+            wp_send_json_error(['message' => is_wp_error($err) ? $err->get_error_message() : 'Bestellung konnte nicht erstellt werden.', 'code' => is_wp_error($err) ? $err->get_error_code() : 'tix_order_failed']);
         }
         if (class_exists('TIX_Seatmap')) TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
 
@@ -2019,6 +2011,12 @@ class TIX_Native_Checkout {
         global $wpdb;
         $t  = $wpdb->prefix . 'tix_orders';
         $ti = $wpdb->prefix . 'tix_order_items';
+        self::$last_error = null;
+
+        // Bestand mit Sperre (1.38.767): erst alle Positionen reservieren (ganz oder gar nicht), dann die Bestellung anlegen.
+        // Ausverkauft → null + self::$last_error (tix_sold_out); keine Bestellnummer verbraucht.
+        $stock_taken = TIX_Stock::reserve((array) ($data['items'] ?? []), !empty($data['allow_oversell']));
+        if (is_wp_error($stock_taken)) { self::$last_error = $stock_taken; return null; }
 
         $order_number = TIX_Order::next_order_number();
         $order_key = 'tix_' . wp_generate_password(16, false);
@@ -2103,7 +2101,11 @@ class TIX_Native_Checkout {
         ]);
 
         $order_id = $wpdb->insert_id;
-        if (!$order_id) return null;
+        if (!$order_id) {
+            TIX_Stock::release($stock_taken);
+            self::$last_error = new WP_Error('tix_order_failed', 'Bestellung konnte nicht erstellt werden.', ['status' => 500]);
+            return null;
+        }
 
         // ── Coupon-Note für Audit-Trail + one_per_email-Check ──
         if (!empty($coupon_code) && $coupon_discount > 0 && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
@@ -2210,27 +2212,6 @@ class TIX_Native_Checkout {
             ]);
         }
 
-        $stock_taken = [];
-        // Decrement stock for each ticket category (cache-busted for freshness)
-        // Specials (cat_index === -1) haben eigenen Stock — der wird via get_sold_count berechnet,
-        // nicht über _tix_ticket_categories. Daher hier überspringen.
-        foreach ($data['items'] as $item) {
-            $event_id  = intval($item['event_id']);
-            $cat_index = intval($item['cat_index']);
-            $qty       = intval($item['qty']);
-            if ($cat_index < 0) continue; // Special / Bundle / Combo / Custom-Item
-
-            wp_cache_delete($event_id, 'post_meta');
-            $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
-            if (is_array($categories) && isset($categories[$cat_index])) {
-                $current_stock = isset($categories[$cat_index]['stock']) ? intval($categories[$cat_index]['stock']) : -1;
-                if ($current_stock >= 0) {
-                    $categories[$cat_index]['stock'] = max(0, $current_stock - $qty);
-                    update_post_meta($event_id, '_tix_ticket_categories', $categories);
-                    $stock_taken[] = ['event_id' => $event_id, 'cat_index' => $cat_index, 'qty' => min($qty, $current_stock)];
-                }
-            }
-        }
         // Abgezogenen Bestand merken → Rückgabe bei Storno/fehlgeschlagener Zahlung (restore_stock)
         if (!empty($stock_taken)) {
             update_option('_tix_order_stock_taken_' . $order_id, $stock_taken, false);

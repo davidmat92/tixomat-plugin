@@ -840,7 +840,11 @@ class TIX_Table_Reservation {
             'items'              => [$item],
         ]);
         if (!empty($previous['items'])) TIX_Native_Checkout::save_cart($previous); else TIX_Native_Checkout::clear_cart();
-        if (!$order_id) return new WP_Error('tix_table_pay', 'Bestellung konnte nicht erstellt werden.', ['status' => 500]);
+        if (!$order_id) {
+            $err = TIX_Native_Checkout::$last_error;
+            if (is_wp_error($err) && $err->get_error_code() === 'tix_sold_out') return new WP_Error('tix_sold_out', $err->get_error_message(), (array) $err->get_error_data());
+            return new WP_Error('tix_table_pay', 'Bestellung konnte nicht erstellt werden.', ['status' => 500]);
+        }
 
         global $wpdb;
         $wpdb->update($wpdb->prefix . self::TABLE, ['order_id' => $order_id], ['id' => $reservation_id], ['%d'], ['%d']);
