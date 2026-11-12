@@ -412,7 +412,7 @@ class TIX_Mirror_Map {
         }
         $items = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d ORDER BY id", $id), ARRAY_A);
 
-        $opt = function ($k) use ($id) { return get_option($k . '_' . $id, null); };
+        $opt = function ($k) use ($id) { return TIX_Object_Data::read($k, $id, null); }; // Tabelle für umgezogene Arten, sonst Option (1.38.769)
         $event_ids = [];
         $item_rows = [];
         foreach ((array) $items as $it) {

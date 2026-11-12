@@ -6062,7 +6062,7 @@ Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
 Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/plugin-inventar.md`.
 
 ### Weg-1-Regeln (gelten ab jetzt für jedes neue Paket)
-1. **Neue Daten:** in eigene Tabellen (`tix_*`, JSON-Spalten erlaubt). Keine neuen Optionen je Objekt (`_tix_<x>_<id>`) und keine neuen Postmeta-Strukturen für Zähler oder Bestände.
+1. **Neue Daten:** in eigene Tabellen (`tix_*`), als JSON statt PHP-serialize. Keine neuen Optionen je Objekt (`_tix_<x>_<id>`): Für Kleines je Objekt gibt es `TIX_Object_Data` (neue Art in `KINDS`). Keine neuen Postmeta-Strukturen für Zähler oder Bestände, keine neuen Breakdance-Felder.
 2. **Einstellungen:** nur über Studio-Routen (`/studio/*`), REST oder WP-CLI. Keine neuen WP-Einstellungsseiten (`register_setting`, `add_menu_page`, `add_meta_box`).
 3. **Logik:** in reinen Funktionen ohne WP-Aufrufe, wo es geht (Beispiel `TIX_Stock::limit_of/plan`). WP-Funktionen nur am Rand (Speichern, Hooks).
 4. **Keine neuen Shortcodes, keine `wp_ajax_`-Endpunkte.** Webhooks und Aktionen gehen als REST-Route.
@@ -6106,3 +6106,44 @@ Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/p
 - **Wo:** `TIX_Lineup_Links::apply_order` und `acts`. Damit gilt die Regel für `lineup_acts`, `lineup_list`, `artists`, Website, App und den Schnappschuss für Spiegel (`_tix_lineup_acts`). Bestehende Spiegel ziehen beim nächsten Verteilen des Quell-Events nach.
 - **`time`** unverändert (nur die Uhrzeit).
 - **Test:** `test-lineup-acts-wp` 31 (kk) / 30 (Plattform).
+
+## 173. Optionen je Objekt in Tabelle, Rollout mit geteiltem Plugin-Ordner (ab 1.38.769)
+### `TIX_Object_Data` (Tabelle `{prefix}tix_object_data`)
+- **Tabelle:** `kind, object_id, data (JSON), updated_at`, PK `(kind, object_id)`.
+- **Umgezogen (Präfix der alten Option → Art):**
+
+  | Alte Option | Art |
+  |---|---|
+  | `_tix_order_fees_<id>` | `order_fees` |
+  | `_tix_refund_<id>` | `order_refund_last` |
+  | `_tix_refund_total_<id>` | `order_refund_total` |
+  | `_tix_order_stock_taken_<id>` | `order_stock_taken` |
+  | `_tix_order_stock_restored_<id>` | `order_stock_restored` |
+  | `tix_lic_golive_<lizenz>` | `license_golive` |
+  | `tix_lic_contract_<lizenz>` | `license_contract` |
+
+- **API** (Präfix wie die alte Option, ohne `_<id>`):
+  - `read($prefix, $id, $default)`, `write`, `remove`, `read_many`, `all`, `exists_sql($prefix, 'o.id')`
+  - Nicht umgezogene Präfixe gehen weiter auf `get_option`/`update_option`. So können Leser einheitlich `read()` nutzen.
+- **Übergang:**
+  - `read()` fällt auf die alte Option zurück, solange sie noch nicht verschoben ist.
+  - `write()` schreibt die Tabelle und löscht die alte Option.
+  - Migrations-Schritt `objekt_daten` verschiebt alles. Live waren es zuletzt etwa 100 (KK), 330 (evendis) und 1.450 (Mallorca) Zeilen.
+- **Werte:** Zahlen, die früher als Option gespeichert waren, kommen wie vorher als Text zurück (`'12.5'`); neu geschriebene bleiben Zahl. Leser casten wie bisher.
+- **Datenspiegel:**
+  - Abbild unverändert: `TIX_Mirror_Map` liest über `read()`, der Abgleich (`orders`-Prüfsumme) über `read_many()`.
+  - Änderungen lösen `tix_object_data_changed` aus; Arten `order_*` lösen `TIX_Mirror::touch('order', id)` aus wie vorher die Options-Hooks.
+- **Auch umgestellt:** Settlement (Erstattungs-Suche per `exists_sql`), Umzug (`site-move` Export/Import), Go-live (`open_requests` über `all()`), Vertragsdaten.
+- **Neue Arten:** einen Eintrag in `KINDS` ergänzen und die Aufrufer auf `read/write/remove` umstellen. Der Migrations-Schritt nimmt sie automatisch mit.
+
+### Rollout mit geteiltem Plugin-Ordner (paralleler Rollout des Server-Chats)
+- **Erlaubter Aufbau:** `wp-content/plugins/tixomat` als Symlink auf einen gemeinsamen, nur lesbaren Ordner je Version (z. B. `/srv/releases/tixomat-1.38.769`).
+  - Getestet: Plugin-Pfad, Asset-URLs, Migration und Tests laufen.
+  - Das Plugin schreibt nie in seinen eigenen Ordner; Dateien landen in `uploads` bzw. `tix-private`.
+- **`TIX_License::managed_deploy()`:**
+  - Bei Symlink, nicht schreibbarem Ordner oder `define('TIX_MANAGED_DEPLOY', true)` bietet WordPress kein eigenes Update an. Es würde sonst den geteilten Ordner überschreiben.
+  - Selbstbetreiber ohne Symlink behalten das Update über den Lizenzserver.
+- **Nach dem Umschalten:** OPcache-Reset je Pool (Server). Die Migration läuft beim ersten Aufruf von selbst; sofort geht es mit `wp tixomat migrate run`.
+- **`soll ist` liefert zusätzlich:** `plugin_ordner_link`, `plugin_ordner_echt`, `plugin_verwaltet`, `opcache`, `objekt_tabelle`, `objekt_optionen_alt`.
+- **Verträge:** `uebergaben/vertrag-rollout-parallel.md` (Server), `uebergaben/vertrag-datenspiegel-objekt-daten.md` (Datenspiegel), `uebergaben/vertrag-soll-einstellungen.md`.
+- **Tests:** `test-object-data-wp` 15, Spiegel-Abbild und Prüfsumme manuell geprüft, Symlink-Container (nur lesend) geprüft.

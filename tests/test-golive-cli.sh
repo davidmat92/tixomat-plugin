@@ -13,7 +13,7 @@ update_option("tix_license_server_bak", get_option("tix_license_server", "__none
 update_option("tix_license_server", "1", false); TIX_License_Server::install();
 $lic = TIX_License_Server::create(["customer" => "GLC Kunde", "email" => "glc@example.test", "valid_until" => gmdate("Y-m-d", strtotime("+60 days"))]);
 global $wpdb; $wpdb->insert($wpdb->prefix . "tix_license_sites", ["license_id" => $lic->id, "host" => "glc-kunde.test", "dev" => 0, "first_seen" => current_time("mysql"), "last_seen" => current_time("mysql")]);
-update_option(TIX_Go_Live::OPT_REQ . $lic->id, ["action" => "live", "status" => "pending", "at" => gmdate("c"), "host" => "glc-kunde.test", "by" => ["name" => "Kim Inhaber", "email" => "kim@glc.test"], "checks" => [], "message" => null, "nonce" => "glcnonce", "done_at" => null], false);
+TIX_Object_Data::write(TIX_Go_Live::OPT_REQ, $lic->id, ["action" => "live", "status" => "pending", "at" => gmdate("c"), "host" => "glc-kunde.test", "by" => ["name" => "Kim Inhaber", "email" => "kim@glc.test"], "checks" => [], "message" => null, "nonce" => "glcnonce", "done_at" => null]);
 if (method_exists("TIX_Platform_Customers", "flush")) TIX_Platform_Customers::flush();
 echo $lic->id;' 2>/dev/null)
 LID="$SETUP"
@@ -52,6 +52,6 @@ check "Protokoll go_live_done durch kunden-dienst" "1" "$LOG"
 $WP eval '
 global $wpdb; $id = '"$LID"';
 $wpdb->delete($wpdb->prefix . "tix_license_sites", ["license_id" => $id]); $wpdb->delete($wpdb->prefix . "tix_license_log", ["license_id" => $id]); $wpdb->delete($wpdb->prefix . "tix_licenses", ["id" => $id]);
-delete_option(TIX_Go_Live::OPT_REQ . $id);
+TIX_Object_Data::remove(TIX_Go_Live::OPT_REQ, $id);
 $b = get_option("tix_license_server_bak"); if ($b === "__none__") delete_option("tix_license_server"); else update_option("tix_license_server", $b, false); delete_option("tix_license_server_bak");' >/dev/null 2>&1
 [ $fail -eq 0 ] && echo "ALLES OK ($n Prüfungen)" || echo "FEHLER: $fail ($n Prüfungen)"

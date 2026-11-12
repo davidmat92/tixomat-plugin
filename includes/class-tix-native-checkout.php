@@ -82,11 +82,11 @@ class TIX_Native_Checkout {
     /** Bestand einer stornierten/fehlgeschlagenen Bestellung zurückgeben (einmalig). */
     public static function restore_stock($order_id) {
         $order_id = intval($order_id);
-        $taken = get_option('_tix_order_stock_taken_' . $order_id);
+        $taken = TIX_Object_Data::read('_tix_order_stock_taken', $order_id, false);
         if (!is_array($taken) || empty($taken)) return; // nur Bestellungen, deren Bestand create_order abgezogen hat
         self::adjust_stock($taken, +1);
-        delete_option('_tix_order_stock_taken_' . $order_id);
-        update_option('_tix_order_stock_restored_' . $order_id, $taken, false);
+        TIX_Object_Data::remove('_tix_order_stock_taken', $order_id);
+        TIX_Object_Data::write('_tix_order_stock_restored', $order_id, $taken);
         if (class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) {
             TIX_Order_Admin::add_note($order_id, 'Bestand zurückgegeben (' . array_sum(array_column($taken, 'qty')) . ' Tickets).', 'system');
         }
@@ -95,11 +95,11 @@ class TIX_Native_Checkout {
     /** Zurückgegebener Bestand wird bei späterer Zahlung wieder abgezogen. */
     public static function reclaim_stock($order_id) {
         $order_id = intval($order_id);
-        $restored = get_option('_tix_order_stock_restored_' . $order_id);
+        $restored = TIX_Object_Data::read('_tix_order_stock_restored', $order_id, false);
         if (!is_array($restored) || empty($restored)) return;
         self::adjust_stock($restored, -1);
-        delete_option('_tix_order_stock_restored_' . $order_id);
-        update_option('_tix_order_stock_taken_' . $order_id, $restored, false);
+        TIX_Object_Data::remove('_tix_order_stock_restored', $order_id);
+        TIX_Object_Data::write('_tix_order_stock_taken', $order_id, $restored);
     }
 
     /**
@@ -2130,7 +2130,7 @@ class TIX_Native_Checkout {
 
         // ── Gebühren-Daten als Order-Meta speichern ──
         if ($fee_data) {
-            update_option('_tix_order_fees_' . $order_id, [
+            TIX_Object_Data::write('_tix_order_fees', $order_id, [
                 'platform_fee'      => $fee_data['platform_fee'],
                 'platform_fee_mode' => $fee_data['platform_fee_mode'],
                 'gateway_fee'       => $fee_data['gateway_fee'],
@@ -2214,7 +2214,7 @@ class TIX_Native_Checkout {
 
         // Abgezogenen Bestand merken → Rückgabe bei Storno/fehlgeschlagener Zahlung (restore_stock)
         if (!empty($stock_taken)) {
-            update_option('_tix_order_stock_taken_' . $order_id, $stock_taken, false);
+            TIX_Object_Data::write('_tix_order_stock_taken', $order_id, $stock_taken);
         }
 
         // ── Hook für nachgelagerte Module (z.B. Campaign-Tracking, Newsletter, etc.) ──

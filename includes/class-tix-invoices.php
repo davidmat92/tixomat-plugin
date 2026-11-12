@@ -586,7 +586,7 @@ class TIX_Invoices {
             $fi = $iss($fkey);
             $frate = !empty($fi['small_business']) ? 0.0 : floatval($fi['tax_rate']);
             $fg = $gross_of($fee, $frate);
-            $f = get_option('_tix_order_fees_' . intval($order_id));
+            $f = TIX_Object_Data::read('_tix_order_fees', intval($order_id), false);
             $label = is_array($f) && trim((string) ($f['fee_label'] ?? '')) !== '' ? trim((string) $f['fee_label']) : 'Servicegebühr';
             $sdate = null;
             foreach ($groups as $g) if ($g['service_date'] && ($sdate === null || $g['service_date'] < $sdate)) $sdate = $g['service_date'];

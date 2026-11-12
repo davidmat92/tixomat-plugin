@@ -437,7 +437,7 @@ class TIX_Fees {
         $want = array_values(array_unique(array_map('intval', $ticket_ids)));
         if (!$want) return new WP_Error('tix_invalid_field', 'Bitte mindestens ein Ticket wählen.', ['status' => 400, 'field' => 'tickets']);
         foreach ($want as $id) if (!in_array($id, $valid, true)) return new WP_Error('tix_invalid_field', 'Ticket ' . $id . ' gehört nicht zu dieser Bestellung oder ist schon storniert.', ['status' => 400, 'field' => 'tickets']);
-        $fd = get_option('_tix_order_fees_' . $order_id, []);
+        $fd = TIX_Object_Data::read('_tix_order_fees', $order_id, []);
         $F = round(floatval(is_array($fd) ? ($fd['customer_fee_line'] ?? 0) : 0), 2);
         $tk = function ($id) {
             $ci = get_post_meta($id, '_tix_ticket_cat_index', true);

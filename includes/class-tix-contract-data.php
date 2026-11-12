@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 /**
  * Vertragsdaten mit evendis und Seitenname (1.38.764, Vertrag uebergaben/vertrag-vertragsdaten.md, Doku §168).
  *
- * Eine Quelle: an der Lizenz auf evendis (Option `tix_lic_contract_{id}`). Die Kunden-Seite hält eine Kopie und schreibt nur über evendis
+ * Eine Quelle: an der Lizenz auf evendis (Art `license_contract` in tix_object_data, früher Option `tix_lic_contract_{id}`). Die Kunden-Seite hält eine Kopie und schreibt nur über evendis
  * (signiert mit dem Lizenzschlüssel, 120 s, nonce – wie TIX_Go_Live). Änderungen aus der Akte kommen signiert mit der Lizenzprüfung zurück.
  *   Kunden-Seite:  GET/POST /studio/contract-data            (Inhaber/Admin, TIX_Operator_Access::perm_owner)
  *   Lizenz-Server: POST /license/contract-data              {action: get|set, host, data?, by, ts, nonce}
@@ -227,7 +227,7 @@ class TIX_Contract_Data {
     // ═══════════════ Lizenz-Server (evendis) ═══════════════
 
     public static function record($license_id) {
-        $r = get_option(self::OPT_LIC . intval($license_id), null);
+        $r = TIX_Object_Data::read(self::OPT_LIC, intval($license_id), null); // Tabelle tix_object_data (1.38.769)
         return is_array($r) ? $r : null;
     }
 
@@ -237,7 +237,7 @@ class TIX_Contract_Data {
         $changed = self::changed($old['data'] ?? null, $data);
         $rec = ['data' => $data, 'updated_at' => gmdate('c'), 'updated_by' => ['name' => (string) ($by['name'] ?? ''), 'email' => (string) ($by['email'] ?? ''), 'source' => $source],
             'log' => array_slice(array_merge((array) ($old['log'] ?? []), [['at' => gmdate('c'), 'by' => (string) (($by['email'] ?? '') ?: ($by['name'] ?? '')), 'source' => $source, 'changed' => $changed]]), -50)];
-        update_option(self::OPT_LIC . intval($license_id), $rec, false);
+        TIX_Object_Data::write(self::OPT_LIC, intval($license_id), $rec);
         if (class_exists('TIX_License_Server')) TIX_License_Server::log(intval($license_id), 'contract_data', ['source' => $source, 'by' => $by['email'] ?? '', 'changed' => $changed]);
         if ($source === 'site' && $changed) self::notify_platform(intval($license_id), $rec, $changed);
         do_action('tix_contract_data_changed', intval($license_id), $rec, $changed, $source);

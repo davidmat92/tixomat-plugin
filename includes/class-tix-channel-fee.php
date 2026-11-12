@@ -93,7 +93,7 @@ class TIX_Channel_Fee {
 
     /** Kanal-Gebühr einer Bestellung aus den Positionen (Prozent + Fixbetrag je Ticket), ohne Freitickets/Ausnahmen. */
     public static function amount_for_order($order_id, array $cf) {
-        $fd = get_option('_tix_order_fees_' . intval($order_id));
+        $fd = TIX_Object_Data::read('_tix_order_fees', intval($order_id), false);
         $lines = is_array($fd) ? (array) ($fd['lines'] ?? []) : [];
         if (!$lines) { // ältere Kasse ohne `lines`: Positionen der Bestellung
             global $wpdb;

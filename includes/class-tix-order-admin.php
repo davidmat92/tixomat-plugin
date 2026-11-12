@@ -782,7 +782,7 @@ class TIX_Order_Admin {
                             <?php endif; ?>
                         <?php endif; ?>
                         <?php
-                        $refund_info = get_option('_tix_refund_' . $order_id);
+                        $refund_info = TIX_Object_Data::read('_tix_refund', $order_id, false);
                         if ($refund_info && is_array($refund_info)):
                             $refund_user = get_userdata($refund_info['admin_user'] ?? 0);
                         ?>
@@ -1587,9 +1587,9 @@ class TIX_Order_Admin {
 
     /** Bisher erstattete Summe einer Bestellung. */
     public static function refunded_total($order_id) {
-        $sum = get_option('_tix_refund_total_' . $order_id, false);
+        $sum = TIX_Object_Data::read('_tix_refund_total', $order_id, false);
         if ($sum === false) {
-            $last = get_option('_tix_refund_' . $order_id);
+            $last = TIX_Object_Data::read('_tix_refund', $order_id, false);
             $sum = is_array($last) ? floatval($last['amount'] ?? 0) : 0;
         }
         return round(floatval($sum), 2);
@@ -1672,8 +1672,8 @@ class TIX_Order_Admin {
             'source'     => $source,
         ];
         // Summe aller Erstattungen dieser Bestellung (_tix_refund_ hält nur die letzte)
-        update_option('_tix_refund_' . $order_id, $refund_data, false);
-        update_option('_tix_refund_total_' . $order_id, round($before + $refund_amount, 2), false);
+        TIX_Object_Data::write('_tix_refund', $order_id, $refund_data);
+        TIX_Object_Data::write('_tix_refund_total', $order_id, round($before + $refund_amount, 2));
         do_action('tix_order_refund_recorded', $order_id, $refund_amount, $is_full_refund);
 
         // Write refund order note

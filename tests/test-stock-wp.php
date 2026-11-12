@@ -54,7 +54,7 @@ try {
     $eq('ausverkauft: keine Bestellung, last_error tix_sold_out', [null, 'tix_sold_out', $before], [$oid, is_wp_error($e) ? $e->get_error_code() : null, $cnt()]);
     $oid = TIX_Native_Checkout::create_order($base + ['allow_oversell' => true, 'items' => [['event_id' => $ev, 'cat_index' => 1, 'qty' => 6, 'price' => 0, 'name' => 'Normal', 'event_title' => 'Bestand Test', 'meta' => []]]]);
     if ($oid) $orders[] = $oid;
-    $eq('Demo (allow_oversell): angelegt, Bestand 0, abgezogen 5', [true, 0, 5], [(bool) $oid, TIX_Stock::levels($ev)[1] ?? null, (int) (get_option('_tix_order_stock_taken_' . $oid)[0]['qty'] ?? 0)]);
+    $eq('Demo (allow_oversell): angelegt, Bestand 0, abgezogen 5', [true, 0, 5], [(bool) $oid, TIX_Stock::levels($ev)[1] ?? null, (int) ((TIX_Object_Data::read('_tix_order_stock_taken', $oid) ?: [])[0]['qty'] ?? 0)]);
     $oid2 = TIX_Native_Checkout::create_order($base + ['items' => [['event_id' => $ev, 'cat_index' => 0, 'qty' => 2, 'price' => 0, 'name' => 'Früh', 'event_title' => 'Bestand Test', 'meta' => []]]]);
     if ($oid2) $orders[] = $oid2;
     $eq('normale Bestellung: Bestand 6 → 4, Anzeige-Kopie 4', [true, 4, 4], [(bool) $oid2, TIX_Stock::levels($ev)[0] ?? null, $meta($ev)[0]]);
@@ -71,7 +71,7 @@ try {
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getFile() . ':' . $e->getLine() . "\n";
 } finally {
-    foreach ($orders as $o) { $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $o]); $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $o]); delete_option('_tix_order_stock_taken_' . $o); delete_option('_tix_order_stock_restored_' . $o); }
+    foreach ($orders as $o) { $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $o]); $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $o]); TIX_Object_Data::remove('_tix_order_stock_taken', $o); TIX_Object_Data::remove('_tix_order_stock_restored', $o); }
     if ($ev) wp_delete_post($ev, true);
 }
 echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen)\n";

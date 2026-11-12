@@ -84,7 +84,7 @@ try {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {
     remove_all_filters('pre_http_request'); remove_all_filters('pre_wp_mail');
-    if ($lic) { $wpdb->delete($wpdb->prefix . 'tix_license_sites', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_license_log', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic->id]); delete_option(TIX_Contract_Data::OPT_LIC . $lic->id); }
+    if ($lic) { $wpdb->delete($wpdb->prefix . 'tix_license_sites', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_license_log', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic->id]); TIX_Object_Data::remove(TIX_Contract_Data::OPT_LIC, $lic->id); }
     foreach ($keep as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v); }
     wp_set_current_user(0);
 }

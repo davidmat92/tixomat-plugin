@@ -31,6 +31,7 @@ class TIX_Soll {
         $mail = class_exists('TIX_Mail_Transport') ? (array) TIX_Mail_Transport::stored() : [];
         $mig = class_exists('TIX_Migrations') ? TIX_Migrations::status() : null;
         $stock = class_exists('TIX_Stock') ? TIX_Stock::health() : null;
+        $od = class_exists('TIX_Object_Data') ? TIX_Object_Data::health() : null;
         return [
             // setzbar
             'timezone_string'     => [(string) get_option('timezone_string', ''), true],
@@ -51,6 +52,12 @@ class TIX_Soll {
             'migration_ok'        => [$mig && $mig['last'] ? (bool) $mig['last']['ok'] : null, false],
             'bestand_tabelle'     => [$stock ? (bool) $stock['table'] : false, false],
             'bestand_abweichungen'=> [$stock && !empty($stock['table']) ? count($stock['mismatch']) : null, false],
+            'objekt_tabelle'      => [$od ? (bool) $od['table'] : false, false],
+            'objekt_optionen_alt' => [$od ? intval($od['legacy']) : null, false],
+            'plugin_ordner_link'  => [is_link(untrailingslashit(WP_PLUGIN_DIR) . '/' . dirname(plugin_basename(TIXOMAT_PATH . 'tixomat.php'))), false],
+            'plugin_ordner_echt'  => [(string) realpath(TIXOMAT_PATH), false],
+            'plugin_verwaltet'    => [class_exists('TIX_License') && method_exists('TIX_License', 'managed_deploy') ? TIX_License::managed_deploy() : false, false],
+            'opcache'             => [function_exists('opcache_get_status') && (bool) ini_get('opcache.enable'), false],
             'lizenz_modus'        => [(string) get_option('tix_license_mode', ''), false],
             'home_host'           => [strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)), false],
         ];

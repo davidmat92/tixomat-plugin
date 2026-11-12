@@ -98,13 +98,13 @@ class TIX_Sales_Figures {
 
     private static function customer_fee($order_id) {
         if (class_exists('TIX_Settlement') && method_exists('TIX_Settlement', 'order_fees')) return floatval(TIX_Settlement::order_fees($order_id)['customer_fee_line'] ?? 0);
-        $f = get_option('_tix_order_fees_' . intval($order_id));
+        $f = TIX_Object_Data::read('_tix_order_fees', intval($order_id), false);
         return is_array($f) ? round(floatval($f['customer_fee_line'] ?? 0), 2) : 0.0;
     }
 
     private static function refunded($row) {
         if (class_exists('TIX_Settlement') && method_exists('TIX_Settlement', 'refunded_amount')) return floatval(TIX_Settlement::refunded_amount($row));
-        $acc = get_option('_tix_refund_total_' . intval($row->id), 0);
+        $acc = TIX_Object_Data::read('_tix_refund_total', intval($row->id), 0);
         if ($row->status === 'refunded') $acc = max(floatval($acc), floatval($row->total));
         return round(min(floatval($acc), floatval($row->total)), 2);
     }

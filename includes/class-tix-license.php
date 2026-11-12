@@ -64,6 +64,18 @@ class TIX_License {
         add_action('admin_notices', [__CLASS__, 'notice']);
     }
 
+    /**
+     * Ausgerollt vom Server (Phase 0, 1.38.769): gemeinsamer Plugin-Ordner je Version, je Seite ein Symlink
+     * (`wp-content/plugins/tixomat` → `/…/tixomat-<version>`), oder Konstante TIX_MANAGED_DEPLOY in wp-config.
+     * Dann bietet WordPress kein eigenes Update an (es würde den geteilten Ordner aller Seiten überschreiben).
+     * Selbstbetreiber ohne Symlink behalten den Update-Weg über den Lizenzserver.
+     */
+    public static function managed_deploy() {
+        if (defined('TIX_MANAGED_DEPLOY')) return (bool) TIX_MANAGED_DEPLOY;
+        $dir = untrailingslashit(WP_PLUGIN_DIR) . '/' . dirname(self::plugin_file());
+        return is_link($dir) || !wp_is_writable(TIXOMAT_PATH);
+    }
+
     public static function plugin_file() {
         return plugin_basename(TIXOMAT_PATH . 'tixomat.php');
     }
@@ -176,6 +188,7 @@ class TIX_License {
     /** Update-Angebot für WordPress (Filter `update_plugins_{host}`). */
     public static function update_info($update, $plugin_data, $plugin_file, $locales) {
         if ($plugin_file !== self::plugin_file()) return $update;
+        if (self::managed_deploy()) return false; // Rollout durch den Server (1.38.769)
         $s = self::status();
         // Download-Links laufen nach 12 h ab → spätestens nach 6 h neu prüfen
         if (empty($s['checked_at']) || time() - intval($s['checked_at']) > 6 * HOUR_IN_SECONDS) $s = self::check();

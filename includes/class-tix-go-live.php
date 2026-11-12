@@ -29,12 +29,8 @@ class TIX_Go_Live {
 
     /** Offene Anfragen (Lizenz-Server), Vertrag uebergaben/vertrag-golive-abholen.md: [{license_id, nonce, action, host, by {name, email}, at}] – älteste zuerst. */
     public static function open_requests() {
-        global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like(self::OPT_REQ) . '%'));
         $out = [];
-        foreach ((array) $rows as $r) {
-            $lid = intval(substr($r->option_name, strlen(self::OPT_REQ)));
-            $q = maybe_unserialize($r->option_value);
+        foreach (TIX_Object_Data::all(self::OPT_REQ) as $lid => $q) { // Tabelle tix_object_data (1.38.769)
             if (!$lid || !is_array($q) || ($q['status'] ?? '') !== 'pending') continue;
             $out[] = ['license_id' => $lid, 'nonce' => (string) ($q['nonce'] ?? ''), 'action' => (string) ($q['action'] ?? 'live'),
                 'host' => strtolower(preg_replace('/^www\./', '', (string) ($q['host'] ?? ''))),
@@ -61,7 +57,7 @@ class TIX_Go_Live {
         $r['status'] = $status;
         $r['message'] = $message !== null ? (mb_substr(sanitize_text_field((string) $message), 0, 300) ?: null) : null;
         $r['done_at'] = gmdate('c');
-        update_option(self::OPT_REQ . $license_id, $r, false);
+        TIX_Object_Data::write(self::OPT_REQ, $license_id, $r);
         TIX_License_Server::log($license_id, 'go_live_' . $status, ['action' => $r['action'], 'by' => $by]);
         // Seite sofort prüfen lassen, damit das Ergebnis ankommt
         if (method_exists('TIX_License_Server', 'rest_admin_ping')) {
@@ -224,7 +220,7 @@ class TIX_Go_Live {
         $r = ['action' => $action, 'status' => 'pending', 'at' => gmdate('c'), 'host' => $host, 'by' => array_map('sanitize_text_field', (array) ($b['by'] ?? [])),
             'checks' => array_values(array_map(function ($c) { return ['key' => sanitize_key((string) ($c['key'] ?? '')), 'ok' => !empty($c['ok']), 'state' => sanitize_key((string) ($c['state'] ?? ''))]; }, (array) ($b['checks'] ?? []))),
             'message' => null, 'nonce' => sanitize_text_field((string) $b['nonce']), 'done_at' => null];
-        update_option(self::OPT_REQ . intval($lic->id), $r, false);
+        TIX_Object_Data::write(self::OPT_REQ, intval($lic->id), $r);
         TIX_License_Server::log(intval($lic->id), 'go_live_request', ['action' => $action, 'host' => $host, 'by' => $r['by']['email'] ?? '']);
         do_action('tix_go_live_requested', intval($lic->id), $r);
         return rest_ensure_response(['ok' => true, 'status' => 'pending']);
@@ -239,7 +235,7 @@ class TIX_Go_Live {
     }
 
     public static function request_of($license_id) {
-        $r = get_option(self::OPT_REQ . intval($license_id), null);
+        $r = TIX_Object_Data::read(self::OPT_REQ, intval($license_id), null);
         return is_array($r) ? $r : null;
     }
 

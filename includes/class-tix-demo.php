@@ -200,7 +200,7 @@ class TIX_Demo {
         // Bestell-Metadaten (liegen in postmeta unter der Bestell-ID) nur löschen, wo es keinen Beitrag mit dieser ID gibt
         $wpdb->query("DELETE pm FROM {$wpdb->postmeta} pm LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id WHERE pm.post_id IN ($oin) AND p.ID IS NULL");
         if (class_exists('TIX_Order_Attribution')) $wpdb->query("DELETE FROM " . TIX_Order_Attribution::table() . " WHERE order_id IN ($oin)");
-        foreach ($order_ids as $o) { delete_option('_tix_order_coupon_' . $o); delete_option('_tix_coupon_incremented_' . $o); delete_option('_tix_order_source_' . $o); delete_option('_tix_order_fees_' . $o); }
+        foreach ($order_ids as $o) { delete_option('_tix_order_coupon_' . $o); delete_option('_tix_coupon_incremented_' . $o); delete_option('_tix_order_source_' . $o); TIX_Object_Data::remove('_tix_order_fees', $o); }
         return count($order_ids);
     }
 

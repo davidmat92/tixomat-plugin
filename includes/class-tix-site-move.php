@@ -374,7 +374,7 @@ class TIX_Site_Move {
                     $row['items'] = $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . TIX_Order::items_table_name() . ' WHERE order_id = %d', $id), ARRAY_A) ?: [];
                     $row['notes'] = $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . TIX_Order::notes_table_name() . ' WHERE order_id = %d', $id), ARRAY_A) ?: [];
                     $row['options'] = [];
-                    foreach (['_tix_pos_order_', '_tix_refund_total_'] as $o) { $v = get_option($o . $id, null); if ($v !== null) $row['options'][$o] = $v; }
+                    foreach (['_tix_pos_order_', '_tix_refund_total_'] as $o) { $v = TIX_Object_Data::read($o, $id, null); if ($v !== null) $row['options'][$o] = $v; }
                     $items[] = $row;
                 }
                 break;
@@ -662,7 +662,7 @@ class TIX_Site_Move {
                 $wpdb->insert(TIX_Order::items_table_name(), $it);
             }
             foreach ((array) $o['notes'] as $nt) { $nt = array_diff_key($nt, ['id' => 1]); $nt['order_id'] = $new; $wpdb->insert(TIX_Order::notes_table_name(), $nt); }
-            foreach ((array) $o['options'] as $k => $v) update_option($k . $new, $v, false);
+            foreach ((array) $o['options'] as $k => $v) TIX_Object_Data::write($k, $new, $v); // umgezogene Arten in die Tabelle (1.38.769)
             $wpdb->insert(TIX_Order::notes_table_name(), ['order_id' => $new, 'note' => 'Übernommen von ' . self::$api . ' (Bestellung #' . $from . ').', 'note_type' => 'internal', 'author' => 'Umzug']);
             $map['orders'][$from] = $new; $n['orders']++;
         });

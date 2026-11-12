@@ -123,7 +123,7 @@ if (!$multi) {
         $eq('Ungültiger Status 400', 400, $rest('POST', "/platform/customers/l-{$lic->id}/go-live", ['status' => 'x'])[0]);
     } finally {
         $wpdb->delete($st, ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_license_log', ['license_id' => $lic->id]); $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic->id]);
-        delete_option(TIX_Go_Live::OPT_REQ . $lic->id);
+        TIX_Object_Data::remove(TIX_Go_Live::OPT_REQ, $lic->id);
         if ($keep === null) delete_option('tix_license_server'); else update_option('tix_license_server', $keep, false);
         TIX_Platform_Customers::flush();
         wp_set_current_user(0);

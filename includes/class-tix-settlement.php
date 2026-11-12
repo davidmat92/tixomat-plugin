@@ -197,7 +197,7 @@ class TIX_Settlement {
 
     /** Gebühren-Daten einer Bestellung (Option `_tix_order_fees_{id}`) mit Ableitung für alte Bestellungen. */
     public static function order_fees($order_id) {
-        $f = get_option('_tix_order_fees_' . intval($order_id));
+        $f = TIX_Object_Data::read('_tix_order_fees', intval($order_id), false);
         $f = is_array($f) ? $f : [];
         $pf   = round(floatval($f['platform_fee'] ?? 0), 2);
         $mode = (string) ($f['platform_fee_mode'] ?? 'organizer');
@@ -230,9 +230,9 @@ class TIX_Settlement {
     public static function refunded_amount($order) {
         $id    = intval($order->id);
         $total = round(floatval($order->total), 2);
-        $acc = get_option('_tix_refund_total_' . $id, false);
+        $acc = TIX_Object_Data::read('_tix_refund_total', $id, false);
         if ($acc === false) {
-            $last = get_option('_tix_refund_' . $id);
+            $last = TIX_Object_Data::read('_tix_refund', $id, false);
             $acc  = is_array($last) ? floatval($last['amount'] ?? 0) : 0;
         }
         $acc = floatval($acc);
@@ -430,7 +430,7 @@ class TIX_Settlement {
             "SELECT s.order_id, s.event_id, s.organizer_id, SUM(s.refund) AS refunded_before
              FROM {$si} s JOIN {$o} o ON o.id = s.order_id
              WHERE s.order_id > 0 AND s.type IN ('order','late','refund') AND s.created >= %s
-               AND (o.status = 'refunded' OR EXISTS (SELECT 1 FROM {$wpdb->options} op WHERE op.option_name = CONCAT('_tix_refund_', o.id)))
+               AND (o.status = 'refunded' OR " . TIX_Object_Data::exists_sql('_tix_refund', 'o.id') . ")
              GROUP BY s.order_id, s.event_id, s.organizer_id",
             $since
         ));

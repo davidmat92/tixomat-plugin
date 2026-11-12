@@ -332,11 +332,7 @@ class TIX_Mirror_Reconcile {
                 ), ARRAY_A);
                 $wpdb->suppress_errors($prev);
                 if (!$rows) return [];
-                $names = array_map(function ($r) { return '_tix_refund_total_' . (int) $r['id']; }, $rows);
-                $ref = [];
-                foreach ($wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ('" . implode("','", array_map('esc_sql', $names)) . "')", ARRAY_A) as $o) {
-                    $ref[(int) substr($o['option_name'], 18)] = maybe_unserialize($o['option_value']);
-                }
+                $ref = TIX_Object_Data::read_many('_tix_refund_total', array_column($rows, 'id')); // Tabelle + alte Optionen (1.38.769)
                 foreach ($rows as $r) {
                     $id = (int) $r['id'];
                     $rt = $ref[$id] ?? 0;

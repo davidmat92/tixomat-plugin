@@ -51,6 +51,8 @@ class TIX_Mirror_Hooks {
         add_action('added_option', [__CLASS__, 'on_option'], 99, 1);
         add_action('updated_option', [__CLASS__, 'on_option'], 99, 1);
         add_action('deleted_option', [__CLASS__, 'on_option'], 99, 1);
+        // Daten je Bestellung in der eigenen Tabelle (TIX_Object_Data, 1.38.769) statt Optionen
+        add_action('tix_object_data_changed', function ($kind, $id) { if (strncmp((string) $kind, 'order_', 6) === 0) TIX_Mirror::touch('order', (int) $id); }, 99, 2);
 
         // Tixomat-Aktionen
         add_action('tix_native_order_created', [__CLASS__, 'on_order'], 99, 1);
@@ -156,7 +158,7 @@ class TIX_Mirror_Hooks {
 
     public static function on_refund($order_id, $amount = 0, $is_full = false) {
         TIX_Mirror::touch('order', (int) $order_id);
-        $last = get_option('_tix_refund_' . (int) $order_id, []);
+        $last = TIX_Object_Data::read('_tix_refund', (int) $order_id, []);
         $last = is_array($last) ? $last : [];
         self::refund_event($order_id, 'refund', [
             'amount'     => (float) $amount,
@@ -180,7 +182,7 @@ class TIX_Mirror_Hooks {
         $row = array_merge([
             'order_id' => (int) $order_id, 'kind' => $kind, 'amount' => null, 'is_full' => null,
             'reason' => '', 'gateway' => '', 'source' => '', 'admin_user' => '',
-            'total_refunded' => (float) get_option('_tix_refund_total_' . (int) $order_id, 0),
+            'total_refunded' => (float) TIX_Object_Data::read('_tix_refund_total', (int) $order_id, 0),
             'at' => $at, 'data' => [],
         ], $extra);
         $row['data'] = (object) (is_array($row['data']) ? $row['data'] : []);
