@@ -30,6 +30,22 @@ try {
     TIX_Site_Move::apply_program($cp, ['timetable' => ['kaputt' => [['title' => '<script>x</script>Y']], '2027-02-27' => [['time' => '20:00', 'title' => '<b>Z</b>']]], 'stages' => [['name' => 'A', 'color' => 'rot']]]);
     $tt = get_post_meta($cp, '_tix_timetable', true);
     $eq('Säubern: ungültiges Datum weg, Titel ohne HTML, ungültige Farbe leer', [['2027-02-27'], 'Z', ''], [array_keys($tt), $tt['2027-02-27'][0]['title'], get_post_meta($cp, '_tix_stages', true)[0]['color']]);
+
+    // „Programm anzeigen“ aus = Zeiten nirgends öffentlich (1.38.781): eigene Seite und Kopie (Schnappschuss mit Zeiten)
+    $leak = function ($id) { TIX_Public_Events::flush(); wp_cache_flush(); $j = wp_json_encode(rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/events/' . $id))->get_data()); return substr_count($j, '21:17') + substr_count($j, '22:43'); };
+    $own = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Zeiten Eigen']); $p[] = $own;
+    update_post_meta($own, '_tix_date_start', '2027-03-01'); update_post_meta($own, '_tix_info_lineup', '<p>Honk</p>');
+    update_post_meta($own, '_tix_timetable', ['2027-03-01' => [['time' => '21:17', 'end' => '22:43', 'stage' => 0, 'title' => 'Honk', 'desc' => '']]]);
+    $cpy = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Zeiten Kopie']); $p[] = $cpy;
+    update_post_meta($cpy, '_tix_date_start', '2027-03-01'); update_post_meta($cpy, '_tix_syndicated', '1');
+    update_post_meta($cpy, '_tix_lineup_acts', [['position' => 1, 'name' => 'Honk', 'line' => 'Honk', 'time' => '21:17', 'end' => '22:43', 'start_at' => '2027-03-01T21:17:00+01:00', 'end_at' => '2027-03-01T22:43:00+01:00', 'stage_name' => 'Programm', 'role' => 'headliner']]);
+    TIX_Site_Move::apply_program($cpy, ['timetable' => ['2027-03-01' => [['time' => '21:17', 'end' => '22:43', 'stage' => 0, 'title' => 'Honk']]], 'stages' => [], 'hidden' => false, 'times_tba' => false]);
+    $eq('Programm sichtbar: Zeiten öffentlich (eigene Seite, Kopie)', [true, true], [$leak($own) > 0, $leak($cpy) > 0]);
+    update_post_meta($own, '_tix_timetable_hidden', '1');
+    TIX_Site_Move::apply_program($cpy, ['timetable' => ['2027-03-01' => [['time' => '21:17', 'end' => '22:43', 'stage' => 0, 'title' => 'Honk']]], 'stages' => [], 'hidden' => true, 'times_tba' => false]);
+    $eq('Programm aus: keine Zeit in der ganzen öffentlichen Antwort (timetable, lineup_acts time/start_at/end, eigene Seite und Kopie)', [0, 0], [$leak($own), $leak($cpy)]);
+    $acts = TIX_Lineup_Links::acts($cpy);
+    $eq('Kopie: Line-up bleibt (ohne Zeiten)', ['Honk', null, null], [$acts[0]['name'] ?? null, array_key_exists('time', $acts[0]) ? $acts[0]['time'] : 'x', array_key_exists('start_at', $acts[0]) ? $acts[0]['start_at'] : 'x']);
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

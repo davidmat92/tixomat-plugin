@@ -6222,3 +6222,8 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
   - Sonst läuft er stündlich bzw. ~20 s nach einer Änderung auf evendis.
   - Sofort: `wp eval 'TIX_Site_Move::sync_co_events();'`.
 - **Test:** `test-co-program-wp` (6), `test-co-sites-wp` (48).
+- **„Programm anzeigen“ aus = keine Zeiten öffentlich (1.38.781):**
+  - `_tix_timetable_hidden` = '1' blendet `timetable` aus und leert die Zeiten in `lineup_acts`. Das gilt auch auf Kopien, deren Schnappschuss noch Zeiten trägt (`TIX_Lineup_Links::acts`).
+  - Der Abgleich der Kunden-Seiten leert danach den öffentlichen Zwischenspeicher.
+  - Vertrag: `vertrag-lineup-kuenstlerseite.md`, Abschnitt „Programm anzeigen / Zeiten öffentlich“.
+  - Test: `test-co-program-wp` (9).

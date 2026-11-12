@@ -165,9 +165,12 @@ class TIX_Lineup_Links {
         $copy = class_exists('TIX_Artists') ? TIX_Artists::is_copy($event_id) : get_post_meta($event_id, '_tix_syndicated', true) === '1';
         if ($copy) { // Spiegel bzw. Kopie auf einer Kunden-Seite (1.38.723): Liste der Quelle (Künstler gibt es hier nicht)
             $snap = get_post_meta($event_id, '_tix_lineup_acts', true);
+            // Programm hier ausgeblendet → keine Zeiten, auch wenn der Schnappschuss der Quelle welche trägt (1.38.781)
+            $no_times = class_exists('TIX_Event_Extras') && TIX_Event_Extras::timetable_hidden($event_id);
             if (is_array($snap) && $snap) {
-                return array_values(array_map(function ($a) {
+                return array_values(array_map(function ($a) use ($no_times) {
                     $a = (array) $a;
+                    if ($no_times) $a = array_merge($a, ['time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false]);
                     // Künstlerseite auf der Quelle bleibt als artist_source_url erhalten (1.38.723)
                     $src = ($a['artist_source_url'] ?? null) ?: ($a['artist_url'] ?? null);
                     return array_merge($a, ['artist_id' => null, 'artist_slug' => null, 'artist_url' => null, 'artist_source_url' => $src ?: null,

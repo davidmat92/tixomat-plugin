@@ -1032,6 +1032,7 @@ class TIX_Site_Move {
             if (empty($seen[intval(get_post_meta($id, self::CO_META, true))])) { wp_trash_post($id); $n['removed']++; }
         }
         if (class_exists('TIX_Shared_Objects')) TIX_Shared_Objects::cleanup(); // Spiegel entfernter Events aufräumen (1.38.738)
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush(); // Programm/Line-up sofort öffentlich (Metas kommen nach wp_update_post, 1.38.781)
         update_option('tix_platform_co_sync', ['at' => gmdate('c'), 'counts' => $n, 'errors' => array_slice($errors, 0, 20)], false);
         return ['ok' => true] + $n + ['errors' => $errors];
     }
