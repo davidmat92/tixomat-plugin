@@ -47,6 +47,22 @@ class TIX_Mirror_Map {
         return false;
     }
 
+    /**
+     * Sensible Felder auch verschachtelt entfernen (1.38.770, Fund 12.11.: Co-Listen `_tix_co_mirror` [{oid, access, token}]
+     * und `_tix_co_remotes` [{…, token_hash}] trugen Schlüssel unterhalb eines unverdächtigen Meta-Namens).
+     * Nur Schlüssel in Meta-Werten, nie Spaltennamen (dort heißen issuer_key, channel_key … bewusst so).
+     */
+    public static function strip_sensitive($v, $depth = 0) {
+        if ($depth > 12) return $v;
+        if (is_object($v)) $v = (array) $v;
+        if (!is_array($v)) return $v;
+        foreach ($v as $k => $x) {
+            if (is_string($k) && self::is_sensitive($k)) { unset($v[$k]); continue; }
+            $v[$k] = self::strip_sensitive($x, $depth + 1);
+        }
+        return $v;
+    }
+
     public static function plan($entity, $id, $op, $payload) {
         $site = TIX_Mirror::site();
         switch ($entity) {
@@ -160,7 +176,7 @@ class TIX_Mirror_Map {
         foreach ((array) get_post_meta($post_id) as $k => $vals) {
             if (strpos($k, '_tix_') !== 0 || self::is_sensitive($k) || in_array($k, $skip, true)) continue;
             $v = maybe_unserialize($vals[0] ?? null);
-            $out[$k] = is_object($v) ? (array) $v : $v;
+            $out[$k] = self::strip_sensitive(is_object($v) ? (array) $v : $v);
         }
         ksort($out);
         return $out;

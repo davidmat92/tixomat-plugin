@@ -208,7 +208,7 @@ class TIX_Lineup_Links {
                 'spotify' => ($l['spotify'] ?? null) ?: null, 'apple_music' => ($l['apple_music'] ?? null) ?: null,
                 'artist_link' => $l['artist_link'] ?? null, 'artist_suggestion' => $l['artist_suggestion'] ?? null]);
         }
-        // Zugeordnete Künstler ohne Zeile: in ihrer Reihenfolge dahinter (1.38.768: Headliner rutschen nicht mehr automatisch nach oben)
+        // Zugeordnete Künstler ohne Zeile: in ihrer Reihenfolge dahinter (1.38.770: Headliner rutschen nicht mehr automatisch nach oben)
         $rest = array_values(array_filter($artists, function ($a) use ($ids) { return !isset($ids[intval($a['id'])]); }));
         foreach ($rest as $a) {
             $pic = ($a['portrait'] ?? null) ?: ($a['cover'] ?? null);
@@ -246,7 +246,7 @@ class TIX_Lineup_Links {
 
     /**
      * Die eine Sortierung für alle Ausgaben: „Eigene Reihenfolge“ = genau die Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte
-     * in der bisherigen Reihenfolge dahinter); Headliner rutschen nicht automatisch nach oben (1.38.768, User). „Nach Auftrittszeit“ =
+     * in der bisherigen Reihenfolge dahinter); Headliner rutschen nicht automatisch nach oben (1.38.770, User). „Nach Auftrittszeit“ =
      * nur die Zeit (Acts ohne Zeit danach). Der Headliner-Stern ändert nur `role`/`headliner`, nie die Reihenfolge. position wird neu vergeben.
      */
     public static function apply_order($event_id, array $acts) {
