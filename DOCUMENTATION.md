@@ -6050,8 +6050,10 @@ Vertrag `uebergaben/vertrag-anmeldename.md`, `TIX_Site_Users::exec_login`.
 - **Protokoll und Mail:** `tix_audit_log` `user_login_change` (alt, neu, durch wen), Lizenz-Protokoll `site_user_login`, Mail an die Person (nicht an Ersatzadressen), Hook `tix_user_login_changed`.
 - **Test:** `test-anmeldename-wp` (Einzel-Seite 14, Plattform 5); site-users, operator/owner-access, go-live, license grün.
 
-## 170. Abholer für „Live schalten durch den Kunden“ (ab 1.38.765)
-- `wp tixomat golive offen` liefert die offenen Anfragen (`tix_lic_golive_*`, Status `pending`) als JSON `[{key, license_id, host, action, at, by, nonce}]`, älteste zuerst (`TIX_Go_Live::open_requests`).
-- `wp tixomat golive ergebnis <key> <done|failed|cancelled> [--message=]` wirkt wie `POST /platform/customers/{key}/go-live` (Protokoll + Ping); bei Fehler Exit-Code ≠ 0.
-- Für den Kunden-Dienst (`kd-run golive-abholen`, jede Minute). Vertrag: `vertrag-live-durch-kunde.md`, Nachtrag.
-- **Test:** `tests/test-golive-cli.sh <container>` (8 Prüfungen); `test-go-live-wp` grün.
+## 170. Abholer für „Live schalten durch den Kunden“ (ab 1.38.765/766)
+Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
+- `wp tixomat golive offen` → `ERGEBNIS [{license_id, nonce, action, host, by, at}]` (`TIX_Go_Live::open_requests`, älteste zuerst); bei ausgeschaltetem Lizenz-Server `ERGEBNIS []`.
+- `wp tixomat golive ergebnis <license_id> <done|failed|cancelled> --nonce= [--message=]` → `ERGEBNIS {ok, license_id, status}`.
+  - Nur bei pending und passender nonce, sonst `tix_golive_changed`; unbekannte Lizenz `tix_not_found`.
+  - Ergebnis über `TIX_Go_Live::set_result` (auch die REST-Route): Nachricht 300 Zeichen, done_at, Protokoll `go_live_<status>` (by `kunden-dienst`), Ping.
+- **Test:** `tests/test-golive-cli.sh <container>` (12 Prüfungen); `test-go-live-wp` grün.

@@ -20,27 +20,34 @@ LID="$SETUP"
 check "Lizenz angelegt" "1" "$([ -n "$LID" ] && echo 1 || echo 0)"
 
 OFFEN=$($WP tixomat golive offen 2>/dev/null)
-KEY=$(printf '%s' "$OFFEN" | php -r '$a=json_decode(stream_get_contents(STDIN),true); foreach($a as $r) if($r["license_id"]=='"$LID"') echo $r["key"];' 2>/dev/null || true)
-[ -z "$KEY" ] && KEY=$(printf '%s' "$OFFEN" | python3 -c 'import sys,json; a=json.load(sys.stdin); print(next((r["key"] for r in a if r["license_id"]=='"$LID"'),""))')
-LINE=$(printf '%s' "$OFFEN" | python3 -c 'import sys,json; a=json.load(sys.stdin); r=next((r for r in a if r["license_id"]=='"$LID"'),{}); print("|".join([r.get("host",""),r.get("action",""),r.get("by",{}).get("email",""),str(bool(r.get("at")))]))')
-check "offen: Anfrage mit host, action, by, at (JSON)" "glc-kunde.test|live|kim@glc.test|True" "$LINE"
-check "offen: key vorhanden" "1" "$([ -n "$KEY" ] && echo 1 || echo 0)"
+check "offen: Zeile beginnt mit ERGEBNIS" "ERGEBNIS" "$(printf '%s' "$OFFEN" | cut -d' ' -f1)"
+J="${OFFEN#ERGEBNIS }"
+LINE=$(printf '%s' "$J" | python3 -c 'import sys,json; a=json.load(sys.stdin); r=next((r for r in a if r["license_id"]=='"$LID"'),{}); print("|".join([r.get("nonce",""),r.get("action",""),r.get("host",""),r.get("by",{}).get("email",""),str(bool(r.get("at"))),",".join(sorted(r.keys()))]))')
+check "offen: Felder license_id, nonce, action, host, by, at" "glcnonce|live|glc-kunde.test|kim@glc.test|True|action,at,by,host,license_id,nonce" "$LINE"
 
-ERR=$($WP tixomat golive ergebnis "$KEY" fertig 2>&1 >/dev/null | head -1)
-check "ergebnis mit falschem Status: Fehler" "1" "$(printf '%s' "$ERR" | grep -c 'tix_invalid_field')"
+ERR=$($WP tixomat golive ergebnis "$LID" done --nonce=falsch 2>&1 >/dev/null | head -1)
+check "falsche nonce: tix_golive_changed, nichts geschrieben" "1|pending" "$(printf '%s' "$ERR" | grep -c 'tix_golive_changed')|$($WP eval 'echo TIX_Go_Live::request_of('"$LID"')["status"];' 2>/dev/null)"
+ERR=$($WP tixomat golive ergebnis "$LID" done 2>&1 >/dev/null | head -1)
+check "ohne --nonce: Fehler" "1" "$(printf '%s' "$ERR" | grep -c 'nonce')"
+ERR=$($WP tixomat golive ergebnis "$LID" fertig --nonce=glcnonce 2>&1 >/dev/null | head -1)
+check "falscher Status: tix_invalid_field" "1" "$(printf '%s' "$ERR" | grep -c 'tix_invalid_field')"
 
-RES=$($WP tixomat golive ergebnis "$KEY" done --message="Live seit eben" 2>/dev/null)
-ST=$(printf '%s' "$RES" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["request"]["status"]+"|"+(d["request"]["message"] or ""))')
-check "ergebnis done mit Meldung" "done|Live seit eben" "$ST"
+RES=$($WP tixomat golive ergebnis "$LID" done --nonce=glcnonce --message="Live seit eben" 2>/dev/null)
+check "ergebnis: ERGEBNIS {ok, license_id, status}" "ERGEBNIS {\"ok\":true,\"license_id\":$LID,\"status\":\"done\"}" "$RES"
+ST=$($WP eval '$r = TIX_Go_Live::request_of('"$LID"'); echo $r["status"] . "|" . $r["message"] . "|" . (empty($r["done_at"]) ? 0 : 1);' 2>/dev/null)
+check "gespeichert: done, Meldung, done_at" "done|Live seit eben|1" "$ST"
+
+ERR=$($WP tixomat golive ergebnis "$LID" failed --nonce=glcnonce 2>&1 >/dev/null | head -1)
+check "nicht mehr pending: tix_golive_changed" "1" "$(printf '%s' "$ERR" | grep -c 'tix_golive_changed')"
 
 OFFEN2=$($WP tixomat golive offen 2>/dev/null)
-check "danach nicht mehr offen" "0" "$(printf '%s' "$OFFEN2" | python3 -c 'import sys,json; print(sum(1 for r in json.load(sys.stdin) if r["license_id"]=='"$LID"'))')"
+check "danach nicht mehr offen" "0" "$(printf '%s' "${OFFEN2#ERGEBNIS }" | python3 -c 'import sys,json; print(sum(1 for r in json.load(sys.stdin) if r["license_id"]=='"$LID"'))')"
 
-ERR2=$($WP tixomat golive ergebnis l-999999 done 2>&1 >/dev/null | head -1)
-check "unbekannter Kunde: Fehler" "1" "$(printf '%s' "$ERR2" | grep -c 'tix_not_found')"
+ERR2=$($WP tixomat golive ergebnis 999999 done --nonce=x 2>&1 >/dev/null | head -1)
+check "unbekannte Lizenz: tix_not_found" "1" "$(printf '%s' "$ERR2" | grep -c 'tix_not_found')"
 
-LOG=$($WP eval 'global $wpdb; echo (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tix_license_log WHERE license_id = %d AND action = %s", '"$LID"', "go_live_done"));' 2>/dev/null)
-check "Protokoll go_live_done" "1" "$LOG"
+LOG=$($WP eval 'global $wpdb; $r = $wpdb->get_var($wpdb->prepare("SELECT data FROM {$wpdb->prefix}tix_license_log WHERE license_id = %d AND action = %s ORDER BY id DESC LIMIT 1", '"$LID"', "go_live_done")); echo strpos((string) $r, "kunden-dienst") !== false ? 1 : 0;' 2>/dev/null)
+check "Protokoll go_live_done durch kunden-dienst" "1" "$LOG"
 
 $WP eval '
 global $wpdb; $id = '"$LID"';
