@@ -24,7 +24,7 @@ try {
     }
     $eq('Prüfung nimmt nacht/plakat an, Unbekanntes nicht', [true, true, true], [!is_wp_error(TIX_Website::clean(['template' => 'nacht'])), !is_wp_error(TIX_Website::clean(['template' => 'plakat'])), is_wp_error(TIX_Website::clean(['template' => 'gibtsnicht']))]);
     $e = TIX_Website::clean(['template' => 'gibtsnicht']);
-    $eq('Fehlertext nennt die neuen Vorlagen', true, is_wp_error($e) && strpos($e->get_error_message(), 'nacht oder plakat') !== false);
+    $eq('Fehlertext nennt die neuen Vorlagen', true, is_wp_error($e) && strpos($e->get_error_message(), 'nacht') !== false && strpos($e->get_error_message(), 'plakat') !== false);
     $eq('Vertriebs-Vorschau kennt beide', [true, true], [in_array('nacht', TIX_Sales_Previews::TEMPLATES, true), in_array('plakat', TIX_Sales_Previews::TEMPLATES, true)]);
     if ($st === 200) {
         foreach (['nacht', 'plakat'] as $t) {

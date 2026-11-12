@@ -23,7 +23,7 @@ class TIX_Website {
     const AUTO_HOSTS = ['kitchenklub.de', 'mallorca-festival-xxl.de'];
     const OPTION = 'tix_website';
     const OPT_DOMAIN = 'tix_website_domain';
-    const TEMPLATES = ['club', 'festival', 'klar', 'einfach', 'nacht', 'plakat']; // einfach: 1.38.714, nacht + plakat: 1.38.721
+    const TEMPLATES = ['club', 'festival', 'klar', 'einfach', 'nacht', 'plakat', 'openair', 'welle']; // einfach: 1.38.714, nacht + plakat: 1.38.721, openair + welle: 1.38.788
     const HISTORY = 10;
     const PREVIEW_TTL = DAY_IN_SECONDS;
 
@@ -72,6 +72,10 @@ class TIX_Website {
         // 1.38.721 (Homepage-Stile): Nacht = dunkler Club-Abend, Plakat = Festival-Plakat
         'nacht'    => ['stage', 'live_now', 'presale', 'next', 'tips', 'raffles', 'lineup', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
         'plakat'   => ['stage', 'ticker', 'lineup', 'tickets', 'more_dates', 'raffles', 'tips', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
+        // 1.38.788 (Homepages-Chat, uebergaben/homepages.md): Openair = großes Festival (Bühne, Festival, Line-up, Tickets …),
+        // Welle = zweite Festival-Vorlage (Line-up und Tickets vor „Über uns“)
+        'openair'  => ['stage', 'about', 'lineup', 'tickets', 'raffles', 'tips', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
+        'welle'    => ['stage', 'lineup', 'tickets', 'more_dates', 'raffles', 'tips', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
     ];
 
     // Laufband: erlaubte Werte je Option (Vorgabe = erster Wert)
@@ -293,7 +297,7 @@ class TIX_Website {
     public static function clean(array $w) {
         $out = ['version' => 1];
         $t = (string) ($w['template'] ?? '');
-        if ($t !== '' && !in_array($t, self::TEMPLATES, true)) return self::bad('template', 'Vorlage: club, festival, klar, einfach, nacht oder plakat.');
+        if ($t !== '' && !in_array($t, self::TEMPLATES, true)) return self::bad('template', 'Vorlage: ' . implode(', ', self::TEMPLATES) . '.');
         $out['template'] = $t;
         $out['sections'] = [];
         $seen = [];

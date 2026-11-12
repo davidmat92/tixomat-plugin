@@ -883,6 +883,87 @@ class TIX_Co_Remote {
         return ['site' => $o['site'], 'site_name' => $o['site_name'], 'channel' => TIX_Event_History::request_channel(), 'origin' => $o['origin']];
     }
 
+    // ═══════════════ Betreiber-Durchgriff (1.38.788) ═══════════════
+
+    /**
+     * POST /partner/source/{id} (Plattform → Lizenzseite): Partner-Zugang der Plattform, Event ist an die Plattform verteilt
+     * (`_tix_syndicate` = 1). Abschaltbar je Seite mit Option `tix_platform_edit` = '0'.
+     */
+    public static function perm_partner_source(WP_REST_Request $req) {
+        if (self::multi() || !class_exists('TIX_Partner_API')) return new WP_Error('rest_no_route', 'Nicht verfügbar.', ['status' => 404]);
+        $a = TIX_Partner_API::check_auth($req);
+        if ($a !== true) return $a;
+        if (get_option('tix_platform_edit', '1') === '0') return new WP_Error('tix_platform_edit_off', 'Diese Seite erlaubt keine Änderungen über evendis.', ['status' => 403]);
+        $sid = absint($req['id']);
+        if (get_post_type($sid) !== 'event' || get_post_meta($sid, '_tix_syndicate', true) !== '1') return new WP_Error('tix_not_shared', 'Dieses Event ist nicht mit evendis geteilt.', ['status' => 404]);
+        return true;
+    }
+
+    /** Technisches Konto für Änderungen des evendis-Betreibers (ohne Rolle; Rechte nur während der Anfrage). */
+    private static function operator_user() {
+        $ids = get_users(['meta_key' => '_tix_platform_operator', 'meta_value' => '1', 'fields' => 'ID', 'number' => 1]);
+        if ($ids) return intval($ids[0]);
+        $uid = wp_insert_user(['user_login' => 'evendis-betreiber-' . wp_rand(1000, 9999), 'user_pass' => wp_generate_password(40, true, true), 'user_email' => 'evendis-betreiber@co.invalid',
+            'display_name' => 'evendis (Betreiber)', 'role' => '']);
+        if (is_wp_error($uid)) return 0;
+        update_user_meta($uid, '_tix_platform_operator', '1');
+        update_user_meta($uid, '_tix_technical', '1');
+        return intval($uid);
+    }
+
+    /** POST /partner/source/{id} {method, path, query, body, actor} → {ok, status, data} – Regeln wie beim Co (allowed), ohne Storno. */
+    public static function rest_partner_source(WP_REST_Request $req) {
+        $sid = absint($req['id']);
+        $b = $req->get_json_params();
+        if (!is_array($b)) $b = [];
+        $method = strtoupper((string) ($b['method'] ?? 'GET'));
+        $path = '/' . ltrim((string) ($b['path'] ?? ''), '/');
+        $q = is_array($b['query'] ?? null) ? $b['query'] : [];
+        $body = is_array($b['body'] ?? null) ? $b['body'] : [];
+        if (preg_match('#[^A-Za-z0-9/_-]#', $path)) return new WP_Error('tix_invalid_field', 'Ungültige Route.', ['status' => 400, 'field' => 'path']);
+        $ok = self::allowed($method, $path, $q, $body, $sid);
+        if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
+        $uid = self::operator_user();
+        if (!$uid) return new WP_Error('tix_co_actor', 'Technisches Konto fehlt.', ['status' => 500]);
+        if (class_exists('TIX_Event_History')) TIX_Event_History::context_from_actor(is_array($b['actor'] ?? null) ? $b['actor'] + ['name' => 'evendis'] : ['name' => 'evendis'], 'evendis.de', 'evendis');
+        self::$acting = $uid;
+        add_filter('get_user_metadata', [__CLASS__, 'caps_filter'], 1, 4);
+        clean_user_cache($uid);
+        wp_set_current_user($uid);
+        try {
+            $sub = new WP_REST_Request($method, '/' . self::NS . $path);
+            $sub->set_query_params($q);
+            if ($method !== 'GET' && $body) { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($body)); }
+            $res = rest_do_request($sub);
+            $data = rest_get_server()->response_to_data($res, false);
+            $status = $res->get_status();
+        } finally {
+            remove_filter('get_user_metadata', [__CLASS__, 'caps_filter'], 1);
+            self::$acting = 0;
+            clean_user_cache($uid);
+            wp_set_current_user(0);
+        }
+        return rest_ensure_response(['ok' => $status < 400, 'status' => $status, 'data' => $data]);
+    }
+
+    /** Plattform: Änderung des Betreibers an die Lizenzseite des Spiegels → Umschlag {ok, status, data} | WP_Error */
+    public static function forward_source($eid, $method, $path, array $q, array $body, array $actor) {
+        $p = class_exists('TIX_Partners') ? TIX_Partners::get((string) get_post_meta($eid, '_tix_source_partner', true)) : null;
+        $sid = intval(get_post_meta($eid, '_tix_source_id', true));
+        if (!$p || empty($p['api_base']) || strlen((string) ($p['key_out'] ?? '')) < 20 || !$sid) return new WP_Error('tix_co_remote_unavailable', 'Die Verbindung zur Seite des Erstellers ist nicht eingerichtet.', ['status' => 409]);
+        $resp = wp_remote_post(untrailingslashit($p['api_base']) . '/partner/source/' . $sid, ['timeout' => 25,
+            'body' => wp_json_encode(['method' => $method, 'path' => $path, 'query' => $q ?: new stdClass(), 'body' => $body ?: new stdClass(), 'actor' => $actor]),
+            'headers' => ['Content-Type' => 'application/json', 'Accept' => 'application/json', 'X-Tix-Partner-Id' => TIX_Partners::platform_id(), 'X-Tix-Partner-Key' => (string) $p['key_out']]]);
+        if (is_wp_error($resp)) return new WP_Error('tix_partner_unreachable', 'Die Seite des Erstellers ist gerade nicht erreichbar.', ['status' => 502]);
+        $code = intval(wp_remote_retrieve_response_code($resp));
+        $env = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($code !== 200 || !is_array($env) || !array_key_exists('status', $env)) {
+            $msg = is_array($env) && !empty($env['message']) ? (string) $env['message'] : 'Die Seite des Erstellers hat die Änderung abgelehnt.';
+            return new WP_Error(is_array($env) && !empty($env['code']) ? (string) $env['code'] : 'tix_co_remote_error', $msg, ['status' => in_array($code, [401, 403, 404, 409, 429], true) ? $code : 502]);
+        }
+        return $env;
+    }
+
     /** Anfrage an die Lizenzseite weiterleiten → Umschlag {ok, status, data, headers?} | WP_Error */
     public static function forward($eid, $method, $path, array $q, array $body, array $actor) {
         $coid = intval($actor['organizer_id'] ?? 0);
@@ -916,6 +997,8 @@ class TIX_Co_Remote {
         }
         register_rest_route(self::NS, '/events/(?P<id>\d+)/co-organizer/invite', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_invite_source'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
         register_rest_route(self::NS, '/partner/co/(?P<id>\d+)', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_partner_co'], 'permission_callback' => [__CLASS__, 'perm_partner_co']]);
+        // Durchgriff des evendis-Betreibers (1.38.788, User 13.11.: geteilte Events überall änderbar, auch über den Betreiber)
+        register_rest_route(self::NS, '/partner/source/(?P<id>\d+)', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_partner_source'], 'permission_callback' => [__CLASS__, 'perm_partner_source']]);
         register_rest_route(self::NS, '/partner/co/(?P<id>\d+)/release', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_release'], 'permission_callback' => [__CLASS__, 'perm_release']]);
         register_rest_route(self::NS, '/partner/co/(?P<id>\d+)/assign', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_assign'], 'permission_callback' => [__CLASS__, 'perm_assign']]);
         register_rest_route(self::NS, '/events/(?P<id>\d+)/co-organizer', ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_remove_source'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);

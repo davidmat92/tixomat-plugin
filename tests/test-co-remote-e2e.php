@@ -188,6 +188,29 @@ if (class_exists('TIX_Event_History')) {
     [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid", ['title' => 'E2E-CO Lizenz-Event (geändert)'], $co); // Stand für die folgenden Schritte
 }
 
+// 4c. Betreiber-Durchgriff (1.38.788): evendis-Admin ändert am Spiegel → Quelle (Lizenzseite) speichert, Spiegel folgt per Verteilung
+if (class_exists('TIX_Source_Lock')) {
+    $padm = get_users(['role' => 'administrator', 'number' => 1])[0];
+    wp_set_current_user($padm->ID);
+    $rq = new WP_REST_Request('POST', '/tixomat/v1/events/' . $mirror); $rq->set_header('content-type', 'application/json'); $rq->set_body(wp_json_encode(['timetable' => ['hidden' => true]]));
+    $rs = rest_do_request($rq);
+    wp_set_current_user(0);
+    [, $e] = e2e_http($kk, 'GET', "/events/$sid/edit", [], $adm);
+    $ev = $e['event'] ?? $e;
+    wp_cache_delete($mirror, 'post_meta');
+    e2e_eq('Betreiber: Änderung am Spiegel landet an der Quelle, Spiegel folgt', [200, 'operator', true, '1'], [$rs->get_status(), $rs->get_headers()['X-Tix-Forwarded'] ?? null, !empty($ev['timetable']['hidden']), get_post_meta($mirror, '_tix_timetable_hidden', true)]);
+    if (class_exists('TIX_Event_History')) {
+        [, $hh] = e2e_http($kk, 'GET', "/events/$sid/history", [], $adm);
+        $top = $hh['items'][0] ?? [];
+        e2e_eq('Betreiber: Verlauf an der Quelle mit Person und Seite der Plattform', [$padm->display_name, (string) wp_parse_url($plat, PHP_URL_HOST)], [$top['actor']['name'] ?? null, $top['site'] ?? null]);
+    }
+    // zurück für die folgenden Schritte
+    wp_set_current_user($padm->ID);
+    $rq = new WP_REST_Request('POST', '/tixomat/v1/events/' . $mirror); $rq->set_header('content-type', 'application/json'); $rq->set_body(wp_json_encode(['timetable' => ['hidden' => false]]));
+    rest_do_request($rq);
+    wp_set_current_user(0);
+}
+
 // 5. Gästeliste
 [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid/guestlist", ['name' => 'E2E Gast Zwei'], $co);
 e2e_eq('Gästeliste: Gast angelegt', true, $st >= 200 && $st < 300);

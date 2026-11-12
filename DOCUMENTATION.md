@@ -6311,17 +6311,22 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`time`:** reine Zeitsortierung, öffentlich ebenfalls ohne Vorziehen. `program.lineup_sort` im Abgleich, damit Kunden-Kopien den Modus der Quelle kennen.
 - **Tests:** `test-lineup-acts-wp` (32/31), `test-co-program-wp` (+2).
 
-## 181. Geteilte Events: Inhalte nur beim Ersteller ändern (ab 1.38.787)
-- **Fund (12.11.):**
-  - Auf evendis hat ein Admin am Spiegel #6453 (von KK #1171) „Zeiten öffentlich anzeigen“ ausgeschaltet (Verlauf: „david“, evendis.de, `api`).
-  - Das wirkte nur lokal: KK und die KMT-Kopie zeigten weiter Zeiten, und die nächste Verteilung von KK hätte es zurückgesetzt.
-  - Co-Veranstalter waren nicht betroffen; ihre Änderungen laufen über den Durchgriff an die Quelle.
-- **Neu `TIX_Source_Lock`** (`rest_pre_dispatch`):
-  - Auf Spiegeln (`_tix_syndicated`) und Kopien auf Kunden-Seiten (`_tix_platform_co`) geben schreibende Event-Routen `409 tix_source_owned` `{source_site, fields}` mit dem Hinweis „wird beim Ersteller geändert“.
-  - **Weiter erlaubt:**
-    - plattform-eigene Angaben in `POST /events/{id}`: `event_category`/`category`, `promoted`, `featured`
-    - Verwaltung: Co-Veranstalter, Co-Geld, Archiv, Papierkorb, `DELETE`
-    - Verlauf (meldet selbst `tix_history_copy`)
-- **Editor:** `GET /events/{id}/edit` liefert `source_owned: {site, reason}` (sonst `null`). Studio und App sperren damit die Felder.
-- **Synchron:** Die Änderung beim Ersteller verteilt sich wie gehabt an evendis (Verteilung) und an die Kunden-Seiten (Abgleich in ~20 s, mit `program.hidden`/`mode`).
-- **Test:** `test-source-lock-wp` (10); `test-co-remote-e2e` (39) zeigt, dass der Durchgriff der Co weiter geht.
+## 181. Geteilte Events überall änderbar – Durchgriff an den Ersteller (ab 1.38.788; 1.38.787 war eine Sperre, nicht ausgerollt)
+- **Fund (12.11.):** Auf evendis wurde am Spiegel #6453 (von KK #1171) „Zeiten öffentlich“ ausgeschaltet. Das wirkte nur lokal, KK und die KMT-Kopie zeigten weiter Zeiten.
+- **User (13.11.):** „Es soll sich überall ändern lassen, also auch beim Co-Veranstalter und auch über den evendis-Betreiber.“
+- **`TIX_Source_Lock`** (`rest_pre_dispatch`): Schreibende Event-Routen auf Spiegel (`_tix_syndicated`) bzw. Kopie (`_tix_platform_co`) werden an die Quelle weitergereicht. Die Antwort kommt mit zurückgerechneten IDs (Kopie: auch Links), Kopfzeile `X-Tix-Forwarded: operator|co|platform`.
+  - **evendis-Admin am Spiegel** → `POST /partner/source/{id}` der Lizenzseite (neu, `TIX_Co_Remote::rest_partner_source`): Partner-Zugang der Plattform, Event muss an evendis verteilt sein. Handelt als technisches Konto „evendis (Betreiber)“ mit denselben Regeln wie Co (`allowed`, kein Storno). Abschaltbar je Seite: Option `tix_platform_edit` = '0'.
+  - **Co mit Zugriff am Spiegel** (lokale Route) → bestehender Co-Durchgriff.
+  - **Kopie auf Kunden-Seite mit Zugriff** → `/partner/co-events/{id}/call` der Plattform (`TIX_Site_Move::co_call`), von dort ggf. weiter an die Lizenzseite.
+  - **Ohne Recht:** 403 `tix_co_no_access`. Datei-Uploads und Spiegel ohne Verbindung: 409 `tix_source_owned`.
+  - **Lokal bleiben:** Sparte, Hervorheben, Co-Veranstalter, Co-Geld, Archiv, Papierkorb, Verlauf.
+- **Verteilung:** Die Quelle speichert und verteilt an evendis (Verteilung, gleich in der Anfrage) und an Kunden-Seiten (Abgleich ~20 s). Person und Seite stehen im Event-Verlauf der Quelle (`actor`). Konflikte: der letzte Stand gewinnt, im Verlauf sichtbar. Verkaufsrelevantes prüft die Quelle wie bei eigenen Änderungen.
+- **Editor:** `source_owned: {site, reason, editable, via, blocked_reason}`.
+- **Tests:** `test-source-lock-wp` (6/4, HTTP simuliert); `test-co-remote-e2e` (41): Admin ändert am Spiegel → KK speichert, Spiegel folgt, Verlauf mit Person und Seite.
+
+## 182. Homepage-Vorlagen „Openair“ und „Welle“ (ab 1.38.788)
+- **`TIX_Website::TEMPLATES`** um `openair` und `welle` erweitert (auch Vertriebs-Vorschau, Veranstalterseite-Design `ticketschalter`). Fehlermeldungen nennen die Liste aus der Konstante.
+- **Vorgabe-Abschnitte** (Homepages-Chat, `uebergaben/homepages.md`):
+  - Openair: stage, about, lineup, tickets, raffles, tips, arrival, more_dates, gallery, faq, newsletter, app_banner
+  - Welle: stage, lineup, tickets, more_dates, raffles, tips, about, arrival, gallery, faq, newsletter, app_banner
+- **Test:** `test-website-openair-welle-wp`.

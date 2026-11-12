@@ -1073,6 +1073,23 @@ class TIX_Site_Move {
         return true;
     }
 
+    /**
+     * Kunden-Seite: Anfrage an die Plattform weiterreichen (wie /platform-co/{id}/{route}), für den Durchgriff aus lokalen Routen
+     * (TIX_Source_Lock, 1.38.788). $path mit Plattform-ID. → Umschlag {ok, status, data} | WP_Error
+     */
+    public static function co_call($pid, $method, $path, array $q, array $body) {
+        if (!self::co_ready()) return new WP_Error('tix_co_not_ready', 'Keine Verbindung zur Plattform eingerichtet.', ['status' => 409]);
+        $resp = wp_remote_post(self::co_api('/partner/co-events/' . intval($pid) . '/call'), ['timeout' => 25, 'headers' => self::co_headers(),
+            'body' => wp_json_encode(['method' => $method, 'path' => $path, 'query' => $q ?: new stdClass(), 'body' => $body ?: new stdClass(), 'actor' => self::history_actor()])]);
+        if (is_wp_error($resp)) return new WP_Error('tix_partner_unreachable', 'Die Plattform ist gerade nicht erreichbar.', ['status' => 502]);
+        $code = intval(wp_remote_retrieve_response_code($resp));
+        $env = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($code !== 200 || !is_array($env) || !array_key_exists('status', $env)) {
+            return new WP_Error(is_array($env) && !empty($env['code']) ? (string) $env['code'] : 'tix_co_remote_error', is_array($env) && !empty($env['message']) ? (string) $env['message'] : 'Die Plattform hat die Anfrage abgelehnt.', ['status' => in_array($code, [401, 403, 404, 409, 429], true) ? $code : 502]);
+        }
+        return $env;
+    }
+
     /** Person/Seite/Kanal/origin für den Verlauf an der Quelle (1.38.776). */
     private static function history_actor() {
         $u = wp_get_current_user();
