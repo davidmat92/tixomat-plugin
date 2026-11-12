@@ -6229,7 +6229,9 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
   - Test: `test-co-program-wp` (9).
 - **`timetable.mode` (1.38.782):**
   - Die Studio-Auswahl `times` (mit Zeiten), `tba` (Zeiten folgen) oder `none` (keine Zeiten) wird in `POST /events[/{id}]` unverändert gespeichert (`_tix_timetable_mode`). `GET /events/form` und `GET /events/{id}/edit` geben sie zurück; das gilt auch für den App-Editor.
-  - Ohne gespeicherten Wert wird sie abgeleitet: `times_tba` → `tba`, sonst `times`. Ungültig ergibt 400 `timetable.mode`; `timetable: null` löscht sie mit.
+  - Ohne gespeicherten Wert wird sie abgeleitet (ab 1.38.783, `TIX_Studio_Editor::tt_mode`): `times_tba` → `tba`; mindestens ein Programmpunkt mit Uhrzeit → `times`; sonst (kein Programm bzw. nur Punkte ohne Uhrzeit) → `none`. Das Formular für neue Events liefert `none`.
+  - In 1.38.782 war „sonst `times`“ – Events ohne Zeiten erschienen im Studio und in der App als „Mit Zeiten“.
+  - Ungültig ergibt 400 `timetable.mode`; `timetable: null` löscht sie mit.
   - Öffentlich wirkt weiterhin nur `hidden` (Zeiten aus).
   - `mode` reist im Abgleich der Co-Kopien mit (`program.mode`) und steht im Event-Verlauf.
   - Test: `test-timetable-mode-wp` (9).

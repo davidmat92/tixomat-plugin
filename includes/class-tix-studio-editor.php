@@ -25,6 +25,17 @@ class TIX_Studio_Editor {
 
     const TT_MODES = ['times', 'tba', 'none']; // timetable.mode (1.38.782)
 
+    /**
+     * Modus der Zeiten (rein, 1.38.783): gespeichert → unverändert; sonst „Zeiten folgen“ → tba; mindestens ein Programmpunkt
+     * mit Uhrzeit → times; sonst (kein Programm oder nur Punkte ohne Uhrzeit) → none.
+     */
+    public static function tt_mode($stored, $times_tba, array $days) {
+        if (in_array($stored, self::TT_MODES, true)) return $stored;
+        if ($times_tba) return 'tba';
+        foreach ($days as $slots) foreach ((array) $slots as $s) if (is_array($s) && trim((string) ($s['time'] ?? '')) !== '') return 'times';
+        return 'none';
+    }
+
     const NS = 'tixomat/v1';
     const TIME_RE = '/^([01]?\d|2[0-3]):[0-5]\d$/';
 
@@ -67,8 +78,8 @@ class TIX_Studio_Editor {
         $mode = $m('_tix_low_stock_mode') ?: 'global';
         return [
             'timetable'       => ['times_tba' => $m('_tix_timetable_times_tba') === '1', 'hidden' => $m('_tix_timetable_hidden') === '1', 'stages' => $stages, 'days' => (object) $days,
-                // 1.38.782: Auswahl im Studio (times|tba|none) unverändert zurück; ohne gespeicherten Wert aus times_tba abgeleitet
-                'mode' => in_array($m('_tix_timetable_mode'), self::TT_MODES, true) ? $m('_tix_timetable_mode') : ($m('_tix_timetable_times_tba') === '1' ? 'tba' : 'times')],
+                // 1.38.782/783: Auswahl im Studio (times|tba|none) unverändert zurück; ohne gespeicherten Wert abgeleitet (tt_mode)
+                'mode' => self::tt_mode($m('_tix_timetable_mode'), $m('_tix_timetable_times_tba') === '1', is_array($tt) ? $tt : [])],
             'low_stock'       => ['mode' => $mode, 'threshold' => $m('_tix_low_stock_threshold') !== '' ? intval($m('_tix_low_stock_threshold')) : null, 'text' => $m('_tix_low_stock_text')],
             'low_stock_global' => function_exists('tix_get_settings') ? intval(tix_get_settings('low_stock_threshold') ?? 10) : 10,
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',

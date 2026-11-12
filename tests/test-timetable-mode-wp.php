@@ -14,9 +14,14 @@ try {
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Modus Test']);
     update_post_meta($ev, '_tix_date_start', '2027-03-01');
     [$st, $t] = $tt($ev);
-    $eq('ohne Angabe: mode times (abgeleitet)', [200, 'times'], [$st, $t['mode'] ?? null]);
+    $eq('ohne Angabe und ohne Programm: mode none (1.38.783)', [200, 'none'], [$st, $t['mode'] ?? null]);
+    update_post_meta($ev, '_tix_timetable', ['2027-03-01' => [['time' => '', 'end' => '', 'stage' => 0, 'title' => 'Honk', 'desc' => '']]]);
+    $eq('Programm nur ohne Uhrzeiten: none', 'none', $tt($ev)[1]['mode'] ?? null);
+    update_post_meta($ev, '_tix_timetable', ['2027-03-01' => [['time' => '', 'stage' => 0, 'title' => 'Honk'], ['time' => '22:00', 'stage' => 0, 'title' => 'Monchi']]]);
+    $eq('mit Uhrzeit: times', 'times', $tt($ev)[1]['mode'] ?? null);
     update_post_meta($ev, '_tix_timetable_times_tba', '1');
     $eq('alt: times_tba → mode tba', 'tba', $tt($ev)[1]['mode'] ?? null);
+    delete_post_meta($ev, '_tix_timetable'); delete_post_meta($ev, '_tix_timetable_times_tba');
     $days = ['2027-03-01' => [['time' => '', 'end' => '', 'stage' => 0, 'title' => 'Honk', 'desc' => '']]];
     [$st] = $rest('POST', "/events/$ev", ['timetable' => ['mode' => 'none', 'hidden' => true, 'times_tba' => false, 'days' => $days]]);
     [, $t] = $tt($ev);
@@ -26,7 +31,7 @@ try {
     $eq('nach Fehler unverändert', 'none', $tt($ev)[1]['mode'] ?? null);
     [$st] = $rest('POST', "/events/$ev", ['timetable' => ['mode' => 'tba', 'times_tba' => true]]);
     $eq('Wechsel auf tba', [200, 'tba'], [$st, $tt($ev)[1]['mode'] ?? null]);
-    $eq('Formular für neue Events: mode times', 'times', (($rest('GET', '/events/form')[1]['event'] ?? $rest('GET', '/events/form')[1])['timetable']['mode'] ?? null));
+    $eq('Formular für neue Events: mode none', 'none', (($rest('GET', '/events/form')[1]['event'] ?? $rest('GET', '/events/form')[1])['timetable']['mode'] ?? null));
     [$st] = $rest('POST', "/events/$ev", ['timetable' => null]);
     $eq('timetable null löscht auch mode', [200, false], [$st, metadata_exists('post', $ev, '_tix_timetable_mode')]);
     $pl = TIX_Site_Move::program_payload($ev);
