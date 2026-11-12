@@ -6301,3 +6301,12 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Rechte:** Einzel-Seite Admin/Inhaber (nicht das Team); evendis nur Admins; Kandidaten lesen alle mit Kundenzugriff.
 - **Protokoll:** `tix_audit_log` (`customer_merge`, `customer_merge_undo`). Das alte `_tix_user_merges` wird übernommen und gelöscht. Datenspiegel: betroffene Bestellungen und Konten werden neu gespiegelt.
 - **Tests:** `test-mail-log-wp` (19/21), `test-customer-merge-wp` (26/27).
+
+## 180. Line-up öffentlich: Headliner zuerst (ab 1.38.786)
+- **User (13.11.):** „Headliner müssen nach vorne gezogen werden.“ Das ist eine Teil-Rücknahme von §172 (1.38.768/770), nur für die öffentliche Reihenfolge.
+- **Öffentlich bei `lineup_sort: manual`:** Headliner zuerst (in Studio-Reihenfolge), dann die übrigen in Studio-Reihenfolge.
+  - `TIX_Lineup_Links::acts($id, …, $public = true)` → `apply_order(…, $public)` → `headliners_first`.
+  - Gilt für `/public/events` (`lineup_acts`, `artists`), Verteilung (`_tix_lineup_acts`), Abgleich der Kunden-Seiten und Kopien. Kopien sortieren auch ältere Schnappschüsse um.
+- **Studio-Editor** (`editor_fields`, `lineup_acts`/`lineup_list` in `/events/{id}/edit`): genaue Studio-Reihenfolge (`acts(…, false)`).
+- **`time`:** reine Zeitsortierung, öffentlich ebenfalls ohne Vorziehen. `program.lineup_sort` im Abgleich, damit Kunden-Kopien den Modus der Quelle kennen.
+- **Tests:** `test-lineup-acts-wp` (32/31), `test-co-program-wp` (+2).

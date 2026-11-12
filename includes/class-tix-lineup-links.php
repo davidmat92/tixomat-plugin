@@ -160,7 +160,7 @@ class TIX_Lineup_Links {
      * Eine Line-up-Liste (1.38.707, Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`): sortiert, eindeutig, ein Bild je Act.
      * $links = verknüpfte lineup_links, $artists = TIX_Artists::event_public.
      */
-    public static function acts($event_id, array $links = null, array $artists = null) {
+    public static function acts($event_id, array $links = null, array $artists = null, $public = true) {
         $event_id = intval($event_id);
         $copy = class_exists('TIX_Artists') ? TIX_Artists::is_copy($event_id) : get_post_meta($event_id, '_tix_syndicated', true) === '1';
         if ($copy) { // Spiegel bzw. Kopie auf einer Kunden-Seite (1.38.723): Liste der Quelle (Künstler gibt es hier nicht)
@@ -168,14 +168,14 @@ class TIX_Lineup_Links {
             // Programm hier ausgeblendet → keine Zeiten, auch wenn der Schnappschuss der Quelle welche trägt (1.38.781)
             $no_times = class_exists('TIX_Event_Extras') && TIX_Event_Extras::timetable_hidden($event_id);
             if (is_array($snap) && $snap) {
-                return array_values(array_map(function ($a) use ($no_times) {
+                return self::headliners_first($event_id, array_values(array_map(function ($a) use ($no_times) {
                     $a = (array) $a;
                     if ($no_times) $a = array_merge($a, ['time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false]);
                     // Künstlerseite auf der Quelle bleibt als artist_source_url erhalten (1.38.723)
                     $src = ($a['artist_source_url'] ?? null) ?: ($a['artist_url'] ?? null);
                     return array_merge($a, ['artist_id' => null, 'artist_slug' => null, 'artist_url' => null, 'artist_source_url' => $src ?: null,
                         'headliner' => array_key_exists('headliner', $a) ? (bool) $a['headliner'] : ($a['role'] ?? '') === 'headliner']);
-                }, array_filter($snap, 'is_array')));
+                }, array_filter($snap, 'is_array'))), $public);
             }
         }
         if ($artists === null) $artists = class_exists('TIX_Artists') ? TIX_Artists::event_public($event_id) : [];
@@ -223,7 +223,22 @@ class TIX_Lineup_Links {
                 'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false, 'spotify' => null, 'apple_music' => null,
                 'artist_link' => 'assigned', 'artist_suggestion' => null]);
         }
-        return self::apply_order($event_id, $out);
+        return self::apply_order($event_id, $out, $public);
+    }
+
+    /**
+     * Öffentliche Reihenfolge bei „Eigene Reihenfolge“ (1.38.786, User 13.11.): Headliner zuerst – untereinander in Studio-Reihenfolge –,
+     * danach alle übrigen in Studio-Reihenfolge. Im Studio-Editor ($public = false) bleibt genau die Studio-Reihenfolge (1.38.768).
+     * „Nach Auftrittszeit“ bleibt reine Zeitsortierung. position wird neu vergeben.
+     */
+    public static function headliners_first($event_id, array $acts, $public = true) {
+        if (!$public || !$acts || self::sort_mode($event_id) === 'time') return $acts;
+        $head = []; $rest = [];
+        foreach ($acts as $a) { if (!empty($a['headliner']) || ($a['role'] ?? '') === 'headliner') $head[] = $a; else $rest[] = $a; }
+        $out = array_merge($head, $rest);
+        foreach ($out as $i => &$a) $a['position'] = $i + 1;
+        unset($a);
+        return $out;
     }
 
     // ═══════════════ Reihenfolge (1.38.733, Auftrag uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md) ═══════════════
@@ -248,11 +263,11 @@ class TIX_Lineup_Links {
     }
 
     /**
-     * Die eine Sortierung für alle Ausgaben: „Eigene Reihenfolge“ = genau die Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte
-     * in der bisherigen Reihenfolge dahinter); Headliner rutschen nicht automatisch nach oben (1.38.770, User). „Nach Auftrittszeit“ =
-     * nur die Zeit (Acts ohne Zeit danach). Der Headliner-Stern ändert nur `role`/`headliner`, nie die Reihenfolge. position wird neu vergeben.
+     * Die eine Sortierung: „Eigene Reihenfolge“ = Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte in der bisherigen Reihenfolge
+     * dahinter); öffentlich ($public) danach Headliner zuerst (headliners_first, 1.38.786), im Studio-Editor nicht (1.38.770).
+     * „Nach Auftrittszeit“ = nur die Zeit (Acts ohne Zeit danach). position wird neu vergeben.
      */
-    public static function apply_order($event_id, array $acts) {
+    public static function apply_order($event_id, array $acts, $public = false) {
         if (!$acts) return $acts;
         // Headliner-Stern aus dem Studio (1.38.735): ist die Liste gesetzt, gilt nur sie; sonst die Rolle der Künstler
         if (metadata_exists('post', intval($event_id), self::META_HEAD)) {
@@ -303,7 +318,7 @@ class TIX_Lineup_Links {
         }
         $out = [];
         foreach ($rows as $n => $r) { $r['a']['position'] = $n + 1; $out[] = $r['a']; }
-        return $out;
+        return self::headliners_first($event_id, $out, $public);
     }
 
     /** Hat das Line-up Auftrittszeiten? (Studio bietet „Nach Auftrittszeit“ nur dann an) */
@@ -401,7 +416,7 @@ class TIX_Lineup_Links {
 
     /** Für den Event-Editor: {lineup_sort, lineup_order, lineup_has_times, lineup_acts (sortiert)} */
     public static function editor_fields($event_id) {
-        $acts = $event_id ? self::acts($event_id) : [];
+        $acts = $event_id ? self::acts($event_id, null, null, false) : []; // Editor: genaue Studio-Reihenfolge (Headliner nicht vorgezogen)
         return ['lineup_sort' => self::sort_mode($event_id), 'lineup_order' => array_values((array) get_post_meta($event_id, self::META_ORDER, true)),
             // Stern-Liste: Namen der Acts mit Stern (aus der wirksamen Rolle); lineup_headliners_set = im Studio festgelegt
             'lineup_headliners' => array_values(array_map(function ($a) { return (string) $a['name']; }, array_filter($acts, function ($a) { return !empty($a['headliner']); }))),

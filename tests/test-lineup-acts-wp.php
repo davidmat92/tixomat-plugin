@@ -97,12 +97,14 @@ try {
     lx_eq('lineup_links: Tippfehler-Zeile am Künstler', [$micha, $mau], [intval($by["Lxt Micha Schue $sfx"]['artist_id'] ?? 0), intval($by["Lxt Maurice Die Partykanona $sfx"]['artist_id'] ?? 0)]);
     lx_eq('ähnlich: kurze Namen nicht', [false, true, false], [TIX_Lineup_Links::similar('Honk', 'Hunk'), TIX_Lineup_Links::similar('Micha Schue', 'Micha Schuh'), TIX_Lineup_Links::similar('DJ Düse', 'Rick Arena')]);
 
-    // ── 1.38.733/768: Eigene Reihenfolge = genau die Studio-Reihenfolge (Headliner rutschen nicht nach oben)
+    // ── 1.38.786: Eigene Reihenfolge – öffentlich Headliner zuerst (untereinander Studio-Reihenfolge), im Editor genau die Studio-Reihenfolge
     TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'manual', 'lineup_order' => ["Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx"]]);
     $mo = array_column((array) ($get($ev)['lineup_acts'] ?? []), 'name');
-    lx_eq('Eigene Reihenfolge: Studio-Reihenfolge, Rest wie bisher, Headliner nicht nach oben', ["Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx", "Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx", "Lxt Headliner Extra $sfx"], $mo);
+    lx_eq('öffentlich: Headliner zuerst, dann Studio-Reihenfolge, Rest wie bisher', ["Lxt Headliner Extra $sfx", "Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx", "Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx"], $mo);
+    $edo = array_column((array) (TIX_Lineup_Links::editor_fields($ev)['lineup_acts'] ?? []), 'name');
+    lx_eq('Editor: genau die Studio-Reihenfolge (Headliner nicht vorgezogen)', ["Lxt Almklausi $sfx", "Lxt Micha Schuh $sfx", "Lxt Andi (DJ/Moderation) $sfx", "Lxt Monchi $sfx", "Lxt Maurice Die Partykanone $sfx", "Lxt Headliner Extra $sfx"], $edo);
     $ea = $get($ev);
-    lx_eq('Positionen neu, artists in derselben Reihenfolge', [[1, 2, 3, 4, 5, 6], [$alm, $micha, $mon, $mau, $extra]], [array_column((array) ($ea['lineup_acts'] ?? []), 'position'), array_map('intval', array_column((array) ($ea['artists'] ?? []), 'id'))]);
+    lx_eq('Positionen neu, artists in derselben Reihenfolge', [[1, 2, 3, 4, 5, 6], [$extra, $alm, $micha, $mon, $mau]], [array_column((array) ($ea['lineup_acts'] ?? []), 'position'), array_map('intval', array_column((array) ($ea['artists'] ?? []), 'id'))]);
     $w = TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'zufall']);
     lx_eq('Ungültiger Modus 400', 'lineup_sort', is_wp_error($w) ? ($w->get_error_data()['field'] ?? '') : '');
     // Studio: Editor liefert Felder, POST speichert
@@ -111,18 +113,18 @@ try {
     lx_eq('Editor: lineup_sort, lineup_has_times, sortierte lineup_acts', [200, 'manual', true, "Lxt Almklausi $sfx"], [$st, $ed['lineup_sort'] ?? '', $ed['lineup_has_times'] ?? null, $ed['lineup_acts'][0]['name'] ?? '']);
     [$st, $d] = lx_rest('POST', "/events/$ev", ['lineup_order' => ["Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], 'lineup_sort' => 'manual']);
     $mo = array_column((array) ($get($ev)['lineup_acts'] ?? []), 'name');
-    lx_eq('POST /events/{id} lineup_order: gespeichert und wirksam', [200, "Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx", "Lxt Headliner Extra $sfx"], [$st, $mo[0] ?? '', $mo[1] ?? '', $mo[5] ?? '']);
+    lx_eq('POST /events/{id} lineup_order: gespeichert und wirksam (öffentlich Headliner vorn)', [200, "Lxt Headliner Extra $sfx", "Lxt Monchi $sfx", "Lxt Andi (DJ/Moderation) $sfx"], [$st, $mo[0] ?? '', $mo[1] ?? '', $mo[2] ?? '']);
     // 1.38.735: Headliner-Stern aus dem Studio ist maßgeblich
     [$st] = lx_rest('POST', "/events/$ev", ['lineup_headliners' => ["Lxt Andi (DJ/Moderation) $sfx"]]);
     $ha = (array) ($get($ev)['lineup_acts'] ?? []);
-    lx_eq('Stern: Andi Headliner, bleibt an Stelle 2, Extra nicht mehr Headliner', [200, "Lxt Andi (DJ/Moderation) $sfx", true, 'headliner', false],
-        [$st, $ha[1]['name'] ?? '', $ha[1]['headliner'] ?? null, $ha[1]['role'] ?? '', (function ($l) use ($sfx) { foreach ($l as $x) if ($x['name'] === "Lxt Headliner Extra $sfx") return $x['headliner']; return null; })($ha)]);
+    lx_eq('Stern: Andi Headliner und öffentlich vorn, Extra nicht mehr Headliner', [200, "Lxt Andi (DJ/Moderation) $sfx", true, 'headliner', false],
+        [$st, $ha[0]['name'] ?? '', $ha[0]['headliner'] ?? null, $ha[0]['role'] ?? '', (function ($l) use ($sfx) { foreach ($l as $x) if ($x['name'] === "Lxt Headliner Extra $sfx") return $x['headliner']; return null; })($ha)]);
     [, $d] = lx_rest('GET', "/events/$ev/edit");
     $ed = $d['event'] ?? $d;
     lx_eq('Editor: lineup_headliners + gesetzt', [["Lxt Andi (DJ/Moderation) $sfx"], true], [$ed['lineup_headliners'] ?? [], $ed['lineup_headliners_set'] ?? null]);
     TIX_Lineup_Links::save_order($ev, ['lineup_headliners' => null]);
     $ha = (array) ($get($ev)['lineup_acts'] ?? []);
-    lx_eq('null: wieder Rollen der Künstler (Extra Headliner, bleibt hinten)', ["Lxt Monchi $sfx", "Lxt Headliner Extra $sfx", true], [$ha[0]['name'] ?? '', $ha[5]['name'] ?? '', $ha[5]['headliner'] ?? null]);
+    lx_eq('null: wieder Rollen der Künstler (Extra Headliner, öffentlich vorn)', ["Lxt Headliner Extra $sfx", true, "Lxt Monchi $sfx"], [$ha[0]['name'] ?? '', $ha[0]['headliner'] ?? null, $ha[1]['name'] ?? '']);
     TIX_Lineup_Links::save_order($ev, ['lineup_sort' => 'time', 'lineup_order' => []]);
 
     // Programm ausgeblendet: gleiche Reihenfolge, ohne Zeiten
@@ -135,7 +137,7 @@ try {
     $snap = TIX_Lineup_Links::acts($ev);
     lx_eq('Schnappschuss = API-Liste', $names, array_column($snap, 'name'));
     $mir = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "Lxt Spiegel $sfx",
-        'meta_input' => ['_tix_date_start' => $date, '_tix_syndicated' => '1', '_tix_lineup_acts' => $snap, '_tix_info_lineup' => $lineup]]);
+        'meta_input' => ['_tix_date_start' => $date, '_tix_syndicated' => '1', '_tix_lineup_acts' => $snap, '_tix_info_lineup' => $lineup, '_tix_lineup_sort' => 'time']]); // Sortierung reist mit (Verteilung bzw. program.lineup_sort)
     $posts[] = $mir;
     $ma = (array) ($get($mir)['lineup_acts'] ?? []);
     lx_eq('Spiegel: Liste der Quelle', $names, array_column($ma, 'name'));

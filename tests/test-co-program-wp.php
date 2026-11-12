@@ -46,6 +46,14 @@ try {
     $eq('Programm aus: keine Zeit in der ganzen öffentlichen Antwort (timetable, lineup_acts time/start_at/end, eigene Seite und Kopie)', [0, 0], [$leak($own), $leak($cpy)]);
     $acts = TIX_Lineup_Links::acts($cpy);
     $eq('Kopie: Line-up bleibt (ohne Zeiten)', ['Honk', null, null], [$acts[0]['name'] ?? null, array_key_exists('time', $acts[0]) ? $acts[0]['time'] : 'x', array_key_exists('start_at', $acts[0]) ? $acts[0]['start_at'] : 'x']);
+
+    // 1.38.786: Kopie mit altem Schnappschuss in Studio-Reihenfolge → öffentlich Headliner zuerst; „Nach Auftrittszeit“ unverändert
+    $hk = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Headliner Kopie']); $p[] = $hk;
+    update_post_meta($hk, '_tix_syndicated', '1');
+    update_post_meta($hk, '_tix_lineup_acts', [['position' => 1, 'name' => 'Monchi', 'role' => 'support', 'headliner' => false], ['position' => 2, 'name' => 'Honk', 'role' => 'headliner', 'headliner' => true], ['position' => 3, 'name' => 'Zipfelbube', 'role' => 'headliner', 'headliner' => true]]);
+    $eq('Kopie: Headliner zuerst (untereinander wie die Quelle), Positionen neu', [['Honk', 'Zipfelbube', 'Monchi'], [1, 2, 3]], [array_column(TIX_Lineup_Links::acts($hk), 'name'), array_column(TIX_Lineup_Links::acts($hk), 'position')]);
+    TIX_Site_Move::apply_program($hk, ['timetable' => [], 'stages' => [], 'hidden' => false, 'times_tba' => false, 'lineup_sort' => 'time']);
+    $eq('Kopie mit „Nach Auftrittszeit“ der Quelle: Reihenfolge des Schnappschusses bleibt', ['Monchi', 'Honk', 'Zipfelbube'], array_column(TIX_Lineup_Links::acts($hk), 'name'));
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

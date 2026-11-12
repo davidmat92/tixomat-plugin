@@ -929,7 +929,8 @@ class TIX_Site_Move {
         $st = get_post_meta($eid, '_tix_stages', true);
         return ['timetable' => is_array($tt) ? $tt : [], 'stages' => is_array($st) ? array_values($st) : [],
             'hidden' => get_post_meta($eid, '_tix_timetable_hidden', true) === '1', 'times_tba' => get_post_meta($eid, '_tix_timetable_times_tba', true) === '1',
-            'mode' => (string) get_post_meta($eid, '_tix_timetable_mode', true)];
+            'mode' => (string) get_post_meta($eid, '_tix_timetable_mode', true),
+            'lineup_sort' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::sort_mode($eid) : 'manual']; // Kopie sortiert öffentlich wie die Quelle (1.38.786)
     }
 
     /** Programm auf der Kopie übernehmen (nur bekannte Felder, Texte gesäubert). */
@@ -952,6 +953,7 @@ class TIX_Site_Move {
         if ($stages) update_post_meta($id, '_tix_stages', $stages); else delete_post_meta($id, '_tix_stages');
         update_post_meta($id, '_tix_timetable_hidden', !empty($p['hidden']) ? '1' : '0');
         update_post_meta($id, '_tix_timetable_times_tba', !empty($p['times_tba']) ? '1' : '0');
+        if (array_key_exists('lineup_sort', $p)) update_post_meta($id, '_tix_lineup_sort', $p['lineup_sort'] === 'time' ? 'time' : 'manual');
         if (array_key_exists('mode', $p)) { if (in_array($p['mode'], ['times', 'tba', 'none'], true)) update_post_meta($id, '_tix_timetable_mode', $p['mode']); else delete_post_meta($id, '_tix_timetable_mode'); }
     }
 
