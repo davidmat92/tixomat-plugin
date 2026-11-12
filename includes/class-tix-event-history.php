@@ -648,8 +648,13 @@ class TIX_Event_History {
         return true;
     }
 
+    /**
+     * E-Mail der handelnden Person zeigen (User 12.11.): Admins und Inhaber/Team des Veranstalters – also jeder, der den Verlauf
+     * sehen darf (perm: Event-Zugriff). Nicht über den Co-Durchgriff (technisches Konto): Co-Veranstalter sind nicht das Team.
+     */
     private static function with_email() {
-        return current_user_can('manage_options') && get_user_meta(get_current_user_id(), '_tix_technical', true) !== '1';
+        $uid = get_current_user_id();
+        return $uid > 0 && get_user_meta($uid, '_tix_technical', true) !== '1' && !(class_exists('TIX_Co_Remote') && get_user_meta($uid, TIX_Co_Remote::USER_META, true));
     }
 
     public static function rest_list(WP_REST_Request $req) {

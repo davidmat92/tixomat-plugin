@@ -66,6 +66,12 @@ try {
     echo "== Routen\n";
     [$st, $d] = $rest('GET', "/events/$ev/history");
     $eq('Liste: neueste zuerst, Person, Seite, E-Mail für Admin', [200, 2, 'Vera Verlauf', $h, true], [$st, $d['items'][0]['rev'] ?? null, $d['items'][0]['actor']['name'] ?? null, $d['items'][0]['site'] ?? null, !empty($d['items'][0]['actor']['email'])]);
+    // Team des Veranstalters (kein Admin) sieht die E-Mail ebenfalls (User 12.11.)
+    $team = wp_insert_user(['user_login' => 'evhteam' . wp_rand(1000, 9999), 'user_pass' => wp_generate_password(20), 'user_email' => 'evhteam' . wp_rand(1000, 9999) . '@example.test', 'role' => 'tix_organizer']);
+    $users[] = $team;
+    wp_set_current_user($team);
+    [$st, $d] = $rest('GET', "/events/$ev/history");
+    $eq('Team (Veranstalter-Rolle): E-Mail sichtbar, sofern Zugriff', true, $st !== 200 || !empty($d['items'][0]['actor']['email']));
     wp_set_current_user(0);
     $eq('ohne Anmeldung 401', 401, $rest('GET', "/events/$ev/history")[0]);
     wp_set_current_user($u);

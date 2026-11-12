@@ -6205,6 +6205,8 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
   - Köpfe 3 Jahre (`tix_history_keep_days`)
   - Snapshots 2 Jahre bzw. die letzten 200 je Event (`tix_history_snapshot_days`, `tix_history_snapshot_max`)
   - Endgültig gelöschtes Event → Verlauf weg; gelöschtes Konto → „Gelöschtes Konto“
+  - (entschieden, User 12.11.)
+- **E-Mail der handelnden Person** (`actor.email`): für Admins und Inhaber/Team des Veranstalters (alle mit Event-Zugriff), nicht über den Co-Durchgriff (ab 1.38.777).
 - **Alt:** `TIX_Event_Revisions` (Feld-Protokoll) schreibt nicht mehr; Tabelle und Metabox bleiben lesbar. Migrations-Schritt `verlauf` legt die Tabelle an.
 - **Tests:**
   - `test-event-history-wp` (24)
