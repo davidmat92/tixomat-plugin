@@ -91,6 +91,43 @@ class TIX_Fees {
             add_action('woocommerce_cart_calculate_fees', [__CLASS__, 'wc_add_platform_fee'], 25);
             add_action('woocommerce_checkout_order_processed', [__CLASS__, 'wc_save_fee_meta'], 10, 1);
         }
+        add_filter('rest_request_after_callbacks', [__CLASS__, 'edit_hook'], 35, 3); // fee_rule_owner im Event-Editor (1.38.763)
+    }
+
+    /**
+     * Wessen Servicegebühr gilt für dieses Event? (1.38.763, Vertrag servicegebuehr §5c) – null = die eigene Regel dieser Seite.
+     * Geteilte Events (Spiegel) und Kopien von Co-Events: der Ersteller → {name, site, label, fixed, percent, mode, known}.
+     * `known` false: die Gegenseite hat ihre Regel noch nicht mitgeschickt (ältere Version).
+     */
+    public static function fee_rule_owner($event_id) {
+        $event_id = intval($event_id);
+        $syn = get_post_meta($event_id, '_tix_syndicated', true) === '1';
+        $co_copy = !self::multi() && intval(get_post_meta($event_id, '_tix_platform_co', true)) > 0;
+        if (!$syn && !$co_copy) return null;
+        $host = function ($u) { $h = (string) wp_parse_url((string) $u, PHP_URL_HOST); return strtolower(preg_replace('/^www\./', '', $h)); };
+        if ($syn) {
+            $name = (string) get_post_meta($event_id, '_tix_source_site', true);
+            $site = $host(get_post_meta($event_id, '_tix_source_url', true)) ?: $host(get_post_meta($event_id, '_tix_source_api', true));
+        } else {
+            $name = (string) get_post_meta($event_id, '_tix_platform_co_by', true);
+            $src = (string) get_post_meta($event_id, '_tix_platform_co_source', true);
+            $site = $src !== '' ? ($host($src) ?: strtolower($src)) : $host(tix_get_settings('syndication_api_url'));
+        }
+        $known = metadata_exists('post', $event_id, '_tix_source_fee');
+        $cfg = self::display_config($event_id);
+        return ['name' => html_entity_decode($name ?: $site, ENT_QUOTES, 'UTF-8'), 'site' => $site ?: null, 'label' => (string) ($cfg['fee_label'] ?: self::LABEL_DEFAULT),
+            'fixed' => round(floatval($cfg['fee_fixed']), 2), 'percent' => round(floatval($cfg['fee_percent']), 2), 'mode' => (string) $cfg['fee_mode'], 'known' => $known];
+    }
+
+    /** GET /events/{id}/edit bzw. /studio/events/{id}/edit: Feld fee_rule_owner ergänzen. */
+    public static function edit_hook($response, $handler, $request) {
+        if ($request->get_method() !== 'GET' || is_wp_error($response)) return $response;
+        if (!preg_match('#^/tixomat/v1/(?:studio/)?events/(\d+)/edit$#', (string) $request->get_route(), $m)) return $response;
+        $data = $response instanceof WP_REST_Response ? $response->get_data() : $response;
+        if (!is_array($data)) return $response;
+        $data['fee_rule_owner'] = self::fee_rule_owner(intval($m[1]));
+        if ($response instanceof WP_REST_Response) { $response->set_data($data); return $response; }
+        return $data;
     }
 
     /**

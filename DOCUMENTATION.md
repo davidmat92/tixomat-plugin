@@ -6016,3 +6016,10 @@ Wortlaut der Rechtstexte („Abgleich 1.38.760“, `docs/rechtstexte/pruefmappe/
 - **Fund KMT (live):** „Keine Zahlungen anbieten“ setzt `features.checkout = false`. Die Homepages sperren daraufhin die Kasse aller Events, auch vermittelter Co-Events (KK #1171 über die Plattform, Zahlung bei KK). Readiness, Live-Schalten und die App-Quote sperren nicht.
 - **Neu:** `/public/site-config` → `features.checkout_brokered` (Kunden-Seiten: true). Die Homepage erlaubt die Kasse je Event bei `checkout || (checkout_brokered && syndicated.brokered)`. Vertrag: `vertrag-live-durch-kunde.md`, Nachtrag.
 - **Test:** `test-go-live-wp` 17.
+
+## 167. `fee_rule_owner` im Event-Editor (ab 1.38.763)
+- `GET /events/{id}/edit` (auch `/studio/events/{id}/edit`) liefert `fee_rule_owner` (`TIX_Fees::fee_rule_owner`, Filter `edit_hook`).
+  - `null` bei eigenen Events.
+  - Bei Spiegeln (`_tix_syndicated`) bzw. Kopien von Co-Events (`_tix_platform_co`): `{name, site, label, fixed, percent, mode, known}`. Die Werte kommen aus `display_config`; `known` = `_tix_source_fee` vorhanden.
+- Für den Hinweis in Studio und App: „Es gilt die Service-/Vorverkaufsgebühr des Erstellers (<name>)“. Vertrag `vertrag-servicegebuehr.md` §5c.
+- **Test:** `test-fee-creator-rule-wp` (Einzel-Seite 12, Plattform 7).

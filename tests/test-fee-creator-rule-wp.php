@@ -4,7 +4,7 @@
  *   Plattform:    wp eval-file …/test-fee-creator-rule-wp.php   (creator_fee_rule: Spiegel → Regel der Quelle, eigenes Event → Plattform, Co nimmt ein → null)
  *   Einzel-Seite: wp eval-file …/test-fee-creator-rule-wp.php   (Kopie rechnet mit der Regel des Erstellers statt eigener)
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'creator_fee_rule')) { echo "Tixomat ab 1.38.760 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Fees') || !method_exists('TIX_Fees', 'fee_rule_owner')) { echo "Tixomat ab 1.38.763 nötig\n"; return; }
 $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur auf lokalen Test-Seiten!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
@@ -86,6 +86,21 @@ try {
         $own = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CR eigenes KMT', 'meta_input' => ['_tix_date_start' => '2027-10-05', '_tix_ticket_categories' => $cats]]);
         $tmp[] = $own;
         cr_eq('eigenes Event der Co-Seite: eigene Regel', [TIX_Fees::get_fee_config()['fee_fixed'], TIX_Fees::get_fee_config()['fee_label']], [TIX_Fees::display_config($own)['fee_fixed'], TIX_Fees::display_config($own)['fee_label']]);
+        echo "-- Editor: fee_rule_owner (1.38.763)\n";
+        update_post_meta($cp, '_tix_source_fee', $kk_rule);
+        update_post_meta($cp, '_tix_platform_co_by', 'KitchenKlub'); update_post_meta($cp, '_tix_platform_co_source', 'kitchenklub.de');
+        $o = TIX_Fees::fee_rule_owner($cp);
+        cr_eq('Kopie: fee_rule_owner KitchenKlub, kitchenklub.de, Vorverkaufsgebühr 1,50 €, bekannt', ['KitchenKlub', 'kitchenklub.de', 'Vorverkaufsgebühr', 1.5, true],
+            [$o['name'] ?? null, $o['site'] ?? null, $o['label'] ?? null, $o['fixed'] ?? null, $o['known'] ?? null]);
+        cr_eq('eigenes Event: fee_rule_owner null', null, TIX_Fees::fee_rule_owner($own));
+        $adm = intval((get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID']))[0] ?? 0);
+        wp_set_current_user($adm);
+        $res = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/events/' . $cp . '/edit'));
+        $d = $res->get_data();
+        cr_eq('GET /events/{id}/edit liefert fee_rule_owner', [200, 'KitchenKlub'], [$res->get_status(), $d['fee_rule_owner']['name'] ?? null]);
+        $res = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/events/' . $own . '/edit'));
+        cr_eq('eigenes Event im Editor: fee_rule_owner null (Feld vorhanden)', [true, null], [array_key_exists('fee_rule_owner', (array) $res->get_data()), array_key_exists('fee_rule_owner', (array) $res->get_data()) ? ((array) $res->get_data())['fee_rule_owner'] : 'x']);
+        wp_set_current_user(0);
         if ($bk === null) delete_option('tix_settings'); else update_option('tix_settings', $bk);
     }
 } catch (Throwable $e) {
