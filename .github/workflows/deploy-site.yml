@@ -2,22 +2,20 @@ name: Deploy to site (manual)
 
 # Manueller Deploy auf die Kunden-Sites über GitHub Actions – ohne SSH vom eigenen Rechner.
 #
-#   site=alle         → kitchenklub.de, evendis.de und mallorca-festival-xxl.de nacheinander
-#                       (Regel des Auftraggebers seit 2026-10-02: Mallorca bekommt jede neue
-#                       Version mit, sobald KitchenKlub oder evendis eine bekommen)
+#   site=alle         → zuerst kitchenklub.de (Prüfung), danach PARALLEL: evendis.de, mallorca-festival-xxl.de und je
+#                       Kunden-Server EIN Lauf für alle seine Kunden (Phase 0 „paralleler Rollout“, 12.11.2026)
 #   site=evendis      → nur evendis.de (Testdaten – vor „alle“ dort zuerst prüfen)
-#   site=test-quelle  → nur demo.mdj.events: Test-Quelle für geteilte Events (Partner-API,
-#                       Zahlung im Testmodus). Seit 2026-10-03 wiederbelebt, NICHT Teil von „alle“.
+#   site=test-quelle  → nur demo.mdj.events (Test-Quelle für geteilte Events), NICHT Teil von „alle“
 #   site=<einzeln>    → nur diese Site
-#   site=xxl          → XXL Schlagerparty auf dem Sammelserver kunden-hetzner (gehostete Kunden, 2026-11-06)
-#   site=kunde        → ein Kunde nach Kurzname (Eingabe „kunde“), z. B. aus bin/kunde-anlegen. Server: Eingabe „host“
-#                       (eigener Hetzner-Server, muss in KUNDEN_HOSTS stehen), sonst der Sammelserver KUNDEN_HOST.
-#                       Domain und Ordner liest der Lauf aus /etc/kunden/<kurz>.env auf dem Server (ops/kunden-hetzner
-#                       im Monorepo). „alle“ nimmt jeden Kunden aller Server (KUNDEN_HOST + KUNDEN_HOSTS) mit, ohne
-#                       abgeschaltete (/etc/kunden/<kurz>-aus). Ist ein Kunden-Server nicht erreichbar, bricht der Lauf ab.
+#   site=xxl          → XXL Schlagerparty auf dem Sammelserver kunden-hetzner
+#   site=kunde        → ein Kunde nach Kurzname (Eingabe „kunde“), Server: Eingabe „host“, sonst KUNDEN_HOST
 #
-# Der Server erlaubt nur ~1 SSH-Verbindung pro Minute: Die Sites laufen nacheinander
-# (max-parallel 1) mit Pausen zwischen den Verbindungen.
+# Kunden-Server (KUNDEN_HOST + KUNDEN_HOSTS): EIN rsync in /home/runcloud/tixomat-plugin/eingang, dann verteilt
+# `sudo kunden-plugin verteilen <version> [--nur <kurz>]` (ops/kunden-hetzner im Monorepo) an alle aktiven Kunden des
+# Servers (als Kundennutzer), leert den OPcache aller Pools mit EINEM php-fpm-reload und prüft jede Seite (/info + Startseite).
+# Rückweg auf dem Server: `sudo kunden-plugin zurueck <alte Version>` (Lager /opt/tixomat-plugin, letzte 6 Versionen).
+# Verschiedene Server laufen gleichzeitig; KitchenKlub zuerst, bei Fehler dort läuft nichts weiter.
+
 run-name: "Deploy ${{ inputs.site }}${{ inputs.kunde && format(' {0}', inputs.kunde) || '' }}${{ inputs.kennung && format(' [{0}]', inputs.kennung) || '' }}"
 on:
   workflow_dispatch:
@@ -48,7 +46,8 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      sites: ${{ steps.list.outputs.sites }}
+      erste: ${{ steps.list.outputs.erste }}
+      ziele: ${{ steps.list.outputs.ziele }}
     steps:
       - id: list
         env:
@@ -63,134 +62,46 @@ jobs:
           HOSTS=$(printf '%s %s' "$KUNDEN_HOST" "$KUNDEN_HOSTS" | tr ',' ' ' | tr -s ' ' '\n' | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' | sort -u | tr '\n' ' ' || true)
           HOSTS="${HOSTS% }"
           erlaubt() { local x; for x in $HOSTS; do [ "$x" = "$1" ] && return 0; done; return 1; }
-          # Kunden je Server: Kurznamen aus /etc/kunden/*.env, abgeschaltete (/etc/kunden/<kurz>-aus) übersprungen.
-          # SSH-Fehler bricht den ganzen Lauf ab (kein stilles Weglassen eines Servers).
-          kunden() {
-            [ -n "$HOSTS" ] || return 0
-            echo "$SSH_KEY" > k && chmod 600 k
-            local h out s
-            for h in $HOSTS; do
-              out=$(ssh -i k -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30 runcloud@"$h" \
-                "for e in /etc/kunden/*.env; do [ \"\$(basename \$e)\" = server.env ] && continue; s=\$(sed -n 's/^SITE=\([a-z0-9]*\).*/\1/p' \$e); [ -n \"\$s\" ] && [ ! -f /etc/kunden/\$s-aus ] && echo \$s; done; true") \
-                || { rm -f k; echo "::error::Kunden-Server $h nicht erreichbar – Lauf abgebrochen" >&2; exit 1; }
-              for s in $out; do echo "kunde:$s@$h"; done
-            done
-            rm -f k
-          }
+          # Ein Ziel je Kunden-Server (kunden-plugin verteilt dort an alle Kunden). Erreichbarkeit prüft der Lauf je Server.
+          server() { local h; for h in $HOSTS; do echo "server:$h"; done; }
+          erste=""
           case "$SITE" in
-            alle)  kl=$(kunden) || exit 1; list="kitchenklub evendis mallorca ${kl//$'\n'/ }" ;;
-            xxl)   list="kunde:xxl@$KUNDEN_HOST" ;;
+            alle)  erste="kitchenklub"; list="evendis mallorca $(server | tr '\n' ' ')" ;;
+            xxl)   [[ "$KUNDEN_HOST" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "::error::KUNDEN_HOST fehlt"; exit 1; }
+                   list="server:$KUNDEN_HOST:xxl" ;;
             kunde) [[ "$KUNDE" =~ ^[a-z][a-z0-9]{1,15}$ ]] || { echo "::error::Eingabe kunde fehlt oder ungültig"; exit 1; }
                    h="${HOST_IN:-$KUNDEN_HOST}"
                    [[ "$h" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "::error::Host fehlt oder ungültig (KUNDEN_HOST bzw. Eingabe host)"; exit 1; }
                    erlaubt "$h" || { echo "::error::Host $h steht nicht in KUNDEN_HOST/KUNDEN_HOSTS (gh variable set KUNDEN_HOSTS -b \"<ip>,<ip>\")"; exit 1; }
-                   list="kunde:$KUNDE@$h" ;;
+                   list="server:$h:$KUNDE" ;;
             *)     list="$SITE" ;;
           esac
-          echo "sites=$(printf '%s\n' $list | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
-          echo "Ziele: $list"
-
-  deploy:
+          echo "erste=$(printf '%s\n' $erste | jq -R . | jq -cs 'map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          echo "ziele=$(printf '%s\n' $list | jq -R . | jq -cs 'map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          echo "Zuerst: ${erste:-–} · danach parallel: $list"
+  # Welle 1: KitchenKlub allein (Rollout-Reihenfolge seit 2026-10-11 – display_errors dort ist an)
+  erste:
     needs: plan
-    runs-on: ubuntu-latest
+    if: needs.plan.outputs.erste != '[]'
     strategy:
       max-parallel: 1
+      matrix:
+        site: ${{ fromJSON(needs.plan.outputs.erste) }}
+    uses: ./.github/workflows/deploy-ziel.yml
+    with:
+      site: ${{ matrix.site }}
+    secrets: inherit
+
+  # Welle 2: alle übrigen Ziele gleichzeitig – jedes Ziel ist ein anderer Server
+  deploy:
+    needs: [plan, erste]
+    if: always() && needs.plan.result == 'success' && needs.erste.result != 'failure' && needs.erste.result != 'cancelled' && needs.plan.outputs.ziele != '[]'
+    strategy:
+      max-parallel: 8
       fail-fast: false
       matrix:
-        site: ${{ fromJSON(needs.plan.outputs.sites) }}
-    name: deploy (${{ matrix.site }})
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Ziel bestimmen
-        id: target
-        env:
-          KUNDEN_HOST: ${{ vars.KUNDEN_HOST }}
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          case "${{ matrix.site }}" in
-            # Gehostete Kunden (Sammelserver kunden-hetzner): Domain und Ordner stehen auf dem Server in /etc/kunden/<kurz>.env.
-            # Ohne KUNDEN_HOST kein Ziel – nie auf den alten Server ausweichen.
-            kunde:*)     k="${{ matrix.site }}"; k="${k#kunde:}"; kh="${k#*@}"; k="${k%@*}"
-                         if [ -z "$kh" ] || [ "$kh" = "$k" ]; then echo "::error::Kunden-Ziel ohne Host"; exit 1; fi
-                         echo "$SSH_KEY" > k && chmod 600 k
-                         envk=$(ssh -i k -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30 runcloud@"$kh" "cat /etc/kunden/$k.env") || { rm -f k; echo "::error::/etc/kunden/$k.env fehlt auf $kh"; exit 1; }
-                         rm -f k
-                         app=$(printf '%s\n' "$envk" | sed -n 's/^APP=\([A-Za-z0-9._-]*\).*/\1/p')
-                         dom=$(printf '%s\n' "$envk" | sed -n 's/^DOMAIN=\([A-Za-z0-9.-]*\).*/\1/p')
-                         # Mandanten-Trennung (ops/kunden-hetzner, 08.11.): Webapp gehört k_<kurz> → rsync/tee als dieser Nutzer
-                         wpu=$(printf '%s\n' "$envk" | sed -n 's/^WPU=\(k_[a-z0-9]*\).*/\1/p')
-                         [ -n "$app" ] && [ -n "$dom" ] || { echo "::error::APP/DOMAIN in /etc/kunden/$k.env fehlen"; exit 1; }
-                         url="https://$dom"; host="$kh" ;;
-            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
-            # (gh variable set KITCHENKLUB_HOST -b 178.104.202.230). Ohne Variable bleibt der alte RunCloud-Server.
-            kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de; host="${{ vars.KITCHENKLUB_HOST }}" ;;
-            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable EVENDIS_HOST beim Umschalten setzen. Dort heißt der
-            # App-Ordner evendis-veranstalter; ohne Variable alter RunCloud-Server mit Ordner evendis.
-            evendis)     url=https://evendis.de; host="${{ vars.EVENDIS_HOST }}"
-                         if [ -n "$host" ]; then app=evendis-veranstalter; else app=evendis; fi ;;
-            test-quelle) app=demo-mdj-events;       url=https://demo.mdj.events ;;
-            # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
-            # alter-shop.mallorca-festival-xxl.de, mallorca-festival-xxl_clone = backup.…) – Stand 2026-10-02.
-            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable MALLORCA_HOST beim Umschalten setzen
-            # (gh variable set MALLORCA_HOST -b 2.28.199.136), gleicher Ordnername dort. Ohne Variable alter Server.
-            mallorca)    app=Mallorca-Festival-XXL-2026; url=https://mallorca-festival-xxl.de; host="${{ vars.MALLORCA_HOST }}" ;;
-            *) echo "Unbekannte Site ${{ matrix.site }}"; exit 1 ;;
-          esac
-          echo "host=${host:-51.195.61.6}" >> "$GITHUB_OUTPUT"
-          echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
-          echo "wpu=${wpu:-}" >> "$GITHUB_OUTPUT"
-          # Mandant: Server-rsync als Kundennutzer (kunden-rsync), Gruppe vom setgid-Ordner (www-data), Rechte wie kunden-rechte
-          if [ -n "${wpu:-}" ]; then echo "rsync_extra=--no-g --chmod=D2750,F640 --rsync-path=/usr/local/bin/kunden-rsync" >> "$GITHUB_OUTPUT"; else echo "rsync_extra=" >> "$GITHUB_OUTPUT"; fi
-          echo "mu=/home/runcloud/webapps/$app/wp-content/mu-plugins/" >> "$GITHUB_OUTPUT"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "version=$(sed -n "s/^define('TIXOMAT_VERSION', '\([0-9.]*\)').*/\1/p" tixomat.php)" >> "$GITHUB_OUTPUT"
-
-      # Pause vor jeder weiteren Site, damit die SSH-Verbindung der vorigen nicht kollidiert.
-      - name: SSH-Pause
-        if: strategy.job-index > 0
-        run: sleep 70
-
-      - name: Deploy Plugin
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules' ${{ steps.target.outputs.rsync_extra }}
-          path: ./
-          remote_path: ${{ steps.target.outputs.path }}
-          remote_host: ${{ steps.target.outputs.host }}
-          remote_port: 22
-          remote_user: runcloud
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      # PHP (PHP-FPM bzw. OpenLiteSpeed/lsphp) hält den alten Code im OPcache – ohne Reset
-      # läuft die alte Version weiter. Der Reset läuft über ein einmaliges, sich selbst
-      # löschendes mu-Plugin, das nur mit einem Zufallsschlüssel reagiert. Das klappt auch auf
-      # Sites, die direkte PHP-Aufrufe im Plugin-Ordner sperren (z. B. Mallorca).
-      - name: OPcache zurücksetzen
-        env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          sleep 70
-          KEY=$(openssl rand -hex 12)
-          echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
-          ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@${{ steps.target.outputs.host }} \
-            "${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' | ${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}tee ${{ steps.target.outputs.mu }}zz-tix-oc.php >/dev/null"
-          rm -f deploy_key
-          sleep 2
-          echo "Reset: $(curl -s -m 30 "${{ steps.target.outputs.url }}/?tix_oc=$KEY" | head -c 40)"
-
-      - name: Version prüfen
-        run: |
-          sleep 3
-          INFO=$(curl -s -m 30 "${{ steps.target.outputs.url }}/wp-json/tixomat/v1/info?_=$(date +%s)")
-          echo "$INFO" | head -c 300; echo
-          LIVE=$(echo "$INFO" | sed -n 's/.*"plugin_version":"\([0-9.]*\)".*/\1/p')
-          if [ "$LIVE" = "${{ steps.target.outputs.version }}" ]; then
-            echo "OK: ${{ matrix.site }} läuft auf $LIVE"
-          else
-            echo "::warning title=${{ matrix.site }}::Live-Version '$LIVE' statt ${{ steps.target.outputs.version }} – OPcache evtl. noch alt (Webserver in RunCloud neu starten)."
-          fi
-          HOME_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "${{ steps.target.outputs.url }}/?_=$(date +%s)")
-          echo "Startseite: $HOME_CODE"
-          if [ "$HOME_CODE" -ge 500 ]; then echo "::error title=${{ matrix.site }}::Startseite antwortet mit $HOME_CODE"; exit 1; fi
+        site: ${{ fromJSON(needs.plan.outputs.ziele) }}
+    uses: ./.github/workflows/deploy-ziel.yml
+    with:
+      site: ${{ matrix.site }}
+    secrets: inherit

@@ -354,6 +354,7 @@ class TIX_Syndication_Receive {
             'url'      => self::public_url($event_id),
             'status'   => 'updated',
             'restored' => $restored,
+            'co_sites' => empty($data['stock_only']) && class_exists('TIX_Co_Sites') && method_exists('TIX_Co_Sites', 'sync_sites_of_event') ? TIX_Co_Sites::sync_sites_of_event($event_id) : 0,
             'partner'  => self::$partner ? self::$partner['id'] : null,
         ]);
     }

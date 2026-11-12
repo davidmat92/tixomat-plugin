@@ -6065,3 +6065,14 @@ Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
 - **Wo:** `TIX_Lineup_Links::apply_order` und `acts`. Damit gilt die Regel für `lineup_acts`, `lineup_list`, `artists`, Website, App und den Schnappschuss für Spiegel (`_tix_lineup_acts`). Bestehende Spiegel ziehen beim nächsten Verteilen des Quell-Events nach.
 - **`time`** unverändert (nur die Uhrzeit).
 - **Test:** `test-lineup-acts-wp` 31 (kk) / 30 (Plattform).
+
+## 174. Co-Kopien auf Kunden-Seiten zeitnah abgleichen (ab 1.38.772)
+- **Fund (12.11.):** Auf mallorcaparty-schwelm.de (KMT-Kopie #7 des KK-Events #1171) stand nur ein Headliner. Quelle (KK) und evendis-Spiegel #6453 hatten die drei Headliner richtig. Die Kopie auf der Kunden-Seite holt Event, `lineup_acts` und Künstler aber nur stündlich (`tix_platform_co_sync`) und hatte den Stand vor der Änderung.
+- **Neu:** `TIX_Co_Sites::sync_sites_of_event($eid)` (nur Plattform) plant für jede beteiligte Kunden-Seite einen Abgleich in etwa 20 s (Cron `tix_co_site_sync` → `trigger_sync`, das ist `POST /partner/co-sync` auf der Seite).
+  - Beteiligt heißt: Co lokal (`TIX_Co_Organizer::ids`) oder auf dem Spiegel (`_tix_co_mirror`). Nur Kunden-Seiten (`is_site_profile`).
+  - Je Seite gibt es höchstens einen wartenden Auftrag. Er holt beim Lauf den dann aktuellen Stand; mehrere Änderungen kurz hintereinander werden so zusammengefasst.
+- **Ausgelöst:**
+  - durch jede Verteilung an die Plattform (`PATCH /syndicate/{id}`, nicht bei `stock_only`; Antwort-Feld `co_sites` = Zahl der Seiten)
+  - durch jedes Speichern eines Events auf der Plattform (`save_post_event`)
+- **Stündlicher Abgleich:** bleibt als Rückfall.
+- **Test:** `test-co-site-sync-wp` (5, Plattform).
