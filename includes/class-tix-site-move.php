@@ -953,6 +953,12 @@ class TIX_Site_Move {
         update_post_meta($id, '_tix_timetable_times_tba', !empty($p['times_tba']) ? '1' : '0');
     }
 
+    /** Kunden-Seite: Abgleich der Co-Kopien bald einmal ausführen (Migrations-Schritt nach Updates, 1.38.780). */
+    public static function schedule_co_resync() {
+        if (self::multi() || !self::co_ready()) return false;
+        return (bool) wp_schedule_single_event(time() + 60, self::CO_CRON);
+    }
+
     public static function sync_co_events() {
         if (self::multi() || !self::co_ready()) return new WP_Error('tix_co_not_ready', 'Keine Verbindung zur Plattform eingerichtet.');
         $r = wp_remote_get(self::co_api('/partner/co-events'), ['timeout' => 30, 'headers' => self::co_headers()]);

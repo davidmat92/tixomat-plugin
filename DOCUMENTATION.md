@@ -6217,5 +6217,8 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
   - Die Kopie übernimmt das gesäubert (`apply_program`: nur gültige Tage, Texte ohne HTML, Farben geprüft).
   - Damit baut sie `timetable` und die Zeiten in `lineup_acts` wie die Quelle; ausgeblendet und „Zeiten folgen“ gelten ebenfalls.
 - **evendis-Spiegel:** Die Verteilung (Quelle → evendis) überträgt alle `_tix_*`-Felder und hatte das Programm schon. Keine Änderung.
-- **Bestehende Kopien:** ziehen mit dem nächsten Abgleich nach (stündlich bzw. ~20 s nach einer Änderung auf evendis), sobald Plattform **und** Kunden-Seite 1.38.778 haben. Sofort: auf der Kunden-Seite `wp eval 'TIX_Site_Move::sync_co_events();'`.
+- **Bestehende Kopien:** ziehen mit dem nächsten Abgleich nach, sobald Plattform **und** Kunden-Seite 1.38.778 haben.
+  - Ab 1.38.780 plant der Migrations-Schritt `co_kopien` den Abgleich nach jedem Update auf der Kunden-Seite in etwa 60 s ein.
+  - Sonst läuft er stündlich bzw. ~20 s nach einer Änderung auf evendis.
+  - Sofort: `wp eval 'TIX_Site_Move::sync_co_events();'`.
 - **Test:** `test-co-program-wp` (6), `test-co-sites-wp` (48).
