@@ -6049,3 +6049,9 @@ Vertrag `uebergaben/vertrag-anmeldename.md`, `TIX_Site_Users::exec_login`.
 - **Sitzungen:** App-Tokens bleiben; die Web-Sitzung endet von selbst. Mit `end_sessions` endet alles.
 - **Protokoll und Mail:** `tix_audit_log` `user_login_change` (alt, neu, durch wen), Lizenz-Protokoll `site_user_login`, Mail an die Person (nicht an Ersatzadressen), Hook `tix_user_login_changed`.
 - **Test:** `test-anmeldename-wp` (Einzel-Seite 14, Plattform 5); site-users, operator/owner-access, go-live, license grün.
+
+## 170. Abholer für „Live schalten durch den Kunden“ (ab 1.38.765)
+- `wp tixomat golive offen` liefert die offenen Anfragen (`tix_lic_golive_*`, Status `pending`) als JSON `[{key, license_id, host, action, at, by, nonce}]`, älteste zuerst (`TIX_Go_Live::open_requests`).
+- `wp tixomat golive ergebnis <key> <done|failed|cancelled> [--message=]` wirkt wie `POST /platform/customers/{key}/go-live` (Protokoll + Ping); bei Fehler Exit-Code ≠ 0.
+- Für den Kunden-Dienst (`kd-run golive-abholen`, jede Minute). Vertrag: `vertrag-live-durch-kunde.md`, Nachtrag.
+- **Test:** `tests/test-golive-cli.sh <container>` (8 Prüfungen); `test-go-live-wp` grün.

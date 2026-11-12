@@ -24,6 +24,50 @@ class TIX_Go_Live {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat golive', [__CLASS__, 'cli']); // Abholer des Kunden-Dienstes (1.38.765)
+    }
+
+    /** Offene Anfragen (Lizenz-Server): [{key, license_id, host, action, at, by {name, email}, nonce}] – älteste zuerst. */
+    public static function open_requests() {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like(self::OPT_REQ) . '%'));
+        $out = [];
+        foreach ((array) $rows as $r) {
+            $lid = intval(substr($r->option_name, strlen(self::OPT_REQ)));
+            $q = maybe_unserialize($r->option_value);
+            if (!$lid || !is_array($q) || ($q['status'] ?? '') !== 'pending') continue;
+            $key = class_exists('TIX_Platform_Customers') ? (TIX_Platform_Customers::canonical('l-' . $lid) ?: 'l-' . $lid) : 'l-' . $lid;
+            $out[] = ['key' => $key, 'license_id' => $lid, 'host' => (string) ($q['host'] ?? ''), 'action' => (string) ($q['action'] ?? 'live'), 'at' => (string) ($q['at'] ?? ''),
+                'by' => ['name' => (string) ($q['by']['name'] ?? ''), 'email' => (string) ($q['by']['email'] ?? '')], 'nonce' => (string) ($q['nonce'] ?? '')];
+        }
+        usort($out, function ($a, $b) { return strcmp($a['at'], $b['at']); });
+        return $out;
+    }
+
+    /**
+     * wp tixomat golive offen            → JSON der offenen Anfragen (leere Liste = [])
+     * wp tixomat golive ergebnis <key> <done|failed|cancelled> [--message=<text>]   → wie POST /platform/customers/{key}/go-live (inkl. Ping)
+     */
+    public static function cli($args, $assoc) {
+        $cmd = (string) ($args[0] ?? '');
+        if (!class_exists('TIX_License_Server') || !TIX_License_Server::enabled()) WP_CLI::error('Nur auf der Plattform mit Lizenz-Server.');
+        if ($cmd === 'offen') {
+            WP_CLI::line(wp_json_encode(self::open_requests(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if ($cmd === 'ergebnis' && !empty($args[1]) && !empty($args[2])) {
+            $req = new WP_REST_Request('POST', '/' . self::NS . '/platform/customers/' . $args[1] . '/go-live');
+            $req->set_url_params(['key' => (string) $args[1]]);
+            $req->set_param('key', (string) $args[1]);
+            $req->set_param('status', (string) $args[2]);
+            if (isset($assoc['message'])) $req->set_param('message', (string) $assoc['message']);
+            $r = self::rest_platform_set($req);
+            if (is_wp_error($r)) WP_CLI::error($r->get_error_code() . ': ' . $r->get_error_message());
+            $d = $r instanceof WP_REST_Response ? $r->get_data() : $r;
+            WP_CLI::line(wp_json_encode($d, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::error('Aufruf: wp tixomat golive offen | ergebnis <key> <done|failed|cancelled> [--message=<text>]');
     }
 
     private static function multi() {
