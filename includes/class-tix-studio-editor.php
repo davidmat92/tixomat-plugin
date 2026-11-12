@@ -5,7 +5,7 @@ if (!defined('ABSPATH')) exit;
  * TIX_Studio_Editor – evendis Studio Stufe 3: weitere Felder des Experten-Modus im Event-Editor und Orte (1.38.448).
  *
  * Event-Editor (additiv in GET /events/form, GET /events/{id}/edit → `event`, POST /events[/{id}]; nur mitgeschickte Schlüssel):
- *   timetable       {times_tba, stages[{name, color}], days{"JJJJ-MM-TT": [{time, end, stage, title, desc}]}} | null löscht
+ *   timetable       {times_tba, hidden, mode (times|tba|none, 1.38.782), stages[{name, color}], days{"JJJJ-MM-TT": [{time, end, stage, title, desc}]}} | null löscht
  *   low_stock       {mode: global|custom|manual|off, threshold, text}  (+ low_stock_global nur lesend)
  *   ticket_transfer bool  (+ ticket_transfer_available nur lesend: globaler Schalter)
  *   ticket_sponsor  {image, image_id, link} | null löscht;  POST /events/{id}/sponsor-image (multipart `image`) → {image_id, image}
@@ -22,6 +22,8 @@ if (!defined('ABSPATH')) exit;
  *   eigenen Veranstalter zugeordnet) änderbar, in der App gelistete Orte anderer nur lesend.
  */
 class TIX_Studio_Editor {
+
+    const TT_MODES = ['times', 'tba', 'none']; // timetable.mode (1.38.782)
 
     const NS = 'tixomat/v1';
     const TIME_RE = '/^([01]?\d|2[0-3]):[0-5]\d$/';
@@ -64,7 +66,9 @@ class TIX_Studio_Editor {
         $simg = $sid ? (string) (wp_get_attachment_image_url($sid, 'large') ?: '') : $m('_tix_ticket_sponsor_image_url');
         $mode = $m('_tix_low_stock_mode') ?: 'global';
         return [
-            'timetable'       => ['times_tba' => $m('_tix_timetable_times_tba') === '1', 'hidden' => $m('_tix_timetable_hidden') === '1', 'stages' => $stages, 'days' => (object) $days],
+            'timetable'       => ['times_tba' => $m('_tix_timetable_times_tba') === '1', 'hidden' => $m('_tix_timetable_hidden') === '1', 'stages' => $stages, 'days' => (object) $days,
+                // 1.38.782: Auswahl im Studio (times|tba|none) unverändert zurück; ohne gespeicherten Wert aus times_tba abgeleitet
+                'mode' => in_array($m('_tix_timetable_mode'), self::TT_MODES, true) ? $m('_tix_timetable_mode') : ($m('_tix_timetable_times_tba') === '1' ? 'tba' : 'times')],
             'low_stock'       => ['mode' => $mode, 'threshold' => $m('_tix_low_stock_threshold') !== '' ? intval($m('_tix_low_stock_threshold')) : null, 'text' => $m('_tix_low_stock_text')],
             'low_stock_global' => function_exists('tix_get_settings') ? intval(tix_get_settings('low_stock_threshold') ?? 10) : 10,
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',
@@ -384,6 +388,11 @@ class TIX_Studio_Editor {
             else {
                 $c = [];
                 if (array_key_exists('times_tba', $t)) $c['times_tba'] = !empty($t['times_tba']);
+                // 1.38.782: Modus der Zeiten im Studio (times = mit Zeiten, tba = Zeiten folgen, none = keine Zeiten), nur gespeichert/zurückgegeben
+                if (array_key_exists('mode', $t)) {
+                    if (!in_array($t['mode'], self::TT_MODES, true)) return self::bad('timetable.mode', 'Zeiten: times, tba oder none.');
+                    $c['mode'] = (string) $t['mode'];
+                }
                 // 1.38.694: Programm ausblenden (true = nicht anzeigen; Website + API liefern es dann nicht)
                 if (array_key_exists('hidden', $t)) {
                     if (!is_bool($t['hidden']) && !in_array($t['hidden'], [0, 1, '0', '1'], true)) return self::bad('timetable.hidden', 'Bitte an oder aus.');
@@ -496,9 +505,10 @@ class TIX_Studio_Editor {
         if (array_key_exists('timetable', $c)) {
             $t = $c['timetable'];
             if ($t === null) {
-                foreach (['_tix_timetable', '_tix_stages', '_tix_timetable_times_tba', '_tix_timetable_hidden'] as $k) delete_post_meta($post_id, $k);
+                foreach (['_tix_timetable', '_tix_stages', '_tix_timetable_times_tba', '_tix_timetable_hidden', '_tix_timetable_mode'] as $k) delete_post_meta($post_id, $k);
             } else {
                 if (array_key_exists('times_tba', $t)) update_post_meta($post_id, '_tix_timetable_times_tba', $t['times_tba'] ? '1' : '');
+                if (array_key_exists('mode', $t)) update_post_meta($post_id, '_tix_timetable_mode', $t['mode']);
                 // '0' statt Löschen: die Event-Verteilung gibt nur gesetzte Felder weiter (geteilte Events blenden sonst nie wieder ein)
                 if (array_key_exists('hidden', $t)) update_post_meta($post_id, '_tix_timetable_hidden', $t['hidden'] ? '1' : '0');
                 if (array_key_exists('stages', $t)) update_post_meta($post_id, '_tix_stages', $t['stages']);
