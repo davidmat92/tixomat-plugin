@@ -6023,3 +6023,29 @@ Wortlaut der Rechtstexte („Abgleich 1.38.760“, `docs/rechtstexte/pruefmappe/
   - Bei Spiegeln (`_tix_syndicated`) bzw. Kopien von Co-Events (`_tix_platform_co`): `{name, site, label, fixed, percent, mode, known}`. Die Werte kommen aus `display_config`; `known` = `_tix_source_fee` vorhanden.
 - Für den Hinweis in Studio und App: „Es gilt die Service-/Vorverkaufsgebühr des Erstellers (<name>)“. Vertrag `vertrag-servicegebuehr.md` §5c.
 - **Test:** `test-fee-creator-rule-wp` (Einzel-Seite 12, Plattform 7).
+
+## 168. Vertragsdaten mit evendis und Seitenname (ab 1.38.764)
+Vertrag `uebergaben/vertrag-vertragsdaten.md`, Klasse `TIX_Contract_Data`.
+- **Speicher:** Die Daten liegen an der Lizenz auf evendis (`tix_lic_contract_{id}`: data, updated_at, updated_by, log). Die Kunden-Seite hält eine Kopie (`tix_contract_data`).
+- **Felder:** company, site_name, address {street, zip, city, country}, contact_person, email, phone, vat_id, tax_number, billing_address|null. Prüfung in `merge()`, Fehler 400 mit `field`.
+- **Kunden-Seite:** `GET/POST /studio/contract-data` (Inhaber/Admin, `perm_owner`), signiert an `POST /license/contract-data` (HMAC `tix-contract-v1`, 120 s, nonce).
+  - GET ohne Netz: Kopie mit `stale`.
+  - POST ohne Netz: 502, nichts gespeichert.
+- **Akte:** `GET/POST /platform/customers/{key}/contract-data` mit Protokoll (letzte 20); `GET /platform/customers/{key}` liefert `contract_data` als Übersicht.
+  - Änderung aus der Akte: Ping, die Lizenzprüfung bringt sie signiert zurück (`contract_data` + `contract_data_sig`, `from_check`).
+  - Änderung durch den Kunden: Mail an `tix_contract_notify_email` bzw. die Admin-Adresse, Hook `tix_contract_data_changed`.
+- **Seitenname:** `site_name` wird `blogname`. `syndication_site_name` folgt, wenn es leer oder gleich dem alten Namen war. Hook `tix_site_name_changed`.
+- **Test:** `test-contract-data-wp` 19; Akte auf der Plattform geprüft.
+
+## 169. Anmeldenamen ändern (ab 1.38.764)
+Vertrag `uebergaben/vertrag-anmeldename.md`, `TIX_Site_Users::exec_login`.
+- **Routen:**
+  - `POST /platform/customers/{key}/users/{id}/login {login, end_sessions?}`: Lizenz-Kunden signiert über `/site/users` (Aktion `login`), Provisions-/Co-Kunden im Team des Veranstalters.
+  - `POST /platform/users/{id}/login`: beliebiges Konto auf evendis, nur Plattform-Admin.
+- **Prüfungen:**
+  - Format: 3–60 Zeichen, `a-z 0-9 . _ - @`, kleingeschrieben, ohne `evendis-`.
+  - Eindeutig, auch gegen die E-Mail-Adressen anderer Konten.
+  - Gesperrt: technische Konten, WordPress-Admins außer dem Inhaber, andere Plattform-Admins.
+- **Sitzungen:** App-Tokens bleiben; die Web-Sitzung endet von selbst. Mit `end_sessions` endet alles.
+- **Protokoll und Mail:** `tix_audit_log` `user_login_change` (alt, neu, durch wen), Lizenz-Protokoll `site_user_login`, Mail an die Person (nicht an Ersatzadressen), Hook `tix_user_login_changed`.
+- **Test:** `test-anmeldename-wp` (Einzel-Seite 14, Plattform 5); site-users, operator/owner-access, go-live, license grün.

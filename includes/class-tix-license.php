@@ -157,6 +157,7 @@ class TIX_License {
         // Inhaber-Einladung vom Lizenz-Server (eigene Signatur, §103)
         if (class_exists('TIX_Owner_Access')) TIX_Owner_Access::from_check($key, $data);
         if (class_exists('TIX_Go_Live')) TIX_Go_Live::from_check($key, $data); // Ergebnis der Live-Schaltung (1.38.742)
+        if (class_exists('TIX_Contract_Data')) TIX_Contract_Data::from_check($key, $data); // Vertragsdaten aus der Akte (1.38.764)
         return $status;
     }
 

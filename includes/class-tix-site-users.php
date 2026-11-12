@@ -77,9 +77,13 @@ class TIX_Site_Users {
             register_rest_route(self::NS, $k . '/(?P<id>\d+)/password', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p);
             register_rest_route(self::NS, $k . '/(?P<id>\d+)/owner', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // Inhaberschaft wechseln (1.38.727)
             register_rest_route(self::NS, $k . '/(?P<id>\d+)/technical', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // als technisch markieren (1.38.731)
+            register_rest_route(self::NS, $k . '/(?P<id>\d+)/login', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // Anmeldenamen ändern (1.38.764)
             register_rest_route(self::NS, $k . '/cleanup', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform']] + $p); // weitere WP-Admins → Team (1.38.731)
         }
         register_rest_route(self::NS, '/site/users', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_site'], 'permission_callback' => '__return_true']);
+        // Anmeldenamen eines beliebigen Kontos auf evendis.de ändern (1.38.764, nur Plattform-Admin)
+        if (self::multi()) register_rest_route(self::NS, '/platform/users/(?P<id>\d+)/login', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_platform_user_login'],
+            'permission_callback' => function () { return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Nur für Plattform-Admins.', ['status' => is_user_logged_in() ? 403 : 401]); }]);
     }
 
     // ═══════════════ Plattform ═══════════════
@@ -91,6 +95,7 @@ class TIX_Site_Users {
         if (!$id && preg_match('#/cleanup$#', $req->get_route())) return 'cleanup';
         if (!$id) return $m === 'GET' ? 'list' : 'create';
         if (preg_match('#/technical$#', $req->get_route())) return 'technical';
+        if (preg_match('#/login$#', $req->get_route())) return 'login';
         if (preg_match('#/password$#', $req->get_route())) return 'password';
         if (preg_match('#/owner$#', $req->get_route())) return 'transfer_owner';
         // DELETE …?delete=1 bzw. {delete: true} = Konto löschen (1.38.727); ohne = nur aus dem Team (Rolle weg)
@@ -109,7 +114,7 @@ class TIX_Site_Users {
     private static function args_of(WP_REST_Request $req) {
         $b = $req->get_json_params();
         $b = is_array($b) ? $b : (array) $req->get_body_params();
-        $a = array_intersect_key($b, array_flip(['name', 'login', 'email', 'role', 'password_mode', 'mode', 'password', 'reassign', 'old', 'technical']));
+        $a = array_intersect_key($b, array_flip(['name', 'login', 'email', 'role', 'password_mode', 'mode', 'password', 'reassign', 'old', 'technical', 'end_sessions']));
         foreach (['customers', 'reassign', 'old'] as $qk) if (!array_key_exists($qk, $a) && $req->get_param($qk) !== null && !is_array($req->get_param($qk))) $a[$qk] = $req->get_param($qk); // auch als Query (1.38.727)
         // Form des Studios: {invite: true} bzw. {password} statt password_mode/mode
         $inv = filter_var($b['invite'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -370,6 +375,80 @@ class TIX_Site_Users {
         return $u;
     }
 
+    // ═══════════════ Anmeldenamen ändern (1.38.764, Vertrag uebergaben/vertrag-anmeldename.md) ═══════════════
+
+    /** Neuer Anmeldename → normalisiert | WP_Error */
+    public static function check_login($login, WP_User $u) {
+        $l = strtolower(preg_replace('/\s+/', '', (string) $login));
+        if (mb_strlen($l) < 3 || mb_strlen($l) > 60 || !preg_match('/^[a-z0-9][a-z0-9._@-]*$/', $l) || sanitize_user($l, true) !== $l)
+            return self::bad('tix_invalid_field', 'Anmeldename: 3 bis 60 Zeichen, nur a–z, 0–9, Punkt, Unterstrich, Bindestrich und @.', 400, 'login');
+        if (strpos($l, 'evendis-') === 0) return self::bad('tix_invalid_field', 'Anmeldenamen mit „evendis-“ sind technischen Konten vorbehalten.', 400, 'login');
+        if (strtolower((string) $u->user_login) === $l) return self::bad('tix_login_same', 'Das ist schon der Anmeldename.', 409, 'login');
+        $other = get_user_by('login', $l);
+        if ($other && $other->ID !== $u->ID) return self::bad('tix_login_taken', 'Diesen Anmeldenamen gibt es schon.', 409, 'login');
+        $by_mail = get_user_by('email', $l);
+        if ($by_mail && $by_mail->ID !== $u->ID) return self::bad('tix_login_taken', 'Das ist die E-Mail-Adresse eines anderen Kontos – bitte einen anderen Namen wählen.', 409, 'login');
+        return $l;
+    }
+
+    /**
+     * Anmeldename ändern. $platform_user: evendis-weites Konto (kein Team-Bezug). App-Tokens bleiben gültig (hängen an der ID), die Web-Sitzung
+     * endet von selbst (Cookie enthält den Namen); end_sessions: true beendet alles.
+     */
+    public static function exec_login(array $a, $org, array $by, $platform_user = false) {
+        $u = get_user_by('id', intval($a['id'] ?? 0));
+        if (!$u) return self::bad('tix_no_user', 'Konto nicht gefunden.', 404);
+        if ($platform_user) {
+            if (self::is_technical($u)) return self::bad('tix_user_technical', 'Technisches Konto von evendis – der Anmeldename lässt sich nicht ändern.', 409);
+            if ($u->has_cap('manage_options') && $u->ID !== get_current_user_id()) return self::bad('tix_login_admin', 'Den Anmeldenamen eines anderen Plattform-Admins ändert nur dieser selbst.', 409);
+        } else {
+            $kind = self::kind($u, $org);
+            if ($kind === 'technical') return self::bad('tix_user_technical', 'Technisches Konto von evendis – der Anmeldename lässt sich nicht ändern.', 409);
+            if ($org && $kind === 'customer') return self::bad('tix_no_user', 'Konto nicht gefunden.', 404);
+            if (!$org && in_array('administrator', (array) $u->roles, true) && !self::is_owner($u, 0)) return self::bad('tix_login_admin', 'WordPress-Admin dieser Seite (nicht der Inhaber) – der Anmeldename lässt sich hier nicht ändern.', 409);
+        }
+        $new = self::check_login($a['login'] ?? '', $u);
+        if (is_wp_error($new)) return $new;
+        global $wpdb;
+        $old = (string) $u->user_login;
+        $wpdb->update($wpdb->users, ['user_login' => $new], ['ID' => $u->ID]);
+        clean_user_cache($u->ID);
+        wp_cache_delete($old, 'userlogins');
+        $end = filter_var($a['end_sessions'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($end) self::end_sessions($u->ID);
+        $u = get_user_by('id', $u->ID);
+        self::audit('user_login_change', $u, $org, $by, ['old' => $old, 'new' => $new, 'sessions_ended' => $end]);
+        $mailed = self::mail_login($u, $old, $end);
+        do_action('tix_user_login_changed', $u->ID, $old, $new, $by);
+        return ['ok' => true, 'user' => ['id' => $u->ID, 'login' => $new, 'old_login' => $old, 'name' => (string) $u->display_name, 'email' => self::is_fallback($u->user_email) ? null : (string) $u->user_email],
+            'sessions_ended' => $end, 'mailed' => $mailed];
+    }
+
+    private static function mail_login(WP_User $u, $old, $ended) {
+        if (self::is_fallback($u->user_email) || !is_email($u->user_email)) return false;
+        $site = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
+        $html = '<p>Hallo' . ($u->display_name ? ' ' . esc_html(strtok((string) $u->display_name, ' ')) : '') . ',</p>'
+            . '<p>dein Anmeldename für ' . esc_html($site) . ' wurde geändert.</p><p>Bisher: ' . esc_html($old) . '<br>Neu: <strong>' . esc_html($u->user_login) . '</strong></p>'
+            . '<p>Dein Passwort bleibt gleich. Du kannst dich auch weiter mit deiner E-Mail-Adresse anmelden.</p>'
+            . ($ended ? '<p>Aus Sicherheitsgründen wurdest du überall abgemeldet. Bitte melde dich neu an.</p>' : '<p>In der App bleibst du angemeldet. Im Browser meldest du dich mit dem neuen Namen neu an.</p>')
+            . '<p>Warst du das nicht? Dann antworte bitte auf diese Mail.</p>';
+        $subject = 'Dein Anmeldename für ' . $site . ' wurde geändert';
+        if (class_exists('TIX_Mail_Layout')) return (bool) TIX_Mail_Layout::send($u->user_email, $subject, ['title' => $subject, 'blocks' => [['type' => 'html', 'html' => $html]], 'kind' => 'account'], ['customer' => false]);
+        return (bool) wp_mail($u->user_email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+    }
+
+    /** POST /platform/users/{id}/login {login, end_sessions?} – beliebiges Konto auf evendis.de (Plattform-Admin). */
+    public static function rest_platform_user_login(WP_REST_Request $req) {
+        $b = $req->get_json_params();
+        $b = is_array($b) ? $b : (array) $req->get_body_params();
+        $u = wp_get_current_user();
+        $r = self::exec_login(['id' => absint($req['id']), 'login' => $b['login'] ?? '', 'end_sessions' => $b['end_sessions'] ?? false], 0, ['name' => (string) $u->display_name, 'email' => (string) $u->user_email], true);
+        if (is_wp_error($r)) return $r;
+        $res = rest_ensure_response($r);
+        $res->header('Cache-Control', 'no-store');
+        return $res;
+    }
+
     private static function audit($action, WP_User $u, $org, array $by, array $extra = []) {
         if (!class_exists('TIX_Customers') || !method_exists('TIX_Customers', 'audit')) return;
         TIX_Customers::audit($action, (string) $u->ID, ['oid' => intval($org), 'scope' => $org ? 'organizer' : 'site'], ['via' => 'platform', 'by' => $by['email'] ?? '', 'login' => $u->user_login] + $extra);
@@ -508,6 +587,7 @@ class TIX_Site_Users {
                 'has_owner' => $has, 'owner_missing' => !$has];
         }
         if ($action === 'delete' || $action === 'transfer_owner') return self::exec_owner_delete($action, $a, $org, $by);
+        if ($action === 'login') return self::exec_login($a, $org, $by, false);
         if ($action === 'cleanup') {
             if ($org) return self::bad('tix_invalid_field', 'Nur für Kunden-Seiten.', 400);
             if (!self::owner_ids(0)) return self::bad('tix_owner_missing', 'Erst einen Inhaber bestimmen.', 409);

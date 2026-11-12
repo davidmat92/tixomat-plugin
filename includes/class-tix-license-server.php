@@ -467,6 +467,7 @@ class TIX_License_Server {
                     $out['signature'] = self::signature($lic->license_key, $out + ['host' => $host]);
                     if (class_exists('TIX_Owner_Access')) { TIX_Owner_Access::report($lic, $req); $out = TIX_Owner_Access::add_to_check($out, $lic, $host); }
         if (class_exists('TIX_Go_Live') && !empty($out['signature'])) $out = TIX_Go_Live::add_to_check($out, $lic, $host); // Live-Schaltung (1.38.742)
+        if (class_exists('TIX_Contract_Data') && !empty($out['signature'])) $out = TIX_Contract_Data::add_to_check($out, $lic, $host); // Vertragsdaten (1.38.764)
                 }
             }
         }
@@ -485,6 +486,7 @@ class TIX_License_Server {
         // Inhaber-Einladung (§103): Rückmeldung verbuchen, offene Einladung signiert mitschicken
         if (class_exists('TIX_Owner_Access')) { TIX_Owner_Access::report($lic, $req); $out = TIX_Owner_Access::add_to_check($out, $lic, $host); }
         if (class_exists('TIX_Go_Live') && !empty($out['signature'])) $out = TIX_Go_Live::add_to_check($out, $lic, $host); // Live-Schaltung (1.38.742)
+        if (class_exists('TIX_Contract_Data') && !empty($out['signature'])) $out = TIX_Contract_Data::add_to_check($out, $lic, $host); // Vertragsdaten (1.38.764)
         $out['package_url'] = self::package_url($lic, $host, TIXOMAT_VERSION);
         return rest_ensure_response($out);
     }
