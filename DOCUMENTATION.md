@@ -6076,3 +6076,26 @@ Vertrag `uebergaben/vertrag-golive-abholen.md` (Server-Chat).
   - durch jedes Speichern eines Events auf der Plattform (`save_post_event`)
 - **Stündlicher Abgleich:** bleibt als Rückfall.
 - **Test:** `test-co-site-sync-wp` (5, Plattform).
+
+## 175. Werkzeugseiten und Danke-Seite ohne Theme (F7 Stufe 1, ab 1.38.774)
+Plan `uebergaben/plan-wordpress/f7-breakdance.md`. Ziel: `breakdance.sh <site> aus` ohne leere Seiten.
+- **Befund (live, lesend):** Auf KK stehen `/checkin/` (#336) und `/pos/` (#128), auf Mallorca `/checkin/`, `/promoter/` und `/sponsoren-dashboard/` mit ihrem Shortcode **nur im Breakdance-Layout** (`_breakdance_data`); der Seiteninhalt ist leer. Die Danke-Seite (`?tix_thankyou=`) rief `get_header()`/`get_footer()`.
+- **`TIX_Tool_Frame`** (`template_redirect` Priorität 50: nach den eigenen `?tix_…`-Handlern, vor dem Theme):
+  - **Werkzeugseite** erkennt es über einen Werkzeug-Shortcode (`TOOLS`: Einlass, Kasse, Promoter, Sponsoren, Konto, Meine Tickets, Bestellungen, Übertragen, Support, Feedback, Veranstalter-Dashboard, Event melden) im Seiteninhalt, im Breakdance-Layout oder über einen bekannten Slug (`checkin`, `pos`, `promoter`, `sponsoren-dashboard`).
+  - **Shortcode im Inhalt:** Der ganze Inhalt wird ausgegeben, auch der Text drumherum (ohne `the_content`, dort hängt sich Breakdance ein).
+  - **Shortcode nur im Layout bzw. per Slug:** Nur der Shortcode wird ausgegeben.
+  - **Rahmen:** eigenes HTML-Gerüst, Markenleiste (Logo für hellen Grund bzw. Name aus der Site-Config, Link zur Startseite), Impressum/Datenschutz unten, `wp_head()`/`wp_footer()` für die Plugin-Assets, kein Theme-Template. Werkzeuge mit Konten oder Kasse bekommen `noindex`.
+  - **Danke-Seite:** im selben Rahmen.
+- **Nicht übernommen:**
+  - Breakdance-Editor (`?breakdance…`), Vorschau
+  - Seiten ohne Werkzeug
+  - Werkzeuge, deren Shortcode nicht registriert ist (Modul aus); dort bleibt das Theme
+- **`?tix_…`-Links:** Die übrigen Handler antworten schon ohne Theme und brauchen keine Änderung:
+  - Ticket-Download, `tix_bundle`, `download_ticket`: PDF bzw. `wp_die`
+  - Gäste-QR, Abmeldung, Angebot, Einbettung: eigenes HTML
+  - Zahlungs-Rückwege: Weiterleitung zur Danke-Seite
+  - Konto-Links (`?tix_auth…` auf `/mein-konto/`): gehen über die Werkzeugseite
+- **Tippspiel** (Mallorca `/tippspiel/…`): gehört zum Plugin `mfxxl-tippspiel` und rendert sich schon selbst ohne Theme (App-Modus).
+- **Glücksrad:** `/gewinnspiel/` (`tix_gluecksrad`, eigenes Plugin) steckt nur im Breakdance-Layout. Das entscheidet der User (Stufe 2).
+- **Rückweg:** Option `tix_tool_frame` = `0` (oder Filter `tix_tool_frame_enabled`).
+- **Test:** `bash tests/test-tool-frame.sh <container>` (8) – echte HTTP-Antworten über den PHP-Webserver mit leerem Ersatz-Theme ohne `header.php`.
