@@ -6310,3 +6310,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Studio-Editor** (`editor_fields`, `lineup_acts`/`lineup_list` in `/events/{id}/edit`): genaue Studio-Reihenfolge (`acts(…, false)`).
 - **`time`:** reine Zeitsortierung, öffentlich ebenfalls ohne Vorziehen. `program.lineup_sort` im Abgleich, damit Kunden-Kopien den Modus der Quelle kennen.
 - **Tests:** `test-lineup-acts-wp` (32/31), `test-co-program-wp` (+2).
+
+## 182. Homepage-Vorlagen „Openair“ und „Welle“ (ab 1.38.789, eigener Release von main)
+- **`TIX_Website::TEMPLATES`** um `openair` und `welle` erweitert (auch Vertriebs-Vorschau, Veranstalterseite-Design `ticketschalter`). Fehlermeldungen nennen die Liste aus der Konstante.
+- **Vorgabe-Abschnitte** (Homepages-Chat, `uebergaben/homepages.md`):
+  - Openair: stage, about, lineup, tickets, raffles, tips, arrival, more_dates, gallery, faq, newsletter, app_banner
+  - Welle: stage, lineup, tickets, more_dates, raffles, tips, about, arrival, gallery, faq, newsletter, app_banner
+- **Test:** `test-website-openair-welle-wp`.
