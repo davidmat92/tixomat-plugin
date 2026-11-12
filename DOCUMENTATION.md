@@ -6320,7 +6320,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - **Kopie auf Kunden-Seite mit Zugriff** → `/partner/co-events/{id}/call` der Plattform (`TIX_Site_Move::co_call`), von dort ggf. weiter an die Lizenzseite.
   - **Ohne Recht:** 403 `tix_co_no_access`. Datei-Uploads und Spiegel ohne Verbindung: 409 `tix_source_owned`.
   - **Lokal bleiben:** Sparte, Hervorheben, Co-Veranstalter, Co-Geld, Archiv, Papierkorb, Verlauf.
-- **Verteilung:** Die Quelle speichert und verteilt an evendis (Verteilung, gleich in der Anfrage) und an Kunden-Seiten (Abgleich ~20 s). Person und Seite stehen im Event-Verlauf der Quelle (`actor`). Konflikte: der letzte Stand gewinnt, im Verlauf sichtbar. Verkaufsrelevantes prüft die Quelle wie bei eigenen Änderungen.
+- **Verteilung:** Die Quelle speichert und verteilt an evendis (Verteilung, gleich in der Anfrage) und an Kunden-Seiten (Abgleich ~20 s). Person und Seite stehen im Event-Verlauf der Quelle (`actor`). Gleichzeitiges Bearbeiten verhindert ab 1.38.790 die Bearbeitungssperre (§183). Verkaufsrelevantes prüft die Quelle wie bei eigenen Änderungen.
 - **Editor:** `source_owned: {site, reason, editable, via, blocked_reason}`.
 - **Tests:** `test-source-lock-wp` (6/4, HTTP simuliert); `test-co-remote-e2e` (41): Admin ändert am Spiegel → KK speichert, Spiegel folgt, Verlauf mit Person und Seite.
 
@@ -6330,3 +6330,21 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Openair: stage, about, lineup, tickets, raffles, tips, arrival, more_dates, gallery, faq, newsletter, app_banner
   - Welle: stage, lineup, tickets, more_dates, raffles, tips, about, arrival, gallery, faq, newsletter, app_banner
 - **Test:** `test-website-openair-welle-wp`.
+
+## 183. Bearbeitungssperre je Event über alle Seiten (ab 1.38.790)
+- **User (13.11.):** „Gleichzeitige Bearbeitungen gehen nicht – dann ist gesperrt und man sieht, dass ein anderer gerade bearbeitet.“ Das ersetzt „letzter Stand gewinnt“ aus §181. Vertrag: `uebergaben/vertrag-bearbeitungssperre.md`.
+- **`TIX_Edit_Lock`**, Tabelle `tix_edit_locks` (event_id, Token als sha1, holder_key, Name, E-Mail, Seite, seit, läuft ab); Migrationsschritt `bearbeitungssperre`.
+- **Routen** (Rechte wie der Event-Editor):
+  - `GET /events/{id}/lock` → `{locked, mine, holder, since, expires_at}`
+  - `POST /events/{id}/lock {token?}` → holen/verlängern; dieselbe Person auf derselben Seite übernimmt (neues Token); sonst 409 `tix_event_locked` mit `holder`.
+  - `DELETE /events/{id}/lock` bzw. `POST …/lock/release` → freigeben.
+  - `POST …/lock/heartbeat {token}` → verlängern; abgelaufen und frei: mit demselben Token zurück; sonst 409 `tix_event_lock_lost` (`holder`, `by`). Zweites Fenster derselben Person holt ohne Token zu sich, das alte bekommt 409 `tix_event_lock_other_window`.
+  - Antworten mit `lock{token, expires_at, ttl}`, `holder{name, site, site_name, since, channel}`, `can_break`. Freigeben nimmt auch `text/plain` (sendBeacon). `edit_lock` in `GET /events/{id}/edit`, `locked_by` in `GET /events`.
+  - `POST …/lock/break` → lösen (Admin der Seite bzw. evendis-Betreiber); Protokoll `tix_audit_log` `event_lock_break`. Der alte Halter bekommt beim nächsten Herzschlag 409 `tix_event_lock_lost` `{by}`, auch wenn inzwischen jemand anderes hält.
+- **Ablauf:** ohne Herzschlag nach `tix_edit_lock_ttl` (Vorgabe 180 s, 60–600).
+- **Speichern:** Kopfzeile `X-Tix-Edit-Lock` (auch `X-Tix-Lock` oder Body `lock_token`). Prüfung `rest_pre_dispatch` Priorität 8 für Inhalts-Routen (`events/{id}`, Bild, Line-up-Fotos, Sponsor-/Charity-Bild, Ticket-Felder, Verlauf-Wiederherstellen).
+  - Fremd gesperrt → 409 `tix_event_locked` mit Name und Seite.
+  - Keine Sperre → wie bisher; mit `tix_edit_lock_strict` = 1 → 409 `tix_event_lock_required`.
+  - Verwaltung (Gästeliste, Check-in, Kasse, Co, Archiv) ist nicht betroffen.
+- **Über Seiten:** Spiegel und Kopien halten keine eigene Sperre. `TIX_Source_Lock` reicht `lock*` (auch GET) an die Quelle weiter, das Token reist als `actor.lock` mit und wird an der Quelle wieder zur Kopfzeile (`/partner/co`, `/partner/source`, `/partner/co-events/{id}/call`). Name und Seite des Halters kommen damit immer von der Quelle.
+- **Tests:** `test-edit-lock-wp` (28/28), `test-co-remote-e2e` Abschnitt 4d: Sperre an der Quelle gilt am Spiegel für Betreiber und Co, Betreiber löst und hält, Freigeben am Spiegel.

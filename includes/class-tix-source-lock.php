@@ -11,7 +11,7 @@
  *  - evendis-Spiegel, Co-Veranstalter mit Zugriff → bestehender Co-Durchgriff `/partner/co/{id}`.
  *  - Kopie auf Kunden-Seite mit Zugriff → `/partner/co-events/{id}/call` der Plattform (diese ggf. weiter an die Lizenzseite).
  * Person und Seite reisen im `actor` mit (Event-Verlauf an der Quelle). Verkaufsrelevante Regeln prüft die Quelle wie bei eigenen Änderungen.
- * Konflikte: letzter Stand gewinnt, im Verlauf sichtbar. Ohne Recht bzw. bei Datei-Uploads: 403/409 mit Hinweis.
+ * Gleichzeitig bearbeiten: ab 1.38.789 Bearbeitungssperre an der Quelle (TIX_Edit_Lock), Token reist im actor mit. Ohne Recht bzw. bei Datei-Uploads: 403/409 mit Hinweis.
  * Lokal bleiben plattform-eigene Angaben (Sparte, Hervorheben) und Verwaltung (Co, Archiv, Papierkorb, Verlauf).
  */
 if (!defined('ABSPATH')) exit;
@@ -74,16 +74,19 @@ class TIX_Source_Lock {
     public static function guard($result, $server, $request) {
         if ($result !== null || self::$forwarding) return $result;
         $method = $request->get_method();
-        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) return $result;
         if (!preg_match('#^/tixomat/v1/(?:(studio)/)?events/(\d+)(?:/(.+))?$#', $request->get_route(), $m)) return $result;
+        $sub = $m[3] ?? '';
+        $is_lock = (bool) preg_match('#^lock(/release|/break|/heartbeat)?$#', $sub); // Bearbeitungssperre gilt an der Quelle (1.38.789)
+        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true) && !($is_lock && $method === 'GET')) return $result;
         $eid = intval($m[2]);
         $src = self::source_of($eid);
         if (!$src) return $result;
-        $sub = $m[3] ?? '';
+        if ($is_lock && $method === 'DELETE') { $method = 'POST'; $sub = 'lock/release'; }
         if ($sub !== '' && preg_match(self::LOCAL_SUB, $sub)) return $result;
         if ($sub === '' && $method === 'DELETE') return $result; // vom Angebot nehmen bleibt lokal
         $body = $request->get_json_params();
         if (!is_array($body)) $body = (array) $request->get_body_params();
+        if ($is_lock && class_exists('TIX_Edit_Lock')) { $tk = TIX_Edit_Lock::token_of($request); $body = $tk !== '' ? ['token' => $tk] : []; } // auch sendBeacon (text/plain)
         if ($sub === '' && $method === 'POST' && !array_diff(array_keys($body), self::LOCAL_KEYS)) return $result;
         if ($request->get_file_params()) return new WP_Error('tix_source_owned', 'Bilder für dieses geteilte Event bitte bei ' . $src['site'] . ' hochladen.', ['status' => 409, 'source_site' => $src['site']]);
         $via = self::route_for($eid, $src);
@@ -91,6 +94,8 @@ class TIX_Source_Lock {
         $q = $request->get_query_params();
         $u = wp_get_current_user();
         $actor = ['name' => (string) $u->display_name, 'email' => (string) $u->user_email] + (class_exists('TIX_Co_Remote') && method_exists('TIX_Co_Remote', 'history_actor') ? TIX_Co_Remote::history_actor() : []);
+        $lock = class_exists('TIX_Edit_Lock') ? TIX_Edit_Lock::request_token($request) : (string) $request->get_header('x_tix_edit_lock');
+        if ($lock !== '') $actor['lock'] = $lock;
         $target = $via === 'platform' ? $src['pid'] : $src['sid'];
         $path = '/' . ($m[1] ? 'studio/' : '') . 'events/' . $target . ($sub !== '' ? '/' . $sub : '');
         foreach (['event_id'] as $k) { if (intval($q[$k] ?? 0) === $eid) $q[$k] = $target; if (intval($body[$k] ?? 0) === $eid) $body[$k] = $target; }
@@ -98,7 +103,7 @@ class TIX_Source_Lock {
         try {
             if ($via === 'operator') $env = TIX_Co_Remote::forward_source($eid, $method, $path, $q, $body, $actor);
             elseif ($via === 'co') $env = TIX_Co_Remote::forward($eid, $method, $path, $q, $body, $actor + ['organizer_id' => intval(TIX_App_Scope::organizer_id_for_user())]);
-            else $env = TIX_Site_Move::co_call($src['pid'], $method, $path, $q, $body);
+            else $env = TIX_Site_Move::co_call($src['pid'], $method, $path, $q, $body, $lock !== '' ? ['lock' => $lock] : []);
         } finally {
             self::$forwarding--;
         }

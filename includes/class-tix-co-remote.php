@@ -473,7 +473,7 @@ class TIX_Co_Remote {
             if ($method === 'POST' && array_key_exists('co_organizer', $b)) return $no('Den Co-Veranstalter kann nur der Veranstalter ändern.');
             return true;
         }
-        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf|history|history/[0-9]+|history/[0-9]+/restore)';
+        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf|history|history/[0-9]+|history/[0-9]+/restore|lock|lock/release|lock/break|lock/heartbeat)';
         if (preg_match('#^/events/' . $id . '/' . $ev_sub . '$#', $path, $m)) {
             if ($method === 'DELETE' && strpos($m[2], 'guestlist/') !== 0) return $no();
             return true;
@@ -573,6 +573,7 @@ class TIX_Co_Remote {
             $sub = new WP_REST_Request($method, '/' . self::NS . $path);
             $sub->set_query_params($q);
             if ($method !== 'GET' && $body) { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($body)); }
+            if (!empty($b['actor']['lock'])) $sub->set_header('X-Tix-Edit-Lock', (string) $b['actor']['lock']); // Bearbeitungssperre (1.38.789)
             $res = rest_do_request($sub);
             $data = rest_get_server()->response_to_data($res, false);
             $status = $res->get_status();
@@ -934,6 +935,7 @@ class TIX_Co_Remote {
             $sub = new WP_REST_Request($method, '/' . self::NS . $path);
             $sub->set_query_params($q);
             if ($method !== 'GET' && $body) { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($body)); }
+            if (!empty($b['actor']['lock'])) $sub->set_header('X-Tix-Edit-Lock', (string) $b['actor']['lock']); // Bearbeitungssperre (1.38.789)
             $res = rest_do_request($sub);
             $data = rest_get_server()->response_to_data($res, false);
             $status = $res->get_status();

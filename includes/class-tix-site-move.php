@@ -861,7 +861,7 @@ class TIX_Site_Move {
             foreach (['event_id'] as $k) { if (intval($q[$k] ?? 0) === $eid) $q[$k] = $sid; if (intval($body[$k] ?? 0) === $eid) $body[$k] = $sid; }
             $ok = TIX_Co_Remote::allowed($method, $path, $q, $body, $sid);
             if (is_wp_error($ok)) return rest_ensure_response(['ok' => false, 'status' => intval($ok->get_error_data()['status'] ?? 403), 'data' => ['code' => $ok->get_error_code(), 'message' => $ok->get_error_message(), 'data' => $ok->get_error_data()]]);
-            $who = is_array($b['actor'] ?? null) ? array_intersect_key($b['actor'], array_flip(['name', 'email', 'site', 'site_name', 'channel', 'origin'])) : [];
+            $who = is_array($b['actor'] ?? null) ? array_intersect_key($b['actor'], array_flip(['name', 'email', 'site', 'site_name', 'channel', 'origin', 'lock'])) : [];
             if (empty($who['name'])) $who['name'] = html_entity_decode((string) get_the_title($oid), ENT_QUOTES, 'UTF-8');
             $env = TIX_Co_Remote::forward($eid, $method, $path, $q, $body, ['organizer_id' => $oid] + $who + ['email' => '']); // Verlauf: Person und Seite der Kunden-Seite (1.38.776)
             if (is_wp_error($env)) return $env;
@@ -878,6 +878,7 @@ class TIX_Site_Move {
             $sub = new WP_REST_Request($method, '/' . self::NS . $path);
             $sub->set_query_params($q);
             if ($method !== 'GET' && $body) { $sub->set_header('content-type', 'application/json'); $sub->set_body(wp_json_encode($body)); }
+            if (!empty($b['actor']['lock'])) $sub->set_header('X-Tix-Edit-Lock', (string) $b['actor']['lock']); // Bearbeitungssperre (1.38.789)
             $res = rest_do_request($sub);
             $data = rest_get_server()->response_to_data($res, false);
             $status = $res->get_status(); $headers = $res->get_headers();
@@ -1077,10 +1078,10 @@ class TIX_Site_Move {
      * Kunden-Seite: Anfrage an die Plattform weiterreichen (wie /platform-co/{id}/{route}), für den Durchgriff aus lokalen Routen
      * (TIX_Source_Lock, 1.38.788). $path mit Plattform-ID. → Umschlag {ok, status, data} | WP_Error
      */
-    public static function co_call($pid, $method, $path, array $q, array $body) {
+    public static function co_call($pid, $method, $path, array $q, array $body, array $extra = []) {
         if (!self::co_ready()) return new WP_Error('tix_co_not_ready', 'Keine Verbindung zur Plattform eingerichtet.', ['status' => 409]);
         $resp = wp_remote_post(self::co_api('/partner/co-events/' . intval($pid) . '/call'), ['timeout' => 25, 'headers' => self::co_headers(),
-            'body' => wp_json_encode(['method' => $method, 'path' => $path, 'query' => $q ?: new stdClass(), 'body' => $body ?: new stdClass(), 'actor' => self::history_actor()])]);
+            'body' => wp_json_encode(['method' => $method, 'path' => $path, 'query' => $q ?: new stdClass(), 'body' => $body ?: new stdClass(), 'actor' => self::history_actor() + $extra])]);
         if (is_wp_error($resp)) return new WP_Error('tix_partner_unreachable', 'Die Plattform ist gerade nicht erreichbar.', ['status' => 502]);
         $code = intval(wp_remote_retrieve_response_code($resp));
         $env = json_decode((string) wp_remote_retrieve_body($resp), true);

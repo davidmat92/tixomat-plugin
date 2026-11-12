@@ -423,7 +423,9 @@ class TIX_Lineup_Links {
             'lineup_headliners_set' => $event_id ? metadata_exists('post', $event_id, self::META_HEAD) : false,
             'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts, $event_id),
             // Spiegel/Kopie: Inhalte gehören dem Ersteller (1.38.787) – Studio/App sperren die Felder mit diesem Hinweis
-            'source_owned' => class_exists('TIX_Source_Lock') ? TIX_Source_Lock::editor_field($event_id) : null];
+            'source_owned' => class_exists('TIX_Source_Lock') ? TIX_Source_Lock::editor_field($event_id) : null,
+            // Bearbeitungssperre (1.38.789): Status ohne Zusatzaufruf; Spiegel/Kopie null → GET …/lock
+            'edit_lock' => class_exists('TIX_Edit_Lock') && $event_id ? TIX_Edit_Lock::editor_field($event_id) : null];
     }
 
     /** POST /events/{id} {lineup_order?, lineup_sort?} speichern; GET /events/{id}/edit ergänzen (Studio, App-Veranstalterbereich). */

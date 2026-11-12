@@ -211,6 +211,38 @@ if (class_exists('TIX_Source_Lock')) {
     wp_set_current_user(0);
 }
 
+// 4d. Bearbeitungssperre über alle Seiten (1.38.789)
+if (class_exists('TIX_Edit_Lock')) {
+    $plr = function ($m, $r, $b = null, $tok = '') { $x = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b !== null) { $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($b)); } if ($tok !== '') $x->set_header('X-Tix-Edit-Lock', $tok); $res = rest_do_request($x); return [$res->get_status(), $res->get_data()]; };
+    $padm = get_users(['role' => 'administrator', 'number' => 1])[0];
+    [$st, $lk] = e2e_http($kk, 'POST', "/events/$sid/lock", [], $adm);
+    $kt = (string) ($lk['token'] ?? '');
+    wp_set_current_user($padm->ID);
+    [$st1, $d1] = $plr('POST', "/events/$mirror", ['title' => 'Vom Betreiber']);
+    [$st2, $d2] = $plr('GET', "/events/$mirror/lock");
+    wp_set_current_user(0);
+    [$st3, $d3] = e2e_http($plat, 'POST', "$B/events/$sid", ['title' => 'Vom Co'], $co);
+    e2e_eq('Sperre an der Quelle gilt am Spiegel: Betreiber und Co 409 mit Name, Status zeigt Halter von der Quelle',
+        [200, 409, 'tix_event_locked', 409, true, (string) wp_parse_url($kk, PHP_URL_HOST)],
+        [$st, $st1, $d1['code'] ?? null, $st3, !empty($d2['locked']), $d2['holder']['site'] ?? null]);
+    wp_set_current_user($padm->ID);
+    [$st4] = $plr('POST', "/events/$mirror/lock/break", []);
+    [$st5, $mk] = $plr('POST', "/events/$mirror/lock", []);
+    $mt = (string) ($mk['token'] ?? '');
+    [$st6] = $plr('POST', "/events/$mirror", ['title' => 'E2E-CO Lizenz-Event (geändert)'], $mt);
+    wp_set_current_user(0);
+    [$st7, $d7] = e2e_http($kk, 'POST', "/events/$sid/lock", ['token' => $kt], $adm);
+    e2e_eq('Betreiber löst die Sperre, holt sie selbst, speichert mit Token; Halter an der Quelle verliert sie', [200, 200, 200, 409, 'tix_event_lock_lost'], [$st4, $st5, $st6, $st7, $d7['code'] ?? null]);
+    wp_set_current_user($padm->ID);
+    [$h1, $hb] = $plr('POST', "/events/$mirror/lock/heartbeat", ['token' => $mt]);
+    $x = new WP_REST_Request('POST', '/tixomat/v1/events/' . $mirror . '/lock/release'); $x->set_header('content-type', 'text/plain;charset=UTF-8'); $x->set_body(wp_json_encode(['token' => $mt]));
+    $rr = rest_do_request($x);
+    wp_set_current_user(0);
+    e2e_eq('Herzschlag und Freigeben per sendBeacon (text/plain) am Spiegel gehen an die Quelle', [200, $mt, 200, true], [$h1, $hb['token'] ?? null, $rr->get_status(), $rr->get_data()['released'] ?? null]);
+    [, $d8] = e2e_http($kk, 'GET', "/events/$sid/lock", [], $adm);
+    e2e_eq('Freigeben am Spiegel gibt die Sperre an der Quelle frei', false, $d8['locked'] ?? null);
+}
+
 // 5. Gästeliste
 [$st, $d] = e2e_http($plat, 'POST', "$B/events/$sid/guestlist", ['name' => 'E2E Gast Zwei'], $co);
 e2e_eq('Gästeliste: Gast angelegt', true, $st >= 200 && $st < 300);
