@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.784
+ * Version: 1.38.785
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.784');
+define('TIXOMAT_VERSION', '1.38.785');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -169,6 +169,12 @@ require_once TIXOMAT_PATH . 'includes/class-tix-tool-frame.php'; // Werkzeugseit
 TIX_Tool_Frame::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-event-history.php'; // Event-Verlauf mit Wiederherstellen (1.38.776)
 TIX_Event_History::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-mail-log.php'; // Mail-Protokoll fürs Studio (P2, 1.38.785)
+TIX_Mail_Log::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-customer-merge.php'; // Kundenkonten zusammenführen mit Rückgängig (P2, 1.38.785)
+TIX_Customer_Merge::init();
+// Konto gelöscht → Mails an die Adresse mitlöschen (1.38.785)
+add_action('tix_account_deleted', function ($uid, $email) { if (class_exists('TIX_Email_Log') && $email) TIX_Email_Log::delete_for_emails([(string) $email]); }, 20, 2);
 require_once TIXOMAT_PATH . 'includes/class-tix-consent.php';
 TIX_Consent::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-consent-banner.php';

@@ -53,6 +53,8 @@ class TIX_Migrations {
             'bestand'            => function () { if (class_exists('TIX_Stock')) { TIX_Stock::install(); TIX_Stock::backfill(); } },
             'objekt_daten'       => function () { if (class_exists('TIX_Object_Data')) TIX_Object_Data::migrate(); },
             'verlauf'            => function () { if (class_exists('TIX_Event_History')) TIX_Event_History::install(); },
+            'mail_protokoll'     => function () { if (class_exists('TIX_Email_Log')) TIX_Email_Log::ensure_columns(); },
+            'konten_zusammen'    => function () { if (class_exists('TIX_Customer_Merge')) TIX_Customer_Merge::install(); },
             // Co-Kopien auf Kunden-Seiten nach jedem Update einmal abgleichen (z. B. Programm ab 1.38.778), statt bis zu einer Stunde zu warten
             'co_kopien'          => function () { if (class_exists('TIX_Site_Move') && method_exists('TIX_Site_Move', 'schedule_co_resync')) TIX_Site_Move::schedule_co_resync(); },
         ];

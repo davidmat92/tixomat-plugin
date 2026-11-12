@@ -6248,3 +6248,56 @@ Vertrag `uebergaben/vertrag-event-verlauf.md` (Bestand, Modell, Routen, Synchron
 - **Gespeicherte Daten:** Auf KMT stehen keine KK-Links am Event (geprüft); nichts zu korrigieren.
 - **Mails:** Nachrichten an Käufer, die ein Co über den Durchgriff auslöst, verschickt weiterhin die Quelle (deren Käufer); die Links darin zeigen auf die Quelle.
 - **Test:** `test-co-local-urls-wp` (5/4).
+
+## 179. Mail-Protokoll und Kundenkonten zusammenführen fürs Studio (P2, ab 1.38.785)
+Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und Ergänzungen des Studio-Chats).
+
+### Teil A – Mail-Protokoll (`TIX_Mail_Log` auf `TIX_Email_Log`)
+- **Neue Spalten** in `tix_email_log`: `kind`, `order_id`, `event_id`, `organizer_id`, `user_id`, `transport`, `resent_from`. Migrations-Schritt `mail_protokoll` bzw. `ensure_columns`.
+- **Fund und Fix Quelle:** Bisher stand bei **allen** Mails `WordPress: log_outgoing` (live KK 7.086, Mallorca 10.552 Zeilen), weil der Hook-Rahmen zuerst kam. `detect_frame` überspringt jetzt Hilfsfunktionen und liefert die sendende TIX-Funktion samt Argumenten.
+- **Art:**
+  - aus der Quelle (`TIX_Mail_Log::RULES`) oder ausdrücklich über `TIX_Mail_Log::context(['kind' => …, 'order_id' => …], fn)`
+  - Bezüge aus den Argumenten der sendenden Funktion (Bestellung → Event → Veranstalter, Konto über Bestellung bzw. E-Mail)
+  - Altzeilen ohne Bezug: Einzel-Seite sieht sie, evendis nur Admins.
+- **Routen:**
+  - `GET /mails/log` (Filter `email`, `order_id`, `event_id`, `kind`, `status`, `from`, `to`, `q`; `has_more`, `kinds`)
+  - `GET /mails/log/{id}` (`html` ohne Pixel, Rückmeldung, Skripte, `on…`; Anmelde-Codes/-Links geschwärzt)
+  - `POST /mails/log/{id}/resend {to?}`
+- **Erneut senden:**
+  - Höchstens 5 je Mail und Stunde (429 `tix_mail_rate`).
+  - Kein erneutes Senden bei `password_reset`, `account_activation`, `login_code` (409 `tix_mail_not_resendable`) oder ohne Inhalt (409 `tix_mail_gone`).
+  - `to` dürfen Admins und Team; Protokoll `mail_resend_other`.
+- **Rechte:**
+  - wie `/orders`
+  - Kasse 403
+  - evendis: nur eigene `organizer_id`, fremde Zeilen 404 (`tix_mail_not_found`)
+- **Verknüpft:** `mails` (letzte 10) in `GET /orders/{id}/detail` und `GET /customers/{id}`.
+- **Kontolöschung** löscht die Mails der Adresse mit (`tix_account_deleted` → `TIX_Email_Log::delete_for_emails`). Aufbewahrung sonst wie bisher `email_log_days` (90).
+
+### Teil B – Kundenkonten zusammenführen (`TIX_Customer_Merge`, Tabelle `tix_customer_merges`)
+- **Routen:**
+  - `GET /customers/merge/candidates?q=` (gleicher Name, gleiche Telefonnummer)
+  - `POST /customers/merge/preview {primary, secondary}` → `{moves, conflicts, blocked, token}`
+  - `POST /customers/merge {primary, secondary, keep_email, token}` → `{moved, audit_id, undo_until}`
+  - `GET /customers/merges`
+  - `POST /customers/merge/{audit_id}/undo`
+- **Übertragen:**
+  - Bestellungen (Konto: `customer_id`, Rechnungs-E-Mail bleibt; Gast→Gast: E-Mail)
+  - Ticket-Inhaber, Support, Warteliste, Rückmeldungen, Mail-Protokoll, Tischreservierungen, Newsletter-Kontakte, Mail-Folgen, Musikwünsche
+  - Guthaben (Ab- und Zubuchung `adjust`, Bezug `ref_tx_id`), Prämien/Stempel (addiert), Merkliste, Folgen, Tages-Hinweise
+- **Zweitkonto:** gesperrt (E-Mail `merged_…`, Rolle weg, `_tix_merged_into`). Die App bekommt `401 tix_account_merged {login_email}`. Hauptkonto: `_tix_secondary_emails`, damit die Kundenliste Gast-Käufe mit der alten Adresse dem Konto zuordnet.
+- **Gesperrt:**
+  - dasselbe Konto
+  - Gast als Hauptkonto bei Konto als Zweitkonto
+  - Team-, Kassen- oder Admin-Konten
+  - offene Zahlung
+  - schon zusammengeführt
+- **Token:** Das Token bindet das Ausführen an die Vorschau (409 `tix_merge_changed`).
+- **Rückgängig (7 Tage):**
+  - Das Journal hält genaue IDs und alte Werte; Rückgängig stellt genau das wieder her.
+  - Konflikte ergeben 409 `tix_merge_undo_conflict`, und es wird nichts geändert: Guthaben ausgegeben, Punkte eingelöst, Ticket umgeschrieben, E-Mail inzwischen vergeben.
+  - Weitere Fehler: 409 `tix_merge_undone` bzw. `tix_merge_undo_expired`.
+  - Nach der Frist löscht ein täglicher Lauf das Journal (alte E-Mails, Passwort-Hash); die Zahlen bleiben.
+- **Rechte:** Einzel-Seite Admin/Inhaber (nicht das Team); evendis nur Admins; Kandidaten lesen alle mit Kundenzugriff.
+- **Protokoll:** `tix_audit_log` (`customer_merge`, `customer_merge_undo`). Das alte `_tix_user_merges` wird übernommen und gelöscht. Datenspiegel: betroffene Bestellungen und Konten werden neu gespiegelt.
+- **Tests:** `test-mail-log-wp` (19/21), `test-customer-merge-wp` (26/27).

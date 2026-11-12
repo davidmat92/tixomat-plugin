@@ -13,6 +13,9 @@ class TIX_Email_Log {
 
     const TABLE_SUFFIX = 'tix_email_log';
 
+    /** Erneut gesendet: Zeile, auf die sich die nächste protokollierte Mail bezieht (TIX_Mail_Log::rest_resend). */
+    public static $next_resent_from = 0;
+
     public static function init() {
         // Schema-Migration sicherstellen
         add_action('init', [__CLASS__, 'ensure_tracking_columns'], 1);
@@ -137,17 +140,63 @@ class TIX_Email_Log {
             feedback_at DATETIME NULL DEFAULT NULL,
             feedback_text TEXT,
             attachments TEXT,
+            kind VARCHAR(40) NOT NULL DEFAULT '',
+            order_id BIGINT UNSIGNED NULL,
+            event_id BIGINT UNSIGNED NULL,
+            organizer_id BIGINT UNSIGNED NULL,
+            user_id BIGINT UNSIGNED NULL,
+            transport VARCHAR(20) NOT NULL DEFAULT '',
+            resent_from BIGINT UNSIGNED NULL,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY to_email (to_email(191)),
             KEY status (status),
             KEY date_created (date_created),
             KEY source (source),
-            KEY tracking_token (tracking_token)
+            KEY tracking_token (tracking_token),
+            KEY order_id (order_id),
+            KEY organizer_id (organizer_id),
+            KEY user_id (user_id)
         ) $charset;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
+    }
+
+    /** Spalten fürs Mail-Protokoll im Studio (1.38.785): Art und Bezüge. Einmal je Seite (Option tix_email_log_v). */
+    public static function ensure_columns() {
+        static $done = false;
+        if ($done || get_option('tix_email_log_v') === '2') { $done = true; return; }
+        global $wpdb;
+        $t = self::table_name();
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") !== $t) { self::create_table(); update_option('tix_email_log_v', '2', false); $done = true; return; }
+        $cols = (array) $wpdb->get_col("SHOW COLUMNS FROM $t", 0);
+        foreach (['kind' => "VARCHAR(40) NOT NULL DEFAULT ''", 'order_id' => 'BIGINT UNSIGNED NULL', 'event_id' => 'BIGINT UNSIGNED NULL', 'organizer_id' => 'BIGINT UNSIGNED NULL',
+                  'user_id' => 'BIGINT UNSIGNED NULL', 'transport' => "VARCHAR(20) NOT NULL DEFAULT ''", 'resent_from' => 'BIGINT UNSIGNED NULL'] as $c => $def) {
+            if (!in_array($c, $cols, true)) $wpdb->query("ALTER TABLE $t ADD COLUMN $c $def");
+        }
+        foreach (['order_id', 'organizer_id', 'user_id'] as $k) {
+            if (!$wpdb->get_col("SHOW INDEX FROM $t WHERE Key_name='$k'")) $wpdb->query("ALTER TABLE $t ADD KEY $k ($k)");
+        }
+        update_option('tix_email_log_v', '2', false);
+        $done = true;
+    }
+
+    /** Gespeicherte Anhänge einer Zeile (für erneutes Senden). */
+    public static function attachments_of($log) {
+        return self::stored_attachments($log);
+    }
+
+    /** Konto gelöscht: Mails an diese Adresse(n) mitlöschen (1.38.785, vorher blieben sie bis zum Ablauf). */
+    public static function delete_for_emails(array $emails) {
+        global $wpdb;
+        $t = self::table_name();
+        $n = 0;
+        foreach (array_filter(array_unique(array_map('strtolower', $emails))) as $e) {
+            foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT id, attachments FROM $t WHERE LOWER(to_email) = %s", $e)) as $row) self::delete_attachments($row);
+            $n += intval($wpdb->query($wpdb->prepare("DELETE FROM $t WHERE LOWER(to_email) = %s", $e)));
+        }
+        return $n;
     }
 
     /**
@@ -217,8 +266,8 @@ class TIX_Email_Log {
             $headers = is_array($args['headers']) ? implode("\n", $args['headers']) : $args['headers'];
         }
 
-        // Quelle ermitteln (Backtrace)
-        $source = self::detect_source();
+        // Quelle ermitteln (Backtrace): sendende Funktion samt Argumenten (für Art und Bezüge, 1.38.785)
+        list($source, $frame) = self::detect_frame();
 
         // Sicherstellen, dass Tracking-Spalten existieren (legacy-Migration)
         self::ensure_tracking_columns();
@@ -242,6 +291,11 @@ class TIX_Email_Log {
             'source'         => $source,
             'date_created'   => current_time('mysql'),
         ];
+        if (class_exists('TIX_Mail_Log')) {
+            self::ensure_columns();
+            $insert_data += TIX_Mail_Log::enrich($source, $frame, $to);
+            if (self::$next_resent_from) $insert_data['resent_from'] = self::$next_resent_from;
+        }
         if ($has_tracking_cols) {
             $insert_data['tracking_token'] = $token;
             // Anhänge sichern, damit „Erneut senden“ sie mitschicken kann (vorher gingen sie verloren, 1.38.471)
@@ -435,35 +489,35 @@ class TIX_Email_Log {
     /**
      * Quelle der Mail erkennen (Plugin/Theme/Core).
      */
+    /** Nur der Name der Quelle (alte Aufrufer). */
     private static function detect_source() {
-        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15);
-        foreach ($trace as $frame) {
-            $file = $frame['file'] ?? '';
-            if (!$file) continue;
+        return self::detect_frame()[0];
+    }
 
-            // Tixomat-spezifisch
-            if (strpos($file, 'tixomat') !== false) {
-                $class = $frame['class'] ?? '';
-                $func  = $frame['function'] ?? '';
-                if ($class && $func && $class !== __CLASS__) {
-                    return $class . '::' . $func;
-                }
+    /**
+     * Sendende Funktion ermitteln: [Quelle „Klasse::Funktion“, Frame mit Argumenten | null].
+     * 1.38.785: Hilfsfunktionen (Protokoll, Layout, Transport, Hooks) werden übersprungen – vorher stand bei allen Mails
+     * „WordPress: log_outgoing“, weil der Hook-Rahmen zuerst kam.
+     */
+    private static function detect_frame() {
+        $skip_class = ['TIX_Email_Log', 'TIX_Mail_Log', 'TIX_Mail_Layout', 'TIX_Customer_URL', 'TIX_Mail_Transport', 'WP_Hook'];
+        $skip_fn = ['send_html_mail', 'wp_mail', 'apply_filters', 'do_action', 'call_user_func', 'call_user_func_array', 'mail', 'send', 'context', '{closure}'];
+        $wp_known = ['retrieve_password', 'wp_new_user_notification', 'wp_password_change_notification', 'wp_send_new_user_notifications', 'wp_send_user_request', 'wp_new_blog_notification', 'send_confirmation_on_profile_email'];
+        $trace = debug_backtrace(0, 25);
+        $wp = null;
+        foreach ($trace as $i => $frame) {
+            $class = (string) ($frame['class'] ?? '');
+            $func = (string) ($frame['function'] ?? '');
+            if ($class !== '' && in_array($class, $skip_class, true)) continue;
+            if ($class === '' && in_array($func, $skip_fn, true)) continue;
+            if ($class !== '' && strpos($class, 'TIX_') === 0) {
+                if (($class === 'TIX_Emails' && $func === 'send_html_mail') || $func === '{closure}') continue; // Hilfsfunktionen: weiter zum Aufrufer
+                return [$class . '::' . $func, $frame];
             }
-
-            // WooCommerce
-            if (strpos($file, 'woocommerce') !== false) {
-                return 'WooCommerce';
-            }
-
-            // WordPress Core
-            if (strpos($file, 'wp-includes') !== false && strpos($file, 'pluggable.php') === false) {
-                $func = $frame['function'] ?? '';
-                if ($func && $func !== 'wp_mail') {
-                    return 'WordPress: ' . $func;
-                }
-            }
+            if ($wp === null && in_array($func, $wp_known, true)) $wp = 'WordPress: ' . $func;
+            if (strpos((string) ($frame['file'] ?? ''), 'woocommerce') !== false) return ['WooCommerce', null];
         }
-        return 'WordPress';
+        return [$wp ?: 'WordPress', null];
     }
 
     // ══════════════════════════════════════

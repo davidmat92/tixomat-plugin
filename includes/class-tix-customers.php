@@ -223,6 +223,11 @@ class TIX_Customers {
                 if (isset($by_email[$u->em])) $by_email[$u->em]['user_id'] = intval($u->ID);
             }
         }
+        // Zweit-E-Mails zusammengeführter Konten (1.38.785): Gast-Käufe mit der alten Adresse gehören zum Hauptkonto
+        if (class_exists('TIX_Customer_Merge')) {
+            $sm = TIX_Customer_Merge::secondary_map();
+            if ($sm) foreach ($by_email as $em => $c) if (!$c['user_id'] && isset($sm[$em])) $by_email[$em]['user_id'] = $sm[$em];
+        }
         // Konten mit Geldbörse im Bereich (auch ohne Bestellung, z. B. Aufladung an der Kasse)
         $wm = self::wallet_maps($sc);
         if ($wm) {
@@ -470,6 +475,10 @@ class TIX_Customers {
                 + (class_exists('TIX_Giftcard_Send') ? TIX_Giftcard_Send::list_fields($cp + ['code' => (string) $code]) : []); // Versand an die beschenkte Person (1.38.496)
         }
         $out['giftcards'] = $gift;
+        $out['mails'] = class_exists('TIX_Mail_Log') ? TIX_Mail_Log::for_customer($c['user_id'], $emails) : []; // Mail-Protokoll (1.38.785)
+        // Zusammenführen (1.38.785): Zweit-E-Mails des Hauptkontos bzw. Hauptkonto eines gesperrten Zweitkontos
+        $out['secondary_emails'] = class_exists('TIX_Customer_Merge') ? TIX_Customer_Merge::secondary_emails($c['user_id']) : [];
+        $out['merged_into'] = class_exists('TIX_Customer_Merge') ? TIX_Customer_Merge::merged_into($c['user_id']) : null;
         $out['guestlists'] = array_map(function ($g) { return ['event_id' => $g['event_id'], 'event_title' => html_entity_decode(get_the_title($g['event_id']), ENT_QUOTES, 'UTF-8'), 'plus' => $g['plus'], 'checked_in' => $g['checked_in']]; }, $c['guests'] ?? []);
         list($can, $blockers) = self::delete_check($c, $sc);
         $out['can_delete'] = $can;

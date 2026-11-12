@@ -1313,6 +1313,7 @@ class TIX_App_Events {
 
         return rest_ensure_response([
             'ok'    => true,
+            'mails' => class_exists('TIX_Mail_Log') ? TIX_Mail_Log::for_order($id) : [], // Mail-Protokoll (1.38.785)
             'order' => [
                 'id'             => $id,
                 'order_number'   => (string) $order->get_order_number(),
