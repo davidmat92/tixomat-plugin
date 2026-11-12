@@ -1,0 +1,136 @@
+name: Deploy ein Ziel (wiederverwendbar)
+
+# Von deploy-site.yml aufgerufen (Phase 0, 12.11.2026): ein Ziel = eine Einzelseite (kitchenklub, evendis, mallorca,
+# test-quelle) oder ein Kunden-Server („server:<ip>“ bzw. „server:<ip>:<kurz>“).
+on:
+  workflow_call:
+    inputs:
+      site:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: deploy (${{ inputs.site }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ziel bestimmen
+        id: target
+        env:
+          KUNDEN_HOST: ${{ vars.KUNDEN_HOST }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          case "${{ inputs.site }}" in
+            # Kunden-Server (Phase 0, 12.11.): ein Ziel je Server, optional nur ein Kunde („server:<ip>:<kurz>“)
+            server:*)    s="${{ inputs.site }}"; s="${s#server:}"; host="${s%%:*}"; nur=""; [ "$s" != "$host" ] && nur="${s#*:}"
+                         HOSTS=" $(printf '%s %s' "${{ vars.KUNDEN_HOST }}" "${{ vars.KUNDEN_HOSTS }}" | tr ',' ' ') "
+                         [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] && [[ "$HOSTS" == *" $host "* ]] || { echo "::error::Server $host nicht in KUNDEN_HOST/KUNDEN_HOSTS"; exit 1; }
+                         [ -z "$nur" ] || [[ "$nur" =~ ^[a-z][a-z0-9]{1,15}$ ]] || { echo "::error::Kurzname ungültig"; exit 1; }
+                         echo "art=server" >> "$GITHUB_OUTPUT"; echo "nur=$nur" >> "$GITHUB_OUTPUT"
+                         echo "host=$host" >> "$GITHUB_OUTPUT"; echo "path=/home/runcloud/tixomat-plugin/eingang/" >> "$GITHUB_OUTPUT"
+                         echo "version=$(sed -n "s/^define('TIXOMAT_VERSION', '\([0-9.]*\)').*/\1/p" tixomat.php)" >> "$GITHUB_OUTPUT"
+                         exit 0 ;;
+            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable KITCHENKLUB_HOST beim Umschalten setzen
+            # (gh variable set KITCHENKLUB_HOST -b 178.104.202.230). Ohne Variable bleibt der alte RunCloud-Server.
+            kitchenklub) app=kitchen-klub;          url=https://kitchenklub.de; host="${{ vars.KITCHENKLUB_HOST }}" ;;
+            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable EVENDIS_HOST beim Umschalten setzen. Dort heißt der
+            # App-Ordner evendis-veranstalter; ohne Variable alter RunCloud-Server mit Ordner evendis.
+            evendis)     url=https://evendis.de; host="${{ vars.EVENDIS_HOST }}"
+                         if [ -n "$host" ]; then app=evendis-veranstalter; else app=evendis; fi ;;
+            test-quelle) app=demo-mdj-events;       url=https://demo.mdj.events ;;
+            # Live-Seite liegt in Mallorca-Festival-XXL-2026 (mallorca-festival-xxl = alter Shop
+            # alter-shop.mallorca-festival-xxl.de, mallorca-festival-xxl_clone = backup.…) – Stand 2026-10-02.
+            # Eigener Hetzner-Server (Umzug 2026-10): Repo-Variable MALLORCA_HOST beim Umschalten setzen
+            # (gh variable set MALLORCA_HOST -b 2.28.199.136), gleicher Ordnername dort. Ohne Variable alter Server.
+            mallorca)    app=Mallorca-Festival-XXL-2026; url=https://mallorca-festival-xxl.de; host="${{ vars.MALLORCA_HOST }}" ;;
+            *) echo "Unbekannte Site ${{ inputs.site }}"; exit 1 ;;
+          esac
+          echo "art=site" >> "$GITHUB_OUTPUT"
+          echo "host=${host:-51.195.61.6}" >> "$GITHUB_OUTPUT"
+          echo "path=/home/runcloud/webapps/$app/wp-content/plugins/tixomat/" >> "$GITHUB_OUTPUT"
+          echo "wpu=${wpu:-}" >> "$GITHUB_OUTPUT"
+          # Mandant: Server-rsync als Kundennutzer (kunden-rsync), Gruppe vom setgid-Ordner (www-data), Rechte wie kunden-rechte
+          if [ -n "${wpu:-}" ]; then echo "rsync_extra=--no-g --chmod=D2750,F640 --rsync-path=/usr/local/bin/kunden-rsync" >> "$GITHUB_OUTPUT"; else echo "rsync_extra=" >> "$GITHUB_OUTPUT"; fi
+          echo "mu=/home/runcloud/webapps/$app/wp-content/mu-plugins/" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -n "s/^define('TIXOMAT_VERSION', '\([0-9.]*\)').*/\1/p" tixomat.php)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Plugin
+        if: steps.target.outputs.art == 'site'
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules' ${{ steps.target.outputs.rsync_extra }}
+          path: ./
+          remote_path: ${{ steps.target.outputs.path }}
+          remote_host: ${{ steps.target.outputs.host }}
+          remote_port: 22
+          remote_user: runcloud
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # PHP (PHP-FPM bzw. OpenLiteSpeed/lsphp) hält den alten Code im OPcache – ohne Reset
+      # läuft die alte Version weiter. Der Reset läuft über ein einmaliges, sich selbst
+      # löschendes mu-Plugin, das nur mit einem Zufallsschlüssel reagiert. Das klappt auch auf
+      # Sites, die direkte PHP-Aufrufe im Plugin-Ordner sperren (z. B. Mallorca).
+      - name: OPcache zurücksetzen
+        if: steps.target.outputs.art == 'site'
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          sleep 70
+          KEY=$(openssl rand -hex 12)
+          echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
+          ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@${{ steps.target.outputs.host }} \
+            "${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}mkdir -p ${{ steps.target.outputs.mu }} && printf '%s' '<?php if (isset(\$_GET[\"tix_oc\"]) && \$_GET[\"tix_oc\"] === \"'$KEY'\") { \$ok = function_exists(\"opcache_reset\") && opcache_reset(); @unlink(__FILE__); header(\"Content-Type: text/plain\"); echo \$ok ? \"RESET-OK\" : \"RESET-NICHT-MOEGLICH\"; exit; }' | ${{ steps.target.outputs.wpu && format('sudo -n -u {0} ', steps.target.outputs.wpu) || '' }}tee ${{ steps.target.outputs.mu }}zz-tix-oc.php >/dev/null"
+          rm -f deploy_key
+          sleep 2
+          echo "Reset: $(curl -s -m 30 "${{ steps.target.outputs.url }}/?tix_oc=$KEY" | head -c 40)"
+
+      - name: Version prüfen
+        if: steps.target.outputs.art == 'site'
+        run: |
+          sleep 3
+          INFO=$(curl -s -m 30 "${{ steps.target.outputs.url }}/wp-json/tixomat/v1/info?_=$(date +%s)")
+          echo "$INFO" | head -c 300; echo
+          LIVE=$(echo "$INFO" | sed -n 's/.*"plugin_version":"\([0-9.]*\)".*/\1/p')
+          if [ "$LIVE" = "${{ steps.target.outputs.version }}" ]; then
+            echo "OK: ${{ inputs.site }} läuft auf $LIVE"
+          else
+            echo "::warning title=${{ inputs.site }}::Live-Version '$LIVE' statt ${{ steps.target.outputs.version }} – OPcache evtl. noch alt (Webserver in RunCloud neu starten)."
+          fi
+          HOME_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "${{ steps.target.outputs.url }}/?_=$(date +%s)")
+          echo "Startseite: $HOME_CODE"
+          if [ "$HOME_CODE" -ge 500 ]; then echo "::error title=${{ inputs.site }}::Startseite antwortet mit $HOME_CODE"; exit 1; fi
+
+      # ── Kunden-Server: ein Upload, Verteilung auf dem Server (ops/kunden-hetzner/server/bin/kunden-plugin) ──
+      - name: Upload in den Eingang
+        if: steps.target.outputs.art == 'server'
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avzc --delete --exclude='.git' --exclude='.github' --exclude='bot/' --exclude='mu-plugins/' --exclude='DP-CONNECT-BOT/' --exclude='.claude/' --exclude='tests/' --exclude='node_modules'
+          path: ./
+          remote_path: ${{ steps.target.outputs.path }}
+          remote_host: ${{ steps.target.outputs.host }}
+          remote_port: 22
+          remote_user: runcloud
+          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: An alle Kunden des Servers verteilen
+        if: steps.target.outputs.art == 'server'
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          NUR: ${{ steps.target.outputs.nur }}
+          VERSION: ${{ steps.target.outputs.version }}
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          sleep 5
+          echo "$SSH_KEY" > deploy_key && chmod 600 deploy_key
+          set +e
+          OUT=$(ssh -i deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 runcloud@"$HOST" "sudo -n /usr/local/bin/kunden-plugin verteilen $VERSION${NUR:+ --nur $NUR}" 2>&1); RC=$?
+          set -e
+          rm -f deploy_key
+          echo "$OUT"
+          printf '%s\n' "$OUT" | grep -E '^KUNDE [a-z0-9]+ \S+ fehler' | while read -r _ k _ _ grund; do echo "::error title=$k::$grund"; done || true
+          [ $RC -eq 0 ] || { echo "::error title=Server $HOST::Rollout $VERSION unvollständig (Exit $RC). Rückweg auf dem Server: sudo kunden-plugin zurueck <vorherige Version>"; exit 1; }

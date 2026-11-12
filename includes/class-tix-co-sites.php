@@ -16,6 +16,33 @@ class TIX_Co_Sites {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        // Änderungen an einem Event (Quelle per Verteilung oder Studio auf der Plattform) zeitnah an die Kunden-Seiten (1.38.772)
+        add_action(self::SYNC_HOOK, [__CLASS__, 'trigger_sync']);
+        add_action('save_post_event', function ($id) { if (!wp_is_post_revision($id) && !wp_is_post_autosave($id)) self::sync_sites_of_event($id); }, 99);
+    }
+
+    const SYNC_HOOK = 'tix_co_site_sync';
+
+    /**
+     * Kunden-Seiten, die ein Event als Co-Kopie führen, in ~20 s abgleichen lassen (1.38.772, Fund Line-up auf mallorcaparty-schwelm.de:
+     * Kopie zeigte bis zum stündlichen Abgleich den alten Stand). Je Seite höchstens ein wartender Auftrag – er holt beim Lauf den
+     * dann aktuellen Stand, mehrere Änderungen kurz hintereinander werden so zusammengefasst. Rückgabe: Zahl der Seiten.
+     */
+    public static function sync_sites_of_event($eid) {
+        if (!self::multi()) return 0;
+        $eid = intval($eid);
+        if (!$eid || get_post_type($eid) !== 'event') return 0;
+        $oids = class_exists('TIX_Co_Organizer') ? TIX_Co_Organizer::ids($eid) : [];
+        if (class_exists('TIX_Co_Remote') && method_exists('TIX_Co_Remote', 'mirror_entries')) {
+            foreach ((array) TIX_Co_Remote::mirror_entries($eid) as $e) $oids[] = intval(is_array($e) ? ($e['oid'] ?? 0) : 0);
+        }
+        $n = 0;
+        foreach (array_unique(array_filter(array_map('intval', $oids))) as $oid) {
+            if (!self::is_site_profile($oid)) continue;
+            if (!wp_next_scheduled(self::SYNC_HOOK, [$oid])) wp_schedule_single_event(time() + 20, self::SYNC_HOOK, [$oid]);
+            $n++;
+        }
+        return $n;
     }
 
     private static function multi() {
