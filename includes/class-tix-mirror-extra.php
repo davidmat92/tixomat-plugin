@@ -119,7 +119,7 @@ class TIX_Mirror_Extra {
         $meta = [];
         foreach ((array) get_post_meta($id) as $k => $vals) {
             if (strpos($k, '_tix_') !== 0 || TIX_Mirror_Map::is_sensitive($k) || strpos($k, '_tix_payout_') === 0) continue;
-            $meta[$k] = maybe_unserialize($vals[0] ?? null);
+            $meta[$k] = TIX_Mirror_Map::strip_sensitive(maybe_unserialize($vals[0] ?? null));
         }
         ksort($meta);
         $row = [
@@ -143,7 +143,7 @@ class TIX_Mirror_Extra {
 
     /** Ein Gutschein als Zeile (Format auch für den Abgleich). */
     public static function coupon_row($site, $code, array $c) {
-        $data = array_filter($c, function ($k) { return !TIX_Mirror_Map::is_sensitive($k); }, ARRAY_FILTER_USE_KEY);
+        $data = TIX_Mirror_Map::strip_sensitive($c);
         return TIX_Mirror_Map::clean([
             'site' => $site, 'id' => (string) $code,
             'discount_type' => (string) ($c['discount_type'] ?? ''),
@@ -217,7 +217,7 @@ class TIX_Mirror_Extra {
             || (!empty($x['order_id']) && TIX_Mirror_Map::is_sandbox_order((int) $x['order_id'])))) $x = null; // Demo/Vorschau
         if (!$x) return [self::del('wallet_transactions', $site, $id)];
         $meta = json_decode((string) $x['meta'], true);
-        $meta = is_array($meta) ? array_filter($meta, function ($k) { return !TIX_Mirror_Map::is_sensitive($k); }, ARRAY_FILTER_USE_KEY) : [];
+        $meta = is_array($meta) ? TIX_Mirror_Map::strip_sensitive($meta) : [];
         return [['upsert', 'wallet_transactions', [TIX_Mirror_Map::clean([
             'site' => $site, 'id' => $id,
             'wallet_id'           => (int) $x['wallet_id'],
@@ -424,7 +424,7 @@ class TIX_Mirror_Extra {
         // Künstler eines Sandbox-Veranstalters (Demo Club/Vorschau) nie spiegeln
         if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) return [self::del('artists', $site, $id)];
         $ids = is_array($a['ids'] ?? null) ? $a['ids'] : [];
-        $data = array_filter($a, function ($k) { return !TIX_Mirror_Map::is_sensitive($k); }, ARRAY_FILTER_USE_KEY);
+        $data = TIX_Mirror_Map::strip_sensitive($a);
         return [['upsert', 'artists', [TIX_Mirror_Map::clean([
             'site' => $site, 'id' => $id,
             'name'            => html_entity_decode($p->post_title, ENT_QUOTES, 'UTF-8'),
