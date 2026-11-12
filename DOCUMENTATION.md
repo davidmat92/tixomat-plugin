@@ -6310,3 +6310,18 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Studio-Editor** (`editor_fields`, `lineup_acts`/`lineup_list` in `/events/{id}/edit`): genaue Studio-Reihenfolge (`acts(…, false)`).
 - **`time`:** reine Zeitsortierung, öffentlich ebenfalls ohne Vorziehen. `program.lineup_sort` im Abgleich, damit Kunden-Kopien den Modus der Quelle kennen.
 - **Tests:** `test-lineup-acts-wp` (32/31), `test-co-program-wp` (+2).
+
+## 181. Geteilte Events: Inhalte nur beim Ersteller ändern (ab 1.38.787)
+- **Fund (12.11.):**
+  - Auf evendis hat ein Admin am Spiegel #6453 (von KK #1171) „Zeiten öffentlich anzeigen“ ausgeschaltet (Verlauf: „david“, evendis.de, `api`).
+  - Das wirkte nur lokal: KK und die KMT-Kopie zeigten weiter Zeiten, und die nächste Verteilung von KK hätte es zurückgesetzt.
+  - Co-Veranstalter waren nicht betroffen; ihre Änderungen laufen über den Durchgriff an die Quelle.
+- **Neu `TIX_Source_Lock`** (`rest_pre_dispatch`):
+  - Auf Spiegeln (`_tix_syndicated`) und Kopien auf Kunden-Seiten (`_tix_platform_co`) geben schreibende Event-Routen `409 tix_source_owned` `{source_site, fields}` mit dem Hinweis „wird beim Ersteller geändert“.
+  - **Weiter erlaubt:**
+    - plattform-eigene Angaben in `POST /events/{id}`: `event_category`/`category`, `promoted`, `featured`
+    - Verwaltung: Co-Veranstalter, Co-Geld, Archiv, Papierkorb, `DELETE`
+    - Verlauf (meldet selbst `tix_history_copy`)
+- **Editor:** `GET /events/{id}/edit` liefert `source_owned: {site, reason}` (sonst `null`). Studio und App sperren damit die Felder.
+- **Synchron:** Die Änderung beim Ersteller verteilt sich wie gehabt an evendis (Verteilung) und an die Kunden-Seiten (Abgleich in ~20 s, mit `program.hidden`/`mode`).
+- **Test:** `test-source-lock-wp` (10); `test-co-remote-e2e` (39) zeigt, dass der Durchgriff der Co weiter geht.

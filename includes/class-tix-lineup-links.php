@@ -421,7 +421,9 @@ class TIX_Lineup_Links {
             // Stern-Liste: Namen der Acts mit Stern (aus der wirksamen Rolle); lineup_headliners_set = im Studio festgelegt
             'lineup_headliners' => array_values(array_map(function ($a) { return (string) $a['name']; }, array_filter($acts, function ($a) { return !empty($a['headliner']); }))),
             'lineup_headliners_set' => $event_id ? metadata_exists('post', $event_id, self::META_HEAD) : false,
-            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts, $event_id)];
+            'lineup_has_times' => self::has_times($event_id), 'lineup_acts' => $acts, 'lineup_list' => self::list_payload($acts, $event_id),
+            // Spiegel/Kopie: Inhalte gehören dem Ersteller (1.38.787) – Studio/App sperren die Felder mit diesem Hinweis
+            'source_owned' => class_exists('TIX_Source_Lock') ? TIX_Source_Lock::editor_field($event_id) : null];
     }
 
     /** POST /events/{id} {lineup_order?, lineup_sort?} speichern; GET /events/{id}/edit ergänzen (Studio, App-Veranstalterbereich). */
