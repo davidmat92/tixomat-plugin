@@ -4989,7 +4989,7 @@ Vertrag `uebergaben/vertrag-co-anzeigen-trennen.md`. Neue Klasse `TIX_Co_Sites` 
 ## 115. Eine Line-up-Liste mit Bild, Künstlerseite (ab 1.38.707)
 Vertrag `uebergaben/vertrag-lineup-kuenstlerseite.md`. Ausgelöst durch Party Schwelm (kitchenklub.de #1171): Tippfehler im Programm („Micha Schue“) führten zu Doppelten ohne bzw. mit Bild, die Kopfbilder kamen in der Zuordnungs-Reihenfolge.
 - **`lineup_acts`** in `GET /public/events/{id}` (Detail), gebaut von `TIX_Lineup_Links::acts`:
-  - Reihenfolge: Programm nach Auftrittszeit (`slots()` über `place_slots`, auch bei ausgeblendetem Programm, dann ohne Zeiten), danach Line-up-Zeilen, danach zugeordnete Künstler ohne Zeile (Headliner zuerst).
+  - Reihenfolge: Programm nach Auftrittszeit (`slots()` über `place_slots`, auch bei ausgeblendetem Programm, dann ohne Zeiten), danach Line-up-Zeilen, danach zugeordnete Künstler ohne Zeile in der Reihenfolge der Zuordnung (seit 1.38.768 ohne Headliner-Vorrang).
   - Eindeutig über `similar()` (normalisiert, ab 5 Zeichen 1, ab 12 Zeichen 2 Abweichungen) und `artist_id`.
   - Ein Bild je Act: Act-Foto, sonst Künstlerbild.
   - `artist_url` = `<Kundenbasis>/kuenstler/{slug}/`, nur bei öffentlichen Künstlern.
@@ -5557,7 +5557,7 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
 - `position` ist danach 1…n in Array-Reihenfolge.
 
 **Modus** `lineup_sort`:
-- **`manual`** (Standard, „Eigene Reihenfolge“): zuerst die Acts mit `role: "headliner"` in ihrer Reihenfolge, danach alle übrigen in der Studio-Reihenfolge.
+- **`manual`** (Standard, „Eigene Reihenfolge“): genau die Studio-Reihenfolge. **Seit 1.38.768 (User) rutschen Headliner nicht mehr automatisch nach oben**; Stern und `role: "headliner"` markieren nur. Das gilt für `lineup_acts`, `lineup_list` und alle öffentlichen Ausgaben (Website, App, Spiegel, `artists`).
   - Acts, die die Studio-Reihenfolge nicht nennt, kommen dahinter in der bisherigen Reihenfolge (Programm, dann Line-up-Zeilen, dann zugeordnete Künstler).
 - **`time`** („Nach Auftrittszeit“): nur die Zeit (`start_at`, sonst `time` mit `next_day`), Acts ohne Zeit danach. Headliner werden nicht vorgezogen, nur `role` zeigt sie.
 - **Entschieden (User, 10.11.):** Bei „Nach Auftrittszeit“ zählt nur die Uhrzeit wie im Timetable; Headliner werden nur hervorgehoben (`role`), nicht nach oben gestellt. So gebaut.
@@ -5574,7 +5574,7 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
   - Ungültiger Modus → 400 `tix_invalid_field` (`lineup_sort`).
   - Geteilte Events werden danach sofort neu verteilt.
 - **Meta:** `_tix_lineup_order` (Liste der Schlüssel), `_tix_lineup_sort`.
-- **Bestehende Events** ohne Angaben: Modus `manual` ohne eigene Reihenfolge, also Headliner oben und dann die bisherige Reihenfolge. Wo Künstler die Rolle Headliner tragen, rücken sie damit nach oben.
+- **Bestehende Events** ohne Angaben: Modus `manual` ohne eigene Reihenfolge, also die bisherige Reihenfolge (Programm, Line-up-Zeilen, zugeordnete Künstler). Headliner werden nicht vorgezogen (seit 1.38.768).
 - **Programm/Zeitplan** (`timetable`) bleibt chronologisch.
 - **Tests:** `test-lineup-acts-wp` (Plattform 27, Einzel-Seite 32).
 
@@ -5602,7 +5602,7 @@ Auftrag `uebergaben/auftrag-lineup-reihenfolge-2026-11-10.md`.
   - `null` entfernt die Liste, dann gilt wieder die Rolle aus den Künstlern.
   - Ungültig (keine Liste) → 400 `tix_invalid_field` (`lineup_headliners`).
   - Lässt sich mit `lineup_order`/`lineup_sort` in einem Aufruf schicken. Geteilte Events werden danach neu verteilt.
-- **Ausgabe:** Jeder Act in `lineup_acts` hat neu `headliner: true|false` (= `role === "headliner"`), auch auf Spiegeln und Kunden-Seiten. Die Sortierung „Eigene Reihenfolge“ (Headliner oben) richtet sich danach.
+- **Ausgabe:** Jeder Act in `lineup_acts` hat neu `headliner: true|false` (= `role === "headliner"`), auch auf Spiegeln und Kunden-Seiten. Die Sortierung richtet sich seit 1.38.768 nicht mehr danach („Eigene Reihenfolge“ = genau die Studio-Reihenfolge).
 - **Editor** `GET /events/{id}/edit`:
   - `lineup_headliners`: Namen der Acts, die gerade Headliner sind
   - `lineup_headliners_set`: true, wenn im Studio bzw. in der App festgelegt
@@ -6099,3 +6099,10 @@ Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/p
 - **Befehle:** `wp tixomat soll ist | pruefen --soll='<json>' | setzen <schluessel> <wert>`.
 - **Setzbar:** nur `timezone_string`, `multi`, `blog_public`; Protokoll `soll_setzen`. Der Rest wird nur gelesen (display_errors, Cron-Rückstand, Mail, Versionen, Migration, Bestand …).
 - **Tests:** `test-stock-wp.php` (21), `tests/test-stock-race.sh` (12 gleichzeitige Käufe auf 5 Plätze → genau 5), `tests/test-migrate-soll.sh` (15), `tests/check-weg1.sh`.
+
+## 172. „Eigene Reihenfolge“ ohne Headliner-Vorrang (ab 1.38.768)
+- **Neu (User):** Bei `lineup_sort: manual` gilt genau die Studio-Reihenfolge (`_tix_lineup_order`); Acts, die sie nicht nennt, folgen in der bisherigen Reihenfolge. Headliner rutschen nicht mehr automatisch nach oben, auch nicht bei zugeordneten Künstlern ohne Line-up-Zeile.
+- **Headliner-Stern / `role: "headliner"`:** setzt nur `headliner: true`; die Reihenfolge ändert sich dadurch nicht. Seiten, die einen Headliner-Block oder eine große Plakat-Zeile wollen, filtern selbst nach `headliner`.
+- **Wo:** `TIX_Lineup_Links::apply_order` und `acts`. Damit gilt die Regel für `lineup_acts`, `lineup_list`, `artists`, Website, App und den Schnappschuss für Spiegel (`_tix_lineup_acts`). Bestehende Spiegel ziehen beim nächsten Verteilen des Quell-Events nach.
+- **`time`** unverändert (nur die Uhrzeit).
+- **Test:** `test-lineup-acts-wp` 31 (kk) / 30 (Plattform).

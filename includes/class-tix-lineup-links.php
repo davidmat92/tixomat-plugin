@@ -208,9 +208,8 @@ class TIX_Lineup_Links {
                 'spotify' => ($l['spotify'] ?? null) ?: null, 'apple_music' => ($l['apple_music'] ?? null) ?: null,
                 'artist_link' => $l['artist_link'] ?? null, 'artist_suggestion' => $l['artist_suggestion'] ?? null]);
         }
-        // Zugeordnete Künstler ohne Zeile: Headliner zuerst
+        // Zugeordnete Künstler ohne Zeile: in ihrer Reihenfolge dahinter (1.38.768: Headliner rutschen nicht mehr automatisch nach oben)
         $rest = array_values(array_filter($artists, function ($a) use ($ids) { return !isset($ids[intval($a['id'])]); }));
-        usort($rest, function ($a, $b) { return (($a['role'] ?? '') === 'headliner' ? 0 : 1) - (($b['role'] ?? '') === 'headliner' ? 0 : 1); });
         foreach ($rest as $a) {
             $pic = ($a['portrait'] ?? null) ?: ($a['cover'] ?? null);
             $slug = ($a['slug'] ?? '') !== '' ? (string) $a['slug'] : null;
@@ -246,9 +245,9 @@ class TIX_Lineup_Links {
     }
 
     /**
-     * Die eine Sortierung für alle Ausgaben: „Eigene Reihenfolge“ = Headliner oben (in ihrer Reihenfolge), dann die übrigen in der
-     * Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte in der bisherigen Reihenfolge dahinter). „Nach Auftrittszeit“ = nur die
-     * Zeit (Acts ohne Zeit danach), Headliner bleiben an ihrer Stelle. position wird neu vergeben.
+     * Die eine Sortierung für alle Ausgaben: „Eigene Reihenfolge“ = genau die Studio-Reihenfolge (`_tix_lineup_order`, nicht genannte
+     * in der bisherigen Reihenfolge dahinter); Headliner rutschen nicht automatisch nach oben (1.38.768, User). „Nach Auftrittszeit“ =
+     * nur die Zeit (Acts ohne Zeit danach). Der Headliner-Stern ändert nur `role`/`headliner`, nie die Reihenfolge. position wird neu vergeben.
      */
     public static function apply_order($event_id, array $acts) {
         if (!$acts) return $acts;
@@ -294,8 +293,6 @@ class TIX_Lineup_Links {
                 return null;
             };
             usort($rows, function ($x, $y) use ($rank) {
-                $hx = ($x['a']['role'] ?? '') === 'headliner'; $hy = ($y['a']['role'] ?? '') === 'headliner';
-                if ($hx !== $hy) return $hx ? -1 : 1;
                 $rx = $rank($x['a']); $ry = $rank($y['a']);
                 if ($rx === null || $ry === null) return ($rx === null) <=> ($ry === null) ?: $x['i'] <=> $y['i'];
                 return $rx <=> $ry ?: $x['i'] <=> $y['i'];
