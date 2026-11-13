@@ -98,11 +98,18 @@ class TIX_App_Checkout {
             'first_name' => 'Vorname', 'last_name' => 'Nachname', 'address_1' => 'Straße und Hausnummer',
             'postcode' => 'PLZ', 'city' => 'Ort',
         ];
+        // Kasse einstellen (P3, 1.38.799): Adresse abschaltbar (nicht bei E-Rechnung), Telefon optional/Pflicht
+        if (class_exists('TIX_Sale_Settings')) {
+            $ss = TIX_Sale_Settings::for_event(absint($req->get_param('event_id')))['checkout'];
+            if (empty($ss['address_required']) && !TIX_Sale_Settings::address_forced()) unset($required['address_1'], $required['postcode'], $required['city']);
+            if (($ss['phone_field'] ?? 'off') === 'required') $required['phone'] = 'Telefonnummer';
+        }
         foreach ($required as $key => $label) {
             if ($b[$key] === '') {
                 return new WP_Error('tix_billing', 'Bitte ' . $label . ' angeben.', ['status' => 400, 'field' => $key]);
             }
         }
+        if ($b['country'] === '' && !isset($required['address_1'])) $b['country'] = 'DE'; // ohne Adresse: Land nur Vorgabe
         if (!isset(self::COUNTRIES[$b['country']])) {
             return new WP_Error('tix_billing', 'Bitte ein Land wählen.', ['status' => 400, 'field' => 'country']);
         }
@@ -1292,9 +1299,12 @@ class TIX_App_Checkout {
             'guest'           => !$user,
             'billing'         => $user ? self::billing_prefill($user) : null,
             'fields'          => [
-                'company'   => !empty(tix_get_settings('show_company_field')),
+                'company'   => class_exists('TIX_Sale_Settings') ? !empty(TIX_Sale_Settings::for_event($event_id)['checkout']['company_field']) : !empty(tix_get_settings('show_company_field')),
                 'countries' => $countries,
             ],
+            // Online-Kasse einstellen (P3, 1.38.799, Namen vom Apps-Chat): fehlt das Feld, gilt das bisherige Verhalten
+            'checkout_fields' => class_exists('TIX_Sale_Settings') ? (function ($c) { return ['company' => !empty($c['company_field']), 'coupon' => !empty($c['coupon_field']), 'newsletter' => !empty($c['newsletter_optin']),
+                'address_required' => !empty($c['address_required']) || TIX_Sale_Settings::address_forced(), 'offer_account' => !empty($c['account_offer']), 'phone' => (string) $c['phone_field']]; })(TIX_Sale_Settings::for_event($event_id)['checkout']) : null,
         ];
         if (!empty($items)) {
             $cart = self::build_cart($event_id, $items, (string) $req->get_param('hold_token'));
@@ -1356,6 +1366,7 @@ class TIX_App_Checkout {
     /** Gast möchte mit der Bestellung ein Konto anlegen: Eingaben prüfen (ohne anzulegen). */
     private static function check_new_account(WP_REST_Request $req, $user, array $billing) {
         if ($user || empty($req->get_param('create_account'))) return false;
+        if (class_exists('TIX_Sale_Settings') && empty(TIX_Sale_Settings::for_event(absint($req->get_param('event_id')))['checkout']['account_offer'])) return false; // P3: Konto anlegen aus
         $password = (string) $req->get_param('password');
         if (strlen($password) < 8) {
             return new WP_Error('weak_password', 'Das Passwort muss mindestens 8 Zeichen lang sein.', ['status' => 400, 'field' => 'password']);

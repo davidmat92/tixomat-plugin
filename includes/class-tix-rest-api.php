@@ -1309,10 +1309,26 @@ class TIX_REST_API {
 
         $checked_in = (bool) get_post_meta($ticket->ID, '_tix_ticket_checked_in', true);
 
+        // Doppelter Scan einstellbar (P3, 1.38.799): warn = wie bisher „already“; block = „already“ + block: true (rot); reentry = eigener Status, mitgezählt
+        $dup = ($checked_in && class_exists('TIX_Sale_Settings')) ? (TIX_Sale_Settings::for_event($ticket_event_id)['checkin']['duplicate'] ?? 'warn') : 'warn';
+        if ($checked_in && $dup === 'reentry') {
+            $rc = intval(get_post_meta($ticket->ID, '_tix_ticket_reentry_count', true)) + 1;
+            update_post_meta($ticket->ID, '_tix_ticket_reentry_count', $rc);
+            update_post_meta($ticket->ID, '_tix_ticket_reentry_last', current_time('mysql'));
+            return rest_ensure_response([
+                'ok' => true, 'status' => 'reentry', 'reentry' => true, 'reentry_count' => $rc, 'name' => $name, 'type' => 'ticket', 'code' => $code,
+                'time' => get_post_meta($ticket->ID, '_tix_ticket_checkin_time', true), 'checked_in_count' => 1, 'total_expected' => 1,
+                'seat' => get_post_meta($ticket->ID, '_tix_ticket_seat_id', true),
+                'seat_label' => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($ticket->ID) : '',
+                'message' => 'Wiedereinlass (' . $rc . '.)',
+            ]);
+        }
+
         if ($checked_in) {
             return rest_ensure_response([
                 'ok'              => true,
                 'status'          => 'already',
+                'block'           => $dup === 'block', // P3: Einlass verweigern (App zeigt rot)
                 'name'            => $name,
                 'time'            => get_post_meta($ticket->ID, '_tix_ticket_checkin_time', true),
                 'checked_in_count' => 1,
@@ -2179,6 +2195,13 @@ class TIX_REST_API {
         if ($checkin) $customer_email = '';
         if (!$event_id || empty($items) || !is_array($items)) {
             return new WP_Error('missing_data', 'Event oder Artikel fehlen.', ['status' => 400]);
+        }
+        // Kasse einstellen (P3, 1.38.799): Pflichtfelder, Kostenlos
+        if (class_exists('TIX_Sale_Settings')) {
+            $pcfg = TIX_Sale_Settings::for_event($event_id)['pos'];
+            if (!empty($pcfg['require_name']) && trim($customer_name) === '') return new WP_Error('tix_pos_field', 'Bitte den Namen angeben.', ['status' => 400, 'field' => 'customer_name']);
+            if (!empty($pcfg['require_email']) && !$checkin && !is_email($customer_email)) return new WP_Error('tix_pos_field', 'Bitte eine E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'customer_email']);
+            if (empty($pcfg['allow_free']) && sanitize_key($body['payment'] ?? '') === 'free') return new WP_Error('tix_pos_free_off', 'Kostenlose Kassenverkäufe sind ausgeschaltet.', ['status' => 403]);
         }
         if (!self::can_access_event($event_id)) {
             return new WP_Error('forbidden', 'Kein Zugriff.', ['status' => 403]);

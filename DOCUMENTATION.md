@@ -6450,3 +6450,25 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - `test-seatmap-flow-wp` 26/26 (Freiplatz, Kasse).
   - `test-co-sale-e2e` +8: Kunden-Seite → Plattform, Plan/halten/Angebot/Bestellung/zweiter Käufer.
   - `test-co-remote-e2e` 4f: evendis-Spiegel → Ersteller, 53/53.
+
+## 189. Kasse & Einlass einstellen (P3 Expertenmodus, ab 1.38.799)
+- **Auftrag:** `uebergaben/auftrag-expertenmodus-2026-11-13.md` (B17, B16). Vertrag `uebergaben/vertrag-kasse-einlass-einstellungen.md`.
+- **`TIX_Sale_Settings`:**
+  - Bereiche und Felder:
+    - `checkout`: company_field, coupon_field, newsletter_optin, address_required, phone_field off|optional|required, account_offer, countdown_minutes
+    - `pos`: require_name, require_email, allow_free, default_payment cash|card, auto_reset_seconds
+    - `checkin`: duplicate warn|block|reentry (Vorgabe warn = wie bisher), sound, vibration, result_seconds (Vorgabe 2)
+  - Prüfung als reine Funktion (`validate`, `clean_value`).
+- **Ablage:**
+  - Einzel-Seite: alte Schlüssel in `tix_settings` (alte Web-Kasse und Web-Kasse vor Ort lesen sie weiter) plus Option `tix_sale_settings` für neue Felder.
+  - evendis: je Veranstalter `TIX_Object_Data` (`tix_org_sale_settings` → `org_sale_settings`), Rückfall auf die Plattform.
+- **Routen:**
+  - `GET/POST /studio/checkout-settings` (evendis-Admin `?organizer_id=`)
+  - `GET /pos/config?event_id=` (App-Kasse; `enabled`/`pin_required` fest true/false)
+  - `GET /checkin/config?event_id=` (Scanner)
+  - Angebot `checkout_fields {company, coupon, newsletter, address_required, offer_account, phone}` (Namen vom Apps-Chat)
+- **Durchsetzung:**
+  - Bestellung: Adresse nur bei `address_required` (E-Rechnung an → immer, `address_forced`); Telefon Pflicht → 400 `tix_billing` `phone`; `create_account` bei `account_offer: false` ignoriert.
+  - Kasse vor Ort: 400 `tix_pos_field` (Name/E-Mail), 403 `tix_pos_free_off`.
+  - Scan und Offline-Abgleich: `reentry` → eigener `status: reentry`, `reentry_count` (`_tix_ticket_reentry_count`); `block` → `already` + `block: true`; `warn` wie bisher.
+- **Test:** `test-sale-settings-wp` (18/18 kk/plat).

@@ -29,6 +29,7 @@ class TIX_Object_Data {
         '_tix_order_stock_restored'  => 'order_stock_restored',
         'tix_lic_golive'             => 'license_golive',
         'tix_lic_contract'           => 'license_contract',
+        'tix_org_sale_settings'      => 'org_sale_settings', // Kasse & Einlass je Veranstalter (1.38.799)
     ];
 
     public static function table() {

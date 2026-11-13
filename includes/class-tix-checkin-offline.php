@@ -166,6 +166,11 @@ class TIX_Checkin_Offline {
             $prev = (string) get_post_meta($tid, '_tix_ticket_checkin_by', true);
             // dasselbe Gerät erneut (Abbruch beim Abgleich) → ok
             if ($prev === $by) return ['status' => 'ok', 'checked_at' => (string) get_post_meta($tid, '_tix_ticket_checkin_time', true)];
+            // Wiedereinlass erlaubt (P3, 1.38.799): kein Konflikt
+            if (class_exists('TIX_Sale_Settings') && (TIX_Sale_Settings::for_event($eid)['checkin']['duplicate'] ?? 'warn') === 'reentry') {
+                update_post_meta($tid, '_tix_ticket_reentry_count', intval(get_post_meta($tid, '_tix_ticket_reentry_count', true)) + 1);
+                return ['status' => 'reentry', 'reentry' => true, 'checked_at' => (string) get_post_meta($tid, '_tix_ticket_checkin_time', true)];
+            }
             return ['status' => 'conflict', 'checked_at' => (string) get_post_meta($tid, '_tix_ticket_checkin_time', true), 'by' => $prev];
         }
         TIX_Tickets::checkin_ticket($tid, $by);
