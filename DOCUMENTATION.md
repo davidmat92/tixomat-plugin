@@ -6591,3 +6591,17 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Sicherheitsnetz:** `[tix_checkout]`, `[tix_native_cart]` und die Danke-Seite rufen `require_assets()` auf und laden auch nachträglich (im Fuß).
 - **Sonderfälle:** Filter `tix_needs_checkout_assets`.
 - **Test:** `test-checkout-assets-wp` (7/7).
+
+## 199. Marketing Welle 1: Verkaufsprognose, Social-Planer, Kalender-Abo (ab 1.38.811)
+- **Auftrag und Vertrag:** `uebergaben/auftrag-marketing-reichweite-a11y.md` (Welle 1), Vertrag `uebergaben/vertrag-marketing-welle1.md`.
+- **`TIX_Forecast`:**
+  - Reine Rechnung `project()`/`sellout_day()`; Daten über `TIX_Stats_Audience::pace` (jetzt öffentlich), Vergleichs-Events über `comparisons()`.
+  - `GET /organizer/stats/forecast`, CLI `wp tixomat forecast backtest`.
+- **`TIX_Social_Planner`:**
+  - Tabelle `tix_social_posts` (JSON in data), Schalter je Event in `TIX_Object_Data` (`tix_event_social` → `event_social`).
+  - Regeln in `rules()`, Abgleich `sync()` (save_post_event + Cron alle 15 min), Erinnerung `remind()` (Staff-Push `social_post`, Mail im Layout).
+  - REST `/events/{id}/social-plan…`.
+- **`TIX_Calendar_Feed`:** `GET /public/calendar.ics` bzw. `/public/calendar`, roh über `rest_pre_serve_request`.
+  - `TIX_Calendar::get_event_data`/`ics_escape` sind jetzt öffentlich; Einzel-ICS mit `DTSTART;TZID`.
+- **Tests:** `test-forecast-wp` (14), `test-social-planner-wp` (15), `test-calendar-feed-wp` (6).
+- **Berichte:** `uebergaben/barrierefreiheit/plugin.md` (A2), `uebergaben/meta-app-pruefung-ads-management.md`.

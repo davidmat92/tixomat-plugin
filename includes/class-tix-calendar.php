@@ -99,8 +99,10 @@ class TIX_Calendar {
         $ics .= "BEGIN:VEVENT\r\n";
         $ics .= "UID:{$uid}\r\n";
         $ics .= "DTSTAMP:{$now}\r\n";
-        $ics .= "DTSTART:{$data['ics_start']}\r\n";
-        $ics .= "DTEND:{$data['ics_end']}\r\n";
+        // RFC 5545: Parameter mit „;“ (DTSTART;TZID=Europe/Berlin:…), UTC-Werte mit „:“ (1.38.811, vorher DTSTART:TZID=…)
+        $sep = function ($v) { return strpos($v, 'TZID=') === 0 ? ';' : ':'; };
+        $ics .= "DTSTART" . $sep($data['ics_start']) . "{$data['ics_start']}\r\n";
+        $ics .= "DTEND" . $sep($data['ics_end']) . "{$data['ics_end']}\r\n";
         $ics .= "SUMMARY:" . self::ics_escape($data['title']) . "\r\n";
         if ($data['description']) {
             $ics .= "DESCRIPTION:" . self::ics_escape($data['description']) . "\r\n";
@@ -124,7 +126,7 @@ class TIX_Calendar {
     /**
      * Event-Daten für Kalender-Export sammeln
      */
-    private static function get_event_data($post_id) {
+    public static function get_event_data($post_id) { // öffentlich seit 1.38.811 (Kalender-Feed)
         $date_start = get_post_meta($post_id, '_tix_date_start', true);
         if (!$date_start) return null;
 
@@ -194,7 +196,7 @@ class TIX_Calendar {
     /**
      * Text für .ics escapen (RFC 5545)
      */
-    private static function ics_escape($text) {
+    public static function ics_escape($text) {
         $text = str_replace(['\\', ';', ',', "\n", "\r"], ['\\\\', '\\;', '\\,', '\\n', ''], $text);
         // RFC 5545 line folding: max 75 octets per line
         if (strlen($text) <= 73) return $text;

@@ -125,7 +125,7 @@ class TIX_Stats_Audience {
     }
 
     /** Tickets je Tag bis zum Event-Tag (bezahlte Bestellungen aller Kanäle) */
-    private static function pace(array $ids, $n) {
+    public static function pace(array $ids, $n) { // öffentlich seit 1.38.811 (TIX_Forecast)
         global $wpdb;
         $out = [];
         if (!$ids || !class_exists('TIX_Order')) return $out;

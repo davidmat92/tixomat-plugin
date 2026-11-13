@@ -46,7 +46,7 @@ wp_set_current_user($uid);
 $r = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/staff/notify-prefs'));
 $d = $r->get_data();
 $keys = array_column((array) ($d['labels'] ?? []), 'key');
-se_eq('Gruppen dabei', ['sales', 'stock', 'guests', 'requests', 'account'], array_column((array) ($d['groups'] ?? []), 'key'));
+se_eq('Gruppen dabei', ['sales', 'stock', 'guests', 'requests', 'account', 'marketing'], array_column((array) ($d['groups'] ?? []), 'key'));
 se_eq('Ticketbestellungen und Storno wählbar', true, in_array('sales_digest', $keys, true) && in_array('refund', $keys, true));
 se_eq('Abrechnung/Konto-Prüfung nur auf der Plattform', $multi, in_array('settlement', $keys, true) && in_array('approval', $keys, true));
 se_eq('jede Zeile mit Gruppe', true, !array_filter((array) $d['labels'], function ($l) { return empty($l['group']); }));

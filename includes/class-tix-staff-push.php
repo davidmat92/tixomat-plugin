@@ -63,8 +63,9 @@ class TIX_Staff_Push {
         'approval'      => ['Konto-Prüfung', 'account', true, 'platform'],
         'team'          => ['Team-Einladung angenommen', 'account', true, null],
         'promoter_signup' => ['Neue Promoter-Anmeldung', 'account', true, null],
+        'social_post'   => ['Social-Planer: Post fällig', 'marketing', true, null], // 1.38.811 (nur Events mit eingeschaltetem Planer)
     ];
-    const GROUPS = ['sales' => 'Weitere Verkäufe', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team'];
+    const GROUPS = ['sales' => 'Weitere Verkäufe', 'stock' => 'Kontingent', 'guests' => 'Gäste', 'requests' => 'Anfragen und Sicherheit', 'account' => 'Konto und Team', 'marketing' => 'Marketing'];
     /** Bezeichnungen (Bestand: Schlüssel → Text) */
     const PREFS = [
         'sales_digest' => 'Neue Ticketbestellungen', 'refund' => 'Storno und Erstattung', 'giftcard_sold' => 'Gutschein verkauft',
@@ -72,7 +73,7 @@ class TIX_Staff_Push {
         'guestlist' => 'Tischanfragen', 'waitlist' => 'Warteliste', 'raffle' => 'Gewinnspiel-Teilnahmen (gesammelt)',
         'music' => 'Musikwünsche (am Eventtag)', 'support' => 'Neue Kundenanfrage', 'awareness' => 'Awareness-Meldung',
         'settlement' => 'Abrechnung und Auszahlung', 'approval' => 'Konto-Prüfung', 'team' => 'Team-Einladung angenommen',
-        'promoter_signup' => 'Neue Promoter-Anmeldung',
+        'promoter_signup' => 'Neue Promoter-Anmeldung', 'social_post' => 'Social-Planer: Post fällig',
     ];
     /** Gesammelt (stündlich), nicht sofort */
     const BATCH = ['raffle', 'wallet_topup'];
