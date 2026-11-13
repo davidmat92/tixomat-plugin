@@ -685,6 +685,7 @@ class TIX_Invoices {
             'ref' => $doc['ref'] ? ['id' => intval($doc['ref']->id), 'number' => (string) $doc['ref']->number, 'date' => substr((string) $doc['ref']->created, 0, 10)] : null,
             'diff' => $doc['diff'] ?? null,
         ];
+        if (!empty($doc['note'])) $data['note'] = mb_substr((string) $doc['note'], 0, 200); // Grund eines Stornos von Hand (B26, 1.38.802)
         // Neuausstellung (1.38.525): neue Rechnung nennt die ersetzte, das Storno die neue
         if (!empty($doc['replaces'])) $data['replaces'] = ['id' => intval($doc['replaces']->id), 'number' => (string) $doc['replaces']->number, 'date' => substr((string) $doc['replaces']->created, 0, 10)];
         if (!empty($doc['replaced_by'])) $data['replaced_by'] = $doc['replaced_by'];
@@ -896,7 +897,7 @@ class TIX_Invoices {
     }
 
     /** Korrektur über $amount (positiv, Geld zurück) zu einem Beleg; $full = Rest komplett. */
-    private static function correct($inv, $amount, $full, $reason, $replaced_by = null) {
+    private static function correct($inv, $amount, $full, $reason, $replaced_by = null, $note = '') {
         $rem = self::remaining($inv);
         if ($rem['total'] <= self::EPS) return 0;
         $amount = $full ? $rem['total'] : round(min($amount, $rem['total']), 2);
@@ -925,7 +926,7 @@ class TIX_Invoices {
             $issuer = array_merge((array) ($snap['issuer'] ?? []), ['key' => $inv->issuer_key, 'code' => $issuer['code'], 'organizer_id' => intval($inv->organizer_id)]);
         }
         $id = self::create(['kind' => 'correction', 'series' => $series, 'issuer' => $issuer, 'order' => $o, 'lines' => $lines, 'payments' => [],
-            'service_date' => $inv->service_date, 'ref' => $inv, 'reason' => $reason, 'replaced_by' => $replaced_by]);
+            'service_date' => $inv->service_date, 'ref' => $inv, 'reason' => $reason, 'replaced_by' => $replaced_by, 'note' => (string) $note]);
         return is_wp_error($id) ? 0 : $id;
     }
 
@@ -1277,6 +1278,24 @@ class TIX_Invoices {
     }
 
     /** POST /invoices/{id}/reissue {send?} → {ok, replaced, invoice, storno, sent, tax_id_missing{}} (1.38.525) */
+    /**
+     * POST /invoices/{id}/cancel {reason} – Rechnung bzw. Beleg vollständig stornieren (Korrektur über den offenen Rest, RK/BK).
+     * Kein Geldfluss: erstattet wird über die Bestellung. → {ok, invoice, correction}
+     */
+    public static function rest_cancel(WP_REST_Request $req) {
+        $inv = self::get(intval($req['id']));
+        if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
+        if (!self::manages($inv)) return self::err('rest_forbidden', 'Keine Berechtigung für diesen Beleg.', 403);
+        if ($inv->kind === 'correction') return self::err('tix_invoice_is_correction', 'Eine Korrektur kann nicht storniert werden.', 409);
+        $reason = trim(sanitize_text_field((string) $req->get_param('reason')));
+        if (mb_strlen($reason) < 3 || mb_strlen($reason) > 200) return self::err('tix_invalid', 'Bitte einen Grund angeben (3–200 Zeichen).', 400, 'reason');
+        if (self::remaining($inv)['total'] <= self::EPS) return self::err('tix_invoice_already_cancelled', 'Dieser Beleg ist schon vollständig storniert bzw. korrigiert.', 409);
+        $id = self::correct($inv, 0, true, 'manual', null, $reason);
+        if ($id && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) TIX_Order_Admin::add_note(intval($inv->order_id), 'Beleg ' . $inv->number . ' storniert: ' . $reason, 'invoice');
+        if (!$id) return self::err('tix_invoice_cancel_failed', 'Der Storno konnte nicht erstellt werden.', 500);
+        return rest_ensure_response(['ok' => true, 'invoice' => self::row(self::get($inv->id)), 'correction' => self::row(self::get($id))]);
+    }
+
     public static function rest_reissue(WP_REST_Request $req) {
         $inv = self::get(intval($req['id']));
         if (!$inv) return self::err('tix_invoice_missing', 'Beleg nicht gefunden.', 404);
@@ -1343,6 +1362,7 @@ class TIX_Invoices {
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/export', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_export'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/orders/(?P<id>\d+)/invoices/issue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_issue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        register_rest_route(self::NS, '/invoices/(?P<id>\d+)/cancel', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_cancel'], 'permission_callback' => [__CLASS__, 'perm_manager']]); // Storno von Hand (B26, 1.38.802)
         register_rest_route(self::NS, '/studio/invoices/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue_all'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/studio/invoice-config', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -1407,6 +1427,7 @@ class TIX_Invoices {
             'order_id' => intval($inv->order_id), 'order_number' => (string) $inv->order_number,
             'ref' => !empty($d['ref']) ? ['id' => intval($d['ref']['id']), 'number' => (string) $d['ref']['number']] : null,
             'reason' => (string) $inv->reason,
+            'note' => isset($d['note']) ? (string) $d['note'] : null,
             'issued_at' => (string) $inv->created, 'service_date' => $inv->service_date ? (string) $inv->service_date : null,
             'recipient' => ['name' => (string) ($d['recipient']['name'] ?? ''), 'company' => (string) ($d['recipient']['company'] ?? ''), 'email' => (string) $inv->recipient_email],
             'currency' => 'EUR', 'net' => round(floatval($inv->net), 2), 'tax' => round(floatval($inv->tax), 2), 'gross' => round(floatval($inv->gross), 2),
@@ -1420,6 +1441,9 @@ class TIX_Invoices {
             'replaces' => !empty($d['replaces']) ? ['id' => intval($d['replaces']['id']), 'number' => (string) $d['replaces']['number']] : null,
             'replaced_by' => (!empty($inv->tax_id_missing) && $inv->series === 'R' && ($rb = self::replacement_of($inv->id))) ? ['id' => intval($rb->id), 'number' => (string) $rb->number] : (!empty($d['replaced_by']) ? ['id' => intval($d['replaced_by']['id']), 'number' => (string) $d['replaced_by']['number']] : null),
             // Übergabe an die Buchhaltung (1.38.500): pending | done | error | skipped
+            // offener Betrag / storniert (B26, 1.38.802): nur für Rechnungen bzw. Belege, Korrekturen null
+            'open_amount' => $inv->kind === 'correction' ? null : ($oa = self::remaining($inv)['total']),
+            'cancelled' => $inv->kind === 'correction' ? null : $oa <= self::EPS,
             'export' => !empty($inv->export_provider) ? ['provider' => (string) $inv->export_provider, 'status' => (string) $inv->export_status, 'ref' => (string) $inv->export_ref ?: null,
                 'error' => (string) $inv->export_error ?: null, 'at' => !empty($inv->export_at) ? (string) $inv->export_at : null] : null,
         ];
@@ -1479,6 +1503,8 @@ class TIX_Invoices {
             $where[] = $wpdb->prepare('kind = %s', $kind);
         }
         if (filter_var($req->get_param('tax_id_missing'), FILTER_VALIDATE_BOOLEAN)) $where[] = 'tax_id_missing = 1';
+        // je Event (B26, 1.38.802)
+        if (($ev = absint($req->get_param('event_id'))) > 0) $where[] = $wpdb->prepare("order_id IN (SELECT order_id FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d)", $ev);
         $q = trim((string) $req->get_param('q'));
         if ($q !== '') {
             $like = '%' . $wpdb->esc_like($q) . '%';

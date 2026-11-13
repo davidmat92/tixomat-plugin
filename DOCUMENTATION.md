@@ -6501,3 +6501,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Überspringt gesperrte und geteilte Events sowie solche ohne Zugriff; verteilt danach.
 - **Bearbeitungssperre:** `series*` in `CONTENT_SUB`.
 - **Test:** `test-event-tools-wp` (19/20 kk/plat).
+
+## 192. Rechnungen im Studio: Storno von Hand, Filter je Event (B26, ab 1.38.802)
+- **Vertrag:** `uebergaben/vertrag-rechnungen-studio.md`. Liste, CSV/DATEV und Einstellungen gab es schon (§§ 1.38.485 ff.).
+- **`POST /invoices/{id}/cancel {reason}`:** vollständige Korrektur über den offenen Rest (`correct(…, 'manual', null, $note)`). Der Grund steht in `data.note` (Spalte `reason` = `manual`, VARCHAR 20) und als Notiz an der Bestellung. Fehler 400 `tix_invalid` (reason), 409 `tix_invoice_already_cancelled` bzw. `tix_invoice_is_correction`. Kein Geldfluss.
+- **`GET /organizer/invoices?event_id=`** (auch Export).
+- **Je Beleg:** `open_amount`, `cancelled`, `note`.
+- **Test:** `test-invoice-cancel-wp` (7, Einzel-Seite).
