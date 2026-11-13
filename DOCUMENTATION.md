@@ -6508,3 +6508,14 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`GET /organizer/invoices?event_id=`** (auch Export).
 - **Je Beleg:** `open_amount`, `cancelled`, `note`.
 - **Test:** `test-invoice-cancel-wp` (7, Einzel-Seite).
+
+## 193. Event-Editor komplett: Galerie, Upsell, Erweitert, Kategorien/Sammlungen (P1 Expertenmodus, ab 1.38.803)
+- **Auftrag:** B2, B5, B7, B3. Vertrag `uebergaben/vertrag-event-editor-extras.md`. Klasse `TIX_Event_Editor_Extras`.
+- **Je Event:**
+  - `GET/POST /events/{id}/extras` für gallery, video_url, upsell, embed, express_checkout, waitlist_enabled; `POST /events/{id}/gallery` (Upload, anhängen).
+  - Gleiche Metas wie die WP-Metabox inkl. `_tix_gallery_ids/_urls/_urls_large/_count`.
+  - Bearbeitungssperre (`extras`, `gallery`), Co-Durchgriff (`extras`).
+- **Kategorien/Sammlungen:**
+  - `GET/POST /studio/taxonomies/{categories|collections}`, `…/{id}` (ändern/löschen, `force`), `…/order` (Term-Meta `_tix_order`).
+  - Kategorien: Admin/Inhaber (evendis nur Admin). Sammlungen: Admin. 409 `tix_term_exists` bzw. `tix_term_in_use`.
+- **Test:** `test-event-editor-extras-wp` (16/16 kk/plat).
