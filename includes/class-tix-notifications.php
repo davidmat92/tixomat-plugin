@@ -471,7 +471,7 @@ class TIX_Notifications {
     }
 
     /** Nutzer-IDs mit Ticket für dieses Event (nur Konten, für Ziel 'event'). */
-    private static function event_ticket_user_ids($event_id) {
+    public static function event_ticket_user_ids($event_id) { // öffentlich seit 1.38.813 (TIX_Guest_Flows)
         $posts = get_posts([
             'post_type'      => 'tix_ticket',
             'post_status'    => ['publish', 'private'],

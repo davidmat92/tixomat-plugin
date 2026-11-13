@@ -32,6 +32,7 @@ class TIX_Object_Data {
         'tix_org_sale_settings'      => 'org_sale_settings', // Kasse & Einlass je Veranstalter (1.38.799)
         'tix_org_ticket_design'      => 'org_ticket_design', // PDF-Ticket-Vorlage je Veranstalter (1.38.800)
         'tix_event_social'           => 'event_social',      // Social-Planer an/aus je Event (1.38.811)
+        'tix_org_guest_flows'        => 'org_guest_flows',   // Gäste-Abläufe je Veranstalter (1.38.813)
     ];
 
     public static function table() {

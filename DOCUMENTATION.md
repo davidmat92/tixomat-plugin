@@ -6614,3 +6614,14 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Gutschrift: `issue()` schreibt die Daten fest (Nummer `GS-<Kürzel>-<Jahr>-<NNNN>`, Reihe GS im Zählerspeicher der Rechnungen), `pdf()`; Routen `…/credit-note` für Veranstalter und Portal.
 - **`TIX_Access_Categories`:** Kategorie-Feld `access` (`wheelchair`/`companion`), Hinweise, `cart_error()` (Begleitperson 1:1) in Web- und App-Kasse; Ausgabe in `public_categories` und den Event-Kategorien.
 - **Tests:** `test-promoter-partner-wp` (13), `test-access-categories-wp` (7).
+
+## 201. Gäste-Abläufe (M4, ab 1.38.813)
+- **Bestandsliste und Lücken:** `uebergaben/gaeste-ablaeufe-bestand.md`.
+- **`TIX_Guest_Flows`:**
+  - Neue Abläufe `follower_alert` (evendis), `new_event_all` (Einzel-Seite), `thanks`, `next_event`; Vorgabe aus.
+  - Schalter: Einzel-Seite Option `tix_guest_flows`, evendis je Veranstalter `TIX_Object_Data` (`tix_org_guest_flows` → `org_guest_flows`).
+  - Einmal je Event über die Tabelle `tix_guest_flow_log`.
+  - Auslöser: Veröffentlichen (Warteschlange `tix_guest_flows_new`, stündlicher Lauf), Vorverkaufsstart (stündlich), Danke am Folgetag ab 11 Uhr.
+  - Kanal: `TIX_Notifications::add_user_item` bzw. `send_broadcast` (alle App-Nutzer, Einzel-Seite). `event_ticket_user_ids` ist jetzt öffentlich.
+- **REST:** `GET|POST /organizer/guest-flows {flows: {key: bool}, reminder_mail?, followup_mail?}` mit Bestand (Erinnerungs-Mail, Erinnerung am Event-Tag, Danke-Mail, Künstler-Alarm, Folgen per Mail).
+- **Test:** `test-guest-flows-wp` (10).
