@@ -6543,3 +6543,22 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **B6:** `GET /organizer/coupons?event_id=` mit `for_all_events`.
 - **B8:** `statistics.by_campaign` (`TIX_Studio_Stats::campaigns`) und `GET /marketing/links?event_id=`.
 - **Test:** `test-offers-newsletter-wp` (17/17 kk/plat).
+
+## 196. Mailchimp als zweiter Newsletter-Anbieter (ab 1.38.807)
+- **Klasse und Speicher:**
+  - `TIX_Newsletter_Mailchimp` (`includes/class-tix-newsletter-mailchimp.php`); Vertrag `uebergaben/vertrag-angebote-newsletter.md`, Abschnitt Mailchimp.
+  - Anbieter je Bereich in den Newsletter-Einstellungen (`provider`, `mc_key_enc` verschlüsselt, `mc_audience_id/name`, `mc_from_name`, `mc_reply_to`, `mc_webhook_id`, `mc_sync`).
+  - `TIX_Newsletter::settings()` liefert `mc_key` entschlüsselt, nur intern.
+- **`TIX_Newsletter` verzweigt** über `mc_campaign()` bzw. `is_mailchimp()` in `ready`, `rest_test`, `advance`, `rest_cancel`, `rest_delete`, `refresh_stats` und `daily`.
+  - Bei Mailchimp gibt es keine Anbieter-Listen.
+  - Anbieterwechsel bei geplanten Kampagnen → 409.
+- **Versand:**
+  - Empfänger als Schnappschuss (Transient `tix_nl_mc_rcp_<id>`, 3 Tage).
+  - Batch-Upsert (`status_if_new = subscribed`) plus statisches Segment, 10 × 500 je Cron-Lauf.
+  - Senden, sobald fertig und der Zeitpunkt erreicht ist (kein Mailchimp-Schedule, keine Viertelstunden-Pflicht).
+- **Webhook und Abgleich:**
+  - Webhook (`/public/nl/hook/<geheim>`, jetzt auch GET zur Prüfung) liest das Mailchimp-Formular `type` + `data[email]`.
+  - Täglicher Abgleich unsubscribed/cleaned; Segmente nach 30 Tagen löschen.
+- **Listen-Abgleich:** Hooks `tix_newsletter_optin` (Bereiche der gekauften Events) und `tix_nl_confirmed`; Tags je Event/Ticketart.
+  - `TIX_Brevo::rest_get/rest_save` verzweigen bei Mailchimp-Bereichen (evendis auch für Veranstalter).
+- **Test:** `test-newsletter-mailchimp-wp` (23/23 kk/plat, Mailchimp-API nachgebildet).

@@ -16,6 +16,7 @@
  *                          des Studio-Newsletters, Hook tix_nl_confirmed; dann auch Anmeldungen über das Formular)
  * Schlüssel: brevo_api_key (bisher), sonst der Brevo-Schlüssel des Studio-Newsletters (TIX_Newsletter, Einzel-Seite).
  * REST (1.38.806, B19): GET/POST /marketing/newsletter/sync – Einzel-Seite Inhaber/Admin, evendis nur Admin (gilt für die Seite).
+ * Ab 1.38.807: Nutzt der Bereich Mailchimp, antwortet TIX_Newsletter_Mailchimp (auch evendis-Veranstalter, je Veranstalter).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -65,7 +66,7 @@ class TIX_Brevo {
         $perm = function (WP_REST_Request $req) {
             if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
             if (current_user_can('manage_options')) return true;
-            if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return new WP_Error('rest_forbidden', 'Der Listen-Abgleich gilt für die ganze Seite.', ['status' => 403]);
+            // evendis: Veranstalter nur mit eigenem Mailchimp (1.38.807); der Brevo-Abgleich gilt für die ganze Seite (rest_get/rest_save)
             return class_exists('TIX_Ad_Accounts') ? TIX_Ad_Accounts::perm_module($req) : new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
         };
         register_rest_route('tixomat/v1', '/marketing/newsletter/sync', [
@@ -85,12 +86,26 @@ class TIX_Brevo {
         $connected = self::api_key() !== '';
         $enabled = !empty($o['brevo_enabled']);
         $list = intval($o['brevo_list_id'] ?? 0);
-        return ['ok' => true, 'provider' => 'brevo', 'providers' => ['brevo'], 'connected' => $connected,
+        return ['ok' => true, 'provider' => 'brevo', 'providers' => ['brevo', 'mailchimp'], 'connected' => $connected,
             'enabled' => $enabled, 'active' => $enabled && $connected && ($list > 0 || $maps), 'list_id' => $list ?: null,
             'mappings' => $maps, 'max_mappings' => 50, 'timing' => ($o['brevo_sync_timing'] ?? '') === 'after_confirm' ? 'after_confirm' : 'immediate'];
     }
 
+    /** Bereich mit Mailchimp → Abgleich von TIX_Newsletter_Mailchimp (je Seite bzw. Veranstalter); sonst Brevo für die Seite */
+    private static function mc_org(WP_REST_Request $req) {
+        if (!class_exists('TIX_Newsletter_Mailchimp') || !class_exists('TIX_Ad_Accounts')) return null;
+        $org = intval(TIX_Ad_Accounts::org($req));
+        return TIX_Newsletter::is_mailchimp(TIX_Newsletter::settings($org)) ? $org : null;
+    }
+
+    private static function brevo_denied() {
+        if (current_user_can('manage_options') || !(class_exists('TIX_App_Scope') && TIX_App_Scope::multi())) return null;
+        return new WP_Error('rest_forbidden', 'Der Brevo-Listen-Abgleich gilt für die ganze Seite.', ['status' => 403]);
+    }
+
     public static function rest_get(WP_REST_Request $req) {
+        if (($o = self::mc_org($req)) !== null) { $r = rest_ensure_response(TIX_Newsletter_Mailchimp::sync_payload($o)); $r->header('Cache-Control', 'no-store'); return $r; }
+        if ($e = self::brevo_denied()) return $e;
         $r = rest_ensure_response(self::sync_payload());
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -98,6 +113,8 @@ class TIX_Brevo {
 
     /** POST {enabled?, list_id?, mappings?[{event_id?, cat_name?, list_id}], timing?} */
     public static function rest_save(WP_REST_Request $req) {
+        if (($o = self::mc_org($req)) !== null) return TIX_Newsletter_Mailchimp::sync_save($o, $req);
+        if ($e = self::brevo_denied()) return $e;
         $bad = function ($f, $m) { return new WP_Error('tix_invalid_field', $m, ['status' => 400, 'field' => $f]); };
         $s = (array) get_option('tix_settings', []);
         if ($req->has_param('list_id')) {

@@ -1,6 +1,6 @@
 <?php
 /**
- * TIX_Newsletter – Newsletter aus dem Studio über die Brevo-API (Modul Marketing, Statistik Stufe 2, User 2026-11-04).
+ * TIX_Newsletter – Newsletter aus dem Studio über die Brevo-API bzw. Mailchimp (TIX_Newsletter_Mailchimp, ab 1.38.807) (Modul Marketing, Statistik Stufe 2, User 2026-11-04).
  *
  * Bereich: Einzel-Seite = 0, evendis = je Veranstalter (eigenes Brevo-Konto, der Veranstalter ist Verantwortlicher).
  *
@@ -126,13 +126,41 @@ class TIX_Newsletter {
         if ($key === '' && !$org && function_exists('tix_get_settings')) $key = trim((string) tix_get_settings('brevo_api_key'));
         return ['api_key' => $key, 'sender_id' => intval($v['sender_id'] ?? 0), 'sender_name' => (string) ($v['sender_name'] ?? ''), 'sender_email' => (string) ($v['sender_email'] ?? ''),
             'folder_id' => intval($v['folder_id'] ?? 0), 'webhook_id' => intval($v['webhook_id'] ?? 0), 'hook_secret' => (string) ($v['hook_secret'] ?? ''),
-            'address' => (string) ($v['address'] ?? ''), 'own_key' => isset($v['api_key_enc']) && $v['api_key_enc'] !== ''];
+            'address' => (string) ($v['address'] ?? ''), 'own_key' => isset($v['api_key_enc']) && $v['api_key_enc'] !== '',
+            // Mailchimp (1.38.807, TIX_Newsletter_Mailchimp): Schlüssel nur verschlüsselt gespeichert, nie ausgegeben
+            'provider' => ($v['provider'] ?? '') === 'mailchimp' ? 'mailchimp' : 'brevo',
+            'mc_key' => !empty($v['mc_key_enc']) ? (string) TIX_Ad_Accounts::dec($v['mc_key_enc']) : '',
+            'mc_audience_id' => (string) ($v['mc_audience_id'] ?? ''), 'mc_audience_name' => (string) ($v['mc_audience_name'] ?? ''),
+            'mc_from_name' => (string) ($v['mc_from_name'] ?? ''), 'mc_reply_to' => (string) ($v['mc_reply_to'] ?? ''), 'mc_webhook_id' => (string) ($v['mc_webhook_id'] ?? ''),
+            'mc_sync' => is_array($v['mc_sync'] ?? null) ? $v['mc_sync'] : []];
     }
 
-    private static function save_settings($org, array $set) {
+    public static function is_mailchimp(array $s) { return $s['provider'] === 'mailchimp' && class_exists('TIX_Newsletter_Mailchimp'); }
+
+    /** Anbieter einer Kampagne: beim Vorbereiten festgehalten, sonst der des Bereichs */
+    private static function mc_campaign(array $c, array $s) {
+        $m = self::meta_of($c);
+        return class_exists('TIX_Newsletter_Mailchimp') && (($m['provider'] ?? '') === 'mailchimp' || (!isset($m['provider']) && $s['provider'] === 'mailchimp' && empty($c['brevo_campaign'])));
+    }
+
+    public static function set_meta($id, array $m) {
+        global $wpdb;
+        $wpdb->update(self::tk(), ['audience_meta' => $m ? wp_json_encode($m) : null], ['id' => intval($id)]);
+    }
+
+    /** Abmeldung aus Webhook/Abgleich eines Anbieters */
+    public static function unsubscribe_email($org, $email, $reason) {
+        global $wpdb;
+        $email = strtolower(sanitize_email((string) $email));
+        if (!is_email($email)) return;
+        self::unsubscribe_row($wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::tc() . " WHERE organizer_id = %d AND email = %s", intval($org), $email)), $reason);
+    }
+
+    public static function save_settings($org, array $set) {
         $v = $org ? get_post_meta(intval($org), self::META, true) : get_option(self::OPT, []);
         $v = is_array($v) ? $v : [];
         if (array_key_exists('api_key', $set)) { $v['api_key_enc'] = $set['api_key'] === '' ? '' : TIX_Ad_Accounts::enc($set['api_key']); unset($set['api_key']); }
+        if (array_key_exists('mc_key', $set)) { $v['mc_key_enc'] = $set['mc_key'] === '' ? '' : TIX_Ad_Accounts::enc($set['mc_key']); unset($set['mc_key']); }
         $v = array_merge($v, $set);
         if ($org) update_post_meta(intval($org), self::META, $v); else update_option(self::OPT, $v, false);
     }
@@ -189,6 +217,7 @@ class TIX_Newsletter {
         $r('/public/nl/unsubscribe', 'GET', 'rest_unsubscribe', $pub);
         $r('/public/nl/unsubscribe', 'POST', 'rest_unsubscribe_post', $pub); // RFC 8058
         $r('/public/nl/hook/(?P<secret>[A-Za-z0-9]{32})', 'POST', 'rest_hook', $pub);
+        $r('/public/nl/hook/(?P<secret>[A-Za-z0-9]{32})', 'GET', 'rest_hook_check', $pub); // Mailchimp prüft die Adresse per GET
     }
 
     private static function org(WP_REST_Request $req) { return TIX_Ad_Accounts::org($req); }
@@ -206,7 +235,9 @@ class TIX_Newsletter {
         $out = ['ok' => true, 'module_on' => TIX_Ad_Accounts::module_on($org), 'connected' => $s['api_key'] !== '', 'own_key' => $s['own_key'],
             'sender' => $s['sender_email'] !== '' ? ['id' => $s['sender_id'], 'name' => $s['sender_name'], 'email' => $s['sender_email']] : null,
             'address' => $s['address'] !== '' ? $s['address'] : self::default_address($org), 'webhook' => $s['webhook_id'] > 0,
-            'counts' => $counts, 'consent_text' => self::consent_text($org), 'account' => null, 'senders' => []];
+            'counts' => $counts, 'consent_text' => self::consent_text($org), 'account' => null, 'senders' => [],
+            'provider' => $s['provider'], 'providers' => ['brevo', 'mailchimp']];
+        if (class_exists('TIX_Newsletter_Mailchimp')) $out['mailchimp'] = TIX_Newsletter_Mailchimp::status($org, $s, (bool) $req->get_param('fresh'));
         if ($s['api_key'] !== '' && $out['module_on'] && $req->get_param('check') !== '0') {
             // Konto und Absender 10 Minuten zwischenspeichern (Studio-Tempo 1.38.650: vorher 345 ms je Aufruf); ?fresh=1 fragt neu
             $ck = self::brevo_cache_key($org, $s['api_key']);
@@ -251,6 +282,8 @@ class TIX_Newsletter {
     /** POST /marketing/newsletter/settings {api_key?, sender_id?, address?} – Schlüssel prüfen, Absender wählen, Webhook anlegen */
     public static function rest_settings(WP_REST_Request $req) {
         $org = self::org($req);
+        // Anbieter und Mailchimp (1.38.807): {provider?, mc_api_key?, mc_audience_id?, mc_from_name?, mc_reply_to?}
+        if (class_exists('TIX_Newsletter_Mailchimp')) { $mc = TIX_Newsletter_Mailchimp::save($org, $req); if (is_wp_error($mc)) return $mc; }
         self::flush_brevo_cache($org); // neuer Schlüssel bzw. Absender: Konto/Absender frisch holen
         if ($req->has_param('api_key')) {
             $key = trim((string) $req->get_param('api_key'));
@@ -416,24 +449,35 @@ class TIX_Newsletter {
     }
 
     /** Brevo-Webhook (marketing): unsubscribed / hard_bounce / spam → Kontakt abgemeldet */
-    public static function rest_hook(WP_REST_Request $req) {
+    public static function rest_hook_check(WP_REST_Request $req) {
+        return self::hook_org((string) $req['secret']) === null ? new WP_Error('rest_forbidden', 'Unbekannt.', ['status' => 403]) : rest_ensure_response(['ok' => true]);
+    }
+
+    private static function hook_org($secret) {
         global $wpdb;
-        $secret = (string) $req['secret'];
         $org = null;
         if (hash_equals((string) self::settings(0)['hook_secret'], $secret) && $secret !== '') $org = 0;
         elseif (self::multi()) {
             $id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value LIKE %s LIMIT 1", self::META, '%' . $wpdb->esc_like($secret) . '%'));
             if ($id && hash_equals(self::settings(intval($id))['hook_secret'], $secret)) $org = intval($id);
         }
+        return $org;
+    }
+
+    public static function rest_hook(WP_REST_Request $req) {
+        global $wpdb;
+        $org = self::hook_org((string) $req['secret']);
         if ($org === null) return new WP_Error('rest_forbidden', 'Unbekannt.', ['status' => 403]);
         $p = $req->get_json_params() ?: $req->get_body_params();
+        // Mailchimp (1.38.807): Formular type=unsubscribe|cleaned, data[email]
+        if (isset($p['type'], $p['data']) && is_array($p['data'])) $p = ['event' => $p['type'] === 'cleaned' ? 'hard_bounce' : ((string) $p['type'] === 'unsubscribe' ? 'mc_unsub' : ''), 'email' => (string) ($p['data']['email'] ?? '')];
         $events = isset($p[0]) && is_array($p[0]) ? $p : [$p];
         $n = 0;
         foreach ($events as $e) {
             $ev = strtolower((string) ($e['event'] ?? ''));
             $email = strtolower(sanitize_email((string) ($e['email'] ?? '')));
             if (!is_email($email)) continue;
-            $reason = strpos($ev, 'unsub') !== false ? 'brevo' : (strpos($ev, 'spam') !== false ? 'spam' : (strpos($ev, 'hard') !== false ? 'bounce' : ''));
+            $reason = $ev === 'mc_unsub' ? 'mailchimp' : (strpos($ev, 'unsub') !== false ? 'brevo' : (strpos($ev, 'spam') !== false ? 'spam' : (strpos($ev, 'hard') !== false ? 'bounce' : '')));
             if ($reason === '') continue;
             self::unsubscribe_row($wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::tc() . " WHERE organizer_id = %d AND email = %s", $org, $email)), $reason);
             $n++;
@@ -551,7 +595,7 @@ class TIX_Newsletter {
         return intval($c['brevo_list_src'] ?? 0) ? [intval($c['brevo_list_src'])] : [];
     }
 
-    private static function meta_of(array $c) {
+    public static function meta_of(array $c) {
         $m = !empty($c['audience_meta']) ? json_decode((string) $c['audience_meta'], true) : null;
         return is_array($m) ? $m : [];
     }
@@ -689,9 +733,11 @@ class TIX_Newsletter {
             elseif ($req->has_param('list_id') && absint($req->get_param('list_id'))) $ids = [absint($req->get_param('list_id'))];
             elseif ($req->has_param('audience')) $ids = [];
             else $ids = $cur ? self::list_ids_of($cur) : [];
+            if ($a === 'brevo_list' && self::is_mailchimp(self::settings($org))) return [null, self::bad('audience', 'Mit Mailchimp gehen eigene Kontakte oder die Käufer eines Events, keine Anbieter-Listen.')];
             if ($a === 'brevo_list' && !$ids) return [null, self::bad('list_ids', 'Bitte mindestens eine Brevo-Liste wählen.')];
             if (count($ids) > self::MAX_LISTS) return [null, self::bad('list_ids', 'Höchstens ' . self::MAX_LISTS . ' Brevo-Listen.')];
             $meta = $cur ? self::meta_of($cur) : [];
+            if ($ids && self::is_mailchimp(self::settings($org))) return [null, self::bad('list_ids', 'Mit Mailchimp gehen eigene Kontakte oder die Käufer eines Events, keine Anbieter-Listen.')];
             if ($ids) {
                 if (!rest_sanitize_boolean($req->get_param('consent_confirmed'))) return [null, self::bad('consent_confirmed', 'Bitte bestätige, dass alle Kontakte dieser Liste eingewilligt haben.')];
                 $known = self::brevo_lists($org, self::settings($org));
@@ -740,7 +786,8 @@ class TIX_Newsletter {
         if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
         if (in_array($c['status'], ['preparing', 'sent'], true)) return self::bad('status', 'Versendete Kampagnen bleiben für die Auswertung erhalten.', 'tix_nl_locked', 409);
         $s = self::settings($org);
-        if ($s['api_key'] !== '' && $c['brevo_campaign']) self::brevo($s['api_key'], 'DELETE', '/emailCampaigns/' . intval($c['brevo_campaign']));
+        if (self::mc_campaign($c, $s)) TIX_Newsletter_Mailchimp::delete($c, $s);
+        elseif ($s['api_key'] !== '' && $c['brevo_campaign']) self::brevo($s['api_key'], 'DELETE', '/emailCampaigns/' . intval($c['brevo_campaign']));
         $wpdb->delete(self::tk(), ['id' => intval($c['id'])]);
         return rest_ensure_response(['ok' => true]);
     }
@@ -886,8 +933,10 @@ class TIX_Newsletter {
     // ═══════════════ Testversand und Versand ═══════════════
 
     private static function ready(array $c, array $s) {
-        if ($s['api_key'] === '') return self::bad('api_key', 'Bitte zuerst Brevo verbinden.', 'tix_nl_not_connected', 409);
-        if ($s['sender_email'] === '') return self::bad('sender_id', 'Bitte einen in Brevo bestätigten Absender wählen.', 'tix_nl_no_sender', 409);
+        if (self::is_mailchimp($s)) {
+            if (($ok = TIX_Newsletter_Mailchimp::ready_settings($s)) !== true) return $ok;
+        } elseif ($s['api_key'] === '') return self::bad('api_key', 'Bitte zuerst Brevo verbinden.', 'tix_nl_not_connected', 409);
+        elseif ($s['sender_email'] === '') return self::bad('sender_id', 'Bitte einen in Brevo bestätigten Absender wählen.', 'tix_nl_no_sender', 409);
         if (trim($c['subject']) === '') return self::bad('subject', 'Bitte einen Betreff eingeben.');
         if (trim(wp_strip_all_tags($c['content'])) === '') return self::bad('content', 'Die Mail ist noch leer.');
         return true;
@@ -920,6 +969,7 @@ class TIX_Newsletter {
         if (($ok = self::ready($c, $s)) !== true) return $ok;
         $emails = array_values(array_unique(array_filter(array_map(function ($e) { return strtolower(sanitize_email((string) $e)); }, (array) ($req->get_param('emails') ?: [wp_get_current_user()->user_email])), 'is_email')));
         if (!$emails || count($emails) > 5) return self::bad('emails', 'Bitte 1 bis 5 gültige Adressen angeben.');
+        if (self::is_mailchimp($s)) { $t = TIX_Newsletter_Mailchimp::test($c, $s, $emails); return is_wp_error($t) ? $t : rest_ensure_response(['ok' => true, 'sent_to' => $emails]); }
         $bid = self::push_campaign($c, $s);
         if (is_wp_error($bid)) return $bid;
         $r = self::brevo($s['api_key'], 'POST', '/emailCampaigns/' . $bid . '/sendTest', ['emailTo' => $emails]);
@@ -957,6 +1007,11 @@ class TIX_Newsletter {
         if (!$c) return new WP_Error('not_found', 'Kampagne nicht gefunden.', ['status' => 404]);
         if (!in_array($c['status'], ['scheduled', 'preparing', 'failed'], true)) return self::bad('status', 'Nur geplante Kampagnen lassen sich zurückholen.', 'tix_nl_locked', 409);
         $s = self::settings($org);
+        if (self::mc_campaign($c, $s)) {
+            TIX_Newsletter_Mailchimp::cancel($c, $s);
+            $wpdb->update(self::tk(), ['status' => 'draft', 'scheduled_at' => null, 'error' => '', 'updated' => self::now()], ['id' => intval($c['id'])]);
+            return rest_ensure_response(['ok' => true, 'campaign' => self::out(self::get($c['id'], $org), false)]);
+        }
         if ($c['status'] === 'preparing' && $c['brevo_campaign'] && $s['api_key'] !== '') {
             $r = self::brevo($s['api_key'], 'PUT', '/emailCampaigns/' . intval($c['brevo_campaign']) . '/status', ['status' => 'suspended']);
             if (is_wp_error($r) || !in_array($r[0], [200, 204], true)) return self::bad('status', 'Brevo versendet die Kampagne schon.', 'tix_nl_locked', 409);
@@ -985,7 +1040,7 @@ class TIX_Newsletter {
         return [$list, intval($p[1]['processId'] ?? 0)];
     }
 
-    private static function fail(array $c, $msg) {
+    public static function fail(array $c, $msg) {
         global $wpdb;
         $wpdb->update(self::tk(), ['status' => 'failed', 'error' => mb_substr((string) $msg, 0, 255), 'updated' => self::now()], ['id' => intval($c['id'])]);
     }
@@ -1009,8 +1064,9 @@ class TIX_Newsletter {
         if (!$c) return;
         $org = intval($c['organizer_id']);
         $s = self::settings($org);
-        if ($s['api_key'] === '' || $s['sender_email'] === '') return self::fail($c, 'Brevo ist nicht mehr verbunden.');
         if (!TIX_Ad_Accounts::module_on($org)) return self::fail($c, 'Das Modul Marketing ist nicht gebucht.');
+        if (self::mc_campaign($c, $s)) return TIX_Newsletter_Mailchimp::advance($c, $s);
+        if ($s['api_key'] === '' || $s['sender_email'] === '') return self::fail($c, 'Brevo ist nicht mehr verbunden.');
         $ts = strtotime($c['scheduled_at'] . ' UTC');
         if ($c['status'] === 'scheduled') {
             if ($ts > time() + 15 * MINUTE_IN_SECONDS) return;
@@ -1078,6 +1134,11 @@ class TIX_Newsletter {
     public static function refresh_stats(array $c) {
         global $wpdb;
         $s = self::settings(intval($c['organizer_id']));
+        if (self::mc_campaign($c, $s)) {
+            $st = TIX_Newsletter_Mailchimp::stats($c, $s);
+            if ($st) $wpdb->update(self::tk(), ['stats' => wp_json_encode($st), 'stats_at' => self::now(), 'recipients' => max(intval($c['recipients']), $st['sent'])], ['id' => intval($c['id'])]);
+            return;
+        }
         if ($s['api_key'] === '' || !$c['brevo_campaign']) return;
         $r = self::brevo($s['api_key'], 'GET', '/emailCampaigns/' . intval($c['brevo_campaign']) . '?statistics=globalStats');
         if (is_wp_error($r) || $r[0] !== 200) return;
@@ -1106,6 +1167,7 @@ class TIX_Newsletter {
         if (self::multi()) $scopes = array_merge($scopes, array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s", self::META))));
         foreach (array_unique($scopes) as $org) {
             $s = self::settings($org);
+            if (class_exists('TIX_Newsletter_Mailchimp') && $s['mc_key'] !== '') TIX_Newsletter_Mailchimp::daily($org, $s);
             if ($s['api_key'] === '') continue;
             $r = self::brevo($s['api_key'], 'GET', '/contacts?limit=500&modifiedSince=' . rawurlencode(gmdate('Y-m-d\TH:i:s\Z', time() - 2 * DAY_IN_SECONDS)));
             if (!is_wp_error($r) && $r[0] === 200) foreach ((array) ($r[1]['contacts'] ?? []) as $x) {
