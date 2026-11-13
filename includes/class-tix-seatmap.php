@@ -1015,7 +1015,18 @@ class TIX_Seatmap {
             'min_event' => max(1, intval($l['min_event'] ?? 20)), 'total_min' => max(5, intval($l['total_min'] ?? 60))];
     }
 
+    /** Prüfwert des Käufer-Anschlusses bei weitergeleiteten Aufrufen (Spiegel/Kopie → Ersteller), sonst '' */
+    public static $fw_client = '';
+
+    /** Prüfwert des eigenen Käufers für die Weitergabe (keine IP im Klartext) */
+    private static function client_key() {
+        if (self::$fw_client !== '') return self::$fw_client;
+        $ip = class_exists('TIX_Client_IP') ? (string) TIX_Client_IP::get() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        return $ip === '' ? '' : substr(hash('sha256', 'tix-seat-client|' . $ip), 0, 32);
+    }
+
     private static function ip_hash() {
+        if (self::$fw_client !== '') return substr(hash('sha256', 'fw|' . self::$fw_client), 0, 16);
         $ip = class_exists('TIX_Client_IP') ? (string) TIX_Client_IP::get() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
         return $ip === '' ? '' : substr(hash_hmac('sha256', $ip, wp_salt('nonce')), 0, 16);
     }
@@ -1363,6 +1374,41 @@ class TIX_Seatmap {
         return in_array(intval($cat_index), array_map('intval', array_values(self::section_categories($event_id))), true);
     }
 
+    /**
+     * Kasse vor Ort (1.38.798, User 13.11.: Platz Pflicht): Positionen {seats[], hold_token?} → Warenkorbzeilen; Kategorie eines
+     * Sitzbereichs ohne Platz → 409 tix_seat_required. → [lines[], holder, rest_items[]] | WP_Error
+     */
+    public static function pos_lines($event_id, array $items, $free = false) {
+        $holder = 'pos_' . get_current_user_id();
+        $lines = []; $rest = [];
+        foreach ($items as $it) {
+            if (!is_array($it)) continue;
+            if (!empty($it['seats']) && is_array($it['seats'])) {
+                $tok = (string) ($it['hold_token'] ?? '');
+                $h = $tok !== '' ? self::app_holder($tok) : $holder;
+                if ($h === '') $h = $holder;
+                $line = TIX_Native_Checkout::seat_line($event_id, array_map('strval', $it['seats']), $h);
+                if (is_string($line)) return new WP_Error('tix_seat_taken', $line, ['status' => 409, 'seats' => array_values($it['seats'])]);
+                $line['meta']['pos'] = 1;
+                $line['meta']['holder'] = $h;
+                if ($free) $line['price'] = 0.0;
+                $lines[] = $line;
+                continue;
+            }
+            $idx = intval($it['index'] ?? $it['product_id'] ?? -1);
+            if ($idx >= 0 && intval($it['qty'] ?? $it['quantity'] ?? 0) > 0 && self::needs_seat($event_id, $idx)) {
+                return new WP_Error('tix_seat_required', 'Diese Kategorie gehört zu einem Sitzbereich – bitte im Saalplan Plätze wählen.', ['status' => 409, 'index' => $idx]);
+            }
+            $rest[] = $it;
+        }
+        return [$lines, $holder, $rest];
+    }
+
+    /** Kasse: Haltungen der Sitzzeilen an die Bestellung binden (danach verkauft der Statuswechsel) */
+    public static function pos_attach(array $lines, $order_id) {
+        foreach ($lines as $l) if (!empty($l['meta']['seats'])) self::attach_order([$l], (string) $l['meta']['holder'], $order_id);
+    }
+
     /** Lesbare Platzangabe eines Tickets („Parkett · Reihe A, Platz 3“) oder '' */
     public static function ticket_seat_label($ticket_id) {
         $seat = (string) get_post_meta(intval($ticket_id), '_tix_ticket_seat_id', true);
@@ -1387,6 +1433,9 @@ class TIX_Seatmap {
     // ══════════════════════════════════════
 
     public static function register_routes() {
+        // Durchgriff für geteilte Events (1.38.798): Ersteller (Partner-Schlüssel) bzw. Plattform (Schlüssel der Kunden-Seite)
+        register_rest_route('tixomat/v1', '/partner/seats/(?P<id>\d+)/(?P<action>map|hold|release|best)', ['methods' => 'GET, POST', 'callback' => [__CLASS__, 'rest_partner_seats'], 'permission_callback' => [__CLASS__, 'perm_partner_seats']]);
+        if (class_exists('TIX_Co_Sale')) register_rest_route('tixomat/v1', '/partner/co-events/(?P<id>\d+)/seats/(?P<action>map|hold|release|best)', ['methods' => 'GET, POST', 'callback' => [__CLASS__, 'rest_partner_seats'], 'permission_callback' => ['TIX_Co_Sale', 'perm_platform']]);
         $ns = 'tixomat/v1';
         register_rest_route($ns, '/public/events/(?P<id>\d+)/seatmap', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_seatmap'], 'permission_callback' => '__return_true',
@@ -1406,6 +1455,7 @@ class TIX_Seatmap {
 
     /** Rate-Limit je IP (über alle Tokens) */
     private static function rest_limit($bucket, $max, $window = 60) {
+        if (self::$fw_client !== '') return false; // weitergeleitet: die erste Seite hat den Käufer schon begrenzt
         if (class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'rate_limited')) return TIX_App_Account::rate_limited($bucket, $max, $window);
         $key = 'tix_rl_' . $bucket . '_' . md5((string) (class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : ''));
         $n = intval(get_transient($key)) + 1;
@@ -1448,6 +1498,7 @@ class TIX_Seatmap {
 
     /** GET /public/events/{id}/seatmap[?hold_token=] */
     public static function rest_seatmap(WP_REST_Request $req) {
+        if ($fw = self::maybe_forward($req, 'map')) return $fw;
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;
@@ -1487,7 +1538,98 @@ class TIX_Seatmap {
     }
 
     /** POST /customer/seats/hold {event_id, seat_ids[], hold_token?} */
+    // ══════ Geteilte Events: Platzwahl beim Ersteller (1.38.798, Vertrag uebergaben/vertrag-saalplan-verkauf.md) ══════
+
+    /** Wohin geht die Platzwahl eines Spiegels/einer Kopie? ['via' => source|platform, …] | null */
+    public static function upstream($event_id) {
+        $eid = intval($event_id);
+        if (!$eid) return null;
+        if (get_post_meta($eid, '_tix_syndicated', true) === '1' && class_exists('TIX_Partner_Broker') && method_exists('TIX_Partner_Broker', 'partner_call')) {
+            $p = TIX_Partner_Broker::partner_for_event($eid);
+            if ($p) return ['via' => 'source', 'p' => $p, 'id' => intval(TIX_Partner_Broker::source_id_of($eid))];
+        }
+        $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+        if (!$multi && class_exists('TIX_Site_Move') && ($pid = TIX_Site_Move::platform_co_id($eid)) && class_exists('TIX_Co_Sale') && method_exists('TIX_Co_Sale', 'platform_call') && TIX_Co_Sale::is_sale_mirror($eid)) {
+            return ['via' => 'platform', 'id' => intval($pid)];
+        }
+        return null;
+    }
+
+    /** Verkauft dieses Event Plätze (selbst oder über den Ersteller)? Für Event-Antworten (seatmap: true) */
+    public static function sale_flag($event_id) {
+        $eid = intval($event_id);
+        if (self::event_seatmap($eid) > 0) return self::module_on($eid);
+        return self::upstream($eid) !== null && get_post_meta($eid, '_tix_seatmap_remote', true) === '1';
+    }
+
+    /** Merker auf Spiegel/Kopie aus der Verteilung bzw. dem Abgleich (bool|null) */
+    public static function store_remote_flag($event_id, $flag) {
+        if ($flag === null) return;
+        if ($flag) update_post_meta(intval($event_id), '_tix_seatmap_remote', '1'); else delete_post_meta(intval($event_id), '_tix_seatmap_remote');
+    }
+
+    /** Öffentliche Saalplan-Route auf Spiegel/Kopie eine Stufe weiterreichen → WP_REST_Response|WP_Error|null (null = lokal) */
+    private static function maybe_forward(WP_REST_Request $req, $action) {
+        $eid = intval($req['id'] ?? $req->get_param('event_id'));
+        $up = self::upstream($eid);
+        if (!$up) return null;
+        $q = []; $body = null;
+        if ($action === 'map') { $tok = (string) $req->get_param('hold_token'); if ($tok !== '') $q['hold_token'] = $tok; $q['_client'] = self::client_key(); }
+        else {
+            $body = (array) ($req->get_json_params() ?: $req->get_body_params());
+            unset($body['event_id']);
+            $body['_client'] = self::client_key();
+        }
+        $route = $up['via'] === 'source' ? '/partner/seats/' . $up['id'] . '/' . $action : '/partner/co-events/' . $up['id'] . '/seats/' . $action;
+        $method = $action === 'map' ? 'GET' : 'POST';
+        $d = $up['via'] === 'source' ? TIX_Partner_Broker::partner_call($up['p'], $method, $route, $body, $q) : TIX_Co_Sale::platform_call($method, $route, $body, $q);
+        if (is_wp_error($d)) return $d;
+        if (is_array($d)) { if (isset($d['event_id'])) $d['event_id'] = $eid; $d['forwarded'] = true; }
+        $res = rest_ensure_response($d);
+        $res->header('Cache-Control', 'no-store');
+        return $res;
+    }
+
+    /** Angekommener Durchgriff (Ersteller bzw. Plattform): wie die öffentliche Route, Käufer-Prüfwert aus der Anfrage */
+    public static function rest_partner_seats(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        $action = (string) $req['action'];
+        if (!$eid || get_post_type($eid) !== 'event') return new WP_Error('tix_event', 'Event nicht gefunden.', ['status' => 404]);
+        $client = preg_replace('/[^a-f0-9]/', '', (string) $req->get_param('_client'));
+        self::$fw_client = $client !== '' ? substr($client, 0, 32) : 'anon';
+        try {
+            if ($action === 'map') {
+                $sub = new WP_REST_Request('GET', '/tixomat/v1/public/events/' . $eid . '/seatmap');
+                $sub->set_url_params(['id' => $eid]);
+                if ((string) $req->get_param('hold_token') !== '') $sub->set_query_params(['hold_token' => (string) $req->get_param('hold_token')]);
+                return self::rest_seatmap($sub);
+            }
+            $body = (array) $req->get_json_params();
+            unset($body['_client']);
+            $sub = new WP_REST_Request('POST', '/tixomat/v1/customer/seats/' . $action);
+            $sub->set_header('content-type', 'application/json');
+            $sub->set_body(wp_json_encode(['event_id' => $eid] + $body));
+            return $action === 'hold' ? self::rest_hold($sub) : ($action === 'release' ? self::rest_release($sub) : self::rest_best($sub));
+        } finally {
+            self::$fw_client = '';
+        }
+    }
+
+    /** Ersteller: nur für Partner freigegebene, verteilte Events */
+    public static function perm_partner_seats(WP_REST_Request $req) {
+        if (!class_exists('TIX_Partner_API')) return new WP_Error('rest_forbidden', 'Nicht verfügbar.', ['status' => 403]);
+        $ok = TIX_Partner_API::check_auth($req);
+        if ($ok !== true) return $ok;
+        $eid = absint($req['id']);
+        $co = class_exists('TIX_Co_Seller') && method_exists('TIX_Co_Seller', 'sells_local') && TIX_Co_Seller::sells_local($eid);
+        if (!$co && (get_post_meta($eid, '_tix_syndicate', true) !== '1' || get_post_meta($eid, '_tix_partner_sales', true) === '0')) {
+            return new WP_Error('tix_partner_event', 'Für dieses Event ist der Verkauf über Partner nicht freigegeben.', ['status' => 403]);
+        }
+        return true;
+    }
+
     public static function rest_hold(WP_REST_Request $req) {
+        if ($fw = self::maybe_forward($req, 'hold')) return $fw;
         if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
@@ -1502,6 +1644,7 @@ class TIX_Seatmap {
 
     /** POST /customer/seats/release {event_id, seat_ids[], hold_token} */
     public static function rest_release(WP_REST_Request $req) {
+        if ($fw = self::maybe_forward($req, 'release')) return $fw;
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         $holder = self::app_holder($req->get_param('hold_token'));
@@ -1515,6 +1658,7 @@ class TIX_Seatmap {
      * → beste Plätze finden und halten (preview: nur zeigen). attempt = „anderer Vorschlag“, replace = eigene Haltung vorher freigeben.
      */
     public static function rest_best(WP_REST_Request $req) {
+        if ($fw = self::maybe_forward($req, 'best')) return $fw;
         if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;

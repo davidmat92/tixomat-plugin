@@ -36,11 +36,25 @@ if ($mode === 'setup-plat') {
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CETEST Party', 'meta_input' => ['_tix_organizer_id' => $org, '_tix_date_start' => '2027-08-01', '_tix_time_start' => '20:00',
         '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => [['name' => 'Gratis', 'price' => 0, 'qty' => 50, 'stock' => 50]]]]);
     TIX_Co_Organizer::set($ev, $co, true, 0);
-    echo wp_json_encode(['ev' => $ev, 'org' => $org, 'co' => $co]) . "\n"; return;
+    // Saalplan beim Ersteller (1.38.798): Kunden-Seite wählt Plätze über die Plattform
+    $sev = 0;
+    if (class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'upstream')) {
+        TIX_Plan::save_org($org, ['seating' => true]);
+        $sm = wp_insert_post(['post_type' => 'tix_seatmap', 'post_status' => 'publish', 'post_title' => 'CETEST Saal']);
+        update_post_meta($sm, TIX_Seatmap::META_ORG, $org);
+        TIX_Seatmap::store($sm, ['layout' => 'theater', 'sections' => [['id' => 'frei', 'label' => 'Freiplatz', 'price' => 0, 'block' => ['rows' => 1, 'seats' => 6]]]]);
+        $sev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'CETEST Saal-Abend', 'meta_input' => ['_tix_organizer_id' => $org, '_tix_date_start' => '2027-08-02', '_tix_time_start' => '20:00',
+            '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_ticket_categories' => [['name' => 'Freiplatz', 'price' => 0, 'qty' => 6, 'seatmap_section' => 'frei']]]]);
+        TIX_Seatmap::assign($sev, $sm);
+        TIX_Co_Organizer::set($sev, $co, true, 0);
+    }
+    echo wp_json_encode(['ev' => $ev, 'org' => $org, 'co' => $co, 'sev' => $sev]) . "\n"; return;
 }
 if ($mode === 'cleanup-plat') {
     $b = get_option('tix_ce_backup');
+    foreach (get_posts(['post_type' => 'tix_seatmap', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 's' => 'CETEST']) as $id) wp_delete_post($id, true);
     foreach (get_posts(['post_type' => ['event', 'tix_organizer'], 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 's' => 'CETEST']) as $id) {
+        if (get_post_type($id) === 'event' && class_exists('TIX_Seatmap')) $wpdb->delete($wpdb->prefix . TIX_Seatmap::TABLE_SUFFIX, ['event_id' => $id]);
         if (get_post_type($id) === 'event') foreach ($wpdb->get_col($wpdb->prepare("SELECT order_id FROM {$wpdb->prefix}tix_order_items WHERE event_id = %d", $id)) as $oid) {
             foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $oid]) as $t) wp_delete_post($t, true);
             $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $oid]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $oid]);
@@ -85,6 +99,35 @@ if ($mode === 'run-kk') {
     ce_eq('Status mit falschem Schlüssel: 404', 404, ce_rest('GET', "/customer/orders/$lid", ['key' => 'falsch'])[0]);
     [$st, $d3] = ce_rest('GET', "/customer/orders/$lid", ['key' => (string) ($d['order']['key'] ?? '')]);
     ce_eq('Zweiter Abruf: keine doppelten Spiegel', 2, count(get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_ticket_co_sale', 'meta_value' => strval($lid)])));
+    // Saalplan über die Plattform (1.38.798): Plan, Halten, Angebot, Bestellung – Plätze beim Ersteller, kein Doppelverkauf
+    if (!empty($s['sev']) && class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'upstream')) {
+        echo "== Saalplan über die Plattform\n";
+        $sm2 = get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'meta_key' => '_tix_platform_co', 'meta_value' => strval($s['sev'])]);
+        $sm2 = $sm2 ? intval($sm2[0]) : 0;
+        if (method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
+        $e2 = ce_rest('GET', "/public/events/$sm2")[1]['event'] ?? [];
+        ce_eq('Kopie meldet seatmap (Merker aus dem Abgleich)', [true, '1'], [$e2['seatmap'] ?? null, get_post_meta($sm2, '_tix_seatmap_remote', true)]);
+        [$st, $mp] = ce_rest('GET', "/public/events/$sm2/seatmap");
+        if ($st !== 200) echo '      DBG ', wp_json_encode($mp), "\n";
+        ce_eq('Plan über die Plattform: forwarded, lokale Event-ID, 6 Plätze', [200, true, 6], [$st, !empty($mp['forwarded']), array_sum(array_map(function ($sec) { $n = 0; foreach ((array) ($sec['rows'] ?? []) as $r) $n += count((array) ($r['seats'] ?? [])); return $n; }, (array) ($mp['map'] ?? [])))]);
+        [$st, $h] = ce_rest('POST', '/customer/seats/hold', ['event_id' => $sm2, 'seat_ids' => ['frei_A_2', 'frei_A_3']]);
+        $tok = (string) ($h['hold_token'] ?? '');
+        ce_eq('Halten beim Ersteller: Token, 2 Plätze', [200, true, ['frei_A_2', 'frei_A_3']], [$st, strlen($tok) >= 16, $h['reserved'] ?? null]);
+        [$st, $q] = ce_rest('POST', '/customer/cart/quote', ['event_id' => $sm2, 'items' => [['seats' => ['frei_A_2', 'frei_A_3']]], 'hold_token' => $tok]);
+        ce_eq('Angebot mit Plätzen über die Plattform', [200, true], [$st, !empty($q['ok'])]);
+        [$st, , $c] = ce_rest('POST', '/customer/cart/quote', ['event_id' => $sm2, 'items' => [['index' => 0, 'qty' => 1]]]);
+        ce_eq('Sitzplatz-Kategorie ohne Platz: 409 tix_seat_required (vom Ersteller)', [409, 'tix_seat_required'], [$st, $c]);
+        [$st, $o, $c] = ce_rest('POST', '/customer/orders', ['event_id' => $sm2, 'items' => [['seats' => ['frei_A_2', 'frei_A_3']]], 'hold_token' => $tok, 'accept_terms' => 1, 'idempotency_token' => 'cs' . wp_rand(100000, 999999),
+            'billing' => ['first_name' => 'Ce', 'last_name' => 'Sitz', 'email' => 'ce-sitz@example.test', 'address_1' => 'Weg 1', 'postcode' => '12345', 'city' => 'Ort', 'country' => 'DE']]);
+        ce_eq('Bestellung mit Plätzen: bezahlt (gratis)', [true, true], [in_array($st, [200, 201], true), !empty($o['order']['paid'])]);
+        if ($st >= 400) echo "      $c " . ($o['message'] ?? '') . "\n";
+        [$st, $mp2] = ce_rest('GET', "/public/events/$sm2/seatmap");
+        $taken = array_values(array_intersect(['frei_A_2', 'frei_A_3'], array_map('strval', (array) ($mp2['taken'] ?? ($mp2['sold'] ?? [])))));
+        ce_eq('Plätze beim Ersteller verkauft', ['frei_A_2', 'frei_A_3'], $taken);
+        $_SERVER['REMOTE_ADDR'] = '198.51.100.77';
+        [$st, $h2] = ce_rest('POST', '/customer/seats/hold', ['event_id' => $sm2, 'seat_ids' => ['frei_A_2']]);
+        ce_eq('Zweiter Käufer: verkaufter Platz nicht haltbar', [false, ['frei_A_2']], [$h2['ok'] ?? null, $h2['failed'] ?? null]);
+    }
     $rd = class_exists('TIX_Owner_Access') ? TIX_Owner_Access::readiness() : [];
     ce_eq('Startklar kennt payments_needed', true, array_key_exists('payments_needed', $rd));
     echo ($GLOBALS['ce_f'] ? "FEHLER: {$GLOBALS['ce_f']}" : 'ALLES OK') . " ({$GLOBALS['ce_n']} Prüfungen)\n"; return;

@@ -315,6 +315,8 @@ class TIX_Syndication_Push {
             'history'         => class_exists('TIX_Event_History') ? TIX_Event_History::outgoing($post_id) : null, // Verlauf: wer/wo (1.38.776)
             // Sponsoren (1.38.793): wirksame öffentliche Liste mit Ausspielorten; Klick-Links zählen hier beim Ersteller
             'sponsors'        => class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::event_public($post_id) : null,
+            // Platzwahl beim Ersteller (1.38.798): der Spiegel meldet seatmap und reicht die Saalplan-Routen hierher weiter
+            'seatmap_sale'    => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'sale_flag') ? TIX_Seatmap::sale_flag($post_id) : null,
         ];
 
         // Push oder Update?

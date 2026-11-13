@@ -590,7 +590,7 @@ class TIX_Native_Checkout {
             if ($sec && $s2['id'] !== $sec['id']) return 'Bitte Plätze je Bereich einzeln in den Warenkorb legen.';
             $sec = $s2;
         }
-        if (!$sec || floatval($sec['price'] ?? 0) <= 0) return 'Für diesen Bereich gibt es keine Online-Tickets.';
+        if (!$sec || floatval($sec['price'] ?? 0) < 0) return 'Für diesen Bereich gibt es keine Online-Tickets.'; // Preis 0 = Freiplatz mit Platzwahl (User 13.11., 1.38.798)
         $r = TIX_Seatmap::hold($event_id, $sm, $seats, $holder !== '' ? $holder : self::session_key());
         if ($r['failed']) {
             if (!empty($r['message'])) return $r['message'];

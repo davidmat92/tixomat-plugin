@@ -402,6 +402,8 @@ class TIX_Syndication_Receive {
         // Nur-Bestand-Update: Ort bleibt unverändert
         if (empty($data['stock_only'])) self::apply_venue($event_id, $data);
 
+        // Platzwahl beim Ersteller (1.38.798)
+        if (empty($data['stock_only']) && array_key_exists('seatmap_sale', (array) $data) && class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'store_remote_flag')) TIX_Seatmap::store_remote_flag($event_id, $data['seatmap_sale'] === null ? null : !empty($data['seatmap_sale']));
         // Sponsoren der Quelle als Schnappschuss (1.38.793); ältere Quellen ohne Feld: unverändert
         if (empty($data['stock_only']) && array_key_exists('sponsors', (array) $data) && class_exists('TIX_Sponsor_Logos')) TIX_Sponsor_Logos::store_snapshot($event_id, $data['sponsors']);
 

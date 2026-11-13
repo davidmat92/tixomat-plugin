@@ -2090,6 +2090,7 @@ class TIX_REST_API {
                 'quantity_available' => $n['available'],
                 'unlimited'          => $n['unlimited'],
                 'sold_out'           => $n['sold_out'],
+                'seat_required'      => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'needs_seat') && TIX_Seatmap::needs_seat($event_id, $idx), // 1.38.798
                 // alte Feldnamen (Kompatibilität)
                 'stock'              => $n['unlimited'] ? -1 : $n['available'],
                 'sold'               => $n['sold'],
@@ -2099,6 +2100,7 @@ class TIX_REST_API {
         return rest_ensure_response([
             'ok'          => true,
             'event_title' => get_the_title($event_id),
+            'seatmap'     => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0 && TIX_Seatmap::module_on($event_id), // Platzwahl an der Kasse (1.38.798)
             'categories'  => $categories,
         ]);
     }
@@ -2196,6 +2198,13 @@ class TIX_REST_API {
         if (!is_array($cats) || empty($cats)) {
             return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
         }
+        // Saalplan an der Kasse (1.38.798): Sitzpositionen {seats[]} halten, Sitzplatz-Kategorien nur mit Platz
+        $seat_lines = [];
+        if (class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'pos_lines')) {
+            $pl = TIX_Seatmap::pos_lines($event_id, $items, $payment === 'free');
+            if (is_wp_error($pl)) return $pl;
+            list($seat_lines, , $items) = $pl;
+        }
         // Positionen bündeln (Kennung = Kategorie-Index, wie in pos_categories)
         $merged = [];
         foreach ($items as $item) {
@@ -2205,10 +2214,11 @@ class TIX_REST_API {
             if ($idx < 0 || $qty <= 0) continue;
             $merged[$idx] = ($merged[$idx] ?? 0) + $qty;
         }
-        if (!$merged) return new WP_Error('missing_data', 'Keine gültigen Artikel.', ['status' => 400]);
+        if (!$merged && !$seat_lines) return new WP_Error('missing_data', 'Keine gültigen Artikel.', ['status' => 400]);
         $event_title = get_the_title($event_id);
         $cart     = ['items' => [], 'coupon' => null];
         $subtotal = 0;
+        foreach ($seat_lines as $sl) { $cart['items'][] = $sl; $subtotal += floatval($sl['price']) * intval($sl['qty']); }
         foreach ($merged as $idx => $qty) {
             if (!isset($cats[$idx]) || !is_array($cats[$idx]) || !empty($cats[$idx]['gift_card'])) {
                 return new WP_Error('category_not_found', 'Kategorie #' . $idx . ' nicht gefunden.', ['status' => 400]);
@@ -2285,6 +2295,7 @@ class TIX_REST_API {
             return new WP_Error('order_failed', 'Bestellung konnte nicht angelegt werden.', ['status' => 500]);
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);
+        if ($seat_lines) TIX_Seatmap::pos_attach($seat_lines, $order_id); // gehaltene Plätze → diese Bestellung (verkauft beim Abschluss)
         if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
         if ($receipt) do_action('tix_pos_signed', $order_id, $receipt);
         self::pos_meta($order_id, array_filter([
@@ -2482,8 +2493,25 @@ class TIX_REST_API {
         if (!is_array($cats) || !$cats) return new WP_Error('no_categories', 'Keine Ticket-Kategorien.', ['status' => 404]);
         $cart = ['items' => [], 'coupon' => null];
         $subtotal = 0.0;
+        // Saalplan (1.38.798): Plätze prüfen ohne zu halten; Sitzplatz-Kategorie ohne Platz → 409
+        if (class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'needs_seat')) {
+            foreach ($items as $item) {
+                if (!is_array($item)) continue;
+                if (!empty($item['seats']) && is_array($item['seats'])) {
+                    $data = TIX_Seatmap::event_data($event_id);
+                    $n = 0; $price = 0.0;
+                    foreach (array_map('strval', $item['seats']) as $sid) { $sec = $data ? TIX_Seatmap::section_of($data, $sid) : null; if (!$sec) return new WP_Error('tix_seat', 'Platz ' . TIX_Seatmap::seat_label($sid, $data) . ' ist nicht buchbar.', ['status' => 409]); $price = floatval($sec['price'] ?? 0); $n++; }
+                    $cats_map = TIX_Seatmap::section_categories($event_id);
+                    $cart['items'][] = ['event_id' => $event_id, 'cat_index' => -1, 'name' => 'Sitzplatz', 'price' => $free ? 0.0 : $price, 'qty' => $n, 'meta' => ['pos' => 1, 'seats' => array_values($item['seats'])]];
+                    $subtotal += ($free ? 0.0 : $price) * $n;
+                    continue;
+                }
+                $ix = intval($item['index'] ?? $item['product_id'] ?? -1);
+                if ($ix >= 0 && TIX_Seatmap::needs_seat($event_id, $ix)) return new WP_Error('tix_seat_required', 'Diese Kategorie gehört zu einem Sitzbereich – bitte im Saalplan Plätze wählen.', ['status' => 409, 'index' => $ix]);
+            }
+        }
         foreach ($items as $item) {
-            if (!is_array($item)) continue;
+            if (!is_array($item) || !empty($item['seats'])) continue;
             $idx = intval($item['index'] ?? $item['product_id'] ?? -1);
             $qty = intval($item['qty'] ?? $item['quantity'] ?? 0);
             if ($idx < 0 || $qty <= 0) continue;

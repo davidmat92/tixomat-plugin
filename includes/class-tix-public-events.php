@@ -346,7 +346,7 @@ class TIX_Public_Events {
             $sm_on = !class_exists('TIX_Seatmap') || TIX_Seatmap::module_on($id);
             $out['tables'] = $sm_on && class_exists('TIX_Table_Reservation') && is_array($tr) && !empty($tr['enabled']);
             // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen
-            $out['seatmap'] = $sm_on && class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($id) > 0;
+            $out['seatmap'] = class_exists('TIX_Seatmap') && (method_exists('TIX_Seatmap', 'sale_flag') ? TIX_Seatmap::sale_flag($id) : ($sm_on && TIX_Seatmap::event_seatmap($id) > 0)); // auch Spiegel/Kopie (1.38.798)
         }
         return $out;
     }

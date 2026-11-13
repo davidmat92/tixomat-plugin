@@ -125,6 +125,15 @@ class TIX_Partner_Broker {
     }
 
     /** Event-ID bei der Verkaufsinstanz (Quelle bzw. Kunden-Seite des Co, 1.38.713). */
+    /** Für den Saalplan-Durchgriff (1.38.798): Aufruf bei der Quelle mit Partner-Schlüssel, Quell-ID */
+    public static function partner_call(array $p, $method, $route, array $body = null, array $query = []) {
+        return self::call($p, $method, $route, $body, $query);
+    }
+
+    public static function source_id_of($event_id) {
+        return self::source_event_id($event_id);
+    }
+
     private static function source_event_id($event_id) {
         return class_exists('TIX_Co_Seller') ? TIX_Co_Seller::source_id($event_id) : intval(get_post_meta($event_id, '_tix_source_id', true));
     }
@@ -210,6 +219,7 @@ class TIX_Partner_Broker {
             'event_id' => self::source_event_id($event_id),
             'items'    => is_array($items) ? $items : [],
             'coupon'   => (string) ($req->get_param('coupon') ?? ''),
+            'hold_token' => (string) ($req->get_param('hold_token') ?? ''), // Sitzplätze: Haltung beim Ersteller (1.38.798)
             // Gebühr im evendis-Kanal (nur wenn für den Partner an) – die Quelle rechnet sie ins Angebot
             'channel_fee' => self::fee_for($p, $event_id), // keine Gebühr zwischen eigenen Seiten (1.38.712/713)
         ], function ($v) { return $v !== null; }));
@@ -273,6 +283,7 @@ class TIX_Partner_Broker {
             'event_id'          => self::source_event_id($event_id),
             'items'             => is_array($items) ? $items : [],
             'coupon'            => (string) ($req->get_param('coupon') ?? ''),
+            'hold_token'        => (string) ($req->get_param('hold_token') ?? ''), // Sitzplätze (1.38.798)
             'billing'           => $billing,
             'payment_method'    => sanitize_text_field((string) ($req->get_param('payment_method') ?? '')),
             'idempotency_token' => 'p' . $idem,

@@ -22,6 +22,7 @@ $sold = function ($ev) use ($wpdb, $T) { return array_map('strval', (array) $wpd
 $tickets_of = function ($oid) { return array_map('intval', get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'orderby' => 'ID', 'order' => 'ASC', 'meta_query' => ['relation' => 'OR', ['key' => '_tix_ticket_order_id', 'value' => $oid], ['key' => '_tix_order_id', 'value' => $oid]]])); };
 try {
     wp_set_current_user(0);
+    $adm_id = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0] ?? 1);
     $org = 0;
     if ($multi) {
         $org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'Flow Veranstalter']); $posts[] = $org;
@@ -31,10 +32,11 @@ try {
     delete_option(TIX_Seating::OPT_SETTINGS);
     $sm = wp_insert_post(['post_type' => 'tix_seatmap', 'post_status' => 'publish', 'post_title' => 'Flow-Saal']); $posts[] = $sm;
     if ($multi) update_post_meta($sm, TIX_Seatmap::META_ORG, $org);
-    TIX_Seatmap::store($sm, ['layout' => 'theater', 'sections' => [['id' => 'parkett', 'label' => 'Parkett', 'price' => 20, 'block' => ['rows' => 2, 'seats' => 6]]]]);
+    TIX_Seatmap::store($sm, ['layout' => 'theater', 'sections' => [['id' => 'parkett', 'label' => 'Parkett', 'price' => 20, 'block' => ['rows' => 2, 'seats' => 6]],
+        ['id' => 'frei', 'label' => 'Freiplatz', 'price' => 0, 'block' => ['rows' => 1, 'seats' => 4, 'origin' => ['x' => 500, 'y' => 400]]]]]);
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Flow-Konzert', 'meta_input' => [
         '_tix_organizer_id' => $org, '_tix_date_start' => wp_date('Y-m-d', time() + 12 * DAY_IN_SECONDS), '_tix_time_start' => '20:00', '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1',
-        '_tix_ticket_categories' => [['name' => 'Parkett', 'price' => 20, 'qty' => 12, 'seatmap_section' => 'parkett'], ['name' => 'Stehplatz', 'price' => 10, 'qty' => 50]]]]); $posts[] = $ev;
+        '_tix_ticket_categories' => [['name' => 'Parkett', 'price' => 20, 'qty' => 12, 'seatmap_section' => 'parkett'], ['name' => 'Stehplatz', 'price' => 10, 'qty' => 50], ['name' => 'Freiplatz', 'price' => 0, 'qty' => 4, 'seatmap_section' => 'frei']]]]); $posts[] = $ev;
     TIX_Seatmap::assign($ev, $sm);
     $eq('Zuweisung: Event nutzt den Plan, Modul an', [$sm, true], [TIX_Seatmap::event_seatmap($ev), TIX_Seatmap::module_on($ev)]);
     $billing = function ($k) { return ['first_name' => 'Kim', 'last_name' => 'Flow', 'email' => "flow_{$k}_" . wp_rand(1000, 9999) . '@example.test']; };
@@ -104,6 +106,32 @@ try {
     $cart = TIX_Native_Checkout::add_items(['items' => []], [['event_id' => $ev, 'cat_index' => 1, 'qty' => 1]]);
     $eq('Web-Warenkorb: Stehplatz geht', true, is_array($cart) && count($cart['items'] ?? []) === 1);
 
+    // H: Freiplatz (Preis 0) mit Platzwahl online (User 13.11., 1.38.798)
+    $_SERVER['REMOTE_ADDR'] = '203.0.113.' . wp_rand(20, 200);
+    [, $hf] = $rest('POST', '/customer/seats/hold', ['event_id' => $ev, 'seat_ids' => ['frei_A_1', 'frei_A_2']]);
+    $tf = (string) ($hf['hold_token'] ?? '');
+    [$st, $of] = $rest('POST', '/customer/orders', ['event_id' => $ev, 'items' => [['seats' => ['frei_A_1', 'frei_A_2']]], 'hold_token' => $tf, 'billing' => ['first_name' => 'Kim', 'last_name' => 'Frei', 'email' => 'flow_frei_' . wp_rand(1000, 9999) . '@example.test', 'address_1' => 'Hauptstr. 1', 'postcode' => '58332', 'city' => 'Schwelm', 'country' => 'DE'],
+        'payment_method' => 'free', 'accept_terms' => true, 'idempotency_token' => wp_generate_password(20, false)]);
+    $oF = intval($of['order']['id'] ?? ($of['order_id'] ?? 0)); if ($oF) $orders[] = $oF;
+    $eq('Freiplatz 0 €: kostenlose Bestellung mit Platzwahl, Plätze verkauft, 2 Tickets', [200, true, 2], [$st, in_array('frei_A_1', $sold($ev), true) && in_array('frei_A_2', $sold($ev), true), $oF ? count($tickets_of($oF)) : 0]);
+
+    // I: Kasse vor Ort – Platz Pflicht (User 13.11.)
+    wp_set_current_user($adm_id);
+    [$st, $pc] = $rest('GET', "/pos/events/$ev/categories");
+    $req = array_column((array) ($pc['categories'] ?? []), 'seat_required', 'index');
+    $eq('Kasse: seatmap an, seat_required je Kategorie (Parkett/Freiplatz ja, Stehplatz nein)', [200, true, true, false, true], [$st, $pc['seatmap'] ?? null, $req[0] ?? null, $req[1] ?? null, $req[2] ?? null]);
+    [$st, , $c] = $rest('POST', '/pos/orders', ['event_id' => $ev, 'items' => [['index' => 0, 'qty' => 1]], 'payment' => 'cash']);
+    $eq('Kasse: Sitzplatz-Kategorie ohne Platz → 409 tix_seat_required', [409, 'tix_seat_required'], [$st, $c]);
+    [$st, $pq] = $rest('POST', '/pos/quote', ['event_id' => $ev, 'items' => [['seats' => ['parkett_B_4', 'parkett_B_5']], ['index' => 1, 'qty' => 1]]]);
+    $eq('Kasse: Angebot mit Plätzen + Stehplatz = 50 €', [200, 50.0], [$st, floatval($pq['total'] ?? 0)]);
+    [$st, $po] = $rest('POST', '/pos/orders', ['event_id' => $ev, 'items' => [['seats' => ['parkett_B_4', 'parkett_B_5']], ['index' => 1, 'qty' => 1]], 'payment' => 'cash']);
+    $oP = intval($po['order_id'] ?? ($po['order']['id'] ?? 0)); if ($oP) $orders[] = $oP;
+    $eq('Kasse: Verkauf mit Plätzen → verkauft, 3 Tickets', [200, true, 3], [$st, in_array('parkett_B_4', $sold($ev), true) && in_array('parkett_B_5', $sold($ev), true), $oP ? count($tickets_of($oP)) : 0]);
+    [$st, , $c] = $rest('POST', '/pos/orders', ['event_id' => $ev, 'items' => [['seats' => ['parkett_B_4']]], 'payment' => 'cash']);
+    $eq('Kasse: verkaufter Platz → 409 tix_seat_taken', [409, 'tix_seat_taken'], [$st, $c]);
+    if ($oP) { [$st] = $rest('POST', "/pos/orders/$oP/void"); $eq('Kasse: Storno gibt die Plätze frei', false, in_array('parkett_B_4', $sold($ev), true)); }
+    wp_set_current_user(0);
+
     // G: Spiegel/Kopie mit übernommener Plan-ID nutzt keinen (fremden) Plan
     $cp = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Flow-Spiegel', 'meta_input' => ['_tix_seatmap_id' => $sm, ($multi ? '_tix_syndicated' : '_tix_platform_co') => ($multi ? '1' : '6453')]]); $posts[] = $cp;
     $eq('Spiegel/Kopie: kein Saalplan (Plätze nur beim Ersteller)', 0, TIX_Seatmap::event_seatmap($cp));
@@ -119,11 +147,11 @@ try {
         update_post_meta($tA[0], '_tix_ticket_status', 'cancelled');
         $left = $sold($ev);
         $gone = (string) get_post_meta($tA[0], '_tix_ticket_seat_id', true);
-        $eq('Teil-Storno eines Tickets gibt genau dessen Platz frei', [2, false], [count($left), in_array($gone, $left, true)]);
+        $eq('Teil-Storno eines Tickets gibt genau dessen Platz frei (A3/A4 → einer weniger)', [1, false], [count(array_intersect($left, ['parkett_A_3', 'parkett_A_4'])), in_array($gone, $left, true)]);
     }
     // F: Storno der Bestellung gibt alle frei
     if ($oA) TIX_Native_Checkout::update_order_status($oA, 'cancelled', 'admin');
-    $eq('Storno der Bestellung: ihre Plätze frei (fremder Verkauf B2 bleibt)', ['parkett_B_2'], $sold($ev));
+    $eq('Storno der Bestellung: ihre Plätze frei (andere Verkäufe bleiben)', ['frei_A_1', 'frei_A_2', 'parkett_B_2'], $sold($ev));
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

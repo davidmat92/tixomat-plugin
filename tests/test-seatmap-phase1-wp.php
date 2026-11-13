@@ -283,6 +283,44 @@ foreach (['cut' => null, 'timeout' => null, 'key' => null, 'busy' => null, 'rate
     $got[$case] = [$st, $c];
 }
 sp_eq('Zeitlimit 150 s an die KI', 150, intval($GLOBALS['sp_to'] ?? 0));
+// Auftrag statt langer Anfrage (1.38.798, Cloudflare 100 s)
+add_filter('tix_seatmap_job_defer', '__return_true');
+$GLOBALS['sp_case'] = 'other';
+delete_option(TIX_Seating::OPT_AI_USAGE);
+[$st, $d] = sp_rest('POST', '/studio/seatmaps/from-image/jobs', ['image' => $png, 'total_seats' => 300]);
+$jid = (string) ($d['job_id'] ?? '');
+sp_eq('Auftrag: 202 sofort, job_id, queued, poll_after', [202, true, 'queued', 3], [$st, strlen($jid) >= 16, $d['status'] ?? '', $d['poll_after'] ?? 0]);
+TIX_Seating::run_job($jid);
+[$st, $d, $c] = sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid");
+sp_eq('Auftrag fehlgeschlagen: Code und Status der Ursache bleiben', [200, 'failed', 'ai_failed', 502], [$st, $d['status'] ?? '', $d['error']['code'] ?? '', $d['error']['status'] ?? 0]);
+$GLOBALS['sp_case'] = 'key';
+[, $d] = sp_rest('POST', '/studio/seatmaps/from-image', ['image' => $png, 'async' => 1]);
+$jid2 = (string) ($d['job_id'] ?? '');
+TIX_Seating::run_job($jid2);
+sp_eq('async=1 an der alten Route: Auftrag; Schlüssel ungültig → ai_key_invalid', ['failed', 'ai_key_invalid'], [sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid2")[1]['status'] ?? '', sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid2")[1]['error']['code'] ?? '']);
+TIX_AI_Provider::$http = function ($url, $args) {
+    $tool = ['frame' => ['width' => 1000, 'height' => 700], 'layout' => 'theater', 'confidence' => 0.8, 'sections' => [['label' => 'Parkett', 'block' => ['origin' => ['x' => 500, 'y' => 150], 'rows' => 5, 'seats' => 10]]], 'objects' => []];
+    return ['headers' => [], 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null,
+        'body' => wp_json_encode(['model' => 'claude-sonnet-5-5', 'stop_reason' => 'tool_use', 'content' => [['type' => 'tool_use', 'id' => 't1', 'name' => 'saalplan', 'input' => $tool]], 'usage' => ['input_tokens' => 10, 'output_tokens' => 10]])];
+};
+[, $d] = sp_rest('POST', '/studio/seatmaps/from-image/jobs', ['image' => $png, 'total_seats' => 50]);
+$jid3 = (string) ($d['job_id'] ?? '');
+[, $q] = sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid3");
+TIX_Seating::run_job($jid3);
+TIX_Seating::run_job($jid3); // zweiter Lauf: nichts
+[$st, $d] = sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid3");
+sp_eq('Auftrag fertig: Ergebnis wie die direkte Route (50 Plätze, Abgleich), Bild-Zwischenspeicher gelöscht', ['queued', 200, 'done', 50, 0, false],
+    [$q['status'] ?? '', $st, $d['status'] ?? '', $d['result']['stats']['bookable'] ?? 0, $d['result']['check']['diff'] ?? null, file_exists(wp_upload_dir()['basedir'] . '/tix-ai-jobs/' . $jid3 . '.bin')]);
+$old_u = get_current_user_id();
+$stranger = wp_insert_user(['user_login' => "sp_fremd_$sfx", 'user_pass' => wp_generate_password(), 'user_email' => "sp_fremd_$sfx@example.test", 'role' => 'tix_organizer']); $users[] = $stranger;
+if ($multi) { $og = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'SP Fremd-Org', 'meta_input' => ['_tix_org_user_id' => $stranger]]); $posts[] = $og; TIX_Plan::save_org($og, ['seating' => true]); }
+wp_set_current_user($stranger);
+sp_eq('Fremder Nutzer sieht den Auftrag nicht', true, in_array(sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid3")[0], [403, 404], true));
+wp_set_current_user($old_u);
+$k = 'tix_smjob_' . $jid3; $jj = get_transient($k); $jj['status'] = 'running'; $jj['started'] = time() - 600; set_transient($k, $jj, 3600);
+sp_eq('Hängt der Lauf: ai_timeout', ['failed', 'ai_timeout'], [sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid3")[1]['status'] ?? '', sp_rest('GET', "/studio/seatmaps/from-image/jobs/$jid3")[1]['error']['code'] ?? '']);
+remove_filter('tix_seatmap_job_defer', '__return_true');
+delete_option(TIX_Seating::OPT_AI_USAGE);
 sp_eq('Fehlerursachen als eigene Codes (nie 401/403)', ['cut' => [422, 'ai_too_large'], 'timeout' => [504, 'ai_timeout'], 'key' => [502, 'ai_key_invalid'], 'busy' => [503, 'ai_overloaded'], 'rate' => [429, 'ai_rate_limited'], 'img' => [422, 'ai_image_rejected'], 'other' => [502, 'ai_failed']], $got);
 delete_option(TIX_Seating::OPT_AI_USAGE);
 update_option(TIX_Seating::OPT_AI_USAGE, [current_time('Y-m-d') => [$multi ? $org : 0 => TIX_Seating::AI_PER_DAY]], false);

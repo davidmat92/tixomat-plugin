@@ -139,6 +139,11 @@ class TIX_Co_Sale {
         return class_exists('TIX_Co_Legal') ? TIX_Co_Legal::merge($info, $eid) : $info; // Verkäufer-Angaben (1.38.717)
     }
 
+    /** Für den Saalplan-Durchgriff der Kunden-Seite (1.38.798) */
+    public static function platform_call($method, $route, array $body = null, array $query = []) {
+        return self::site_call($method, $route, $body, $query);
+    }
+
     private static function site_call($method, $route, array $body = null, array $query = []) {
         $url = rtrim((string) tix_get_settings('syndication_api_url'), '/') . $route;
         if ($query) $url = add_query_arg(array_map('rawurlencode', $query), $url);

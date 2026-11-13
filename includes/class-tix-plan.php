@@ -380,6 +380,12 @@ class TIX_Plan {
             }
         }
         if (!$key) return $result;
+        // Saalplan bei geteilten Events (1.38.798): Spiegel/Kopie reicht an den Ersteller weiter – dort gilt dessen Modul
+        if ($key === 'seating' && class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'upstream')) {
+            $seid = intval($request->get_param('event_id'));
+            if (!$seid && preg_match('#^/public/events/(\d+)/#', $rel, $sm)) $seid = intval($sm[1]);
+            if ($seid && TIX_Seatmap::upstream($seid)) return $result;
+        }
         // Einzelseite: nur sperren, was der Admin im Studio ausdrücklich ausgeschaltet hat (Bestand unverändert)
         if (!self::multi()) {
             if ($key === 'website' || $key === 'app' || ($key === 'seating' ? self::site_on('seating') : !self::site_switched_off($key))) return $result;

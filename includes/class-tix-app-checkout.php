@@ -1277,7 +1277,7 @@ class TIX_App_Checkout {
             // Mengenrabatt-Staffeln {tiers[{min_qty, percent}], combine_bundle, combine_combo, combine_phase} oder null
             'group_discount'  => class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($event_id) : null,
             // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen, items[] {seats: [...]} + hold_token
-            'seatmap'         => class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($event_id) > 0 && TIX_Seatmap::module_on($event_id),
+            'seatmap'         => class_exists('TIX_Seatmap') && (method_exists('TIX_Seatmap', 'sale_flag') ? TIX_Seatmap::sale_flag($event_id) : (TIX_Seatmap::event_seatmap($event_id) > 0 && TIX_Seatmap::module_on($event_id))), // auch Spiegel/Kopie (1.38.798)
             // Kombi-Tickets: Bestellung mit items[] {combo_id, qty}
             'combos'          => self::combos($event_id),
             // Extras (Specials): Bestellung mit items[] {special_id, qty}

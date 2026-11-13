@@ -249,6 +249,7 @@ class TIX_Partner_API {
                 'event_id' => $event_id,
                 'items'    => is_array($req->get_param('items')) ? $req->get_param('items') : [],
                 'coupon'   => (string) ($req->get_param('coupon') ?? ''),
+                'hold_token' => (string) ($req->get_param('hold_token') ?? ''), // Sitzplätze (1.38.798)
             ])));
         } finally {
             TIX_App_Checkout::$partner = null;
@@ -281,6 +282,7 @@ class TIX_Partner_API {
                 'event_id'          => $event_id,
                 'items'             => is_array($req->get_param('items')) ? $req->get_param('items') : [],
                 'coupon'            => (string) ($req->get_param('coupon') ?? ''),
+                'hold_token'        => (string) ($req->get_param('hold_token') ?? ''), // Sitzplätze (1.38.798)
                 'billing'           => $billing,
                 'payment_method'    => (string) ($req->get_param('payment_method') ?? ''),
                 'idempotency_token' => $token,

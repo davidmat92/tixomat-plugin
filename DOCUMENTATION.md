@@ -6423,3 +6423,30 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - **`sanitize_seatmap`:** Ein Platz ohne `type` erzeugte eine PHP-Warnung (auf KK bricht das REST-JSON) und einen leeren Typ. Jetzt Vorgabe `standard`.
   - **Geprüft und in Ordnung:** halten/verlängern/Grenzen, zwei Käufer gleichzeitig (der zweite bekommt nichts), späte Zahlung auf inzwischen verkauften Platz (Konflikt, kein Doppelverkauf), Ablauf, Storno der Bestellung.
 - **Offen:** siehe Übergabe 1.38.797 (Sitzplatz-Verkauf auf Spiegeln, HEIC im Plugin, Freiplätze mit Preis 0, Kasse vor Ort).
+
+## 188. Saalplan-Verkauf überall: geteilte Events, Kasse vor Ort, Freiplätze (ab 1.38.798)
+- **User (13.11.):**
+  - Preis 0 € online erlaubt.
+  - Kasse vor Ort: Platz ist Pflicht.
+  - Geteilte Events mit Platzwahl verkaufen; die Plätze liegen beim Ersteller, keine Doppelbuchung.
+- **Vertrag:** `uebergaben/vertrag-saalplan-verkauf.md`.
+- **Freiplatz:** `seat_line` lehnt nur noch negative Preise ab (vorher ≤ 0). Eine Bestellung mit Plätzen zu 0 € ist kostenlos.
+- **Kasse vor Ort:**
+  - `/pos/orders` und `/pos/quote` nehmen `items[] {seats[], hold_token?}`. Ohne Token hält die Kasse selbst (`pos_<user>`), `TIX_Seatmap::pos_lines`/`pos_attach`.
+  - Sitzplatz-Kategorie ohne Platz → 409 `tix_seat_required`; belegt → 409 `tix_seat_taken`.
+  - `/pos/events/{id}/categories`: `seatmap`, je Kategorie `seat_required`. Storno (`/pos/orders/{id}/void`) gibt die Plätze frei.
+- **Geteilte Events:**
+  - `TIX_Seatmap::upstream()`: Spiegel (Partner-Verkauf, `TIX_Partner_Broker`) → Ersteller `/partner/seats/{sid}/{map|hold|release|best}` (Partner-Schlüssel, `perm_partner_seats`); Kunden-Kopie (Co-Verkauf) → Plattform `/partner/co-events/{pid}/seats/…` (`TIX_Co_Sale::perm_platform`). Die Plattform reicht bei eigenen Spiegeln weiter.
+  - Die öffentlichen Routen `/public/events/{id}/seatmap` und `/customer/seats/*` reichen dort durch (`forwarded: true`, lokale `event_id`).
+  - Der Prüfwert des Käufer-Anschlusses reist als `_client` mit (sha256, keine IP). Beim Ersteller gelten die Grenzen je Käufer (`$fw_client`); Ratenbegrenzung nur auf der ersten Seite.
+  - `hold_token` geht durch Angebot und Bestellung (Broker, Partner-API, Co-Verkauf). Gekauft wird beim Ersteller (`build_cart` mit Sitzen).
+  - `TIX_Plan::guard_rest`: Das Saalplan-Modul entscheidet bei Spiegel/Kopie der Ersteller.
+  - Merker `_tix_seatmap_remote` über Verteilung (`seatmap_sale`) und Co-Abgleich. `sale_flag()` liefert `seatmap` in `/public/events/{id}` und im App-Angebot.
+- **„Saalplan aus Bild“ als Auftrag** (Cloudflare 100 s):
+  - `POST /studio/seatmaps/from-image/jobs` (bzw. `async: 1`) → 202 `job_id`; `GET …/jobs/{id}` → `queued|running|done|failed`, `result` wie die direkte Route bzw. `error {code,…}`.
+  - Lauf nach der Antwort (`fastcgi_finish_request`), Rückfall Cron `tix_seatmap_ai_job` bzw. beim Abfragen; hängt er über 240 s → `ai_timeout`. Bild unter `uploads/tix-ai-jobs` (gesperrt), wird gelöscht. Zustand als Transient (1 h).
+- **Tests:**
+  - `test-seatmap-phase1-wp` +6 (Auftrag).
+  - `test-seatmap-flow-wp` 26/26 (Freiplatz, Kasse).
+  - `test-co-sale-e2e` +8: Kunden-Seite → Plattform, Plan/halten/Angebot/Bestellung/zweiter Käufer.
+  - `test-co-remote-e2e` 4f: evendis-Spiegel → Ersteller, 53/53.

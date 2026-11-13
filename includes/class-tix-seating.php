@@ -46,6 +46,116 @@ class TIX_Seating {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        add_action(self::JOB_HOOK, [__CLASS__, 'run_job']); // Rückfall, falls der Lauf nach der Antwort nicht stattfand
+    }
+
+    // ═══════════════ „Saalplan aus Bild“ als Auftrag (1.38.798) ═══════════════
+    // Cloudflare (studio.evendis.de) bricht Anfragen nach 100 s ab (524), die Auswertung braucht bis 150 s:
+    // POST …/from-image/jobs antwortet sofort mit job_id, ausgewertet wird nach der Antwort (bzw. per Cron), GET …/jobs/{id} fragt ab.
+    const JOB_HOOK = 'tix_seatmap_ai_job';
+    const JOB_TTL = HOUR_IN_SECONDS;
+    const JOB_STALE = 240; // Sekunden „läuft“ ohne Ende → gilt als Zeitüberschreitung
+
+    private static function job_key($id) { return 'tix_smjob_' . $id; }
+
+    private static function job_dir() {
+        $up = wp_upload_dir();
+        $dir = trailingslashit($up['basedir']) . 'tix-ai-jobs';
+        if (!is_dir($dir)) { wp_mkdir_p($dir); @file_put_contents($dir . '/index.php', "<?php // Stille\n"); @file_put_contents($dir . '/.htaccess', "Require all denied\nDeny from all\n"); }
+        return $dir;
+    }
+
+    /** Öffentliche Form eines Auftrags */
+    private static function job_out($id, array $j) {
+        $o = ['ok' => true, 'job_id' => $id, 'status' => $j['status'], 'created' => gmdate('c', intval($j['created'])),
+            'started' => !empty($j['started']) ? gmdate('c', intval($j['started'])) : null, 'finished' => !empty($j['finished']) ? gmdate('c', intval($j['finished'])) : null];
+        if ($j['status'] === 'done') $o['result'] = $j['result'];
+        if ($j['status'] === 'failed') $o['error'] = $j['error'];
+        if (in_array($j['status'], ['queued', 'running'], true)) $o['poll_after'] = 3;
+        return $o;
+    }
+
+    /** POST /studio/seatmaps/from-image/jobs (Parameter wie from-image) → 202 {job_id, status: queued, poll_after} */
+    public static function rest_job_start(WP_REST_Request $req) {
+        if (!class_exists('TIX_AI_Provider')) return new WP_Error('ai_unavailable', 'Die KI ist hier nicht eingerichtet.', ['status' => 503]);
+        $org = self::org($req);
+        if (!TIX_AI_Provider::ready($org)) return new WP_Error('ai_unavailable', 'Die KI ist hier nicht eingerichtet (kein API-Schlüssel). Du kannst ihn im Studio unter Einstellungen → KI hinterlegen.', ['status' => 503]);
+        if (self::ai_count($org) >= self::AI_PER_DAY) return new WP_Error('tix_rate_limit', sprintf('Heute sind schon %d Bilder ausgewertet. Morgen geht es weiter.', self::AI_PER_DAY), ['status' => 429]);
+        $img = self::read_image($req);
+        if (is_wp_error($img)) return $img;
+        list($type, $bytes) = $img;
+        $id = wp_generate_password(24, false, false);
+        $file = self::job_dir() . '/' . $id . '.bin';
+        if (@file_put_contents($file, $bytes) === false) return new WP_Error('tix_job_storage', 'Das Bild konnte nicht zwischengespeichert werden.', ['status' => 500]);
+        $job = ['status' => 'queued', 'user' => get_current_user_id(), 'org' => $org, 'created' => time(), 'type' => $type, 'file' => $file,
+            'params' => array_filter(['total_seats' => $req->get_param('total_seats'), 'hint' => $req->get_param('hint'), 'title' => $req->get_param('title'),
+                'attachment_id' => $req->get_param('attachment_id'), 'organizer' => $req->get_param('organizer')], function ($v) { return $v !== null && $v !== ''; })];
+        set_transient(self::job_key($id), $job, self::JOB_TTL);
+        wp_schedule_single_event(time() + 5, self::JOB_HOOK, [$id]);
+        if (!apply_filters('tix_seatmap_job_defer', false)) {
+            register_shutdown_function(function () use ($id) {
+                if (function_exists('fastcgi_finish_request')) fastcgi_finish_request(); // Antwort ist raus, dann auswerten
+                ignore_user_abort(true);
+                TIX_Seating::run_job($id);
+            });
+        }
+        $r = rest_ensure_response(self::job_out($id, $job));
+        $r->set_status(202);
+        return $r;
+    }
+
+    /** Auftrag ausführen (nach der Antwort bzw. per Cron); einmalig über eine Sperre */
+    public static function run_job($id) {
+        $id = preg_replace('/[^A-Za-z0-9]/', '', (string) $id);
+        $j = get_transient(self::job_key($id));
+        if (!is_array($j) || $j['status'] !== 'queued') return;
+        if (!add_option('tix_smjob_lock_' . $id, time(), '', false)) return;
+        try {
+            $j['status'] = 'running'; $j['started'] = time();
+            set_transient(self::job_key($id), $j, self::JOB_TTL);
+            if (function_exists('set_time_limit')) @set_time_limit(self::AI_TIMEOUT + 60);
+            $prev = get_current_user_id();
+            wp_set_current_user(intval($j['user']));
+            $bytes = @file_get_contents((string) $j['file']);
+            $sub = new WP_REST_Request('POST', '/' . self::NS . '/studio/seatmaps/from-image');
+            $sub->set_body_params(['image' => 'data:' . $j['type'] . ';base64,' . base64_encode((string) $bytes)] + (array) $j['params']);
+            $res = $bytes ? self::rest_from_image($sub) : new WP_Error('tix_image', 'Das Bild ist nicht mehr da. Bitte noch einmal hochladen.', ['status' => 410]);
+            wp_set_current_user($prev);
+            if (is_wp_error($res)) {
+                $d = (array) $res->get_error_data();
+                $j['status'] = 'failed';
+                $j['error'] = ['code' => $res->get_error_code(), 'message' => $res->get_error_message(), 'status' => intval($d['status'] ?? 500)] + array_intersect_key($d, array_flip(['detail', 'field', 'max']));
+            } else {
+                $j['status'] = 'done';
+                $j['result'] = $res instanceof WP_REST_Response ? $res->get_data() : $res;
+            }
+        } catch (Throwable $e) {
+            $j['status'] = 'failed';
+            $j['error'] = ['code' => 'ai_failed', 'message' => 'Die Auswertung ist fehlgeschlagen. Bitte noch einmal versuchen.', 'status' => 500];
+        } finally {
+            $j['finished'] = time();
+            if (!empty($j['file'])) @unlink((string) $j['file']);
+            set_transient(self::job_key($id), $j, self::JOB_TTL);
+            delete_option('tix_smjob_lock_' . $id);
+            wp_clear_scheduled_hook(self::JOB_HOOK, [$id]);
+        }
+    }
+
+    /** GET /studio/seatmaps/from-image/jobs/{id} → {status queued|running|done|failed, result?, error?{code, message, status}} */
+    public static function rest_job_get(WP_REST_Request $req) {
+        $id = preg_replace('/[^A-Za-z0-9]/', '', (string) $req['job']);
+        $j = get_transient(self::job_key($id));
+        if (!is_array($j) || (intval($j['user']) !== get_current_user_id() && !current_user_can('manage_options'))) return new WP_Error('tix_job_not_found', 'Auftrag nicht gefunden (abgelaufen?). Bitte das Bild noch einmal hochladen.', ['status' => 404]);
+        if ($j['status'] === 'queued' && time() - intval($j['created']) > 20) self::run_job($id); // Lauf nach der Antwort fand nicht statt (z. B. ohne PHP-FPM)
+        $j = get_transient(self::job_key($id)) ?: $j;
+        if ($j['status'] === 'running' && time() - intval($j['started'] ?? $j['created']) > self::JOB_STALE) {
+            $j['status'] = 'failed'; $j['finished'] = time();
+            $j['error'] = ['code' => 'ai_timeout', 'message' => 'Die KI hat zu lange gebraucht. Bitte noch einmal versuchen oder einen Hinweis geben (z. B. „Parkett 20 Reihen“).', 'status' => 504];
+            set_transient(self::job_key($id), $j, self::JOB_TTL);
+        }
+        $r = rest_ensure_response(self::job_out($id, $j));
+        $r->header('Cache-Control', 'no-store');
+        return $r;
     }
 
     private static function multi() { return class_exists('TIX_App_Scope') && TIX_App_Scope::multi(); }
@@ -243,7 +353,9 @@ class TIX_Seating {
         ]);
         register_rest_route(self::NS, '/studio/seatmaps/templates', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_templates'], 'permission_callback' => $m]);
         register_rest_route(self::NS, '/studio/seatmaps/generate', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_generate'], 'permission_callback' => $m]);
-        register_rest_route(self::NS, '/studio/seatmaps/from-image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_from_image'], 'permission_callback' => $m]);
+        register_rest_route(self::NS, '/studio/seatmaps/from-image', ['methods' => 'POST', 'callback' => function ($r) { return $r->get_param('async') ? TIX_Seating::rest_job_start($r) : TIX_Seating::rest_from_image($r); }, 'permission_callback' => $m]);
+        register_rest_route(self::NS, '/studio/seatmaps/from-image/jobs', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_job_start'], 'permission_callback' => $m]);
+        register_rest_route(self::NS, '/studio/seatmaps/from-image/jobs/(?P<job>[A-Za-z0-9]{16,40})', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_job_get'], 'permission_callback' => $m]);
         register_rest_route(self::NS, '/studio/seatmaps/' . $id, [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => $m],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => $m],

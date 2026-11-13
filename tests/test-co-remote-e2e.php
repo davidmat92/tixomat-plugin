@@ -57,18 +57,47 @@ if ($mode === 'setup-kk') {
     $set = get_option('tix_settings', []);
     update_option('tix_co_e2e_switch', isset($set['co_remote_enabled']) ? $set['co_remote_enabled'] : '__none__', false);
     $set['co_remote_enabled'] = 1; // Schalter für den Test an
+    // Saalplan-Verkauf über den Spiegel (1.38.798): Partner-Verkauf an, Event mit Plan
+    update_option('tix_co_e2e_papi', isset($set['partner_api_enabled']) ? $set['partner_api_enabled'] : '__none__', false);
+    $set['partner_api_enabled'] = 1;
     update_option('tix_settings', $set);
+    if (class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'upstream')) {
+        update_option(TIX_Seating::OPT_BOOKED, '1', false);
+        $smk = wp_insert_post(['post_type' => 'tix_seatmap', 'post_status' => 'publish', 'post_title' => 'E2E-CO Saal']);
+        TIX_Seatmap::store($smk, ['layout' => 'theater', 'sections' => [['id' => 'frei', 'label' => 'Freiplatz', 'price' => 0, 'block' => ['rows' => 1, 'seats' => 6]]]]);
+        $seid = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'E2E-CO Saal-Abend', 'post_author' => $uid,
+            'meta_input' => ['_tix_date_start' => wp_date('Y-m-d', time() + 11 * DAY_IN_SECONDS), '_tix_time_start' => '20:00', '_tix_tickets_enabled' => '1', '_tix_presale_active' => '1', '_tix_syndicate' => '1',
+                '_tix_ticket_categories' => [['name' => 'Freiplatz', 'price' => 0, 'qty' => 6, 'seatmap_section' => 'frei']]]]);
+        TIX_Seatmap::assign($seid, $smk);
+        update_option('tix_co_e2e_seat', ['event' => $seid, 'map' => $smk], false);
+    }
     echo wp_json_encode(['key_in' => (string) tix_get_settings('syndication_api_key'), 'key_out' => (string) tix_get_settings('partner_api_key')]) . "\n";
     return;
 }
 if ($mode === 'push-kk') { // nach setup-plat: Event an die Plattform verteilen (echtes HTTP)
     $eid = intval(get_option('tix_co_e2e_event'));
     TIX_Syndication_Push::push_event($eid);
-    echo wp_json_encode(['event' => $eid, 'remote_id' => intval(get_post_meta($eid, '_tix_syndicate_remote_id', true)), 'admin_login' => 'e2e_co_admin', 'admin_pass' => (string) get_option('tix_co_e2e_pass')]) . "\n";
+    $se = (array) get_option('tix_co_e2e_seat', []);
+    if (!empty($se['event'])) TIX_Syndication_Push::push_event(intval($se['event']));
+    echo wp_json_encode(['seat_event' => intval($se['event'] ?? 0), 'event' => $eid, 'remote_id' => intval(get_post_meta($eid, '_tix_syndicate_remote_id', true)), 'admin_login' => 'e2e_co_admin', 'admin_pass' => (string) get_option('tix_co_e2e_pass')]) . "\n";
     return;
 }
 if ($mode === 'cleanup-kk') {
     require_once ABSPATH . 'wp-admin/includes/user.php';
+    $se = (array) get_option('tix_co_e2e_seat', []);
+    if (!empty($se['event'])) {
+        global $wpdb;
+        if (class_exists('TIX_Seatmap')) $wpdb->delete($wpdb->prefix . TIX_Seatmap::TABLE_SUFFIX, ['event_id' => intval($se['event'])]);
+        foreach ($wpdb->get_col($wpdb->prepare('SELECT DISTINCT order_id FROM ' . $wpdb->prefix . 'tix_order_items WHERE event_id = %d', intval($se['event']))) as $so) {
+            foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_ticket_order_id', 'meta_value' => $so]) as $t) wp_delete_post($t, true);
+            $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => intval($so)]); $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => intval($so)]);
+        }
+        wp_delete_post(intval($se['event']), true); wp_delete_post(intval($se['map']), true);
+        delete_option(TIX_Seating::OPT_BOOKED);
+    }
+    $pa = get_option('tix_co_e2e_papi', null);
+    if ($pa !== null) { $set = get_option('tix_settings', []); if ($pa === '__none__') unset($set['partner_api_enabled']); else $set['partner_api_enabled'] = $pa; update_option('tix_settings', $set); }
+    delete_option('tix_co_e2e_seat'); delete_option('tix_co_e2e_papi');
     $eid = intval(get_option('tix_co_e2e_event'));
     if ($eid) {
         // Bestellungen + Tickets des Events
@@ -264,6 +293,39 @@ if (class_exists('TIX_Sponsor_Logos')) {
         [$s3, $h3['X-Tix-Forwarded'] ?? null, $e3['mode'] ?? null, $sp['main'][0]['name'] ?? null]);
     e2e_http($kk, 'PUT', "/events/$sid/sponsors", ['mode' => 'inherit', 'main' => [], 'partners' => []], $adm);
     e2e_http($kk, 'PUT', '/studio/sponsors', ['enabled' => false, 'main' => [], 'partners' => []], $adm);
+}
+
+// 4f. Sitzplätze über den evendis-Spiegel beim Ersteller (1.38.798)
+$pushd = json_decode((string) ($args[3] ?? '{}'), true);
+$seat_src = intval($pushd['seat_event'] ?? 0);
+if ($seat_src && class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'upstream')) {
+    $smir = get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => 1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_source_id', 'value' => $seat_src], ['key' => '_tix_syndicated', 'value' => '1']]]);
+    $smir = $smir ? intval($smir[0]) : 0;
+    $all = (array) get_option(TIX_Partners::OPTION, []);
+    $pk = (string) get_post_meta($smir, '_tix_source_partner', true);
+    if ($pk !== '' && isset($all[$pk])) { $all[$pk]['sales_enabled'] = 1; update_option(TIX_Partners::OPTION, $all, false); }
+    if (class_exists('TIX_Partner_Broker')) TIX_Partner_Broker::maybe_install();
+    $plr3 = function ($m, $r, $b = null) { $x = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b !== null) { if ($m === 'GET') $x->set_query_params($b); else { $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($b)); } } $res = rest_do_request($x); $d = rest_get_server()->response_to_data($res, false); return [$res->get_status(), is_array($d) ? $d : [], is_array($d) ? ($d['code'] ?? '') : '']; };
+    wp_set_current_user(0);
+    if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+    $se = $plr3('GET', "/public/events/$smir")[1]['event'] ?? [];
+    e2e_eq('Spiegel: Partner-Verkauf, Merker seatmap aus der Verteilung', [true, '1', '1'], [!empty($se['seatmap']), get_post_meta($smir, '_tix_seatmap_remote', true), get_post_meta($smir, '_tix_partner_sales', true)]);
+    [$st, $mp] = $plr3('GET', "/public/events/$smir/seatmap");
+    e2e_eq('Spiegel: Plan vom Ersteller (forwarded, lokale ID)', [200, true, $smir], [$st, !empty($mp['forwarded']), intval($mp['event_id'] ?? 0)]);
+    [$st, $h] = $plr3('POST', '/customer/seats/hold', ['event_id' => $smir, 'seat_ids' => ['frei_A_1', 'frei_A_2']]);
+    $tok = (string) ($h['hold_token'] ?? '');
+    e2e_eq('Spiegel: halten beim Ersteller', [200, ['frei_A_1', 'frei_A_2']], [$st, $h['reserved'] ?? null]);
+    [$st, , $c] = $plr3('POST', '/customer/cart/quote', ['event_id' => $smir, 'items' => [['index' => 0, 'qty' => 1]]]);
+    e2e_eq('Spiegel: Sitzplatz-Kategorie ohne Platz → 409 tix_seat_required', [409, 'tix_seat_required'], [$st, $c]);
+    [$st, $o, $c] = $plr3('POST', '/customer/orders', ['event_id' => $smir, 'items' => [['seats' => ['frei_A_1', 'frei_A_2']]], 'hold_token' => $tok, 'accept_terms' => 1, 'idempotency_token' => 'e2es' . wp_rand(100000, 999999),
+        'billing' => ['first_name' => 'E2E', 'last_name' => 'Sitz', 'email' => 'e2e-sitz@example.test', 'address_1' => 'Weg 1', 'postcode' => '12345', 'city' => 'Ort', 'country' => 'DE'], 'payment_method' => 'free']);
+    if ($st >= 400) echo "      $c " . ($o['message'] ?? '') . "\n";
+    [, $mp2] = $plr3('GET', "/public/events/$smir/seatmap");
+    $taken = array_values(array_intersect(['frei_A_1', 'frei_A_2'], array_map('strval', (array) ($mp2['taken'] ?? []))));
+    e2e_eq('Spiegel: Bestellung über den Ersteller, Plätze dort verkauft', [true, ['frei_A_1', 'frei_A_2']], [in_array($st, [200, 201], true), $taken]);
+    $_SERVER['REMOTE_ADDR'] = '198.51.100.99';
+    [, $h2] = $plr3('POST', '/customer/seats/hold', ['event_id' => $smir, 'seat_ids' => ['frei_A_1']]);
+    e2e_eq('Spiegel: zweiter Käufer bekommt den verkauften Platz nicht', [false, ['frei_A_1']], [$h2['ok'] ?? null, $h2['failed'] ?? null]);
 }
 
 // 5. Gästeliste
