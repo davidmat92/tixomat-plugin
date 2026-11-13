@@ -14,7 +14,7 @@
  *     „evendis-pkg-res-v1|ts|state|version|digest“ (nur bei bekannter Lizenz), damit der Dienst die Soll-Version prüfen kann.
  *     Falsche bzw. abgelaufene Signatur → 401 tix_bad_signature. Unbekannte Lizenz → 200, state unknown.
  * Admin (manage_options):
- *   POST /license/package/target {channel: stable|beta, version, image, digest, min_version?, component?}
+ *   POST /license/package/target {channel: stable|beta, version, image? (Vorgabe ghcr.io/davidmat92/evendis-api), digest, min_version?, component?}
  *        bzw. je Lizenz {license_id, channel?, version?, image?, digest?, min_version?} (eigene Soll-Version oder nur Kanal)
  *        bzw. {license_id, clear: true} (Lizenz folgt wieder stable)
  *   GET  /license/package/status → {ok, instances[…], targets{stable, beta, licenses[]}}
@@ -33,6 +33,7 @@ class TIX_Package_Channel {
     const VERSION_RE = '/^\d{1,4}\.\d{1,4}\.\d{1,6}(?:-[0-9a-z.]{1,20})?$/';
     const DIGEST_RE = '/^sha256:[a-f0-9]{64}$/';
     const IMAGE_RE = '/^[a-z0-9][a-z0-9._\/:-]{2,199}$/';
+    const DEFAULT_IMAGE = 'ghcr.io/davidmat92/evendis-api'; // Repo evendis-api (Zentrale 13.11.)
 
     public static function init() {
         if (!class_exists('TIX_License_Server') || !TIX_License_Server::enabled()) return;
@@ -220,10 +221,10 @@ class TIX_Package_Channel {
         $data = [];
         if ($ver !== '' || !$lid) {
             if (!preg_match(self::VERSION_RE, $ver)) return self::bad('version', 'Version im Format 1.2.3.');
-            $img = trim((string) $req->get_param('image'));
+            $img = trim((string) $req->get_param('image')) ?: self::DEFAULT_IMAGE;
             $dig = strtolower(trim((string) $req->get_param('digest')));
             $min = trim((string) $req->get_param('min_version'));
-            if (!preg_match(self::IMAGE_RE, $img)) return self::bad('image', 'Image wie ghcr.io/evendis/evendis-api.');
+            if (!preg_match(self::IMAGE_RE, $img)) return self::bad('image', 'Image wie ' . self::DEFAULT_IMAGE . '.');
             if (!preg_match(self::DIGEST_RE, $dig)) return self::bad('digest', 'Digest im Format sha256:<64 Hex>.');
             if ($min !== '' && (!preg_match(self::VERSION_RE, $min) || version_compare($min, $ver, '>'))) return self::bad('min_version', 'Mindest-Version im Format 1.2.3, nicht höher als die Soll-Version.');
             $data = ['version' => $ver, 'image' => $img, 'digest' => $dig, 'min_version' => $min !== '' ? $min : null];

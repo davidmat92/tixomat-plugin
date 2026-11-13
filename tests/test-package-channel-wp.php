@@ -28,11 +28,12 @@ try {
             return $rest('POST', '/license/package/check', $p);
         };
         wp_set_current_user($adm);
-        [$st, $d] = $rest('POST', '/license/package/target', ['channel' => 'stable', 'version' => '0.1.1', 'image' => 'ghcr.io/evendis/evendis-api', 'digest' => $D2, 'min_version' => '0.1.0']);
+        [$st, $d] = $rest('POST', '/license/package/target', ['channel' => 'stable', 'version' => '0.1.1', 'image' => 'ghcr.io/davidmat92/evendis-api', 'digest' => $D2, 'min_version' => '0.1.0']);
         $eq('Admin: Soll-Version stable setzen', [200, '0.1.1'], [$st, $d['targets']['stable']['version'] ?? '']);
         [$st, $d] = $rest('POST', '/license/package/target', ['channel' => 'stable', 'version' => '0.2', 'image' => 'x', 'digest' => 'kaputt']);
         $eq('Admin: ungültige Version → 400', [400, 'version'], [$st, $d['data']['field'] ?? '']);
-        $rest('POST', '/license/package/target', ['channel' => 'beta', 'version' => '0.2.0-beta.1', 'image' => 'ghcr.io/evendis/evendis-api', 'digest' => $D1]);
+        [, $d] = $rest('POST', '/license/package/target', ['channel' => 'beta', 'version' => '0.2.0-beta.1', 'digest' => $D1]);
+        $eq('Admin: Image ohne Angabe = Vorgabe', 'ghcr.io/davidmat92/evendis-api', $d['targets']['beta']['image'] ?? '');
         wp_set_current_user(0);
 
         [$st, $d] = $check('0.1.0');
