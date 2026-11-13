@@ -72,7 +72,7 @@ class TIX_Web_Revalidate {
     }
 
     /** Routen, deren erfolgreiches Speichern die Homepage betrifft (Einzel-Seiten). */
-    const SITE_ROUTES = '#^/tixomat/v1/(studio/(config|site-config|placeholder|legal|club|domain|mails|features)|app/config|organizer/profile(/image)?|partner/evendis-page(/image)?|events(/\d+)?(/.*)?)$#';
+    const SITE_ROUTES = '#^/tixomat/v1/(studio/(config|site-config|placeholder|legal|club|domain|mails|features|sponsors(/logo)?)|app/config|organizer/profile(/image)?|partner/evendis-page(/image)?|events(/\d+)?(/.*)?)$#';
 
     public static function init() {
         add_action('save_post_tix_organizer', function ($id) { TIX_Web_Revalidate::touch_org($id); }, 99);

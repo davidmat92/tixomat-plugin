@@ -375,6 +375,7 @@ class TIX_Mail_Layout {
             . $body
             . '</td></tr>'
             . '</table></td></tr>'
+            . (string) apply_filters('tix_mail_sponsors_html', '', $m) // Sponsoren-Leiste (TIX_Sponsor_Logos, 1.38.793)
             . $foot
             . '</table>'
             . '<!--[if mso]></td></tr></table><![endif]-->'

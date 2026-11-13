@@ -82,12 +82,18 @@ class TIX_Source_Lock {
         $src = self::source_of($eid);
         if (!$src) return $result;
         if ($is_lock && $method === 'DELETE') { $method = 'POST'; $sub = 'lock/release'; }
+        if ($sub === 'sponsors' && $method === 'PUT') $method = 'POST'; // Durchgriff kennt nur GET/POST/DELETE (Route nimmt beides, 1.38.793)
         if ($sub !== '' && preg_match(self::LOCAL_SUB, $sub)) return $result;
         if ($sub === '' && $method === 'DELETE') return $result; // vom Angebot nehmen bleibt lokal
         $body = $request->get_json_params();
         if (!is_array($body)) $body = (array) $request->get_body_params();
         if ($is_lock && class_exists('TIX_Edit_Lock')) { $tk = TIX_Edit_Lock::token_of($request); $body = $tk !== '' ? ['token' => $tk] : []; } // auch sendBeacon (text/plain)
         if ($sub === '' && $method === 'POST' && !array_diff(array_keys($body), self::LOCAL_KEYS)) return $result;
+        // Sponsoren (1.38.793): hier hochgeladene Logos kennt die Quelle nicht – als Adresse mitgeben
+        if ($sub === 'sponsors') foreach (['main', 'partners'] as $tk) foreach ((array) ($body[$tk] ?? []) as $i => $sp) foreach (['logo', 'logo_dark'] as $lk) {
+            $lid = is_array($sp[$lk] ?? null) ? intval($sp[$lk]['id'] ?? 0) : (is_numeric($sp[$lk] ?? null) ? intval($sp[$lk]) : 0);
+            if ($lid && get_post_type($lid) === 'attachment') $body[$tk][$i][$lk] = ['url' => (string) (wp_get_attachment_image_url($lid, 'large') ?: wp_get_attachment_url($lid))];
+        }
         if ($request->get_file_params()) return new WP_Error('tix_source_owned', 'Bilder für dieses geteilte Event bitte bei ' . $src['site'] . ' hochladen.', ['status' => 409, 'source_site' => $src['site']]);
         $via = self::route_for($eid, $src);
         if (is_wp_error($via)) { $d = (array) $via->get_error_data(); return new WP_Error($via->get_error_code(), $via->get_error_message(), $d + ['source_site' => $src['site']]); }

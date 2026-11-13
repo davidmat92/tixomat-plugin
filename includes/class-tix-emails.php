@@ -334,6 +334,7 @@ class TIX_Emails {
         if ($footer !== '' && !$admin) $note = $footer;
 
         $m = ['title' => $heading, 'subtitle' => $subtitle, 'blocks' => $blocks, 'note' => $note, 'kind' => $admin ? 'admin' : 'customer',
+              'event_id' => count($event_ids) === 1 ? $event_ids[0] : 0, // Sponsoren-Leiste des Events (1.38.793)
               'preheader' => $type === 'order_complete' ? 'Bestellung #' . $number . ' – deine Tickets sind da.' : ''];
         if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::render($m);
         return '<html><body><h1>' . esc_html($heading) . '</h1></body></html>';

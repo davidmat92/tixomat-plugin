@@ -325,6 +325,8 @@ class TIX_Site_Config {
             $c['colors'] = TIX_Site_Brand::top_colors((array) $c['colors'], $o['homepage'] ?? null);
             $c['homepage'] = TIX_Site_Brand::payload($c, $o['homepage'] ?? null);
         }
+        // Sponsoren (1.38.793, TIX_Sponsor_Logos): {places, main, partners} | null (aus, leer bzw. evendis)
+        $c['sponsors'] = class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::site_public() : null;
         $c['overrides'] = array_values(array_intersect(self::SECTIONS, array_keys($o)));
         $c['plugin_version'] = defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '';
         return ['ok' => true] + $c;

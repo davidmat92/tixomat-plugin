@@ -59,6 +59,8 @@ class TIX_Website {
         'app_banner' => ['App-Banner', [], 'app'],
         'newsletter' => ['Newsletter', [], null],
         'partners'   => ['Partner', ['title', 'logos'], null],
+        // Sponsoren (1.38.793): Inhalt aus /public/site-config `sponsors` (Studio → Sponsoren), sichtbar mit Ort web_home
+        'sponsors'   => ['Sponsoren', ['title'], null],
         'contact'    => ['Kontakt', [], null],
     ];
 
@@ -74,7 +76,7 @@ class TIX_Website {
         'plakat'   => ['stage', 'ticker', 'lineup', 'tickets', 'more_dates', 'raffles', 'tips', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
         // 1.38.788 (Homepages-Chat, uebergaben/homepages.md): Openair = großes Festival (Bühne, Festival, Line-up, Tickets …),
         // Welle = zweite Festival-Vorlage (Line-up und Tickets vor „Über uns“)
-        'openair'  => ['stage', 'about', 'lineup', 'tickets', 'raffles', 'tips', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
+        'openair'  => ['stage', 'ticker', 'about', 'lineup', 'tickets', 'raffles', 'tips', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
         'welle'    => ['stage', 'lineup', 'tickets', 'more_dates', 'raffles', 'tips', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
     ];
 

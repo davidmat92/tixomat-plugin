@@ -314,6 +314,8 @@ class TIX_Public_Events {
                 $out['upsell']          = TIX_Event_Extras::upsell($id);
                 $out['venue_info']      = TIX_Event_Extras::venue_info($id);
                 $out['ticket_sponsor']  = TIX_Event_Extras::ticket_sponsor($id);
+                // Sponsoren-Liste (1.38.793): eigene des Events bzw. der Seite/des Veranstalters, Spiegel/Kopie: der Quelle
+                $out['sponsors']        = class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::event_public($id) : null;
                 $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;

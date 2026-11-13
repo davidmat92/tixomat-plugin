@@ -800,6 +800,7 @@ class TIX_Site_Move {
                 'lineup_acts' => class_exists('TIX_Lineup_Links') ? TIX_Lineup_Links::acts($e) : [],
                 'history' => class_exists('TIX_Event_History') ? TIX_Event_History::last_head_out($e) : null, // Verlauf (1.38.776)
                 'program' => self::program_payload($e), // Programm mit Zeiten, Bühnen, ausgeblendet/Zeiten folgen (1.38.778)
+                'sponsors' => class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::event_public($e) : null, // Sponsoren (1.38.793)
                 'artists' => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($e) : [],
                 // Ort und Kategorien für lokale Spiegel auf der Kunden-Seite (1.38.738)
                 'venue' => class_exists('TIX_Public_Platform') ? TIX_Public_Platform::venue($e) + ['address' => (string) get_post_meta($e, '_tix_address', true)] : null,
@@ -1018,6 +1019,7 @@ class TIX_Site_Move {
                 if ($acts) update_post_meta($id, '_tix_lineup_acts', $acts); else delete_post_meta($id, '_tix_lineup_acts');
             }
             if (array_key_exists('program', $it)) self::apply_program($id, $it['program']); // Programm (1.38.778); ältere Plattform ohne Feld: unverändert
+            if (array_key_exists('sponsors', $it) && class_exists('TIX_Sponsor_Logos')) TIX_Sponsor_Logos::store_snapshot($id, $it['sponsors']); // Sponsoren (1.38.793)
             if (array_key_exists('artists', $it) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) TIX_Artists::store_snapshot($id, (array) $it['artists']);
             if (class_exists('TIX_Shared_Objects')) { // Ort und Kategorien als lokale Spiegel (1.38.738)
                 if (is_array($it['venue'] ?? null)) TIX_Shared_Objects::sync_location($id, $it['venue']);

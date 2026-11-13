@@ -473,7 +473,7 @@ class TIX_Co_Remote {
             if ($method === 'POST' && array_key_exists('co_organizer', $b)) return $no('Den Co-Veranstalter kann nur der Veranstalter ändern.');
             return true;
         }
-        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf|history|history/[0-9]+|history/[0-9]+/restore|lock|lock/release|lock/break|lock/heartbeat)';
+        $ev_sub = '(edit|statistics|orders|guestlist|guestlist/[A-Za-z0-9-]+|tickets|report|report/export|raffle|raffle/entries|raffle/draw|raffle/notify|raffle/reset|ticket-fields|attendees|co-balance|co-balance/pdf|history|history/[0-9]+|history/[0-9]+/restore|lock|lock/release|lock/break|lock/heartbeat|sponsors)';
         if (preg_match('#^/events/' . $id . '/' . $ev_sub . '$#', $path, $m)) {
             if ($method === 'DELETE' && strpos($m[2], 'guestlist/') !== 0) return $no();
             return true;

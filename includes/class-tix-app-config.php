@@ -36,6 +36,7 @@ class TIX_App_Config {
             // Leer → App fällt auf die WordPress-Seite / Defaults zurück (mit SOS: nur `nav`, ohne `ok`; `features` immer)
             $out = $sos ? ['nav' => ['sos' => $sos]] : [];
             if ($features !== null) $out['features'] = $features;
+            if (class_exists('TIX_Sponsor_Logos')) $out['sponsors'] = TIX_Sponsor_Logos::app_public(TIX_Features::org_from_param($req->get_param('organizer') ?? $req->get_param('organizer_id'))); // 1.38.793
             return rest_ensure_response($out ?: new stdClass());
         }
         if ($features !== null) $c['features'] = $features;
@@ -50,6 +51,8 @@ class TIX_App_Config {
             $c['nav'] = (isset($c['nav']) && is_array($c['nav']) ? $c['nav'] : []);
             $c['nav']['sos'] = $sos;
         }
+        // Sponsoren (1.38.793): {places, main, partners} | null – Seite bzw. Veranstalter (?organizer=)
+        if (class_exists('TIX_Sponsor_Logos')) $c['sponsors'] = TIX_Sponsor_Logos::app_public(class_exists('TIX_Features') ? TIX_Features::org_from_param($req->get_param('organizer') ?? $req->get_param('organizer_id')) : 0);
         $c['ok'] = true;
         return rest_ensure_response($c);
     }

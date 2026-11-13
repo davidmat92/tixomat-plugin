@@ -5,7 +5,7 @@ $f = 0; $n = 0;
 $eq = function ($l, $e, $a) use (&$f, &$n) { $n++; if ($e === $a) { echo "ok    $l\n"; return; } $f++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; };
 $rest = function ($m, $r, $b = []) { $q = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b) { $q->set_header('content-type', 'application/json'); $q->set_body(wp_json_encode($b)); } $res = rest_do_request($q); $d = rest_get_server()->response_to_data($res, false); return [$res->get_status(), is_array($d) ? $d : []]; };
 $want = [
-    'openair' => ['stage', 'about', 'lineup', 'tickets', 'raffles', 'tips', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
+    'openair' => ['stage', 'ticker', 'about', 'lineup', 'tickets', 'raffles', 'tips', 'arrival', 'more_dates', 'gallery', 'faq', 'newsletter', 'app_banner'],
     'welle'   => ['stage', 'lineup', 'tickets', 'more_dates', 'raffles', 'tips', 'about', 'arrival', 'gallery', 'faq', 'newsletter', 'app_banner'],
 ];
 $a = get_users(['role' => 'administrator', 'number' => 1]); wp_set_current_user($a[0]->ID);

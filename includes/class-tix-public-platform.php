@@ -362,6 +362,7 @@ class TIX_Public_Platform {
         if (is_array($cached)) return rest_ensure_response($cached);
         $o = ($oid && !(class_exists('TIX_Co_Sites') && TIX_Co_Sites::public_hidden($oid))) ? self::organizer_payload($oid, true) : null;
         if (!$o) return new WP_Error('tix_organizer', 'Veranstalter nicht gefunden.', ['status' => 404]);
+        if (class_exists('TIX_Sponsor_Logos')) $o['sponsors'] = TIX_Sponsor_Logos::owner_public('organizer', $oid); // 1.38.793
         $resp = ['ok' => true, 'organizer' => $o];
         set_transient($cache, $resp, self::TTL);
         return rest_ensure_response($resp);

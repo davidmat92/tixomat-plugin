@@ -1958,6 +1958,7 @@ class TIX_Tickets {
 
         $gd = TIX_Ticket_Template::render_ticket_image($ticket_id, $config);
         if (!$gd) return null;
+        if (class_exists('TIX_Sponsor_Logos')) $gd = TIX_Sponsor_Logos::ticket_gd($gd, $event_id); // Sponsoren-Leiste (1.38.793)
 
         ob_start();
         imagejpeg($gd, null, 95);
@@ -1982,6 +1983,7 @@ class TIX_Tickets {
 
             if ($config && !empty($config['template_image_id'])) {
                 $gd = TIX_Ticket_Template::render_ticket_image($ticket_id, $config);
+                if ($gd && class_exists('TIX_Sponsor_Logos')) $gd = TIX_Sponsor_Logos::ticket_gd($gd, $event_id); // Sponsoren-Leiste (1.38.793)
 
                 if ($gd) {
                     if ($direct && $format === 'image') {
@@ -3938,6 +3940,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <?php if (class_exists('TIX_Sponsor_Logos')) echo TIX_Sponsor_Logos::ticket_html($event_id); // Sponsoren-Leiste (1.38.793) ?>
 
     <?php
     // ── Hidden Data-Container für Canvas-Renderer (Als Bild speichern / Teilen) ──

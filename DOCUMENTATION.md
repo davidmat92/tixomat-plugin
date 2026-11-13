@@ -6327,7 +6327,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 ## 182. Homepage-Vorlagen „Openair“ und „Welle“ (ab 1.38.788)
 - **`TIX_Website::TEMPLATES`** um `openair` und `welle` erweitert (auch Vertriebs-Vorschau, Veranstalterseite-Design `ticketschalter`). Fehlermeldungen nennen die Liste aus der Konstante.
 - **Vorgabe-Abschnitte** (Homepages-Chat, `uebergaben/homepages.md`):
-  - Openair: stage, about, lineup, tickets, raffles, tips, arrival, more_dates, gallery, faq, newsletter, app_banner
+  - Openair: stage, ticker (ab 1.38.793, marken-web 2704127c), about, lineup, tickets, raffles, tips, arrival, more_dates, gallery, faq, newsletter, app_banner
   - Welle: stage, lineup, tickets, more_dates, raffles, tips, about, arrival, gallery, faq, newsletter, app_banner
 - **Test:** `test-website-openair-welle-wp`.
 
@@ -6348,3 +6348,28 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Verwaltung (Gästeliste, Check-in, Kasse, Co, Archiv) ist nicht betroffen.
 - **Über Seiten:** Spiegel und Kopien halten keine eigene Sperre. `TIX_Source_Lock` reicht `lock*` (auch GET) an die Quelle weiter, das Token reist als `actor.lock` mit und wird an der Quelle wieder zur Kopfzeile (`/partner/co`, `/partner/source`, `/partner/co-events/{id}/call`). Name und Seite des Halters kommen damit immer von der Quelle.
 - **Tests:** `test-edit-lock-wp` (28/28), `test-co-remote-e2e` Abschnitt 4d: Sperre an der Quelle gilt am Spiegel für Betreiber und Co, Betreiber löst und hält, Freigeben am Spiegel.
+
+## 184. Sponsoren-Logos (ab 1.38.793)
+- **User (13.11.):** bis zu 3 Hauptsponsoren und 20 weitere, überall ausgespielt, an/aus. Vertrag: `uebergaben/vertrag-sponsoren.md`.
+- **`TIX_Sponsor_Logos`:**
+  - Tabellen `tix_sponsor_logos`, `tix_sponsor_settings` (JSON), `tix_sponsor_clicks`; Migrationsschritt `sponsoren`.
+  - Getrennt vom Sponsor-System (Kontingente, `TIX_Sponsor_DB`) und vom Ticket-Sponsor je Event.
+- **Je Seite** (evendis: je Veranstalter): `enabled` (Vorgabe aus) und `places`.
+  - Orte: web_home, web_event, web_footer, app_home, app_event, ticket, mail.
+  - Vorgabe: Website und App an, Fußzeile, Ticket und Mail aus.
+- **Je Event** `mode`: inherit, own (ersetzt) oder none.
+- **Routen:**
+  - Studio: `GET/PUT /studio/sponsors`, `POST /studio/sponsors/logo`, `GET/PUT /events/{id}/sponsors`.
+  - Klick: `GET /public/sponsors/{id}/go?src=` → 302, gezählt je Tag und Quelle, Bots nicht.
+- **Ausgabe:**
+  - `sponsors` in `/public/site-config` (Einzel-Seite), `/app/config` (evendis `?organizer=`), `/public/organizers/{key}` und `/public/events/{id}`.
+  - Website-Abschnitt `sponsors`.
+  - Ticket-PDF (GD-Leiste unten) und Ticketseite.
+  - Kunden-Mails: Filter `tix_mail_sponsors_html`; Bestell-Mails geben `event_id` mit.
+- **Geteilte Events:**
+  - Verteilung und Co-Abgleich tragen die wirksame Liste als Schnappschuss (`mode: snapshot`).
+  - Ändern geht per Durchgriff beim Ersteller (PUT wird dabei zu POST; Logo-IDs werden zu URLs).
+  - Die Bearbeitungssperre gilt (`CONTENT_SUB` enthält `sponsors`).
+- **Tests:**
+  - `test-sponsor-logos-wp` (27/27 kk/plat).
+  - `test-co-remote-e2e` 4e: Quelle → Spiegel; der Betreiber ändert am Spiegel, die Quelle speichert.

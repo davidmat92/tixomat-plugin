@@ -84,6 +84,7 @@ if ($mode === 'cleanup-kk') {
                 foreach (['_tix_pos_order_', '_tix_order_stock_taken_', '_tix_order_stock_restored_', '_tix_pos_receipt_'] as $o) delete_option($o . $oid);
             }
         }
+        if (class_exists('TIX_Sponsor_Logos')) { global $wpdb; $wpdb->delete(TIX_Sponsor_Logos::t('settings'), ['scope' => 'event', 'owner_id' => $eid]); $wpdb->delete(TIX_Sponsor_Logos::t('logos'), ['scope' => 'event', 'owner_id' => $eid]); }
         // Löschen schickt das DELETE an die Plattform (TIX_Syndication_Push::on_delete)
         wp_delete_post($eid, true);
     }
@@ -241,6 +242,28 @@ if (class_exists('TIX_Edit_Lock')) {
     e2e_eq('Herzschlag und Freigeben per sendBeacon (text/plain) am Spiegel gehen an die Quelle', [200, $mt, 200, true], [$h1, $hb['token'] ?? null, $rr->get_status(), $rr->get_data()['released'] ?? null]);
     [, $d8] = e2e_http($kk, 'GET', "/events/$sid/lock", [], $adm);
     e2e_eq('Freigeben am Spiegel gibt die Sperre an der Quelle frei', false, $d8['locked'] ?? null);
+}
+
+// 4e. Sponsoren über alle Seiten (1.38.793)
+if (class_exists('TIX_Sponsor_Logos')) {
+    $plr2 = function ($m, $r, $b = null) { $x = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b !== null) { $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($b)); } $res = rest_do_request($x); return [$res->get_status(), $res->get_data(), $res->get_headers()]; };
+    [$s1] = e2e_http($kk, 'PUT', '/studio/sponsors', ['enabled' => true, 'main' => [['name' => 'KK-Sponsor', 'logo' => ['url' => 'https://kk.example/logo.png'], 'link' => 'https://kk.example']], 'partners' => []], $adm);
+    [$s2] = e2e_http($kk, 'PUT', "/events/$sid/sponsors", ['mode' => 'inherit'], $adm); // speichert + verteilt
+    wp_cache_flush();
+    $sp = TIX_Sponsor_Logos::event_public($mirror);
+    e2e_eq('Sponsoren der Quelle kommen am Spiegel an (Klick-Link zählt bei der Quelle)', [200, 200, 'KK-Sponsor', true],
+        [$s1, $s2, $sp['main'][0]['name'] ?? null, strpos((string) ($sp['main'][0]['link'] ?? ''), (string) wp_parse_url($kk, PHP_URL_HOST)) !== false]);
+    $padm = get_users(['role' => 'administrator', 'number' => 1])[0];
+    wp_set_current_user($padm->ID);
+    [$s3, , $h3] = $plr2('PUT', "/events/$mirror/sponsors", ['mode' => 'own', 'main' => [['name' => 'Vom Betreiber', 'logo' => ['url' => 'https://evendis.example/l.png']]], 'partners' => []]);
+    wp_set_current_user(0);
+    wp_cache_flush();
+    [, $e3] = e2e_http($kk, 'GET', "/events/$sid/sponsors", [], $adm);
+    $sp = TIX_Sponsor_Logos::event_public($mirror);
+    e2e_eq('Betreiber ändert Event-Sponsoren am Spiegel → beim Ersteller gespeichert, Spiegel folgt', [200, 'operator', 'own', 'Vom Betreiber'],
+        [$s3, $h3['X-Tix-Forwarded'] ?? null, $e3['mode'] ?? null, $sp['main'][0]['name'] ?? null]);
+    e2e_http($kk, 'PUT', "/events/$sid/sponsors", ['mode' => 'inherit', 'main' => [], 'partners' => []], $adm);
+    e2e_http($kk, 'PUT', '/studio/sponsors', ['enabled' => false, 'main' => [], 'partners' => []], $adm);
 }
 
 // 5. Gästeliste

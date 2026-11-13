@@ -313,6 +313,8 @@ class TIX_Syndication_Push {
             // Künstler in Line-up-Reihenfolge mit Bildern, Links, Künstlerseite (1.38.723); der Spiegel liefert sie als `artists`
             'artists'         => class_exists('TIX_Artists') && method_exists('TIX_Artists', 'snapshot') ? TIX_Artists::snapshot($post_id) : null,
             'history'         => class_exists('TIX_Event_History') ? TIX_Event_History::outgoing($post_id) : null, // Verlauf: wer/wo (1.38.776)
+            // Sponsoren (1.38.793): wirksame öffentliche Liste mit Ausspielorten; Klick-Links zählen hier beim Ersteller
+            'sponsors'        => class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::event_public($post_id) : null,
         ];
 
         // Push oder Update?

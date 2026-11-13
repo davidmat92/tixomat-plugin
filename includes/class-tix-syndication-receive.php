@@ -402,6 +402,9 @@ class TIX_Syndication_Receive {
         // Nur-Bestand-Update: Ort bleibt unverändert
         if (empty($data['stock_only'])) self::apply_venue($event_id, $data);
 
+        // Sponsoren der Quelle als Schnappschuss (1.38.793); ältere Quellen ohne Feld: unverändert
+        if (empty($data['stock_only']) && array_key_exists('sponsors', (array) $data) && class_exists('TIX_Sponsor_Logos')) TIX_Sponsor_Logos::store_snapshot($event_id, $data['sponsors']);
+
         // Künstler der Quelle als Schnappschuss (1.38.723); ältere Quellen ohne Feld: fremde Zuordnungen trotzdem entfernen
         if (empty($data['stock_only']) && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'store_snapshot')) {
             if (array_key_exists('artists', (array) $data)) TIX_Artists::store_snapshot($event_id, is_array($data['artists']) ? $data['artists'] : []);
