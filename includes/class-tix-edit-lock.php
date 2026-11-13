@@ -5,7 +5,7 @@
  *
  * Die Sperre liegt an der Quelle; Spiegel und Kopien reichen /lock-Aufrufe und das Token (X-Tix-Edit-Lock) über den Durchgriff
  * (TIX_Source_Lock) weiter. Halter = Person + Seite (aus dem Verlaufs-Kontext, auch hinter dem Durchgriff). Herzschlag verlängert,
- * ohne Herzschlag Ablauf nach tix_edit_lock_ttl (Vorgabe 180 s). Speichern bei fremder Sperre → 409 tix_event_locked mit Name;
+ * ohne Herzschlag Ablauf nach tix_edit_lock_ttl (Vorgabe 300 s = 5 min, User 13.11.). Speichern bei fremder Sperre → 409 tix_event_locked mit Name;
  * im strengen Modus (tix_edit_lock_strict = 1) auch ohne Token → 409 tix_event_lock_required.
  */
 if (!defined('ABSPATH')) exit;
@@ -57,7 +57,7 @@ class TIX_Edit_Lock {
     }
 
     public static function ttl() {
-        return max(60, min(600, intval(get_option('tix_edit_lock_ttl', 180))));
+        return max(60, min(600, intval(get_option('tix_edit_lock_ttl', 300))));
     }
 
     public static function strict() {

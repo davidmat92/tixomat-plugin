@@ -18,7 +18,7 @@ try {
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Sperr-Test']);
     [$st, $d] = $rest('POST', "/events/$ev/lock", []);
     $ta = (string) ($d['token'] ?? '');
-    $eq('Anna holt die Sperre: Token, Halter, ttl', [200, true, 'Anna', 180], [$st, strlen($ta) === 32, $d['holder']['name'] ?? null, $d['ttl'] ?? null]);
+    $eq('Anna holt die Sperre: Token, Halter, ttl', [200, true, 'Anna', 300], [$st, strlen($ta) === 32, $d['holder']['name'] ?? null, $d['ttl'] ?? null]);
     wp_set_current_user($B);
     [$st, $d] = $rest('GET', "/events/$ev/lock");
     $eq('Bernd sieht: gesperrt von Anna, nicht seine', [200, true, false, 'Anna'], [$st, $d['locked'] ?? null, $d['mine'] ?? null, $d['holder']['name'] ?? null]);
