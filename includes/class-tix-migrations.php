@@ -57,6 +57,7 @@ class TIX_Migrations {
             'konten_zusammen'    => function () { if (class_exists('TIX_Customer_Merge')) TIX_Customer_Merge::install(); },
             'bearbeitungssperre' => function () { if (class_exists('TIX_Edit_Lock')) TIX_Edit_Lock::install(); },
             'sponsoren'          => function () { if (class_exists('TIX_Sponsor_Logos')) TIX_Sponsor_Logos::install(); },
+            'event_vorlagen'     => function () { if (class_exists('TIX_Event_Tools')) TIX_Event_Tools::install(); },
             // Künstlerdaten (Kennungen, Links, Bilder, Kurztext) rückwirkend an Spiegel und Co-Kopien (1.38.795)
             'kuenstler_abgleich' => function () {
                 if (get_option('tix_artist_sync_795', '') !== '') return; // einmal

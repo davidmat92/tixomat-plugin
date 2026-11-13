@@ -6485,3 +6485,19 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`render_ticket_image($id, $config, $sample)`:** Vorschau mit eigenen Daten.
 - **Inhalts-Route:** Bearbeitungssperre (`ticket-design` in `CONTENT_SUB`) und Co-Durchgriff.
 - **Test:** `test-ticket-design-wp` (19/19 kk/plat).
+
+## 191. Serien, Event-Vorlagen, Sammeländerung (P5 Expertenmodus, ab 1.38.801)
+- **Auftrag:** B4, B12, B13. Vertrag `uebergaben/vertrag-serien-vorlagen.md`. Klasse `TIX_Event_Tools`.
+- **Serien:**
+  - `GET/POST /events/{id}/series`, `…/series/skip`, `…/series/detach` auf `TIX_Recurrence`.
+  - Neu `_tix_recurrence_detached`: Ein gelöster Termin folgt der Serie nicht mehr. `sync` überspringt ihn; beim Wieder-Anhängen wird der Hash gelöscht und der Termin neu geschrieben.
+  - Wieder aufgenommene Termine kommen mit altem Status aus dem Papierkorb.
+- **Vorlagen:**
+  - Tabelle `tix_event_templates` (owner_id, name, source_event_id, data JSON), Migrationsschritt `event_vorlagen`.
+  - Schnappschuss mit den Kopier-Regeln (`TIX_Event_Copy::copyable` + `TIX_Columns::DUPLICATE_SKIP`, ohne Datum/Wiederholung/Sitzplan-Schnappschuss).
+  - `GET/POST /studio/event-templates`, `POST/DELETE /studio/event-templates/{id}`, `POST …/{id}/create` (Entwurf, Kontingente voll).
+- **Sammeländerung:**
+  - `POST /studio/events/bulk` (≤ 100; status, tickets_enabled, presale_active, presale_end, price percent|add|set je Kategorie-Name; `dry_run`).
+  - Überspringt gesperrte und geteilte Events sowie solche ohne Zugriff; verteilt danach.
+- **Bearbeitungssperre:** `series*` in `CONTENT_SUB`.
+- **Test:** `test-event-tools-wp` (19/20 kk/plat).

@@ -36,6 +36,7 @@ class TIX_Recurrence {
     const META_HASH    = '_tix_recurrence_hash';
     const META_AUTO    = '_tix_recurrence_auto_trashed';
     const META_SKIP    = '_tix_recurrence_skip';
+    const META_DETACHED = '_tix_recurrence_detached'; // Termin einzeln geändert: Master-Änderungen erreichen ihn nicht mehr (1.38.801)
 
     /** Meta-Präfixe, die nie in einen Termin kopiert werden. */
     const SKIP_PREFIXES = [
@@ -316,6 +317,9 @@ class TIX_Recurrence {
     /**
      * Termine eines Masters abgleichen. Rückgabe: Zähler {created, updated, trashed}.
      */
+    /** Zeitraum-Fenster (Tage) und Höchstzahl für Studio-Antworten */
+    public static function limits() { return ['window_days' => self::WINDOW_DAYS, 'max_count' => self::MAX_COUNT]; }
+
     public static function sync($master_id) {
         $res = ['created' => 0, 'updated' => 0, 'trashed' => 0];
         $master = get_post($master_id);
@@ -342,6 +346,7 @@ class TIX_Recurrence {
             foreach ($existing as $date => $cid) {
                 if ($date < $today || isset($dates[$date])) continue;
                 if (get_post_status($cid) === 'trash') continue;
+                if (get_post_meta($cid, self::META_DETACHED, true) === '1') continue;
                 if (self::occurrence_offset($master_id, $date) !== null) continue; // jenseits des Fensters, aber gültig
                 if (self::has_sales($cid)) continue;
                 self::trash_child($cid);
@@ -353,6 +358,7 @@ class TIX_Recurrence {
                 if (isset($existing[$date])) {
                     $cid = $existing[$date];
                     if (get_post_status($cid) === 'trash') continue; // von Hand gelöscht
+                    if (get_post_meta($cid, self::META_DETACHED, true) === '1') continue; // einzeln geändert
                     if (get_post_meta($cid, self::META_HASH, true) === $sig) continue;
                     if (self::has_sales($cid)) continue;
                     self::write_child($master_id, $date, $offset, $sig, $cid);
@@ -364,6 +370,7 @@ class TIX_Recurrence {
             // Künftige Termine jenseits des 8-Wochen-Fensters (z. B. früher angelegt) ebenfalls aktuell halten
             foreach ($existing as $date => $cid) {
                 if ($date < $today || isset($dates[$date]) || get_post_status($cid) === 'trash') continue;
+                if (get_post_meta($cid, self::META_DETACHED, true) === '1') continue;
                 $offset = self::occurrence_offset($master_id, $date);
                 if ($offset === null || get_post_meta($cid, self::META_HASH, true) === $sig || self::has_sales($cid)) continue;
                 self::write_child($master_id, $date, $offset, $sig, $cid);
