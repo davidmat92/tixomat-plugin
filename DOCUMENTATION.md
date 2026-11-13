@@ -6384,3 +6384,19 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Ohne gespeicherte Vorlage ergibt das App-Profil `festival*` jetzt `openair`.
 - **Nicht betroffen:** App-Profile/Layouts `festival`/`festivalTour` (`TIX_Site_Brand`, `TIX_Studio`) und das Demo-Profil „Festival“.
 - **Bestand (13.11., lesend):** Keine Live-Seite hat `festival` als Website-Vorlage gespeichert (KK club, Mallorca openair, KMT plakat, evendis keine).
+
+## 186. Künstlerdaten überall gleich + Hörproben aus dem Künstlerprofil (ab 1.38.795)
+- **User (13.11.):** „für alle acts bei kitchen suchen die links damit es überall vorschauen gibt. muss bei geteilten events und co-veranstalter auch immer syncronisiert werden die daten“.
+- **Bestand vorher:**
+  - Hörproben je Event (`/public/events/{id}/artists`, Apple-Lauf) kamen nur aus dem Line-up-Link-Speicher (`tix_lineup_links`: automatische Namenssuche bzw. Event-Einstellung). Die Kennung im Künstlerprofil wirkte dort nicht.
+  - Der Schnappschuss für Spiegel/Kopien (`_tix_source_artists`) trug Links, Bilder und Kurztext, aber keine Kennungen.
+  - Eine Profiländerung kam erst beim nächsten Speichern des Events an.
+- **Jetzt (kein zweiter Weg, nur der vorhandene Schnappschuss/Verteilung):**
+  - `TIX_Artists::rows_with_artist_links` (Route `artists` und Apple-Lauf): Zeilen ohne eigene Event-Einstellung (`source: auto`) nehmen Apple-/Spotify-Link des verknüpften Künstlerprofils. Auf Kopien kommt der Link aus dem Schnappschuss. „Kein Link“ bzw. ein manueller Link im Event bleiben.
+  - Der Schnappschuss trägt `ids {spotify, apple}` (geprüft); Spiegel-Künstler (`TIX_Shared_Objects::sync_artists`) übernehmen sie.
+  - `save_raw` → `queue_propagate` (30 s gebündelt, nie für Spiegel-Künstler) → `propagate($id)`.
+    - Kommende Events des Künstlers neu verteilen (`push_event`).
+    - Auf evendis Co-Kunden-Seiten abgleichen (`sync_sites_of_event`); evendis gleicht nach dem Empfang ohnehin ab.
+  - Rückwirkend: Migrationsschritt `kuenstler_abgleich` (einmal, Option `tix_artist_sync_795`) plant `propagate(0)` (alle kommenden Events mit Künstlern) und auf Kunden-Seiten `schedule_co_resync`.
+  - CLI: `wp tixomat artists propagate [--id=<Künstler>]`.
+- **Tests:** `test-artist-sync-wp` (10/10 kk/plat).

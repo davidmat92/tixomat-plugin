@@ -49,6 +49,66 @@ class TIX_Artists {
             if (!wp_next_scheduled('tix_artist_links_repair')) wp_schedule_single_event(time() + 240, 'tix_artist_links_repair');
         }, 40);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat artists', [__CLASS__, 'cli']);
+        // Künstlerdaten überall gleich (1.38.795): Änderung → Events des Künstlers neu verteilen (Spiegel, Co-Kopien)
+        add_action(self::PROPAGATE_HOOK, [__CLASS__, 'propagate']);
+    }
+
+    const PROPAGATE_HOOK = 'tix_artist_propagate';
+
+    /** Nach einer Änderung am Künstler: verteilen anstoßen (30 s gebündelt). Spiegel-Künstler (fremde Seite) nie. */
+    public static function queue_propagate($id) {
+        $id = intval($id);
+        if (!$id || self::$quiet) return;
+        if (class_exists('TIX_Shared_Objects') && TIX_Shared_Objects::mirror($id)) return;
+        if (!wp_next_scheduled(self::PROPAGATE_HOOK, [$id])) wp_schedule_single_event(time() + 30, self::PROPAGATE_HOOK, [$id]);
+    }
+
+    /**
+     * Kommende Events eines Künstlers (0 = alle mit Künstlern) neu verteilen: an die Plattform (Verteilung, Schnappschuss mit
+     * Kennungen/Links/Bildern/Kurztext) und auf evendis an die Kunden-Seiten der Co-Veranstalter (Abgleich). → Anzahl Events
+     */
+    public static function propagate($id = 0) {
+        $id = intval($id);
+        $today = current_time('Y-m-d');
+        $ids = $id ? self::event_ids($id, ['publish', 'future']) : get_posts(['post_type' => 'event', 'post_status' => ['publish', 'future'], 'posts_per_page' => 500, 'fields' => 'ids', 'no_found_rows' => true,
+            'meta_query' => [['key' => self::EV_META, 'compare' => 'EXISTS']]]);
+        $n = 0;
+        foreach (array_unique(array_map('intval', (array) $ids)) as $eid) {
+            if (self::is_copy($eid)) continue;
+            if ((string) (get_post_meta($eid, '_tix_date_end', true) ?: get_post_meta($eid, '_tix_date_start', true)) < $today) continue;
+            if (class_exists('TIX_Syndication_Push') && get_post_meta($eid, '_tix_syndicate', true) === '1') TIX_Syndication_Push::push_event($eid);
+            if (class_exists('TIX_Co_Sites') && method_exists('TIX_Co_Sites', 'sync_sites_of_event')) TIX_Co_Sites::sync_sites_of_event($eid);
+            $n++;
+        }
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        return $n;
+    }
+
+    /**
+     * Line-up-Zeilen mit Künstlern verknüpfen und deren Apple-/Spotify-Links übernehmen, wo die Zeile keinen eigenen hat
+     * (Quelle „auto“): das Künstlerprofil ist die eine Stelle für Kennungen (1.38.795). Für Hörproben (Route, Apple-Lauf).
+     */
+    public static function rows_with_artist_links(array $rows, $event_id) {
+        $rows = self::link_lineup($rows, $event_id);
+        foreach ($rows as &$r) {
+            if (($r['source'] ?? 'auto') !== 'auto') continue;
+            if (!empty($r['artist_apple'])) $r['apple_music'] = $r['artist_apple'];
+            if (!empty($r['artist_spotify'])) $r['spotify'] = $r['artist_spotify'];
+        }
+        unset($r);
+        return $rows;
+    }
+
+    /** Apple-/Spotify-Link eines Künstlers (Eintrag aus event_public/Schnappschuss oder ID) → [apple, spotify] */
+    private static function artist_music_links($ar) {
+        $links = is_array($ar['links'] ?? null) ? $ar['links'] : null;
+        $ids = is_array($ar['ids'] ?? null) ? $ar['ids'] : null;
+        if ($links === null && intval($ar['id'] ?? 0)) { $d = self::raw(intval($ar['id'])) ?: []; $links = (array) ($d['links'] ?? []); $ids = (array) ($d['ids'] ?? []); }
+        $apple = (string) ($links['apple_music'] ?? '');
+        if (!preg_match('#^https://music\.apple\.com/#', $apple)) $apple = ($ids['apple'] ?? '') !== '' && preg_match('/^\d{3,15}$/', (string) $ids['apple']) ? 'https://music.apple.com/de/artist/' . $ids['apple'] : '';
+        $sp = (string) ($links['spotify'] ?? '');
+        if (!preg_match('#^https://open\.spotify\.com/artist/#', $sp)) $sp = ($ids['spotify'] ?? '') !== '' ? 'https://open.spotify.com/artist/' . $ids['spotify'] : '';
+        return [$apple ?: null, $sp ?: null];
     }
 
     public static function multi() {
@@ -483,6 +543,7 @@ class TIX_Artists {
         update_post_meta($id, self::META_APPLE, (string) ($d['ids']['apple'] ?? ''));
         unset(self::$cache[intval($id)]);
         self::flush_cache();
+        self::queue_propagate($id); // überall nachziehen (1.38.795)
     }
 
     private static function log($id, $action, array $extra = []) {
@@ -684,6 +745,7 @@ class TIX_Artists {
             $row['portrait'] = $ar['portrait'] ?? null;
             $row['cover'] = $ar['cover'] ?? null;
             $row['credit'] = (string) ($ar['credit'] ?? '');
+            [$row['artist_apple'], $row['artist_spotify']] = $ar ? self::artist_music_links($ar) : [null, null]; // 1.38.795
             $src = !empty($row['picture']) ? 'act' : null;
             if (!$src && $ar) {
                 $pic = ($ar['portrait'] ?? null) ?: ($ar['cover'] ?? null);
@@ -729,6 +791,7 @@ class TIX_Artists {
             $out[] = ['source_id' => intval($a['id']), 'name' => self::dec($a['name']), 'role' => (string) ($a['role'] ?? 'headliner'), 'tour' => $a['tour'] ?? null,
                 'kind' => (string) ($d['kind'] ?? 'solo'), 'short_bio' => (string) ($d['short_bio'] ?? ''),
                 'links' => array_merge(array_fill_keys(self::LINKS, null), array_filter((array) ($d['links'] ?? []))),
+                'ids' => ['spotify' => ($d['ids']['spotify'] ?? '') ?: null, 'apple' => ($d['ids']['apple'] ?? '') ?: null], // Kennungen für Hörproben (1.38.795)
                 'image' => $a['image'] ?? null, 'image_source' => $a['image_source'] ?? null,
                 'images' => $a['images'] ?? ['cover' => null, 'portrait' => null], 'portrait' => $a['portrait'] ?? null, 'cover' => $a['cover'] ?? null, 'credit' => (string) ($a['credit'] ?? ''),
                 'url' => $slug ? trailingslashit($base) . 'kuenstler/' . $slug . '/' : null];
@@ -756,6 +819,8 @@ class TIX_Artists {
             $out[] = ['source_id' => intval($a['source_id'] ?? ($a['id'] ?? 0)), 'name' => $name, 'role' => in_array($a['role'] ?? '', self::ROLES, true) ? $a['role'] : 'headliner',
                 'tour' => ($t = sanitize_text_field((string) ($a['tour'] ?? ''))) !== '' ? $t : null, 'kind' => in_array($a['kind'] ?? '', self::KINDS, true) ? $a['kind'] : 'solo',
                 'short_bio' => mb_substr(sanitize_textarea_field((string) ($a['short_bio'] ?? '')), 0, 600), 'links' => $links,
+                'ids' => ['spotify' => preg_match('/^[A-Za-z0-9]{10,40}$/', (string) ($a['ids']['spotify'] ?? '')) ? (string) $a['ids']['spotify'] : null,
+                    'apple' => preg_match('/^\d{3,15}$/', (string) ($a['ids']['apple'] ?? '')) ? (string) $a['ids']['apple'] : null],
                 'image' => ($u = esc_url_raw((string) ($a['image'] ?? ''))) !== '' ? $u : null, 'image_source' => in_array($a['image_source'] ?? '', ['artist', 'act'], true) ? $a['image_source'] : null,
                 'images' => ['cover' => $img($a['images']['cover'] ?? null), 'portrait' => $img($a['images']['portrait'] ?? null)],
                 'portrait' => $img($a['portrait'] ?? null), 'cover' => $img($a['cover'] ?? null), 'credit' => sanitize_text_field((string) ($a['credit'] ?? '')),
@@ -1776,6 +1841,10 @@ class TIX_Artists {
      */
     public static function cli($args, $assoc) {
         $cmd = (string) ($args[0] ?? '');
+        if ($cmd === 'propagate') { // 1.38.795: Künstlerdaten an Spiegel/Co-Kopien nachziehen (--id=<Künstler>, sonst alle kommenden Events)
+            WP_CLI::success(sprintf('%d Events neu verteilt.', self::propagate(intval($assoc['id'] ?? 0))));
+            return;
+        }
         if ($cmd === 'sync-photos') {
             $dry = isset($assoc['trocken']) || isset($assoc['dry-run']);
             $r = self::sync_photos(intval($assoc['event'] ?? 0), $dry);

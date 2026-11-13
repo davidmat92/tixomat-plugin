@@ -792,7 +792,7 @@ class TIX_Lineup_Links {
         $limit = $req->get_param('top') !== null ? max(1, min(10, intval($req->get_param('top')))) : 10; // ?top= begrenzt die Titel je Act
         $rows = self::for_event($id);
         // Künstler des Events (1.38.535): artist_id, artist_slug, portrait/cover {medium, large, credit}, credit; fehlendes Foto vom Künstler
-        if (class_exists('TIX_Artists')) $rows = TIX_Artists::link_lineup($rows, $id);
+        if (class_exists('TIX_Artists')) $rows = TIX_Artists::rows_with_artist_links($rows, $id); // + Apple/Spotify des Künstlerprofils (1.38.795)
         foreach ($rows as $r) {
             $out[] = ['name' => $r['name'], 'artist' => $r['artist'], 'picture' => $r['picture'], 'picture_thumb' => $r['picture_thumb'],
                 'deezer_url' => null, 'top' => $am ? TIX_Apple_Music::top_for($r, $missing, $limit) : [], 'spotify' => $r['spotify'], 'apple_music' => $r['apple_music'], 'source' => $r['source'],

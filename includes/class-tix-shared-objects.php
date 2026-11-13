@@ -190,7 +190,8 @@ class TIX_Shared_Objects {
             }
             $credit = (string) (($a['portrait']['credit'] ?? '') ?: ($a['credit'] ?? ''));
             update_post_meta($mid, TIX_Artists::META, ['kind' => (string) ($a['kind'] ?? 'solo'), 'short_bio' => (string) ($a['short_bio'] ?? ''), 'links' => $links,
-                'images' => $att ? ['portrait' => ['id' => $att, 'credit' => $credit]] : [], 'ids' => ['spotify' => '', 'apple' => ''], 'tours' => [], 'status' => 'public', 'verified' => false,
+                'images' => $att ? ['portrait' => ['id' => $att, 'credit' => $credit]] : [],
+                'ids' => ['spotify' => (string) ($a['ids']['spotify'] ?? ''), 'apple' => (string) ($a['ids']['apple'] ?? '')], 'tours' => [], // Kennungen der Quelle (1.38.795) 'status' => 'public', 'verified' => false,
                 'managed_by' => $org ? ['type' => 'organizer', 'id' => $org] : ['type' => 'site', 'id' => 0]]);
             update_post_meta($mid, TIX_Artists::META_NORM, TIX_Artists::norm($name));
             update_post_meta($mid, self::META, ['host' => $src['host'], 'site' => $src['site'], 'source_id' => intval($a['source_id'] ?? 0) ?: null,

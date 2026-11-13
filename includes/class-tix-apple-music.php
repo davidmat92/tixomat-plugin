@@ -252,7 +252,9 @@ class TIX_Apple_Music {
         $budget = self::BUDGET;
         $seen = [];
         foreach ($ids as $eid) {
-            foreach (TIX_Lineup_Links::for_event($eid) as $row) {
+            $lrows = TIX_Lineup_Links::for_event($eid);
+            if (class_exists('TIX_Artists') && method_exists('TIX_Artists', 'rows_with_artist_links')) $lrows = TIX_Artists::rows_with_artist_links($lrows, $eid); // Kennung des Künstlerprofils (1.38.795)
+            foreach ($lrows as $row) {
                 if ($budget <= 0) break 2;
                 $t = self::target($row);
                 if (!$t) continue;

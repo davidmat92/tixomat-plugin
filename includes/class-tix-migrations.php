@@ -57,6 +57,13 @@ class TIX_Migrations {
             'konten_zusammen'    => function () { if (class_exists('TIX_Customer_Merge')) TIX_Customer_Merge::install(); },
             'bearbeitungssperre' => function () { if (class_exists('TIX_Edit_Lock')) TIX_Edit_Lock::install(); },
             'sponsoren'          => function () { if (class_exists('TIX_Sponsor_Logos')) TIX_Sponsor_Logos::install(); },
+            // Künstlerdaten (Kennungen, Links, Bilder, Kurztext) rückwirkend an Spiegel und Co-Kopien (1.38.795)
+            'kuenstler_abgleich' => function () {
+                if (get_option('tix_artist_sync_795', '') !== '') return; // einmal
+                update_option('tix_artist_sync_795', gmdate('c'), false);
+                if (class_exists('TIX_Artists') && !wp_next_scheduled(TIX_Artists::PROPAGATE_HOOK, [0])) wp_schedule_single_event(time() + 120, TIX_Artists::PROPAGATE_HOOK, [0]);
+                if (class_exists('TIX_Site_Move') && method_exists('TIX_Site_Move', 'schedule_co_resync')) TIX_Site_Move::schedule_co_resync();
+            },
             // Co-Kopien auf Kunden-Seiten nach jedem Update einmal abgleichen (z. B. Programm ab 1.38.778), statt bis zu einer Stunde zu warten
             'co_kopien'          => function () { if (class_exists('TIX_Site_Move') && method_exists('TIX_Site_Move', 'schedule_co_resync')) TIX_Site_Move::schedule_co_resync(); },
         ];
