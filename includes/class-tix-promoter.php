@@ -642,8 +642,11 @@ class TIX_Promoter {
             if (class_exists('TIX_Promoter_Rules')) {
                 $cat_ix = $is_wc ? -1 : TIX_Promoter_Rules::cat_index_of($item, $event_id);
                 $cat_rules = TIX_Promoter_Rules::cat_commission($event_id);
-                if ($eff['source'] === 'none' && !($cat_ix >= 0 && isset($cat_rules[$cat_ix]))) continue;
-                $ap = TIX_Promoter_Rules::apply($promoter, $event_id, $cat_ix, $qty, $line_total, $eff);
+                if ($eff['source'] === 'none' && !($cat_ix >= 0 && isset($cat_rules[$cat_ix])) && !(class_exists('TIX_Promoter_Partner') && TIX_Promoter_Partner::rate_for($promoter_id, $event_id, $cat_ix))) continue;
+                // Eigener Kategorie-Satz des Promoters/Partners (R1, 1.38.812) vor den Kategorie-Regeln des Events
+                $own = class_exists('TIX_Promoter_Partner') ? TIX_Promoter_Partner::rate_for($promoter_id, $event_id, $cat_ix) : null;
+                if ($own) $eff = $own;
+                $ap = TIX_Promoter_Rules::apply($promoter, $event_id, $cat_ix, $qty, $line_total, $eff, (bool) $own);
                 $commission = $ap['commission'];
             } else {
                 if ($eff['source'] === 'none') continue; // keine Provision irgendwo gesetzt → skip

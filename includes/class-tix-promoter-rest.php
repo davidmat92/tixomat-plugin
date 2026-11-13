@@ -119,6 +119,7 @@ class TIX_Promoter_REST {
         TIX_Promoter_DB::ensure_default_coupon_column();
         TIX_Promoter_DB::ensure_org_column();
         TIX_Promoter_DB::ensure_clicks_table();
+        if (class_exists('TIX_Promoter_Partner')) TIX_Promoter_Partner::ensure_columns(); // Partner (R1, 1.38.812)
         return true;
     }
 
@@ -203,7 +204,8 @@ class TIX_Promoter_REST {
             'has_account' => intval($p->user_id) > 0, 'created' => $p->created_at ? mysql_to_rfc3339($p->created_at) : null, 'self_signup' => (string) ($p->notes ?? '') === 'Self-Signup',
             'clicks' => intval($st['clicks'] ?? 0), 'visitors' => intval($st['visitors'] ?? 0), 'orders' => intval($st['orders'] ?? 0), 'tickets' => intval($st['tickets'] ?? 0),
             'revenue' => floatval($st['revenue'] ?? 0), 'commission' => $st['commission'] ?? $z, 'balance' => floatval($st['balance'] ?? 0), 'balance_waiting' => floatval($st['balance_waiting'] ?? 0), 'last_sale' => $st['last_sale'] ?? null,
-            'links' => self::links($code, self::base())] + (class_exists('TIX_Promoter_Rules') ? TIX_Promoter_Rules::promoter_fields($p) : []);
+            'links' => self::links($code, self::base())] + (class_exists('TIX_Promoter_Rules') ? TIX_Promoter_Rules::promoter_fields($p) : [])
+            + (class_exists('TIX_Promoter_Partner') ? TIX_Promoter_Partner::item_fields($p) : []);
     }
 
     private static function period(WP_REST_Request $req) {
@@ -221,6 +223,8 @@ class TIX_Promoter_REST {
         $status = (string) ($req->get_param('status') ?: 'active');
         $sql = $wpdb->prepare("SELECT * FROM " . TIX_Promoter_DB::table_promoters() . " WHERE organizer_id = %d", $org);
         if (in_array($status, ['active', 'inactive', 'pending'], true)) $sql .= $wpdb->prepare(' AND status = %s', $status);
+        $kind = (string) $req->get_param('kind'); // Partner (R1): ?kind=partner|person
+        if (in_array($kind, ['partner', 'person'], true)) $sql .= $wpdb->prepare(" AND COALESCE(kind, 'person') = %s", $kind);
         $rows = (array) $wpdb->get_results($sql . ' ORDER BY display_name ASC, id ASC');
         list($from, $to) = self::period($req);
         $st = self::stats(array_map(function ($p) { return intval($p->id); }, $rows), $from, $to);
@@ -268,9 +272,12 @@ class TIX_Promoter_REST {
         }
         $code = strtolower(trim((string) $req->get_param('code')));
         if ($code !== '') { if ($e = self::valid_code($code)) return $e; } else $code = self::gen_code($name);
+        $pset = [];
+        if (class_exists('TIX_Promoter_Partner')) { list($pset, $perr) = TIX_Promoter_Partner::fields($req); if ($perr) return $perr; }
         $id = TIX_Promoter_DB::insert_promoter(['user_id' => 0, 'organizer_id' => $org, 'email' => $email, 'promoter_code' => $code, 'display_name' => $name, 'status' => 'active',
             'notes' => mb_substr(sanitize_textarea_field((string) $req->get_param('notes')), 0, 1000)]);
         if (!$id) return new WP_Error('tix_db', 'Der Promoter konnte nicht angelegt werden.', ['status' => 500]);
+        if ($pset) { global $wpdb; $wpdb->update(TIX_Promoter_DB::table_promoters(), $pset, ['id' => intval($id)]); }
         $c = $req->get_param('commission');
         if (is_array($c) && floatval($c['value'] ?? 0) > 0) {
             $res = self::assign($id, 0, $c, []);
@@ -295,6 +302,7 @@ class TIX_Promoter_REST {
             $url = $eid ? self::event_url($eid) : self::base();
             $out['assignments'][] = ['event_id' => $eid, 'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : 'Alle Events', 'event_date' => $eid ? (string) get_post_meta($eid, '_tix_date_start', true) : '',
                 'commission_type' => (string) $a->commission_type, 'commission_value' => floatval($a->commission_value), 'discount_type' => (string) $a->discount_type, 'discount_value' => floatval($a->discount_value),
+                'category_rates' => (function ($raw) { $r = $raw ? json_decode((string) $raw, true) : null; $o = []; foreach ((array) $r as $ix => $x) $o[] = ['cat_index' => intval($ix), 'type' => (string) ($x['type'] ?? 'percent'), 'value' => floatval($x['value'] ?? 0)]; return $o; })($a->category_rates ?? null),
                 'promo_code' => (string) $a->promo_code, 'links' => self::links($p->promoter_code, $url, $eid ? self::link_coupon($a) : '', $eid)];
         }
         $out['sales'] = array_map(function ($c) {
@@ -329,6 +337,7 @@ class TIX_Promoter_REST {
                 $set['promoter_code'] = $c; // alte Links ordnen danach nicht mehr zu (Hinweis im Studio)
             }
         }
+        if (class_exists('TIX_Promoter_Partner')) { list($pset, $perr) = TIX_Promoter_Partner::fields($req, $p); if ($perr) return $perr; if ($pset) { global $wpdb; $wpdb->update(TIX_Promoter_DB::table_promoters(), $pset, ['id' => intval($p->id)]); } }
         if ($set) TIX_Promoter_DB::update_promoter(intval($p->id), $set);
         if ($approve) do_action('tix_promoter_approved', intval($p->id)); // Regeln: automatische Zuordnung
         // Nach der Freigabe bekommt der Promoter seinen Zugang per Mail (Studio-Domain)
@@ -392,6 +401,13 @@ class TIX_Promoter_REST {
         $r = self::assign(intval($p->id), $eid, ['type' => $req->get_param('commission_type'), 'value' => $req->get_param('commission_value')],
             ['type' => (string) $req->get_param('discount_type'), 'value' => $req->get_param('discount_value'), 'promo_code' => (string) $req->get_param('promo_code')]);
         if (is_wp_error($r)) return $r;
+        // Kategorie-Sätze je Partner/Promoter und Event (R1, 1.38.812): [{cat_index, type, value}]
+        if ($req->has_param('category_rates') && class_exists('TIX_Promoter_Partner')) {
+            list($json, $err) = TIX_Promoter_Partner::clean_rates($req->get_param('category_rates'), $eid);
+            if ($err) return $err;
+            global $wpdb;
+            $wpdb->update(TIX_Promoter_DB::table_events(), ['category_rates' => $json], ['promoter_id' => intval($p->id), 'event_id' => $eid]);
+        }
         $req2 = new WP_REST_Request('GET'); $req2->set_url_params(['id' => $p->id]); $req2->set_query_params(['organizer' => $req->get_param('organizer')]);
         return self::rest_get($req2);
     }
@@ -439,7 +455,9 @@ class TIX_Promoter_REST {
     public static function payout_item($po) {
         return ['id' => intval($po->id), 'promoter_id' => intval($po->promoter_id), 'promoter_name' => (string) ($po->promoter_name ?? ''), 'from' => (string) $po->period_from, 'to' => (string) $po->period_to,
             'revenue' => floatval($po->total_sales), 'commission' => floatval($po->total_commission), 'count' => intval($po->commission_count), 'status' => (string) $po->status,
-            'paid_at' => $po->paid_date ? mysql_to_rfc3339($po->paid_date) : null, 'note' => (string) ($po->payment_note ?? ''), 'created' => $po->created_at ? mysql_to_rfc3339($po->created_at) : null];
+            'paid_at' => $po->paid_date ? mysql_to_rfc3339($po->paid_date) : null, 'note' => (string) ($po->payment_note ?? ''), 'created' => $po->created_at ? mysql_to_rfc3339($po->created_at) : null]
+            + (function ($po) { $d = !empty($po->doc_data) ? json_decode((string) $po->doc_data, true) : null;
+                return ['credit_note' => is_array($d) ? ['number' => (string) $d['number'], 'net' => floatval($d['net']), 'vat' => floatval($d['vat']), 'gross' => floatval($d['gross'])] : null]; })($po);
     }
 
     private static function own_payout($id, $org) {
@@ -478,6 +496,7 @@ class TIX_Promoter_REST {
             if ($wait) return self::bad('period', 'Provision wird erst nach dem Event auszahlbar.', 'tix_payout_waiting', 409);
             return self::bad('period', 'Im Zeitraum gibt es keine offene Provision.', 'tix_payout_empty', 409);
         }
+        if (class_exists('TIX_Promoter_Partner') && TIX_Promoter_Partner::is_partner($p)) { $doc = TIX_Promoter_Partner::issue($id); if (is_wp_error($doc)) error_log('TIX Partner-Gutschrift #' . $id . ': ' . $doc->get_error_message()); }
         return new WP_REST_Response(['ok' => true, 'payout' => self::payout_item(TIX_Promoter_DB::get_payout($id))], 201);
     }
 

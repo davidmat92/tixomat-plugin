@@ -6605,3 +6605,12 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - `TIX_Calendar::get_event_data`/`ics_escape` sind jetzt öffentlich; Einzel-ICS mit `DTSTART;TZID`.
 - **Tests:** `test-forecast-wp` (14), `test-social-planner-wp` (15), `test-calendar-feed-wp` (6).
 - **Berichte:** `uebergaben/barrierefreiheit/plugin.md` (A2), `uebergaben/meta-app-pruefung-ads-management.md`.
+
+## 200. Partner im Promoter-System und Rollstuhlplatz/Begleitperson (Welle 2, ab 1.38.812)
+- **Vertrag:** `uebergaben/vertrag-reichweite-a11y-welle2.md`.
+- **`TIX_Promoter_Partner`:**
+  - Spalten `kind`/`company`/`vat_id`/`address`/`vat_liable` (tix_promoters), `category_rates` (tix_promoter_events), `doc_no`/`doc_data` (tix_promoter_payouts), nachgezogen mit `ensure_columns()` aus `TIX_Promoter_REST::ready()`.
+  - Kategorie-Satz: `rate_for()` vor den Event-Regeln (`TIX_Promoter_Rules::apply(..., $own_rate)`).
+  - Gutschrift: `issue()` schreibt die Daten fest (Nummer `GS-<Kürzel>-<Jahr>-<NNNN>`, Reihe GS im Zählerspeicher der Rechnungen), `pdf()`; Routen `…/credit-note` für Veranstalter und Portal.
+- **`TIX_Access_Categories`:** Kategorie-Feld `access` (`wheelchair`/`companion`), Hinweise, `cart_error()` (Begleitperson 1:1) in Web- und App-Kasse; Ausgabe in `public_categories` und den Event-Kategorien.
+- **Tests:** `test-promoter-partner-wp` (13), `test-access-categories-wp` (7).

@@ -1858,6 +1858,10 @@ class TIX_Native_Checkout {
         if (class_exists('TIX_Cart_Pricing') && ($cerr = TIX_Cart_Pricing::combo_error($cart['items']))) {
             wp_send_json_error(['message' => $cerr]);
         }
+        // Begleitperson nur mit Ticket der begleiteten Person (A4, 1.38.812)
+        if (class_exists('TIX_Access_Categories') && ($aerr = TIX_Access_Categories::cart_error($cart['items']))) {
+            wp_send_json_error(['message' => $aerr]);
+        }
         $validated_total = 0;
         foreach ($cart['items'] as $cart_item) {
             $validated_total += floatval($cart_item['price']) * intval($cart_item['qty']);

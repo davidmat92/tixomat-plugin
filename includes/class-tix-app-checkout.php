@@ -368,6 +368,9 @@ class TIX_App_Checkout {
                 'max_per_order'      => $stock >= 0 ? min(self::MAX_QTY, $stock) : self::MAX_QTY,
                 'gift_card'          => !empty($cat['gift_card']),
                 'gift_free_amount'   => !empty($cat['gift_free_amount']),
+                // Barrierefreiheit (A4, 1.38.812): wheelchair | companion | '' und Hinweis für Kasse und Event-Seite
+                'access'             => class_exists('TIX_Access_Categories') ? TIX_Access_Categories::of($cat) : '',
+                'access_hint'        => class_exists('TIX_Access_Categories') ? TIX_Access_Categories::hint($cat) : '',
                 // Knappheits-Hinweis wie auf der Website („Nur noch 5 verfügbar!“ / Text des Veranstalters), '' = keiner
                 'low_stock_text'     => class_exists('TIX_Event_Extras') ? TIX_Event_Extras::low_stock_text($event_id, $cat) : '',
                 // Preisphase (z. B. Early Bird): Name, gültig bis (Y-m-d, einschließlich)
@@ -657,6 +660,7 @@ class TIX_App_Checkout {
         if (class_exists('TIX_Cart_Pricing')) {
             $cart['items'] = TIX_Cart_Pricing::reprice($cart['items']);
             if ($cerr = TIX_Cart_Pricing::combo_error($cart['items'])) return self::error('tix_combo', $cerr, 409);
+            if (class_exists('TIX_Access_Categories') && ($aerr = TIX_Access_Categories::cart_error($cart['items']))) return self::error('tix_companion', $aerr, 409);
         }
         return $cart;
     }

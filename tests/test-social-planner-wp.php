@@ -69,6 +69,8 @@ try {
     $eq('Ohne Rechte → verboten', true, in_array($rest('GET', "/events/$ev/social-plan")[0], [401, 403], true));
     wp_set_current_user($adm);
     $eq('Staff-Push kennt „Social-Planer“', true, isset(TIX_Staff_Push::EVENTS['social_post']));
+    $src = file_get_contents(TIXOMAT_PATH . 'includes/class-tix-social-planner.php');
+    $eq('Push-Aktion trägt Event- und Post-ID (staff:social:<event>:<post>)', true, strpos($src, "'staff:social:' . \$eid . ':' . intval(\$r['id'])") !== false);
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

@@ -165,12 +165,12 @@ class TIX_Promoter_Rules {
      * Provision einer Position nach den Regeln: Kategorie-Provision, Staffel-Bonus, Obergrenzen.
      * → {commission, bonus, base, capped}
      */
-    public static function apply($promoter, $event_id, $cat_index, $qty, $line_total, array $eff) {
+    public static function apply($promoter, $event_id, $cat_index, $qty, $line_total, array $eff, $own_rate = false) {
         $rules = self::for_promoter($promoter);
         $qty = max(0, intval($qty));
         $unit = $qty > 0 ? $line_total / $qty : 0.0;
         $cat = self::cat_commission($event_id);
-        if ($cat_index >= 0 && isset($cat[$cat_index]) && is_array($cat[$cat_index]) && floatval($cat[$cat_index]['value'] ?? 0) > 0) {
+        if (!$own_rate && $cat_index >= 0 && isset($cat[$cat_index]) && is_array($cat[$cat_index]) && floatval($cat[$cat_index]['value'] ?? 0) > 0) {
             $eff = ['type' => (string) $cat[$cat_index]['type'], 'value' => floatval($cat[$cat_index]['value']), 'source' => 'category'];
         }
         list($t0, $c0) = self::so_far(intval($promoter->id), $event_id);

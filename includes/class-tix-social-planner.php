@@ -6,7 +6,8 @@
  * Je Event (Schalter, Vorgabe aus) entsteht ein Posting-Plan mit Terminen aus Event-Daten und Verkaufsstand:
  *   announce (Ankündigung) · presale_start (Vorverkaufsstart) · lineup (Line-up) · price_phase_end (Preisphase endet) ·
  *   few_left (nur noch wenige, ab 80 % verkauft) · day_before (Tag vorher) · today (heute) · thanks (Danke/Fotos)
- * Zum Termin bekommt das Team eine Erinnerung: Mitteilung in der Veranstalter-App (Staff-Push „Social-Planer“) und Mail
+ * Zum Termin bekommt das Team eine Erinnerung: Mitteilung in der Veranstalter-App (Staff-Push „Social-Planer“, Aktion
+ * staff:social:<event_id>:<post_id>@<host> – die nativen App-Teile reichen nur data.action weiter) und Mail
  * mit Bild, Text und Link. „Teilen“ (App/Studio) öffnet Instagram bzw. das Teilen-Menü.
  * Ändert sich das Event, wandern die Termine automatisch mit (Speichern + stündlicher Abgleich); bearbeitete Texte bleiben,
  * erledigte/übersprungene/erinnerte Posts bleiben unverändert. Eigene Posts lassen sich ergänzen.
@@ -258,7 +259,7 @@ class TIX_Social_Planner {
         $oid = intval($r['organizer_id']);
         if (class_exists('TIX_Staff_Push')) {
             $uids = TIX_Staff_Push::recipients([$oid], 'social_post');
-            if ($uids) TIX_Staff_Push::send_to_users($uids, 'Social-Planer: ' . $label, $title . ' – Bild und Text sind bereit zum Teilen.', ['action' => 'staff:social', 'event_id' => (string) $eid, 'post_id' => (string) intval($r['id'])]);
+            if ($uids) TIX_Staff_Push::send_to_users($uids, 'Social-Planer: ' . $label, $title . ' – Bild und Text sind bereit zum Teilen.', ['action' => 'staff:social:' . $eid . ':' . intval($r['id']), 'event_id' => (string) $eid, 'post_id' => (string) intval($r['id'])]);
         }
         $to = self::mail_to($eid);
         if ($to && class_exists('TIX_Mail_Layout')) {
