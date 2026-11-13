@@ -17,7 +17,7 @@ class TIX_Edit_Lock {
     const OPT_DB = 'tix_edit_locks_db';
     const HEADER = 'X-Tix-Edit-Lock'; // gleichwertig: X-Tix-Lock, Body lock_token (Studio-Wunsch)
     /** Inhalts-Routen am Event, die die Sperre brauchen (leer = POST /events/{id}) */
-    const CONTENT_SUB = '#^(|image|lineup-artist|lineup-photo|charity-image|sponsor-image|sponsors|ticket-fields|history/\d+/restore)$#';
+    const CONTENT_SUB = '#^(|image|lineup-artist|lineup-photo|charity-image|sponsor-image|sponsors|ticket-design|ticket-fields|history/\d+/restore)$#';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);

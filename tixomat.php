@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.799
+ * Version: 1.38.800
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.799');
+define('TIXOMAT_VERSION', '1.38.800');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -177,6 +177,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-source-lock.php'; // Geteilte Ev
 TIX_Source_Lock::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-edit-lock.php'; // Bearbeitungssperre je Event über alle Seiten (1.38.789)
 TIX_Edit_Lock::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-ticket-design.php'; // Ticket-Design im Studio (P4 Expertenmodus, 1.38.800)
+TIX_Ticket_Design::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-sale-settings.php'; // Kasse & Einlass einstellen (P3 Expertenmodus, 1.38.799)
 TIX_Sale_Settings::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-sponsor-logos.php'; // Sponsoren-Logos: Haupt-/weitere Sponsoren, Ausspielorte, Klicks (1.38.793)

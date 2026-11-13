@@ -193,7 +193,8 @@ class TIX_Ticket_Template {
             if ($config) return $config;
         }
 
-        // Global-Template (oder Default-Modus)
+        // evendis: Vorlage des Veranstalters (Studio, 1.38.800), sonst Global-Template (oder Default-Modus)
+        if (class_exists('TIX_Ticket_Design') && ($org_cfg = TIX_Ticket_Design::org_config_for_event($event_id))) return $org_cfg;
         return self::get_global_config();
     }
 
@@ -870,7 +871,7 @@ class TIX_Ticket_Template {
      * @param array $config     Template-Config
      * @return GdImage|resource|null
      */
-    public static function render_ticket_image($ticket_id, $config = null) {
+    public static function render_ticket_image($ticket_id, $config = null, $sample = null) { // $sample: Vorschau mit eigenen Daten (Studio, 1.38.800)
         if (!$config) {
             $event_id = get_post_meta($ticket_id, '_tix_ticket_event_id', true);
             $config = self::get_effective_config($event_id);
@@ -888,7 +889,7 @@ class TIX_Ticket_Template {
         if (!$img) return null;
 
         // Ticket-Daten sammeln
-        $data = ($ticket_id > 0) ? self::gather_ticket_data($ticket_id) : self::preview_data();
+        $data = ($ticket_id > 0) ? self::gather_ticket_data($ticket_id) : (is_array($sample) ? $sample : self::preview_data());
 
         // Custom-Text aus Config einfügen
         if (isset($config['fields']['custom_text']['text'])) {

@@ -6472,3 +6472,16 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Kasse vor Ort: 400 `tix_pos_field` (Name/E-Mail), 403 `tix_pos_free_off`.
   - Scan und Offline-Abgleich: `reentry` → eigener `status: reentry`, `reentry_count` (`_tix_ticket_reentry_count`); `block` → `already` + `block: true`; `warn` wie bisher.
 - **Test:** `test-sale-settings-wp` (18/18 kk/plat).
+
+## 190. Ticket-Design im Studio (P4 Expertenmodus, ab 1.38.800)
+- **Auftrag:** B1. Vertrag `uebergaben/vertrag-ticket-design.md`.
+- **`TIX_Ticket_Design`:**
+  - Routen:
+    - `GET/POST /studio/ticket-design` (`pdf`, `html`, `wallet`), `POST …/image`, `POST …/preview` (jpg|pdf als Data-URL, Musterdaten oder Event-Daten, ungespeicherte Konfiguration; Wallet-Vorschau als Angaben)
+    - `GET/POST/DELETE /studio/ticket-templates[/{id}]` (in Gebrauch → 409 `tix_template_in_use`)
+    - `GET/POST /events/{id}/ticket-design` (`global|template|custom|none`)
+  - Ablage wie bisher: `tix_settings.ticket_template`, `ht_*`, `wallet_*`, Vorlagen `tix_ticket_tpl` (`_tix_template_config`), Event `_tix_ticket_template_mode/_id/_template`.
+  - evendis: PDF-Vorlage je Veranstalter (`TIX_Object_Data` `org_ticket_design`, in `get_effective_config` vor der globalen); Online-Ticket und Wallet nur Admins; Vorlagen mit `_tix_org_id`.
+- **`render_ticket_image($id, $config, $sample)`:** Vorschau mit eigenen Daten.
+- **Inhalts-Route:** Bearbeitungssperre (`ticket-design` in `CONTENT_SUB`) und Co-Durchgriff.
+- **Test:** `test-ticket-design-wp` (19/19 kk/plat).

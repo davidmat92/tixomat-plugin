@@ -30,6 +30,7 @@ class TIX_Object_Data {
         'tix_lic_golive'             => 'license_golive',
         'tix_lic_contract'           => 'license_contract',
         'tix_org_sale_settings'      => 'org_sale_settings', // Kasse & Einlass je Veranstalter (1.38.799)
+        'tix_org_ticket_design'      => 'org_ticket_design', // PDF-Ticket-Vorlage je Veranstalter (1.38.800)
     ];
 
     public static function table() {
