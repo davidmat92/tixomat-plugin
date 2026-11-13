@@ -40,6 +40,7 @@ class TIX_Mirror_Reconcile {
             'organizer_followers' => 'org_follower',
             'artist_follow_proofs' => 'artist_proof',
             'short_links'         => 'short_link',
+            'sponsor_logos'       => 'sponsor_logo',
         ];
     }
 
@@ -219,6 +220,13 @@ class TIX_Mirror_Reconcile {
             case 'short_links':
                 foreach ((array) $wpdb->get_results("SELECT id, organizer_id FROM {$wpdb->prefix}tix_short_links WHERE id IN ($in)", ARRAY_A) as $r) {
                     if (TIX_Mirror_Map::is_sandbox_org($r['organizer_id'])) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'sponsor_logos':
+                foreach ((array) $wpdb->get_results("SELECT id, scope, owner_id FROM {$wpdb->prefix}tix_sponsor_logos WHERE id IN ($in)", ARRAY_A) as $r) {
+                    $o = (int) $r['owner_id'];
+                    if (($r['scope'] === 'organizer' && TIX_Mirror_Map::is_sandbox_org($o))
+                        || ($r['scope'] === 'event' && (TIX_Mirror_Map::is_sandbox_event($o) || TIX_Mirror_Map::is_sandbox_org((int) get_post_meta($o, '_tix_organizer_id', true))))) $drop[] = (int) $r['id'];
                 }
                 break;
             case 'artist_follow_proofs':
@@ -404,6 +412,14 @@ class TIX_Mirror_Reconcile {
                     FROM {$wpdb->prefix}tix_short_links l WHERE l.id > %d ORDER BY l.id LIMIT %d", $after, $limit), ARRAY_A);
                 $wpdb->suppress_errors($prev);
                 foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['code'], self::bool(!empty($r['archived'])), (int) $r['clicks']]);
+                return $out;
+
+            case 'sponsor_logos': // wie Kurzlinks: Summe der Tageszähler mit drin
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT l.id, l.scope, l.owner_id, l.tier, l.name, l.active, (SELECT COALESCE(SUM(c.n), 0) FROM {$wpdb->prefix}tix_sponsor_clicks c WHERE c.sponsor_id = l.id) clicks
+                    FROM {$wpdb->prefix}tix_sponsor_logos l WHERE l.id > %d ORDER BY l.id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['scope'], (int) $r['owner_id'], $r['tier'] === 'main' ? 'main' : 'partner', $r['name'], self::bool(!empty($r['active'])), (int) $r['clicks']]);
                 return $out;
 
             case 'artist_follow_proofs':

@@ -39,6 +39,7 @@ class TIX_Mirror_Extra {
             case 'org_follower':    return self::plan_org_follower($site, (int) $id);
             case 'artist_proof':    return self::plan_artist_proof($site, (int) $id);
             case 'short_link':      return self::plan_short_link($site, (int) $id);
+            case 'sponsor_logo':    return self::plan_sponsor_logo($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -552,6 +553,51 @@ class TIX_Mirror_Extra {
         return $ops;
     }
 
+    /**
+     * Sponsoren-Logo (tix_sponsor_logos, 1.38.793) mit seinen Tageszählern (tix_sponsor_clicks): nur Summen je Tag (UTC)
+     * und Quelle (web|app|ticket|mail), nie einzelne Klicks – das Plugin speichert weder IP noch Cookies noch Geräte.
+     * Logos als URL. Sponsoren von Demo-/Vorschau-Veranstaltern (bzw. deren Events) bleiben draußen.
+     */
+    private static function plan_sponsor_logo($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $l = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_sponsor_logos WHERE id = %d", $id), ARRAY_A);
+        $clicks = $l ? (array) $wpdb->get_results($wpdb->prepare("SELECT day, src, n FROM {$wpdb->prefix}tix_sponsor_clicks WHERE sponsor_id = %d", $id), ARRAY_A) : [];
+        $wpdb->suppress_errors($prev);
+        $org = null; $eid = null;
+        if ($l) {
+            if ($l['scope'] === 'organizer') $org = (int) $l['owner_id'] ?: null;
+            if ($l['scope'] === 'event') { $eid = (int) $l['owner_id'] ?: null; $org = $eid ? ((int) get_post_meta($eid, '_tix_organizer_id', true) ?: null) : null; }
+            if (($org && TIX_Mirror_Map::is_sandbox_org($org)) || ($eid && TIX_Mirror_Map::is_sandbox_event($eid))) $l = null;
+        }
+        if (!$l) return [self::del('sponsor_logos', $site, $id), ['delete', 'sponsor_clicks', ['site' => 'eq.' . $site, 'sponsor_id' => 'eq.' . $id]]];
+        $url = function ($aid, $u) { $aid = (int) $aid; $x = $aid ? wp_get_attachment_url($aid) : ''; return (string) ($x ?: $u); };
+        $ops = [['upsert', 'sponsor_logos', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $l['id'],
+            'scope'         => (string) $l['scope'],
+            'owner_id'      => (int) $l['owner_id'],
+            'organizer_id'  => $org,
+            'event_id'      => $eid,
+            'tier'          => $l['tier'] === 'main' ? 'main' : 'partner',
+            'name'          => (string) $l['name'],
+            'logo_url'      => $url($l['logo_id'], (string) $l['logo_url']),
+            'logo_dark_url' => $url($l['logo_dark_id'], (string) $l['logo_dark_url']),
+            'link'          => (string) $l['link'],
+            'position'      => (int) $l['position'],
+            'active'        => !empty($l['active']),
+            'clicks_total'  => (int) $l['clicks'],
+            'created_at'    => self::gmt_iso($l['created_at']),
+            'updated_at'    => self::gmt_iso($l['updated_at']),
+        ])]]];
+        $rows = [];
+        foreach ($clicks as $c) $rows[] = ['site' => $site, 'sponsor_id' => (int) $l['id'], 'day' => (string) $c['day'],
+            'src' => in_array($c['src'], ['web', 'app', 'ticket', 'mail'], true) ? $c['src'] : 'web', 'n' => (int) $c['n']];
+        if ($rows) $ops[] = ['upsert', 'sponsor_clicks', $rows, 'site,sponsor_id,day,src'];
+        $keep = $rows ? min(array_column($rows, 'day')) : '9999-12-31';
+        $ops[] = ['delete', 'sponsor_clicks', ['site' => 'eq.' . $site, 'sponsor_id' => 'eq.' . $id, 'day' => 'lt.' . $keep]];
+        return $ops;
+    }
+
     /** E-Mail-Folgen eines Veranstalters (tix_mail_followers) – pseudonymisiert wie bei Künstlern (Entscheid User 2026-10-20). */
     private static function plan_org_follower($site, $id) {
         global $wpdb;
@@ -621,6 +667,7 @@ class TIX_Mirror_Extra {
             ['org_follower',    $wpdb->prefix . 'tix_mail_followers',   'id',      'id',         true],  // E-Mail-Folgen Veranstalter
             ['artist_proof',    $wpdb->prefix . 'tix_artist_follow_proofs', 'id',  'id',         true],  // Einwilligungs-Nachweise (1.38.529)
             ['short_link',      $wpdb->prefix . 'tix_short_links',      'id',      'id',         true],  // Kurzlinks (1.38.635); Klicks per Hook, Abgleich täglich
+            ['sponsor_logo',    $wpdb->prefix . 'tix_sponsor_logos',    'id',      'id',         true],  // Sponsoren-Logos (1.38.793); Klicks per Hook, Abgleich täglich
         ];
     }
 }

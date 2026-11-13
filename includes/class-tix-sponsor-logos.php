@@ -197,6 +197,7 @@ class TIX_Sponsor_Logos {
                 else { $wpdb->insert($t, $row + ['scope' => $scope, 'owner_id' => intval($owner), 'created_at' => $now, 'clicks' => 0]); $keep[] = intval($wpdb->insert_id); }
             }
             foreach (array_diff($have, $keep) as $gone) { $wpdb->delete($t, ['id' => $gone]); $wpdb->delete(self::t('clicks'), ['sponsor_id' => $gone]); }
+            foreach (array_merge($keep, array_diff($have, $keep)) as $mid) self::mirror($mid);
         }
     }
 
@@ -400,7 +401,13 @@ class TIX_Sponsor_Logos {
         $src = in_array($src, self::SRC, true) ? $src : 'web';
         $wpdb->query($wpdb->prepare("INSERT INTO " . self::t('clicks') . " (sponsor_id, day, src, n) VALUES (%d, %s, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1", intval($id), gmdate('Y-m-d'), $src));
         $wpdb->query($wpdb->prepare("UPDATE " . self::t('logos') . " SET clicks = clicks + 1 WHERE id = %d", intval($id)));
+        self::mirror($id); // Postausgang fasst mehrere Klicks je Sponsor zusammen
         return true;
+    }
+
+    /** Datenspiegel: Sponsor samt Tageszählern nachziehen (fehlt er in WordPress, löscht der Spiegel beides) */
+    private static function mirror($id) {
+        if (class_exists('TIX_Mirror')) TIX_Mirror::touch('sponsor_logo', intval($id));
     }
 
     public static function click_stats(array $ids, $days = 30) {
