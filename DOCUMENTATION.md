@@ -6342,7 +6342,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Antworten mit `lock{token, expires_at, ttl}`, `holder{name, site, site_name, since, channel}`, `can_break`. Freigeben nimmt auch `text/plain` (sendBeacon). `edit_lock` in `GET /events/{id}/edit`, `locked_by` in `GET /events`.
   - `POST …/lock/break` → lösen (Admin der Seite bzw. evendis-Betreiber); Protokoll `tix_audit_log` `event_lock_break`. Der alte Halter bekommt beim nächsten Herzschlag 409 `tix_event_lock_lost` `{by}`, auch wenn inzwischen jemand anderes hält.
 - **Ablauf:** ohne Herzschlag nach `tix_edit_lock_ttl` (Vorgabe 180 s, 60–600).
-- **Speichern:** Kopfzeile `X-Tix-Edit-Lock` (auch `X-Tix-Lock` oder Body `lock_token`). Prüfung `rest_pre_dispatch` Priorität 8 für Inhalts-Routen (`events/{id}`, Bild, Line-up-Fotos, Sponsor-/Charity-Bild, Ticket-Felder, Verlauf-Wiederherstellen).
+- **Speichern:** Kopfzeile `X-Tix-Edit-Lock` (auch `X-Tix-Lock`, JSON-Feld `lock_token`, ab 1.38.791 Formularfeld `lock_token` bei Multipart-Uploads bzw. `?lock_token=`). Prüfung `rest_pre_dispatch` Priorität 8 für Inhalts-Routen (`events/{id}`, Bild, Line-up-Fotos, Sponsor-/Charity-Bild, Ticket-Felder, Verlauf-Wiederherstellen).
   - Fremd gesperrt → 409 `tix_event_locked` mit Name und Seite.
   - Keine Sperre → wie bisher; mit `tix_edit_lock_strict` = 1 → 409 `tix_event_lock_required`.
   - Verwaltung (Gästeliste, Check-in, Kasse, Co, Archiv) ist nicht betroffen.

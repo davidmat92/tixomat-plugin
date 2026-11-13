@@ -284,10 +284,15 @@ class TIX_Edit_Lock {
         return self::request_token($req, false);
     }
 
-    /** Token beim Speichern: X-Tix-Edit-Lock, X-Tix-Lock oder Body lock_token */
+    /** Token beim Speichern: X-Tix-Edit-Lock, X-Tix-Lock, Body/Formularfeld lock_token oder ?lock_token= */
     public static function request_token(WP_REST_Request $req, $body = true) {
         foreach (['x_tix_edit_lock', 'x_tix_lock'] as $h) { $v = (string) $req->get_header($h); if ($v !== '') return self::clean($v); }
-        if ($body) { $b = $req->get_json_params(); if (is_array($b) && !empty($b['lock_token']) && is_string($b['lock_token'])) return self::clean($b['lock_token']); }
+        if ($body) {
+            // JSON-Body oder Formularfeld (Multipart-Upload, z. B. POST /events/{id}/image – Fund App 13.11.)
+            foreach ([$req->get_json_params(), $req->get_body_params(), $req->get_query_params()] as $b) {
+                if (is_array($b) && !empty($b['lock_token']) && is_string($b['lock_token'])) return self::clean($b['lock_token']);
+            }
+        }
         return '';
     }
 

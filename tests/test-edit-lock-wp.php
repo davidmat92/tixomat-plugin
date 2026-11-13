@@ -84,6 +84,22 @@ try {
     $eq('Kopfzeile X-Tix-Lock gilt wie X-Tix-Edit-Lock', 200, rest_do_request($x)->get_status());
     [$st] = $rest('POST', "/events/$ev", ['title' => 'Mit lock_token', 'lock_token' => $t2]);
     $eq('Body lock_token gilt', 200, $st);
+    wp_set_current_user($B);
+    $x = new WP_REST_Request('POST', "/tixomat/v1/events/$ev/image"); $x->set_body_params(['lock_token' => 'falsch123456789012345']);
+    $eq('Bild-Upload (Formular) mit fremdem Token: 409', 409, rest_do_request($x)->get_status());
+    wp_set_current_user($A);
+    $up = function ($tok, $how) use ($ev) {
+        $x = new WP_REST_Request('POST', "/tixomat/v1/events/$ev/image");
+        if ($how === 'body') $x->set_body_params(['lock_token' => $tok]); else $x->set_query_params(['lock_token' => $tok]);
+        $x->set_file_params(['file' => ['name' => 'x.png', 'type' => 'image/png', 'tmp_name' => '/nonexistent', 'error' => 4, 'size' => 0]]);
+        $r = rest_do_request($x); $d = $r->get_data();
+        return [$r->get_status(), is_array($d) ? ($d['code'] ?? null) : null];
+    };
+    foreach (['Formularfeld' => 'body', '?lock_token=' => 'query'] as $lbl => $how) {
+        [$s1, $c1] = $up('altesToken12345678901234567890', $how);
+        [$s2] = $up($t2, $how);
+        $eq("Bild-Upload, lock_token als $lbl wird gelesen: falsches Token 409, richtiges kein 409", [409, 'tix_event_lock_other_window', true], [$s1, $c1, $s2 !== 409]);
+    }
     [, $d] = $rest('GET', "/events/$ev/edit"); $ed = $d['event'] ?? $d;
     $eq('GET /edit liefert edit_lock (meine)', [true, true], [$ed['edit_lock']['locked'] ?? null, $ed['edit_lock']['mine'] ?? null]);
     $lr = TIX_Edit_Lock::list_locks(new WP_REST_Response(['ok' => true, 'events' => [['id' => $ev], ['id' => 999999]]], 200), null, new WP_REST_Request('GET', '/tixomat/v1/events'));
