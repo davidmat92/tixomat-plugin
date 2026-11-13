@@ -10,6 +10,11 @@
  *
  * Storage: CPT tix_quote (Post-Status pending/redeemed/expired) mit Token + Items als Meta.
  * URL-Format: /?tix_quote=<token>
+ *
+ * REST (1.38.806, B11 „Vorbestellungen“ im Studio; Inhaber/Team-Admin/Admin wie die Statistik, evendis nur eigene Events):
+ *   GET    /studio/quotes?status=open|redeemed|expired  → {ok, quotes[…], max_items, max_days}
+ *   POST   /studio/quotes {items[{event_id, cat_index, qty, custom_price?}], customer{…}, note?, expiry_days?} → 201 {quote}
+ *   DELETE /studio/quotes/{id}
  */
 if (!defined('ABSPATH')) exit;
 
@@ -32,6 +37,142 @@ class TIX_Quotes {
         add_action('wp_ajax_tix_delete_quote', [__CLASS__, 'ajax_delete_quote']);
         // Quote als "redeemed" markieren wenn Order daraus entsteht
         add_action('tix_order_created', [__CLASS__, 'mark_redeemed_on_order'], 10, 2);
+        add_action('rest_api_init', [__CLASS__, 'rest_routes']);
+    }
+
+    const MAX_ITEMS = 20;
+    const MAX_DAYS = 365;
+
+    // ════════════════════════════════════════════════════════════
+    // Kern: Vorbestellung anlegen (AJAX + REST)
+    // ════════════════════════════════════════════════════════════
+
+    /** → Post-ID oder WP_Error (tix_invalid_field mit field). $allowed = erlaubte Event-IDs (null = alle). */
+    public static function create($items, array $customer, $note, $expiry_days, $allowed = null) {
+        if (!is_array($items) || !$items) return new WP_Error('tix_invalid_field', 'Mindestens ein Ticket erforderlich.', ['status' => 400, 'field' => 'items']);
+        if (count($items) > self::MAX_ITEMS) return new WP_Error('tix_invalid_field', 'Höchstens ' . self::MAX_ITEMS . ' Positionen.', ['status' => 400, 'field' => 'items']);
+        $clean = [];
+        foreach (array_values($items) as $i => $it) {
+            $eid = intval($it['event_id'] ?? 0);
+            $idx = intval($it['cat_index'] ?? 0);
+            $qty = intval($it['qty'] ?? 1);
+            if (!$eid || get_post_type($eid) !== 'event' || ($allowed !== null && !in_array($eid, $allowed, true))) return new WP_Error('tix_invalid_field', 'Event nicht gefunden.', ['status' => 400, 'field' => "items.$i.event_id"]);
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            if (!is_array($cats) || !isset($cats[$idx])) return new WP_Error('tix_invalid_field', 'Diese Ticketart gibt es nicht.', ['status' => 400, 'field' => "items.$i.cat_index"]);
+            if ($qty < 1 || $qty > 100) return new WP_Error('tix_invalid_field', 'Anzahl 1 bis 100.', ['status' => 400, 'field' => "items.$i.qty"]);
+            $custom = $it['custom_price'] ?? '';
+            if ($custom !== '' && $custom !== null) {
+                $custom = floatval(str_replace(',', '.', (string) $custom));
+                if ($custom < 0 || $custom > 10000) return new WP_Error('tix_invalid_field', 'Preis 0 bis 10.000 €.', ['status' => 400, 'field' => "items.$i.custom_price"]);
+            } else $custom = '';
+            $clean[] = ['event_id' => $eid, 'cat_index' => $idx, 'qty' => $qty, 'custom_price' => $custom];
+        }
+        $cust = [
+            'first_name' => mb_substr(sanitize_text_field((string) ($customer['first_name'] ?? '')), 0, 80),
+            'last_name'  => mb_substr(sanitize_text_field((string) ($customer['last_name'] ?? '')), 0, 80),
+            'email'      => sanitize_email((string) ($customer['email'] ?? '')),
+            'phone'      => mb_substr(sanitize_text_field((string) ($customer['phone'] ?? '')), 0, 40),
+        ];
+        if (($customer['email'] ?? '') !== '' && !is_email($cust['email'])) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail-Adresse angeben.', ['status' => 400, 'field' => 'customer.email']);
+        $days = max(1, min(self::MAX_DAYS, intval($expiry_days ?: 30)));
+        $title = trim($cust['first_name'] . ' ' . $cust['last_name']);
+        if ($title === '') $title = $cust['email'] ?: 'Vorbestellung';
+        $title .= ' · ' . date_i18n('d.m.Y H:i');
+        $id = wp_insert_post(['post_type' => self::CPT, 'post_status' => 'pending', 'post_title' => $title], true);
+        if (is_wp_error($id) || !$id) return new WP_Error('tix_quote_save', 'Konnte Vorbestellung nicht speichern.', ['status' => 500]);
+        update_post_meta($id, self::META_TOKEN, bin2hex(random_bytes(16)));
+        update_post_meta($id, self::META_ITEMS, $clean);
+        update_post_meta($id, self::META_CUSTOMER, $cust);
+        update_post_meta($id, self::META_NOTE, mb_substr(wp_kses_post((string) $note), 0, 2000));
+        update_post_meta($id, self::META_EXPIRES, time() + $days * DAY_IN_SECONDS);
+        return $id;
+    }
+
+    public static function url_of($id) {
+        return add_query_arg('tix_quote', (string) get_post_meta($id, self::META_TOKEN, true), home_url('/'));
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // REST (Studio)
+    // ════════════════════════════════════════════════════════════
+
+    public static function rest_routes() {
+        $p = function ($req) { return class_exists('TIX_Studio_Stats') ? TIX_Studio_Stats::perm_manager($req) : current_user_can('manage_options'); };
+        register_rest_route('tixomat/v1', '/studio/quotes', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $p],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create'], 'permission_callback' => $p],
+        ]);
+        register_rest_route('tixomat/v1', '/studio/quotes/(?P<id>\d+)', [
+            ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_delete'], 'permission_callback' => $p],
+        ]);
+    }
+
+    private static function scope() {
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::is_admin()) return null;
+        return class_exists('TIX_Studio_Stats') ? array_map('intval', TIX_Studio_Stats::scope_ids()) : null;
+    }
+
+    /** Vorbestellung sichtbar, wenn alle Events im eigenen Bereich liegen */
+    private static function in_scope($id, $scope) {
+        if ($scope === null) return true;
+        $items = get_post_meta($id, self::META_ITEMS, true);
+        if (!is_array($items) || !$items) return false;
+        foreach ($items as $it) if (!in_array(intval($it['event_id'] ?? 0), $scope, true)) return false;
+        return true;
+    }
+
+    public static function quote_payload($id) {
+        $items = get_post_meta($id, self::META_ITEMS, true);
+        $out = []; $total = 0.0;
+        foreach ((array) $items as $it) {
+            $eid = intval($it['event_id'] ?? 0); $idx = intval($it['cat_index'] ?? 0);
+            $cats = get_post_meta($eid, '_tix_ticket_categories', true);
+            $cat = is_array($cats) && isset($cats[$idx]) ? $cats[$idx] : null;
+            $list = $cat ? floatval($cat['price'] ?? 0) : 0.0;
+            $custom = isset($it['custom_price']) && $it['custom_price'] !== '' && $it['custom_price'] !== null ? round(floatval($it['custom_price']), 2) : null;
+            $price = $custom ?? $list;
+            $total += $price * intval($it['qty'] ?? 1);
+            $out[] = ['event_id' => $eid, 'event_title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8'), 'event_date' => (string) get_post_meta($eid, '_tix_date_start', true),
+                'cat_index' => $idx, 'cat_name' => $cat ? (string) ($cat['name'] ?? '') : null, 'qty' => intval($it['qty'] ?? 1), 'list_price' => round($list, 2), 'custom_price' => $custom, 'price' => round($price, 2)];
+        }
+        $exp = intval(get_post_meta($id, self::META_EXPIRES, true));
+        $ps = get_post_status($id);
+        $status = $ps === 'redeemed' ? 'redeemed' : ($exp && $exp < time() || $ps === 'expired' ? 'expired' : 'open');
+        $c = get_post_meta($id, self::META_CUSTOMER, true);
+        return ['id' => intval($id), 'title' => html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8'), 'status' => $status, 'url' => self::url_of($id),
+            'items' => $out, 'total' => round($total, 2), 'customer' => is_array($c) ? $c : null, 'note' => (string) get_post_meta($id, self::META_NOTE, true),
+            'created_at' => get_post_time('c', true, $id), 'expires_at' => $exp ? gmdate('c', $exp) : null,
+            'redeemed_at' => ($r = (string) get_post_meta($id, self::META_REDEEMED, true)) !== '' ? $r : null,
+            'order_id' => intval(get_post_meta($id, self::META_ORDER_ID, true)) ?: null];
+    }
+
+    public static function rest_list(WP_REST_Request $req) {
+        $scope = self::scope();
+        $st = (string) $req->get_param('status');
+        $ids = get_posts(['post_type' => self::CPT, 'post_status' => ['pending', 'redeemed', 'expired'], 'posts_per_page' => 300, 'orderby' => 'date', 'order' => 'DESC', 'fields' => 'ids']);
+        $out = [];
+        foreach ($ids as $id) {
+            if (!self::in_scope($id, $scope)) continue;
+            $q = self::quote_payload($id);
+            if ($st !== '' && $q['status'] !== $st) continue;
+            $out[] = $q;
+        }
+        $r = rest_ensure_response(['ok' => true, 'quotes' => $out, 'max_items' => self::MAX_ITEMS, 'max_days' => self::MAX_DAYS]);
+        $r->header('Cache-Control', 'no-store');
+        return $r;
+    }
+
+    public static function rest_create(WP_REST_Request $req) {
+        $id = self::create($req->get_param('items'), (array) ($req->get_param('customer') ?: []), (string) $req->get_param('note'), intval($req->get_param('expiry_days') ?: 30), self::scope());
+        if (is_wp_error($id)) return $id;
+        return new WP_REST_Response(['ok' => true, 'quote' => self::quote_payload($id)], 201);
+    }
+
+    public static function rest_delete(WP_REST_Request $req) {
+        $id = intval($req['id']);
+        if (get_post_type($id) !== self::CPT || !self::in_scope($id, self::scope())) return new WP_Error('not_found', 'Vorbestellung nicht gefunden.', ['status' => 404]);
+        wp_delete_post($id, true);
+        return rest_ensure_response(['ok' => true, 'deleted' => $id]);
     }
 
     public static function register_cpt() {

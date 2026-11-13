@@ -392,6 +392,8 @@ class TIX_Newsletter {
         if ($row->status === 'pending') {
             // neuer Schlüssel für die Abmeldelinks (der Bestätigungslink wird damit ungültig)
             $wpdb->update(self::tc(), ['status' => 'active', 'confirmed_at' => self::now(), 'token' => wp_generate_password(40, false, false)], ['id' => $row->id]);
+            // 1.38.806: z. B. Brevo-Listen-Abgleich „erst nach Bestätigung“ (TIX_Brevo::on_confirmed)
+            do_action('tix_nl_confirmed', intval($row->organizer_id), (string) $row->email, (string) $row->first_name, intval($row->order_id));
         }
         return self::go(self::back('bestaetigt', intval($row->organizer_id)));
     }

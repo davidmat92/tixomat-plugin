@@ -1208,6 +1208,10 @@ class TIX_Settings {
             }
         }
 
+        // Zeitpunkt des Listen-Abgleichs (1.38.806, Studio): immediate | after_confirm; das WP-Formular kennt das Feld nicht → behalten
+        $prev_timing = ((array) get_option(self::OPTION_KEY, []))['brevo_sync_timing'] ?? 'immediate';
+        $clean['brevo_sync_timing'] = in_array($input['brevo_sync_timing'] ?? $prev_timing, ['immediate', 'after_confirm'], true) ? ($input['brevo_sync_timing'] ?? $prev_timing) : 'immediate';
+
         // Ticket-System (nur eigenes System)
         $clean['ticket_system'] = 'standalone';
 

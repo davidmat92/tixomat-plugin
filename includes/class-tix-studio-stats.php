@@ -271,7 +271,9 @@ class TIX_Studio_Stats {
         // Herkunft (utm_source; ohne = direct)
         $src = [];
         $oids = array_values(array_unique(array_map(function ($r) { return intval($r->id); }, array_filter($rows, function ($r) { return $r->money['paid']; }))));
-        $cs = array_map(function ($a) { return (string) $a['source']; }, self::attribution($oids));
+        $att = self::attribution($oids);
+        $cs = array_map(function ($a) { return (string) $a['source']; }, $att);
+        $by_campaign = self::campaigns($eid, $rows, $att);
         foreach ($rows as $r) {
             $k = ($cs[intval($r->id)] ?? '') ?: 'direct';
             if (!isset($src[$k])) $src[$k] = ['source' => $k, 'orders' => [], 'revenue' => 0.0];
@@ -290,10 +292,45 @@ class TIX_Studio_Stats {
             'sales_by_day' => $sales,
             'by_channel' => self::by_channel($res),
             'by_source' => $by_source,
+            'by_campaign' => $by_campaign,
             'checkin_by_slot' => self::checkin_slots($eid),
             'views' => $views,
             'conversion' => $views > 0 ? round(count($oids) / $views * 100, 2) : null,
         ];
+    }
+
+    /**
+     * Kampagnen je Event (1.38.806, B8): Quelle/Medium/Kampagne (+ Kurzlink) mit Aufrufen der Event-Seite (Zählung, letzte 90 Tage
+     * laut Aufbewahrung) und bezahlten Bestellungen/Umsatz (netto, wie by_source). Ohne Quelle = „direct“. Höchstens 50 Zeilen, nach Umsatz.
+     */
+    private static function campaigns($eid, array $rows, array $att) {
+        global $wpdb;
+        $key = function ($s, $m, $c) { return strtolower(($s ?: 'direct') . '|' . $m . '|' . $c); };
+        $out = [];
+        $mk = function ($s, $m, $c) { return ['source' => $s ?: 'direct', 'medium' => (string) $m, 'campaign' => (string) $c, 'link_code' => null, 'views' => 0, 'orders' => 0, 'revenue' => 0.0]; };
+        foreach ($rows as $r) {
+            if (empty($r->money['paid'])) continue;
+            $a = $att[intval($r->id)] ?? [];
+            $k = $key($a['source'] ?? '', $a['medium'] ?? '', $a['campaign'] ?? '');
+            if (!isset($out[$k])) $out[$k] = $mk($a['source'] ?? '', $a['medium'] ?? '', $a['campaign'] ?? '');
+            $out[$k]['orders']++;
+            $out[$k]['revenue'] += floatval($r->money['net'] ?? 0);
+            if (!empty($a['link_code'])) $out[$k]['link_code'] = (string) $a['link_code'];
+        }
+        if (class_exists('TIX_Web_Stats') && method_exists('TIX_Web_Stats', 'dim_table')) {
+            $dt = TIX_Web_Stats::dim_table();
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $dt)) === $dt) {
+                foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT source, medium, campaign, utm_id, SUM(n) n FROM $dt WHERE step = 'event' AND event_id = %d GROUP BY source, medium, campaign, utm_id", $eid)) as $v) {
+                    $k = $key($v->source, $v->medium, $v->campaign);
+                    if (!isset($out[$k])) $out[$k] = $mk($v->source, $v->medium, $v->campaign);
+                    $out[$k]['views'] += intval($v->n);
+                    if (!$out[$k]['link_code'] && strpos((string) $v->utm_id, 'go-') === 0) $out[$k]['link_code'] = substr((string) $v->utm_id, 3);
+                }
+            }
+        }
+        $out = array_values(array_map(function ($x) { $x['revenue'] = round($x['revenue'], 2); $x['conversion'] = $x['views'] > 0 ? round($x['orders'] / $x['views'] * 100, 2) : null; return $x; }, $out));
+        usort($out, function ($a, $b) { return $b['revenue'] <=> $a['revenue'] ?: $b['views'] <=> $a['views']; });
+        return array_slice($out, 0, 50);
     }
 
     /** Zeitstempel (ISO mit Versatz oder MySQL-Ortszeit) → Ortszeit „Y-m-d H:i:s“ bzw. ''. */

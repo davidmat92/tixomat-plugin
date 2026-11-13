@@ -238,7 +238,8 @@ class TIX_Short_Links {
         $from = (string) ($req->get_param('from') ?: gmdate('Y-m-d', strtotime($to) - 29 * DAY_IN_SECONDS));
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) || $from > $to) return self::bad('from', 'Bitte einen gültigen Zeitraum angeben.');
         $org = self::org($req);
-        $links = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE organizer_id = %d ORDER BY archived ASC, id DESC", $org), ARRAY_A);
+        $fev = absint($req->get_param('event_id')); // 1.38.806: nur Links auf dieses Event (Event → Statistik → Kampagnen)
+        $links = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE organizer_id = %d" . ($fev ? $wpdb->prepare(' AND event_id = %d', $fev) : '') . " ORDER BY archived ASC, id DESC", $org), ARRAY_A);
         $st = $links ? self::stats($links, $from, $to) : [];
         $out = array_map(function ($l) use ($st) { return self::out($l, $st[intval($l['id'])] ?? []); }, $links);
         $tot = ['clicks' => 0, 'clicks_qr' => 0, 'views' => 0, 'orders' => 0, 'tickets' => 0, 'revenue' => 0.0];

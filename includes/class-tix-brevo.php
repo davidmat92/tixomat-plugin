@@ -11,7 +11,11 @@
  *   - brevo_enabled        (bool)
  *   - brevo_api_key        (string, xkeysib-...)
  *   - brevo_list_id        (int, Liste-ID)
- *   - brevo_double_optin   (bool, optional — Brevo DOI-Templates müssten separat konfiguriert werden)
+ *   - brevo_mappings       ([{event_id, cat_name, list_id}])
+ *   - brevo_sync_timing    (1.38.806) immediate = beim Kauf mit Häkchen | after_confirm = erst nach Bestätigung (Double-Opt-in
+ *                          des Studio-Newsletters, Hook tix_nl_confirmed; dann auch Anmeldungen über das Formular)
+ * Schlüssel: brevo_api_key (bisher), sonst der Brevo-Schlüssel des Studio-Newsletters (TIX_Newsletter, Einzel-Seite).
+ * REST (1.38.806, B19): GET/POST /marketing/newsletter/sync – Einzel-Seite Inhaber/Admin, evendis nur Admin (gilt für die Seite).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -22,6 +26,8 @@ class TIX_Brevo {
     public static function init() {
         add_action('tix_newsletter_optin',  [__CLASS__, 'handle_native_optin'], 10, 4);
         add_action('save_post_tix_subscriber', [__CLASS__, 'handle_subscriber_save'], 20, 3);
+        add_action('tix_nl_confirmed', [__CLASS__, 'on_confirmed'], 10, 4);
+        add_action('rest_api_init', [__CLASS__, 'rest_routes']);
         add_action('wp_ajax_tix_brevo_test',           [__CLASS__, 'ajax_test']);
         add_action('wp_ajax_tix_brevo_resync',         [__CLASS__, 'ajax_resync']);
         add_action('wp_ajax_tix_brevo_import_all',     [__CLASS__, 'ajax_import_all']);
@@ -31,13 +37,106 @@ class TIX_Brevo {
 
     /* ─────────── Bereitschaft ─────────── */
 
+    /** Brevo-Schlüssel: der bisherige (brevo_api_key, Listen-IDs gehören zu diesem Konto), sonst der des Studio-Newsletters (Einzel-Seite) */
+    public static function api_key(): string {
+        $k = trim((string) (((array) get_option('tix_settings', []))['brevo_api_key'] ?? ''));
+        if ($k === '' && class_exists('TIX_Newsletter')) $k = trim((string) (TIX_Newsletter::settings(0)['api_key'] ?? ''));
+        return $k;
+    }
+
+    /** Direkt aus der Option (tix_get_settings merkt sich den Stand je Aufruf) */
+    private static function opt($k) { return ((array) get_option('tix_settings', []))[$k] ?? null; }
+
+    public static function timing(): string {
+        return self::opt('brevo_sync_timing') === 'after_confirm' ? 'after_confirm' : 'immediate';
+    }
+
+    /** Bestätigte Anmeldung (Double-Opt-in) → Listen-Abgleich, wenn „erst nach Bestätigung“ eingestellt ist (nur Seite, nicht evendis-Veranstalter) */
+    public static function on_confirmed($org, $email, $first, $order_id) {
+        if (intval($org) !== 0 || self::timing() !== 'after_confirm' || !self::is_configured()) return;
+        $list_ids = self::list_ids_for_order(intval($order_id));
+        if (!$list_ids) return;
+        self::add_contact((string) $email, (string) $first, '', ['source' => $order_id ? 'tixomat_checkout_confirmed' : 'tixomat_form_confirmed', 'order_id' => intval($order_id)], $list_ids);
+    }
+
+    /* ─────────── REST (Studio, B19) ─────────── */
+
+    public static function rest_routes() {
+        $perm = function (WP_REST_Request $req) {
+            if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+            if (current_user_can('manage_options')) return true;
+            if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return new WP_Error('rest_forbidden', 'Der Listen-Abgleich gilt für die ganze Seite.', ['status' => 403]);
+            return class_exists('TIX_Ad_Accounts') ? TIX_Ad_Accounts::perm_module($req) : new WP_Error('rest_forbidden', 'Keine Berechtigung.', ['status' => 403]);
+        };
+        register_rest_route('tixomat/v1', '/marketing/newsletter/sync', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => $perm],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => $perm],
+        ]);
+    }
+
+    /** Aus der Option gelesen (tix_get_settings merkt sich den Stand je Aufruf, nach dem Speichern wäre er veraltet) */
+    private static function sync_payload() {
+        $o = (array) get_option('tix_settings', []);
+        $maps = [];
+        foreach ((array) ($o['brevo_mappings'] ?? []) as $m) {
+            $eid = intval($m['event_id'] ?? 0);
+            $maps[] = ['event_id' => $eid ?: null, 'event_title' => $eid ? html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8') : null, 'cat_name' => (string) ($m['cat_name'] ?? ''), 'list_id' => intval($m['list_id'] ?? 0)];
+        }
+        $connected = self::api_key() !== '';
+        $enabled = !empty($o['brevo_enabled']);
+        $list = intval($o['brevo_list_id'] ?? 0);
+        return ['ok' => true, 'provider' => 'brevo', 'providers' => ['brevo'], 'connected' => $connected,
+            'enabled' => $enabled, 'active' => $enabled && $connected && ($list > 0 || $maps), 'list_id' => $list ?: null,
+            'mappings' => $maps, 'max_mappings' => 50, 'timing' => ($o['brevo_sync_timing'] ?? '') === 'after_confirm' ? 'after_confirm' : 'immediate'];
+    }
+
+    public static function rest_get(WP_REST_Request $req) {
+        $r = rest_ensure_response(self::sync_payload());
+        $r->header('Cache-Control', 'no-store');
+        return $r;
+    }
+
+    /** POST {enabled?, list_id?, mappings?[{event_id?, cat_name?, list_id}], timing?} */
+    public static function rest_save(WP_REST_Request $req) {
+        $bad = function ($f, $m) { return new WP_Error('tix_invalid_field', $m, ['status' => 400, 'field' => $f]); };
+        $s = (array) get_option('tix_settings', []);
+        if ($req->has_param('list_id')) {
+            $l = intval($req->get_param('list_id'));
+            if ($l < 0) return $bad('list_id', 'Bitte eine Listen-ID aus Brevo angeben.');
+            $s['brevo_list_id'] = $l;
+        }
+        if ($req->has_param('mappings')) {
+            $in = $req->get_param('mappings');
+            if (!is_array($in) || count($in) > 50) return $bad('mappings', 'Höchstens 50 Regeln.');
+            $clean = [];
+            foreach (array_values($in) as $i => $m) {
+                $eid = intval($m['event_id'] ?? 0); $lid = intval($m['list_id'] ?? 0);
+                if ($eid && get_post_type($eid) !== 'event') return $bad("mappings.$i.event_id", 'Event nicht gefunden.');
+                if ($lid < 1) return $bad("mappings.$i.list_id", 'Bitte eine Listen-ID aus Brevo angeben.');
+                $clean[] = ['event_id' => $eid, 'cat_name' => mb_substr(sanitize_text_field((string) ($m['cat_name'] ?? '')), 0, 120), 'list_id' => $lid];
+            }
+            $s['brevo_mappings'] = $clean;
+        }
+        if ($req->has_param('timing')) {
+            $t = (string) $req->get_param('timing');
+            if (!in_array($t, ['immediate', 'after_confirm'], true)) return $bad('timing', 'immediate oder after_confirm.');
+            $s['brevo_sync_timing'] = $t;
+        }
+        if ($req->has_param('enabled')) {
+            $on = filter_var($req->get_param('enabled'), FILTER_VALIDATE_BOOLEAN);
+            if ($on && self::api_key() === '') return $bad('enabled', 'Bitte zuerst Brevo verbinden (Newsletter → Brevo-Schlüssel).');
+            if ($on && !intval($s['brevo_list_id'] ?? 0) && empty($s['brevo_mappings'])) return $bad('list_id', 'Bitte eine Liste oder eine Regel angeben.');
+            $s['brevo_enabled'] = $on ? 1 : 0;
+        }
+        update_option('tix_settings', $s);
+        return self::rest_get($req);
+    }
+
     public static function is_configured(): bool {
-        if (empty(tix_get_settings('brevo_enabled')))    return false;
-        if (empty(tix_get_settings('brevo_api_key')))    return false;
+        if (empty(self::opt('brevo_enabled'))) return false;
+        if (self::api_key() === '')            return false;
         // Mindestens entweder Default-Liste ODER eine Mapping-Regel
-        $has_default  = intval(tix_get_settings('brevo_list_id')) > 0;
-        $has_mappings = !empty(tix_get_settings('brevo_mappings'));
-        return $has_default || $has_mappings;
+        return intval(self::opt('brevo_list_id')) > 0 || !empty(self::opt('brevo_mappings'));
     }
 
     /**
@@ -46,8 +145,8 @@ class TIX_Brevo {
      * Fallback: Default-Listen-ID. Liefert eindeutiges Array von list_ids.
      */
     public static function list_ids_for_order(int $order_id): array {
-        $mappings = (array) (tix_get_settings('brevo_mappings') ?: []);
-        $default  = intval(tix_get_settings('brevo_list_id') ?? 0);
+        $mappings = (array) (self::opt('brevo_mappings') ?: []);
+        $default  = intval(self::opt('brevo_list_id') ?? 0);
         $list_ids = [];
 
         if (!empty($mappings) && $order_id > 0) {
@@ -84,6 +183,7 @@ class TIX_Brevo {
 
     public static function handle_native_optin($order_id, $email, $first_name, $last_name) {
         if (!self::is_configured()) return;
+        if (self::timing() === 'after_confirm') return; // kommt mit tix_nl_confirmed
         $list_ids = self::list_ids_for_order(intval($order_id));
         if (empty($list_ids)) return; // weder Mapping noch Default → nichts pushen
         self::add_contact($email, $first_name, $last_name, [
@@ -123,7 +223,7 @@ class TIX_Brevo {
         $email = strtolower(trim(sanitize_email($email)));
         if (!is_email($email)) return ['success' => false, 'message' => 'Ungültige E-Mail.'];
 
-        $api_key = trim(tix_get_settings('brevo_api_key'));
+        $api_key = self::api_key();
         // Backward-compat: wenn keine Liste übergeben → Default
         if ($list_ids === null) {
             $default = intval(tix_get_settings('brevo_list_id') ?? 0);

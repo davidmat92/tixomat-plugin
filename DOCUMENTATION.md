@@ -6529,3 +6529,17 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Öffentlich zusammenführen (Admin):** `GET/POST /studio/locations/merge` (merge|ignore|unmerge|scan) über `TIX_Locations::suggestions/ignore_pair/groups`.
 - **Test:** `test-locations-studio-wp` (9/9 kk/plat).
 - **1.38.805:** `format_event` (`GET /events`, `/events/{id}`) liefert `series_role` (`single|master|occurrence`) und `series_master_id` für das Serien-Etikett im Studio (Wunsch aus dem P5-Vertrag, siehe §191).
+
+## 195. Angebote & Newsletter im Studio (letztes Paket Expertenmodus, ab 1.38.806)
+- **Vertrag:** `uebergaben/vertrag-angebote-newsletter.md`.
+- **B11 Vorbestellungen:**
+  - `GET/POST /studio/quotes`, `DELETE /studio/quotes/{id}`; Kern `TIX_Quotes::create`, `quote_payload`.
+  - Status `open|redeemed|expired`; Rechte wie Statistik; evendis nur Vorbestellungen mit eigenen Events.
+- **B19 Listen-Abgleich (`TIX_Brevo`):**
+  - `GET/POST /marketing/newsletter/sync`; neuer Schlüssel `brevo_sync_timing` (`immediate|after_confirm`).
+  - `after_confirm` überträgt erst über den Hook `tix_nl_confirmed` (neu in `TIX_Newsletter::rest_confirm`).
+  - Der Schlüssel ist `brevo_api_key`, sonst der Studio-Newsletter-Schlüssel.
+  - Einstellungen werden direkt aus der Option gelesen (`tix_get_settings` merkt sich den Stand je Aufruf).
+- **B6:** `GET /organizer/coupons?event_id=` mit `for_all_events`.
+- **B8:** `statistics.by_campaign` (`TIX_Studio_Stats::campaigns`) und `GET /marketing/links?event_id=`.
+- **Test:** `test-offers-newsletter-wp` (17/17 kk/plat).

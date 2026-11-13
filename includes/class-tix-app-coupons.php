@@ -392,8 +392,15 @@ class TIX_App_Coupons {
     public static function rest_list(WP_REST_Request $req) {
         $oid = self::scope_org();
         $out = [];
-        foreach (self::all() as $k => $c) if (self::visible($c, $oid)) $out[] = self::staff_item($k, $c);
-        $r = rest_ensure_response(['ok' => true, 'coupons' => $out, 'can_app_fields' => true, 'organizer_id' => $oid, 'text_max' => self::TEXT_MAX,
+        // ?event_id= (1.38.806, „Gutscheine für dieses Event“): Codes, die für das Event gelten – nur dafür oder für alle Events
+        $fev = absint($req->get_param('event_id'));
+        foreach (self::all() as $k => $c) {
+            if (!self::visible($c, $oid)) continue;
+            $allowed = array_map('intval', (array) ($c['allowed_events'] ?? []));
+            if ($fev && $allowed && !in_array($fev, $allowed, true)) continue;
+            $out[] = self::staff_item($k, $c) + ['for_all_events' => !$allowed];
+        }
+        $r = rest_ensure_response(['ok' => true, 'coupons' => $out, 'event_id' => $fev ?: null, 'can_app_fields' => true, 'organizer_id' => $oid, 'text_max' => self::TEXT_MAX,
             'can_web_auto' => self::can_web_auto(), 'web_auto_code' => self::web_auto_code()]);
         $r->header('Cache-Control', 'no-store');
         return $r;
