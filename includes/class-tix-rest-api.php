@@ -2925,6 +2925,13 @@ class TIX_REST_API {
         $event['guard'] = class_exists('TIX_Content_Guard') && method_exists('TIX_Content_Guard', 'guard_info') ? TIX_Content_Guard::guard_info($id) : null;
         // Co-Veranstalter (1.38.696, nur evendis): event_role + shared_with („Gemeinsam mit …“)
         if (class_exists('TIX_Co_Organizer')) $event += TIX_Co_Organizer::list_fields($id);
+        // Serie (1.38.805, Etikett im Studio): series_role single|master|occurrence + series_master_id
+        if (class_exists('TIX_Recurrence')) {
+            $sp = intval(TIX_Recurrence::parent_of($id));
+            $sm = !$sp && TIX_Recurrence::mode($id) !== 'none';
+            $event['series_role'] = $sp ? 'occurrence' : ($sm ? 'master' : 'single');
+            $event['series_master_id'] = $sp ?: ($sm ? $id : null);
+        }
 
         return $event;
     }

@@ -29,6 +29,8 @@ try {
     $c1 = $kids[0] ?? 0; $c2 = $kids[1] ?? 0;
     [$st, $d] = $rest('GET', "/events/$c1/series");
     $eq('Termin: role occurrence mit master_id', ['occurrence', $m], [$d['role'] ?? '', $d['master_id'] ?? 0]);
+    $ga = $rest('GET', "/events/$m")[1]; $ga = $ga['event'] ?? $ga; $gb = $rest('GET', "/events/$c1")[1]; $gb = $gb['event'] ?? $gb;
+    $eq('GET /events: series_role master/occurrence (1.38.805)', ['master', 'occurrence', $m], [$ga['series_role'] ?? '', $gb['series_role'] ?? '', $gb['series_master_id'] ?? 0]);
     [$st, , $c] = $rest('POST', "/events/$c1/series", ['mode' => 'none']);
     $eq('Wiederholung am Termin ändern → 409', [409, 'tix_series_occurrence'], [$st, $c]);
     [$st, , $c] = $rest('POST', "/events/$m/series", ['mode' => 'monthly']);
