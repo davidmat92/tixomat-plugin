@@ -23,7 +23,9 @@ class TIX_Website {
     const AUTO_HOSTS = ['kitchenklub.de', 'mallorca-festival-xxl.de'];
     const OPTION = 'tix_website';
     const OPT_DOMAIN = 'tix_website_domain';
-    const TEMPLATES = ['club', 'festival', 'klar', 'einfach', 'nacht', 'plakat', 'openair', 'welle']; // einfach: 1.38.714, nacht + plakat: 1.38.721, openair + welle: 1.38.788
+    const TEMPLATES = ['club', 'klar', 'einfach', 'nacht', 'plakat', 'openair', 'welle']; // einfach: 1.38.714, nacht + plakat: 1.38.721, openair + welle: 1.38.788; festival entfernt 1.38.794
+    /** Entfernte Vorlagen → Ersatz (User 13.11.: „Festival“ entfällt, gespeichert/gesendet gilt „Openair“) */
+    const TEMPLATE_ALIASES = ['festival' => 'openair'];
     const HISTORY = 10;
     const PREVIEW_TTL = DAY_IN_SECONDS;
 
@@ -68,7 +70,6 @@ class TIX_Website {
     // Abstimmung mit dem Homepages-Chat (1.38.516, erweitert 1.38.523 – Schritt 6); available folgt weiter den App-Schaltern
     const DEFAULTS = [
         'club'     => ['stage', 'live_now', 'highlights', 'next', 'presale', 'service', 'tips', 'raffles', 'about', 'gallery', 'music', 'loyalty', 'giftcards', 'wallet', 'u16', 'awareness', 'faq', 'newsletter', 'app_banner'],
-        'festival' => ['stage', 'ticker', 'lineup', 'tickets', 'raffles', 'about', 'arrival', 'more_dates', 'tips', 'gallery', 'wallet', 'awareness', 'faq', 'newsletter', 'app_banner'],
         'klar'     => ['stage', 'next', 'tips', 'raffles', 'about', 'arrival', 'service', 'faq', 'contact', 'newsletter', 'app_banner'],
         'einfach'  => ['stage', 'next', 'about', 'contact'], // eine Seite: nächstes Event groß, weitere Termine, Über uns, Kontakt (1.38.714)
         // 1.38.721 (Homepage-Stile): Nacht = dunkler Club-Abend, Plakat = Festival-Plakat
@@ -234,10 +235,16 @@ class TIX_Website {
         update_option(self::OPTION, $o, false);
     }
 
-    /** Vorlage aus dem App-Profil (club → club, festival* → festival). */
+    /** Vorlage aus dem App-Profil (club → club, festival* → openair; die Vorlage „festival“ gibt es seit 1.38.794 nicht mehr). */
     public static function profile_template() {
         $p = class_exists('TIX_Studio') ? (string) TIX_Studio::app_layout() : 'club';
-        return strpos($p, 'festival') === 0 ? 'festival' : 'club';
+        return strpos($p, 'festival') === 0 ? 'openair' : 'club';
+    }
+
+    /** Gespeicherte bzw. gesendete Vorlage → gültiger Schlüssel (festival → openair); unbekannt bleibt unverändert */
+    public static function template_key($t) {
+        $t = (string) $t;
+        return self::TEMPLATE_ALIASES[$t] ?? $t;
     }
 
     // ═══════════════ Schalter ═══════════════
@@ -298,7 +305,7 @@ class TIX_Website {
     /** WEBSITE prüfen und säubern → array | WP_Error */
     public static function clean(array $w) {
         $out = ['version' => 1];
-        $t = (string) ($w['template'] ?? '');
+        $t = self::template_key($w['template'] ?? '');
         if ($t !== '' && !in_array($t, self::TEMPLATES, true)) return self::bad('template', 'Vorlage: ' . implode(', ', self::TEMPLATES) . '.');
         $out['template'] = $t;
         $out['sections'] = [];
@@ -518,7 +525,8 @@ class TIX_Website {
     public static function expand(array $w = null) {
         self::$avail = null; // Schalter je Aufbereitung frisch lesen
         $w = $w ?: ['version' => 1, 'template' => '', 'sections' => [], 'nav' => ['header' => [], 'cta' => null, 'footer' => []], 'texts' => array_fill_keys(self::TEXTS, '')];
-        $tpl = in_array((string) ($w['template'] ?? ''), self::TEMPLATES, true) ? $w['template'] : self::profile_template();
+        $tpl = self::template_key($w['template'] ?? '');
+        if (!in_array($tpl, self::TEMPLATES, true)) $tpl = self::profile_template();
         $defaults = self::DEFAULTS[$tpl];
         $list = [];
         $have = [];

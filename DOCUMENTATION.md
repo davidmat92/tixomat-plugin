@@ -6373,3 +6373,14 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Tests:**
   - `test-sponsor-logos-wp` (27/27 kk/plat).
   - `test-co-remote-e2e` 4e: Quelle → Spiegel; der Betreiber ändert am Spiegel, die Quelle speichert.
+
+## 185. Website-Vorlage „Festival“ entfernt (ab 1.38.794)
+- **User (13.11.):** Die Vorlage „Festival“ entfällt.
+- **Entfernt aus:**
+  - `TIX_Website::TEMPLATES` und den Vorgabe-Abschnitten
+  - `TIX_Sales_Previews::TEMPLATES` und der Design-Zuordnung
+- **Ersatz:** `TIX_Website::TEMPLATE_ALIASES` (`festival` → `openair`), `template_key()`.
+  - Gespeichert bzw. gesendet (Website, Vertriebs-Vorschau) gilt `openair`; die API liefert nie `festival`.
+  - Ohne gespeicherte Vorlage ergibt das App-Profil `festival*` jetzt `openair`.
+- **Nicht betroffen:** App-Profile/Layouts `festival`/`festivalTour` (`TIX_Site_Brand`, `TIX_Studio`) und das Demo-Profil „Festival“.
+- **Bestand (13.11., lesend):** Keine Live-Seite hat `festival` als Website-Vorlage gespeichert (KK club, Mallorca openair, KMT plakat, evendis keine).

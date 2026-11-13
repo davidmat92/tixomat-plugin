@@ -22,6 +22,9 @@ try {
         $eq("Vorgaben $t genau wie bestellt", $exp, $def);
         $eq("Reihenfolge $t = Startseite", $list, TIX_Website::DEFAULTS[$t]);
     }
+    $eq('festival entfernt (1.38.794): nicht in der Liste, gespeichert/gesendet → openair', [false, false, 'openair', 'openair', 'openair'],
+        [in_array('festival', TIX_Website::TEMPLATES, true), in_array('festival', TIX_Sales_Previews::TEMPLATES, true), TIX_Website::clean(['template' => 'festival'])['template'] ?? null,
+         TIX_Website::expand(['template' => 'festival', 'sections' => []])['template'] ?? null, TIX_Website::template_key('festival')]);
     $eq('Prüfung nimmt openair/welle an, Unbekanntes nicht', [true, true, true], [!is_wp_error(TIX_Website::clean(['template' => 'openair'])), !is_wp_error(TIX_Website::clean(['template' => 'welle'])), is_wp_error(TIX_Website::clean(['template' => 'gibtsnicht']))]);
     $e = TIX_Website::clean(['template' => 'gibtsnicht']);
     $eq('Fehlertext nennt die neuen Vorlagen', true, is_wp_error($e) && strpos($e->get_error_message(), 'openair') !== false && strpos($e->get_error_message(), 'welle') !== false);
