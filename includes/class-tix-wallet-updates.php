@@ -253,6 +253,7 @@ class TIX_Wallet_Updates {
 
     /** Leerer Push an Wallet (Produktion, Pass-Zertifikat). Gibt die Zahl der angenommenen Pushes zurück. */
     public static function apns_push(array $tokens) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return 0; // Schatten-Abruf: keine Pushes
         $pre = apply_filters('tix_wallet_apns_send', null, $tokens);
         if ($pre !== null) return $pre;
         if (!function_exists('curl_init') || !defined('CURL_HTTP_VERSION_2_0')) return 0;

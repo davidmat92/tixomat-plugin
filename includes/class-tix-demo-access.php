@@ -486,6 +486,7 @@ class TIX_Demo_Access {
     // ═══════════════ Anmelde-Link ═══════════════
 
     private static function limited($bucket, $max, $window) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
         $k = 'tix_dal_' . $bucket . '_' . md5($ip);
         $n = intval(get_transient($k));

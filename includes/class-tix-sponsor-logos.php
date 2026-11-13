@@ -427,6 +427,7 @@ class TIX_Sponsor_Logos {
     // ═══════════════ Klicks ═══════════════
 
     public static function count_click($id, $src, $ua = '') {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         global $wpdb;
         if (!self::ready() || preg_match(self::BOTS, (string) $ua)) return false;
         $src = in_array($src, self::SRC, true) ? $src : 'web';

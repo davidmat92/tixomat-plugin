@@ -50,6 +50,7 @@ class TIX_Weather {
     }
 
     private static function limited($ip) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         $k = 'tix_wx_ip_' . substr(hash_hmac('sha256', (string) $ip, wp_salt('nonce')), 0, 32);
         $d = get_transient($k);
         if (!is_array($d) || time() - intval($d['t']) >= MINUTE_IN_SECONDS) $d = ['n' => 0, 't' => time()];

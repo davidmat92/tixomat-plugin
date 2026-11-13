@@ -206,6 +206,7 @@ class TIX_Campaign_Tracking {
 
     /** Event-Aufruf je Quelle/Kampagne/Inhalt und Tag zählen (Pixel und POST /public/track). */
     public static function record_event_view($event_id, $source, $campaign = '', $content = '') {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return; // Schatten-Abruf
         global $wpdb;
         $table    = self::get_table();
         $source   = sanitize_key(substr((string) $source, 0, 50)) ?: 'direct';

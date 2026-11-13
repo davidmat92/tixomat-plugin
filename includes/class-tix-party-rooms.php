@@ -124,6 +124,7 @@ class TIX_Party_Rooms {
 
     /** Flüchtiges Rate-Limit je IP (HMAC der IP nur im Transient-Schlüssel, nichts Dauerhaftes). */
     private static function limited($bucket, $max, $window) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         $ip = class_exists('TIX_Client_IP') ? TIX_Client_IP::get() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
         $key = 'tix_party_rl_' . $bucket . '_' . substr(hash_hmac('sha256', $ip, wp_salt('nonce')), 0, 32);
         $d = get_transient($key);

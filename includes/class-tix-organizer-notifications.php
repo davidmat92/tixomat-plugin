@@ -521,6 +521,7 @@ class TIX_Organizer_Notifications {
 
     /** Pushover API Call */
     public static function send_pushover($user_key, $app_token, array $payload) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return true; // Schatten-Abruf: keine Pushes
         $body = [
             'token'   => $app_token,
             'user'    => $user_key,

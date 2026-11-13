@@ -206,6 +206,7 @@ class TIX_App_Account {
 
     /** Rate-Limit (REST-tauglich, liefert bool). Schlüssel: IP oder eigener Wert. */
     public static function rate_limited($bucket, $max, $window, $key = '') {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf (1.38.808): zählt nicht, wird nicht gebremst
         $key  = 'tix_app_rl_' . $bucket . '_' . md5($key !== '' ? (string) $key : self::client_ip());
         $data = get_transient($key);
         if (!is_array($data) || time() - intval($data['first']) >= $window) {

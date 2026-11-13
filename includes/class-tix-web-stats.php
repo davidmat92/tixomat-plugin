@@ -129,6 +129,7 @@ class TIX_Web_Stats {
     }
 
     private static function bump_dim($day, $step, $org, $event, $channel, array $o) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return; // Schatten-Abruf
         global $wpdb;
         $wpdb->query($wpdb->prepare("INSERT INTO " . self::dim_table() . " (day, step, org_id, event_id, channel, source, medium, campaign, utm_id, n) VALUES (%s, %s, %d, %d, %s, %s, %s, %s, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1",
             $day, $step, $org, $event, $channel, $o[0], $o[1], $o[2], $o[3] ?? ''));
@@ -159,12 +160,14 @@ class TIX_Web_Stats {
     private static function today() { return wp_date('Y-m-d'); }
 
     private static function bump($day, $step, $ref) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return; // Schatten-Abruf
         global $wpdb;
         $wpdb->query($wpdb->prepare("INSERT INTO " . self::table() . " (day, step, ref, n) VALUES (%s, %s, %d, 1) ON DUPLICATE KEY UPDATE n = n + 1", $day, $step, $ref));
     }
 
     /** Grobe Bremse gegen Fluten: höchstens PER_MINUTE Ereignisse je Minute für die ganze Seite */
     private static function throttled() {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return true; // Schatten-Abruf: nichts zählen
         $k = 'tix_ws_rate_' . gmdate('YmdHi');
         $n = (int) get_transient($k);
         if ($n >= self::PER_MINUTE) return true;

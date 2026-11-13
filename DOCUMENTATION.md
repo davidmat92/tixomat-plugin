@@ -6562,3 +6562,21 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Listen-Abgleich:** Hooks `tix_newsletter_optin` (Bereiche der gekauften Events) und `tix_nl_confirmed`; Tags je Event/Ticketart.
   - `TIX_Brevo::rest_get/rest_save` verzweigen bei Mailchimp-Bereichen (evendis auch für Veranstalter).
 - **Test:** `test-newsletter-mailchimp-wp` (23/23 kk/plat, Mailchimp-API nachgebildet).
+
+## 197. Paket-Kanal (Update-Kanal evendis-api am Lizenzserver) und Schatten-Kennung (Phase 1, Paket 1b, ab 1.38.808)
+- **Vertrag:** `uebergaben/vertrag-paket-kanal.md` (V2/V3 final). Grundlage: `docs/plan-wordpress.md` (Weg 3, Baustein 1).
+- **`TIX_Package_Channel`** (`includes/class-tix-package-channel.php`), nur auf dem Lizenzserver:
+  - `POST /license/package/check`: `key_id` = sha256(Schlüssel)[0..16], HMAC-Signatur mit ±5 min, Antwort signiert.
+    - Zustände `valid|notice|locked|basis|invalid|unknown`; Soll-Version nur bei `valid` und `notice`.
+  - Admin: `POST /license/package/target` (Kanal stable/beta, je Lizenz Kanal oder eigene Soll-Version, `clear`) und `GET /license/package/status` (Instanzen mit deviation/behind/below_min/stale).
+  - Tabellen `tix_package_instances` und `tix_package_targets` (JSON), angelegt beim ersten Aufruf (Option `tix_package_db`).
+  - Änderungen je Lizenz im Lizenz-Verlauf (`package_target`).
+- **`TIX_Shadow`** (`includes/class-tix-shadow.php`):
+  - `X-Evendis-Shadow-Fetch: 1` gilt nur mit `X-Evendis-Shadow-Key` = `EVENDIS_SHADOW_KEY` bzw. Option `tix_shadow_key` (≥32 Zeichen).
+  - Dann zählt nichts: `TIX_Web_Stats` bump/bump_dim/throttled, `TIX_Site_Analytics`, `TIX_Campaign_Tracking`, Kurzlinks, Sponsor-Klicks, Angebots-Aufrufe.
+  - Ratenlimits (`TIX_App_Account::rate_limited` und die eigenen Limits in app-checkout, demo-access, license-server, party-rooms, weather, wallet-pay) zählen und bremsen nicht.
+  - Mails: `pre_wp_mail` (Priorität 0) liefert true ohne Versand.
+  - Pushes: `TIX_FCM::send`, `TIX_Notifications::send_push`, `TIX_Staff_Push::send_to_users/send_sales`, Pushover, Wallet-APNs senden nichts.
+  - Schreibende Methode mit Kennung (auch ohne Schlüssel): 403 `tix_shadow_readonly` (`rest_pre_dispatch` −1000, außerhalb REST `plugins_loaded` 0).
+  - **Neue Zähler oder Limits:** am Anfang `if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return …;` eintragen.
+- **Test:** `test-package-channel-wp` (kk 19/19 mit Lizenzserver, plat 6/6 nur Schatten).

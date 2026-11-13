@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.807
+ * Version: 1.38.808
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.807');
+define('TIXOMAT_VERSION', '1.38.808');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -156,6 +156,7 @@ add_filter('sanitize_title', function($title, $raw_title, $context) {
 // Migration ai_guard_api_key → anthropic_api_key: seit 1.38.767 Schritt „ki_schluessel“ in TIX_Migrations.
 
 // ── Immer laden (CPT, leichtgewichtig) ──
+require_once TIXOMAT_PATH . 'includes/class-tix-shadow.php'; // Schatten-Kennung X-Evendis-Shadow-Fetch (Phase 1, 1.38.808)
 require_once TIXOMAT_PATH . 'includes/class-tix-client-ip.php';
 // Phase 0 (1.38.767): Migrationen beim ersten Aufruf jeder Art (init) + Bestand mit Sperre (Tabelle tix_stock)
 require_once TIXOMAT_PATH . 'includes/class-tix-migrations.php';
@@ -745,6 +746,7 @@ if (!class_exists('TIX_Fees')) require_once TIXOMAT_PATH . 'includes/class-tix-f
 //    beim Kunden (nur mit self-hosted.flag bzw. Schlüssel), Mindest-Version für Apps (überall) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-modules.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-license-server.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-package-channel.php'; // Paket-Kanal evendis-api am Lizenzserver (Phase 1, 1.38.808)
 require_once TIXOMAT_PATH . 'includes/class-tix-license.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-license-stage.php';
 require_once TIXOMAT_PATH . 'includes/class-tix-basis-content.php';

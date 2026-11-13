@@ -739,6 +739,7 @@ class TIX_Notifications {
      * Ohne eingerichteten Weg passiert für diese Geräte nichts (der In-App-Feed genügt dann).
      */
     public static function send_push($tokens, $title, $body, $data = []) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return 0; // Schatten-Abruf: keine Pushes
         $tokens = array_values(array_unique(array_filter(array_map('strval', (array) $tokens))));
         if (!$tokens) return 0;
         $known = self::tokens();

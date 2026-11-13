@@ -307,7 +307,7 @@ class TIX_Short_Links {
         if (!$l) return apply_filters('tix_go_fallback', null, $code, intval($event_id), (bool) $qr);
         if (!empty($l['archived'])) return null;
         if (intval($l['event_id']) && !in_array(get_post_status(intval($l['event_id'])), ['publish', 'future'], true)) return null;
-        if (!preg_match(TIX_Web_Stats::BOT, (string) $ua)) {
+        if (!preg_match(TIX_Web_Stats::BOT, (string) $ua) && !(class_exists('TIX_Shadow') && TIX_Shadow::active())) { // Schatten-Abruf zählt nicht (1.38.808)
             $wpdb->query($wpdb->prepare("INSERT INTO " . self::tc() . " (day, link_id, kind, n) VALUES (%s, %d, %s, 1) ON DUPLICATE KEY UPDATE n = n + 1", wp_date('Y-m-d'), intval($l['id']), $qr ? 'qr' : 'link'));
             self::mirror($l['id']); // Postausgang fasst mehrere Klicks je Link zusammen
             if (mt_rand(1, 500) === 1) $wpdb->query($wpdb->prepare("DELETE FROM " . self::tc() . " WHERE day < %s", wp_date('Y-m-d', time() - self::KEEP_CLICK_DAYS * DAY_IN_SECONDS)));

@@ -340,6 +340,7 @@ class TIX_License_Server {
 
     /** Zähler je Schlüssel (z. B. Lizenz + Host), unabhängig von der IP. */
     private static function limited_key($bucket, $id, $max, $window) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         $k = 'tix_lic_rl_' . $bucket . '_' . substr(md5(strtolower($id)), 0, 20);
         $n = intval(get_transient($k));
         if ($n >= $max) return true;

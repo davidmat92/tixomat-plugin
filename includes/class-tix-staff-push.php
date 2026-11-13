@@ -356,6 +356,7 @@ class TIX_Staff_Push {
 
     /** Meldung bauen und senden: Anzahl, Umsatz, Top-3-Events; Antippen → Event bzw. Start */
     public static function send_sales($uid, array $events) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return 0; // Schatten-Abruf: keine Pushes
         $tickets = array_sum(array_column($events, 'tickets'));
         if ($tickets <= 0) return 0;
         $revenue = array_sum(array_column($events, 'revenue'));
@@ -731,6 +732,7 @@ class TIX_Staff_Push {
     // ═══════════════ Versand ═══════════════
 
     public static function send_to_users(array $uids, $title, $body, array $data = []) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return 0; // Schatten-Abruf: keine Pushes
         if (!$uids) return 0;
         $uids = array_map('intval', $uids);
         $data += ['site' => self::host()];

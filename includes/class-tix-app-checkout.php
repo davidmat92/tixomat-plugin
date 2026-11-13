@@ -846,6 +846,7 @@ class TIX_App_Checkout {
 
     /** Einfaches Rate-Limit pro Nutzer (REST-tauglich, liefert WP_Error). */
     private static function rate_limited($bucket, $max, $window) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         if (self::$partner) return false; // Partner-API begrenzt selbst je Partner
         $who  = get_current_user_id() ?: (class_exists('TIX_App_Account') ? 'ip_' . TIX_App_Account::client_ip() : 'ip_' . ($_SERVER['REMOTE_ADDR'] ?? ''));
         $key  = 'tix_app_rl_' . $bucket . '_' . md5((string) $who);

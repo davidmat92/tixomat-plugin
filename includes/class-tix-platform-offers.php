@@ -1119,6 +1119,7 @@ class TIX_Platform_Offers {
     }
 
     private static function track_view($row) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return; // Schatten-Abruf
         if (is_user_logged_in() && (self::is_admin_user() || self::is_sales())) return; // das Team zählt nicht
         $key = 'tix_offer_v_' . md5($row->id . '|' . (class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'client_ip') ? TIX_App_Account::client_ip() : ($_SERVER['REMOTE_ADDR'] ?? '')));
         if (get_transient($key)) return;

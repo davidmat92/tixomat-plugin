@@ -190,6 +190,7 @@ class TIX_FCM {
      * Ohne Dienstkonto oder ohne Zugriffstoken passiert nichts (der In-App-Feed genügt dann).
      */
     public static function send(array $tokens, $title, $body, array $data = []) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return ['sent' => 0, 'invalid' => []]; // Schatten-Abruf: keine Pushes (1.38.808)
         $out = ['sent' => 0, 'invalid' => []];
         $tokens = array_values(array_unique(array_filter(array_map('strval', $tokens))));
         $a = self::account();

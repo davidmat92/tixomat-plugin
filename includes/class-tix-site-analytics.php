@@ -109,6 +109,7 @@ class TIX_Site_Analytics {
      * referrer_host, is_first_visit, is_session_start. false = Pflichtfeld fehlt.
      */
     public static function record_pageview(array $in) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return; // Schatten-Abruf
         $visitor_id = sanitize_text_field(substr((string) ($in['visitor_id'] ?? ''), 0, 40));
         $session_id = sanitize_text_field(substr((string) ($in['session_id'] ?? ''), 0, 40));
         $page_path  = self::sanitize_path((string) ($in['page_path'] ?? ''));
@@ -210,6 +211,7 @@ class TIX_Site_Analytics {
     }
 
     private static function check_rate_limit() {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf: kein Seitenaufruf zählen, kein Limit verbrauchen
         // Besucher-IP (hinter der Next.js-Website über X-Forwarded-For, siehe TIX_Client_IP)
         $ip = TIX_Client_IP::get() ?: '0.0.0.0';
         $key = 'tix_rl_pv_' . md5($ip);

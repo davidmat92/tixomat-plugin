@@ -64,6 +64,7 @@ class TIX_Wallet_Pay {
 
     /** Ratenbegrenzung (flüchtig, Transient). Grenzen per Filter `tix_wallet_rate_limits`. */
     private static function limited($bucket, $key) {
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return false; // Schatten-Abruf
         $lim = apply_filters('tix_wallet_rate_limits', ['staff' => 60, 'device' => 60, 'wallet' => 60, 'guest' => 120]);
         $max = intval($lim[$bucket] ?? 60);
         $k = 'tix_wpay_rl_' . $bucket . '_' . md5((string) $key);
