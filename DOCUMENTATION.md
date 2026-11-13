@@ -6519,3 +6519,12 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - `GET/POST /studio/taxonomies/{categories|collections}`, `…/{id}` (ändern/löschen, `force`), `…/order` (Term-Meta `_tix_order`).
   - Kategorien: Admin/Inhaber (evendis nur Admin). Sammlungen: Admin. 409 `tix_term_exists` bzw. `tix_term_in_use`.
 - **Test:** `test-event-editor-extras-wp` (16/16 kk/plat).
+
+## 194. Orte im Studio: Seiten-Angaben je Ort, doppelte Orte, Zusammenführen (P6 Expertenmodus, ab 1.38.804)
+- **Auftrag:** B22, B24; B25 Muttizettel ist schon ausreichend vorhanden. Vertrag `uebergaben/vertrag-orte-studio.md`.
+- **Seiten-Angaben:**
+  - `POST /locations[/{id}]` nimmt `page` (Prüfung `TIX_Venues::clean_page_input`, Feld-Vorsilbe `page.`; Bilder gehören danach zum Ort).
+  - `location_payload($lid, $with_page)`; `GET /locations?with=page`; `TIX_Club::page_payload`.
+- **Zusammenlegen:** `POST /locations/{id}/merge-into {target_id}` hängt Events um, ergänzt leere Angaben, legt den alten Ort in den Papierkorb und biegt Website-Ort und kanonische Verweise um.
+- **Öffentlich zusammenführen (Admin):** `GET/POST /studio/locations/merge` (merge|ignore|unmerge|scan) über `TIX_Locations::suggestions/ignore_pair/groups`.
+- **Test:** `test-locations-studio-wp` (9/9 kk/plat).

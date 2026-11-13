@@ -566,6 +566,12 @@ class TIX_Studio_Editor {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_locations'], 'permission_callback' => $staff],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_location_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
         ]);
+        // Orte (P6 Expertenmodus, 1.38.804): Doppelte zusammenlegen (eigene Orte) bzw. öffentlich zusammenführen (evendis, Admin)
+        register_rest_route(self::NS, '/locations/(?P<id>\d+)/merge-into', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_location_merge_into'], 'permission_callback' => [__CLASS__, 'perm_location_write']]);
+        register_rest_route(self::NS, '/studio/locations/merge', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_merge_list'], 'permission_callback' => [__CLASS__, 'perm_admin_only']],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_merge_do'], 'permission_callback' => [__CLASS__, 'perm_admin_only']],
+        ]);
         register_rest_route(self::NS, '/locations/(?P<id>\d+)', [
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_location_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
             ['methods' => 'DELETE', 'callback' => [__CLASS__, 'rest_location_delete'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
@@ -655,7 +661,7 @@ class TIX_Studio_Editor {
         )));
     }
 
-    public static function location_payload($lid) {
+    public static function location_payload($lid, $with_page = false) {
         $m = function ($k) use ($lid) { return (string) get_post_meta($lid, $k, true); };
         $lat = $m('_tix_loc_lat'); $lng = $m('_tix_loc_lng');
         $lat = is_numeric($lat) && floatval($lat) != 0 ? floatval($lat) : null;
@@ -682,7 +688,62 @@ class TIX_Studio_Editor {
             'last_used' => class_exists('TIX_Locations') ? TIX_Locations::last_used($lid) : null,
             'organizer_id' => intval($m('_tix_loc_organizer_id')) ?: null,
             'canonical_id' => class_exists('TIX_Locations') ? TIX_Locations::canonical_id($lid) : intval($lid),
+            // Seiten-Angaben am Ort (P6 1.38.804): Texte, Bild, Galerie, Öffnungszeiten, Kontakt – wie „Der Club“
+            'page' => $with_page && class_exists('TIX_Club') && method_exists('TIX_Club', 'page_payload') ? array_diff_key((array) TIX_Club::page_payload($lid), array_flip(['location_id', 'name', 'address', 'zip', 'city'])) : null,
         ];
+    }
+
+    public static function perm_admin_only(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Nur Admins.', ['status' => 403]);
+    }
+
+    /** POST /locations/{id}/merge-into {target_id} – doppelten eigenen Ort auflösen: Events umhängen, Ort in den Papierkorb */
+    public static function rest_location_merge_into(WP_REST_Request $req) {
+        $lid = absint($req['id']);
+        $target = absint($req->get_param('target_id'));
+        if (get_post_type($lid) !== 'tix_location' || !self::location_own($lid)) return new WP_Error('rest_forbidden', 'Diesen Ort kannst du nicht ändern.', ['status' => 403]);
+        if (!$target || $target === $lid || get_post_type($target) !== 'tix_location' || get_post_status($target) !== 'publish' || !self::location_own($target)) return self::bad('target_id', 'Bitte einen anderen eigenen Ort als Ziel wählen.');
+        global $wpdb;
+        $events = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_tix_location_id' AND meta_value = %s", (string) $lid)));
+        $title = html_entity_decode(get_the_title($target), ENT_QUOTES, 'UTF-8');
+        foreach ($events as $eid) {
+            if (get_post_type($eid) !== 'event') continue;
+            update_post_meta($eid, '_tix_location_id', $target);
+            update_post_meta($eid, '_tix_location', $title);
+            foreach (['address' => '_tix_loc_address', 'city' => '_tix_loc_city'] as $k => $mk) if (($v = (string) get_post_meta($target, $mk, true)) !== '' && $k === 'address') update_post_meta($eid, '_tix_address', trim($v . ', ' . trim((string) get_post_meta($target, '_tix_loc_zip', true) . ' ' . (string) get_post_meta($target, '_tix_loc_city', true)), ', '));
+        }
+        // Barrierefreiheit und Seiten-Angaben nur übernehmen, wo das Ziel nichts hat
+        foreach (['_tix_accessibility', '_tix_loc_hours', '_tix_loc_gallery', '_tix_loc_description', '_tix_loc_short_desc', '_tix_loc_tagline', '_tix_loc_image_id', '_tix_loc_phone', '_tix_loc_email', '_tix_loc_website', '_tix_loc_place_id'] as $mk) {
+            $tv = get_post_meta($target, $mk, true); $sv = get_post_meta($lid, $mk, true);
+            if (($tv === '' || $tv === [] || $tv === null) && $sv !== '' && $sv !== null && $sv !== []) update_post_meta($target, $mk, $sv);
+        }
+        if (class_exists('TIX_Site_Config') && TIX_Site_Config::venue_location_id() === $lid) TIX_Site_Config::set_venue_id($target);
+        if (class_exists('TIX_Locations')) foreach (get_posts(['post_type' => 'tix_location', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => TIX_Locations::META_CANON, 'meta_value' => (string) $lid]) as $x) update_post_meta($x, TIX_Locations::META_CANON, $target);
+        wp_trash_post($lid);
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        return rest_ensure_response(['ok' => true, 'merged' => $lid, 'into' => self::location_payload($target, true), 'events_moved' => count($events)]);
+    }
+
+    /** GET /studio/locations/merge – Vorschläge und öffentliche Gruppen (evendis) */
+    public static function rest_merge_list(WP_REST_Request $req) {
+        if (!class_exists('TIX_Locations')) return rest_ensure_response(['ok' => true, 'suggestions' => [], 'groups' => []]);
+        $groups = [];
+        foreach (TIX_Locations::groups() as $c => $ids) $groups[] = ['canonical' => self::location_payload($c), 'members' => array_map(function ($i) { return ['id' => $i, 'title' => html_entity_decode(get_the_title($i), ENT_QUOTES, 'UTF-8'), 'organizer_id' => intval(get_post_meta($i, '_tix_loc_organizer_id', true)) ?: null]; }, $ids)];
+        return rest_ensure_response(['ok' => true, 'suggestions' => TIX_Locations::suggestions(), 'groups' => $groups]);
+    }
+
+    /** POST /studio/locations/merge {action: merge|ignore|unmerge|scan, a?, b?, dry_run?} */
+    public static function rest_merge_do(WP_REST_Request $req) {
+        if (!class_exists('TIX_Locations')) return new WP_Error('tix_unavailable', 'Nicht verfügbar.', ['status' => 501]);
+        $act = (string) $req->get_param('action');
+        $a = absint($req->get_param('a')); $b = absint($req->get_param('b'));
+        $ok = function ($id) { return $id && get_post_type($id) === 'tix_location'; };
+        if ($act === 'merge') { if (!$ok($a) || !$ok($b) || $a === $b) return self::bad('a', 'Zwei verschiedene Orte angeben.'); $win = TIX_Locations::merge($a, $b); return rest_ensure_response(['ok' => true, 'canonical' => intval($win)] + (array) self::rest_merge_list($req)->get_data()); }
+        if ($act === 'ignore') { if (!$ok($a) || !$ok($b)) return self::bad('a', 'Zwei Orte angeben.'); TIX_Locations::ignore_pair($a, $b); return self::rest_merge_list($req); }
+        if ($act === 'unmerge') { if (!$ok($a)) return self::bad('a', 'Ort angeben.'); TIX_Locations::unmerge($a); return self::rest_merge_list($req); }
+        if ($act === 'scan') { $r = TIX_Locations::check_all(filter_var($req->get_param('dry_run'), FILTER_VALIDATE_BOOLEAN)); return rest_ensure_response(['ok' => true, 'merged' => $r['merged'], 'suggested' => $r['suggested']] + (array) self::rest_merge_list($req)->get_data()); }
+        return self::bad('action', 'action: merge, ignore, unmerge oder scan.');
     }
 
     /** GET /locations */
@@ -692,7 +753,7 @@ class TIX_Studio_Editor {
         $out = [];
         foreach ($ids as $lid) {
             if (self::multi() && !current_user_can('manage_options') && !self::location_own($lid)) continue;
-            $out[] = self::location_payload($lid);
+            $out[] = self::location_payload($lid, (string) $req->get_param('with') === 'page'); // Seiten-Angaben nur auf Wunsch (P6)
         }
         return rest_ensure_response(['ok' => true, 'locations' => $out]);
     }
@@ -732,6 +793,12 @@ class TIX_Studio_Editor {
             if ($unknown) return self::bad('accessibility.items', 'Unbekannte Angabe: ' . reset($unknown) . '.');
             if (is_array($acc) && mb_strlen((string) ($acc['note'] ?? '')) > 500) return self::bad('accessibility.note', 'Höchstens 500 Zeichen.');
         }
+        // Seiten-Angaben (P6 1.38.804): page {tagline, short_description, description, image_id, gallery, hours, hours_note, phone, email, website}
+        if (array_key_exists('page', $p) && class_exists('TIX_Venues')) {
+            if (!is_array($p['page'])) return self::bad('page', 'page als Objekt.');
+            $page_clean = TIX_Venues::clean_page_input($p['page'], 'tix_invalid_field', 10000);
+            if (is_wp_error($page_clean)) { $d = (array) $page_clean->get_error_data(); if (!empty($d['field'])) $d['field'] = 'page.' . $d['field']; return new WP_Error($page_clean->get_error_code(), $page_clean->get_error_message(), $d); }
+        }
         foreach (['lat' => [-90, 90], 'lng' => [-180, 180]] as $k => $rng) {
             if (isset($p[$k]) && $p[$k] !== '' && $p[$k] !== null && (!is_numeric($p[$k]) || floatval($p[$k]) < $rng[0] || floatval($p[$k]) > $rng[1])) return self::bad($k, 'Ungültige Koordinate.');
         }
@@ -745,6 +812,14 @@ class TIX_Studio_Editor {
         }
         foreach ($f as $k => $meta) {
             if (array_key_exists($k, $p)) update_post_meta($lid, $meta, mb_substr(sanitize_text_field((string) $p[$k]), 0, $k === 'address' ? 200 : 80));
+        }
+        if (isset($page_clean) && is_array($page_clean)) {
+            foreach ($page_clean as $meta => $val) update_post_meta($lid, $meta, $val);
+            foreach (array_merge(!empty($page_clean['_tix_loc_image_id']) ? [intval($page_clean['_tix_loc_image_id'])] : [], isset($page_clean['_tix_loc_gallery']) && class_exists('TIX_Venues') ? array_column(TIX_Venues::gallery($lid), 'id') : []) as $aid) {
+                if (class_exists('TIX_Register_API')) delete_post_meta($aid, TIX_Register_API::TMP_META);
+                if (!get_post_field('post_parent', $aid)) wp_update_post(['ID' => $aid, 'post_parent' => $lid]);
+            }
+            delete_transient('tix_pub_events_venue_' . $lid);
         }
         if (array_key_exists('accessibility', $p) && class_exists('TIX_Event_Facts')) {
             update_post_meta($lid, TIX_Event_Facts::META_ACC, TIX_Event_Facts::sanitize_acc(is_array($p['accessibility']) ? $p['accessibility'] : []));
@@ -763,7 +838,7 @@ class TIX_Studio_Editor {
         // Öffentlich zusammenführen (gleiche place_id bzw. nah + ähnlicher Name) – nach dem Speichern aller Angaben
         if (self::multi() && class_exists('TIX_Locations')) TIX_Locations::check($lid);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
-        return new WP_REST_Response(['ok' => true, 'location' => self::location_payload($lid)], !empty($created) ? 201 : 200);
+        return new WP_REST_Response(['ok' => true, 'location' => self::location_payload($lid, true)], !empty($created) ? 201 : 200);
     }
 
     /** DELETE /locations/{id} – nur ohne Events */

@@ -80,6 +80,11 @@ class TIX_Club {
         return intval($lid);
     }
 
+    /** Seiten-Angaben eines beliebigen Orts (Studio „Orte“, P6 1.38.804) */
+    public static function page_payload($lid) {
+        return self::club(intval($lid));
+    }
+
     private static function club($lid) {
         if (!$lid) return null;
         $m = function ($k) use ($lid) { return (string) get_post_meta($lid, $k, true); };

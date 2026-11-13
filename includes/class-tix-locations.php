@@ -261,6 +261,33 @@ class TIX_Locations {
         return $out;
     }
 
+    /** Vorschläge (Studio, P6 1.38.804): [{a, b, a_title, b_title, reason, score, at}] */
+    public static function suggestions() {
+        $out = [];
+        foreach ((array) get_option(self::OPT_SUGG, []) as $row) {
+            if (!is_array($row) || get_post_type($row['a'] ?? 0) !== 'tix_location' || get_post_type($row['b'] ?? 0) !== 'tix_location') continue;
+            $ia = self::info($row['a']); $ib = self::info($row['b']);
+            $out[] = ['a' => intval($row['a']), 'b' => intval($row['b']), 'a_title' => $ia['name'], 'b_title' => $ib['name'], 'reason' => (string) ($row['reason'] ?? ''), 'score' => isset($row['score']) ? floatval($row['score']) : null, 'at' => (string) ($row['at'] ?? '')];
+        }
+        return $out;
+    }
+
+    /** „Nicht dasselbe“ – Paar nie wieder vorschlagen */
+    public static function ignore_pair($a, $b) {
+        $ign = (array) get_option(self::OPT_IGN, []); $ign[] = self::pair_key($a, $b); update_option(self::OPT_IGN, array_values(array_unique($ign)), false);
+        $s = (array) get_option(self::OPT_SUGG, []); unset($s[self::pair_key($a, $b)]); update_option(self::OPT_SUGG, $s, false);
+    }
+
+    /** Öffentliche Gruppen: [kanonische ID => [IDs]] */
+    public static function groups() {
+        $groups = [];
+        foreach (get_posts(['post_type' => 'tix_location', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => self::META_CANON, 'value' => '', 'compare' => '!=']]]) as $lid) {
+            $c = self::canonical_id($lid);
+            if ($c !== intval($lid)) $groups[$c][] = intval($lid);
+        }
+        return $groups;
+    }
+
     private static function pair_key($a, $b) {
         return min($a, $b) . '-' . max($a, $b);
     }
