@@ -172,6 +172,34 @@ class TIX_AI_Provider {
     }
 
     /**
+     * Antwort von send() → null (ok, HTTP 200) oder WP_Error mit echter Ursache (Saalplan-Audit 13.11., 1.38.797):
+     *   ai_timeout 504 · ai_key_invalid 502 · ai_rate_limited 429 · ai_overloaded 503 · ai_image_rejected 422 · ai_failed 502 (detail)
+     * (bewusst nie 401/403: das hieße für Studio/App „abgemeldet“). WP_Error aus send() (ai_unavailable, ai_budget …) bleibt.
+     */
+    public static function error_of($res) {
+        if (is_wp_error($res)) {
+            $m = strtolower($res->get_error_message());
+            if ($res->get_error_code() === 'http_request_failed' && (strpos($m, 'timed out') !== false || strpos($m, 'curl error 28') !== false || strpos($m, 'timeout') !== false)) {
+                return new WP_Error('ai_timeout', 'Die KI hat zu lange gebraucht. Bitte noch einmal versuchen oder einen Hinweis geben (z. B. „Parkett 20 Reihen“).', ['status' => 504]);
+            }
+            if ($res->get_error_code() === 'http_request_failed') return new WP_Error('ai_failed', 'Die KI ist gerade nicht erreichbar. Bitte später noch einmal versuchen.', ['status' => 502, 'detail' => $res->get_error_message()]);
+            return $res;
+        }
+        $code = intval(wp_remote_retrieve_response_code($res));
+        if ($code === 200) return null;
+        $body = json_decode((string) wp_remote_retrieve_body($res), true);
+        $type = (string) ($body['error']['type'] ?? '');
+        $msg = (string) ($body['error']['message'] ?? '');
+        $d = ['detail' => $msg, 'upstream_status' => $code];
+        if ($code === 401 || $code === 403 || $type === 'authentication_error' || $type === 'permission_error') return new WP_Error('ai_key_invalid', 'Der KI-Schlüssel ist ungültig oder hat keine Berechtigung. Bitte unter Einstellungen → KI prüfen.', ['status' => 502] + $d);
+        if ($code === 429 || $type === 'rate_limit_error') return new WP_Error('ai_rate_limited', 'Die KI hat gerade zu viele Anfragen. Bitte in einer Minute noch einmal versuchen.', ['status' => 429] + $d);
+        if ($code === 529 || $code === 503 || $type === 'overloaded_error') return new WP_Error('ai_overloaded', 'Die KI ist gerade überlastet. Bitte in ein paar Minuten noch einmal versuchen.', ['status' => 503] + $d);
+        if ($code === 504 || $code === 408) return new WP_Error('ai_timeout', 'Die KI hat zu lange gebraucht. Bitte noch einmal versuchen.', ['status' => 504] + $d);
+        if (($code === 400 || $code === 413 || $code === 422) && preg_match('/image|media|pdf|document|base64|dimension|too large/i', $msg)) return new WP_Error('ai_image_rejected', 'Die KI konnte das Bild nicht lesen (zu groß oder unbekanntes Format). Bitte als JPG oder PNG hochladen.', ['status' => 422] + $d);
+        return new WP_Error('ai_failed', 'Die KI konnte die Anfrage gerade nicht bearbeiten. Bitte später noch einmal versuchen.', ['status' => 502] + $d);
+    }
+
+    /**
      * Anfrage im Anthropic-Format an den wirksamen Anbieter. → Antwort wie wp_remote_post (Body im Anthropic-Format) | WP_Error
      * $cfg = effective() oder eine eigene Einstellung (Test des Schlüssels).
      */

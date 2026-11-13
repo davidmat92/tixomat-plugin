@@ -331,14 +331,8 @@ class TIX_Ticket_Template {
         $seat_id = get_post_meta($ticket_id, '_tix_ticket_seat_id', true);
         $seat_display = '';
         if ($seat_id) {
-            // Format: "section_1_A5" → "Reihe A, Sitz 5"
-            $parts = explode('_', $seat_id);
-            $last  = end($parts);
-            if (preg_match('/^([A-Z]+)(\d+)$/', $last, $m)) {
-                $seat_display = 'Reihe ' . $m[1] . ', Sitz ' . $m[2];
-            } else {
-                $seat_display = $last;
-            }
+            // Bezeichnung aus dem Saalplan des Events („Parkett · Reihe A, Platz 3“); alte IDs section_1_A5 → „Reihe A, Platz 5“ (Audit 13.11.)
+            $seat_display = class_exists('TIX_Seatmap') ? TIX_Seatmap::seat_label($seat_id, TIX_Seatmap::event_data($event_id)) : (string) $seat_id;
         }
 
         return [

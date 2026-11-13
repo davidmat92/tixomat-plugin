@@ -6401,3 +6401,25 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Rückwirkend: Migrationsschritt `kuenstler_abgleich` (einmal, Option `tix_artist_sync_795`) plant `propagate(0)` (alle kommenden Events mit Künstlern) und auf Kunden-Seiten `schedule_co_resync`.
   - CLI: `wp tixomat artists propagate [--id=<Künstler>]`.
 - **Tests:** `test-artist-sync-wp` (10/10 kk/plat).
+
+## 187. Saalplan-Audit: KI „Saalplan aus Bild“ und Kassenwege (ab 1.38.797)
+- **Auftrag:** User 13.11. „klappt alles noch nicht so wie es soll, zb fehler beim KI thema“. Audit `uebergaben/audit-saalplan-2026-11-13.md`.
+- **KI (P1/P2/P4):**
+  - `max_tokens` 4096 → 16000 (`TIX_Seating::AI_MAX_TOKENS`), Zeitlimit 90 → 150 s (`AI_TIMEOUT`, PHP-Laufzeit +30 s).
+  - Abbruch (`stop_reason: max_tokens`) → 422 `ai_too_large` statt „kein Saalplan erkannt“.
+  - `TIX_AI_Provider::error_of($res)` übersetzt die echte Ursache (auch für andere KI-Routen nutzbar), nie 401/403:
+    - `ai_timeout` 504, `ai_key_invalid` 502, `ai_rate_limited` 429, `ai_overloaded` 503, `ai_image_rejected` 422, sonst `ai_failed` 502 mit `detail`/`upstream_status`.
+- **Kassenwege (Teil 2, Ende-zu-Ende geprüft, `test-seatmap-flow-wp`):**
+  - **Kategorie eines Sitzbereichs** (`seatmap_section` bzw. Zuordnung im Studio) war online ohne Platz kaufbar → Tickets ohne Platz, Überbuchung. Jetzt `TIX_Seatmap::needs_seat`:
+    - App (`/customer/cart/quote`, `/customer/orders`, auch Partner-Verkauf über die Quelle) → 409 `tix_seat_required`.
+    - Web-Warenkorb → Meldung „bitte im Saalplan Plätze wählen“.
+    - Stehplätze bzw. Kategorien ohne Bereich wie bisher. Kasse vor Ort unverändert.
+  - **Teil-Storno/Erstattung einzelner Tickets** gab den Platz nicht frei (nur der Storno der ganzen Bestellung). Jetzt gibt jeder Wechsel von `_tix_ticket_status` auf cancelled/refunded den Platz des Tickets frei (`on_ticket_meta`, gilt für alle Wege).
+  - **Platzangabe:**
+    - Ticket-PDF las die ID mit einer alten Regel (bei neuen Plänen nur „3“). Jetzt `seat_label` aus dem Plan des Events: „Parkett · Reihe A, Platz 3“.
+    - Neu `seat_label` in den Ticket-Antworten (App-Tickets, Einlass, REST-Tickets).
+    - Kunden-Mail nennt den Platz im Ticket-Baustein.
+  - **Spiegel/Kopien:** Die übernommene `_tix_seatmap_id` der Quelle zeigte auf diese Seite (fremder Plan bei gleicher ID). `event_seatmap` gibt dort 0 zurück; Plätze verkauft nur der Ersteller.
+  - **`sanitize_seatmap`:** Ein Platz ohne `type` erzeugte eine PHP-Warnung (auf KK bricht das REST-JSON) und einen leeren Typ. Jetzt Vorgabe `standard`.
+  - **Geprüft und in Ordnung:** halten/verlängern/Grenzen, zwei Käufer gleichzeitig (der zweite bekommt nichts), späte Zahlung auf inzwischen verkauften Platz (Konflikt, kein Doppelverkauf), Ablauf, Storno der Bestellung.
+- **Offen:** siehe Übergabe 1.38.797 (Sitzplatz-Verkauf auf Spiegeln, HEIC im Plugin, Freiplätze mit Preis 0, Kasse vor Ort).

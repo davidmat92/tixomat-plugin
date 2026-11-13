@@ -482,6 +482,10 @@ class TIX_App_Checkout {
             $qty = intval($it['qty'] ?? ($it['quantity'] ?? 0));
             if ($qty <= 0) continue;
             $cat = (isset($cats[$idx]) && is_array($cats[$idx])) ? $cats[$idx] : null;
+            // Kategorie eines Sitzbereichs nur mit Plätzen ({seats: […]} + hold_token), Audit 13.11. (1.38.797)
+            if ($cat && class_exists('TIX_Seatmap') && TIX_Seatmap::needs_seat($event_id, $idx)) {
+                return self::error('tix_seat_required', 'Für „' . sanitize_text_field((string) ($cat['name'] ?? 'diese Kategorie')) . '“ bitte im Saalplan Plätze wählen.', 409);
+            }
             // Guthaben aufladen (TIX_Wallet_Balance, 1.38.432): eigene Position, Betrag fest bzw. Wunschbetrag
             if ($cat && !empty($cat['wallet_topup']) && class_exists('TIX_Wallet_Balance')) {
                 $wi = TIX_Wallet_Balance::cart_item($event_id, $idx, $cat, $qty, $it['custom_amount'] ?? 0);
@@ -907,6 +911,7 @@ class TIX_App_Checkout {
             // Kategorie-Index (1.38.648, Fund Homepages: Fragen je Kategorie beim Nachtragen zuordnen); null = unbekannt
             'cat_index'      => $m('_tix_ticket_cat_index') !== '' ? intval($m('_tix_ticket_cat_index')) : null,
             'seat'           => (string) $m('_tix_ticket_seat_id'),
+            'seat_label'     => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') && (string) $m('_tix_ticket_seat_id') !== '' ? TIX_Seatmap::ticket_seat_label($id) : '',
             'status'         => $status,
             'checked_in'     => $checked,
             'checkin_time'   => (string) $m('_tix_ticket_checkin_time'),

@@ -757,6 +757,7 @@ class TIX_Checkin {
             'code'            => $code,
             'cat'             => $cat_name,
             'seat'            => get_post_meta($ticket->ID, '_tix_ticket_seat_id', true),
+            'seat_label'      => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($ticket->ID) : '', // lesbar (Audit 13.11.)
             'message'         => 'Willkommen!',
         ]);
     }
@@ -851,6 +852,7 @@ class TIX_Checkin {
                     'email'           => get_post_meta($t->ID, '_tix_ticket_owner_email', true),
                     'cat'             => $cat_name,
                     'seat'            => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
+                    'seat_label'      => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($t->ID) : '', // lesbar (Audit 13.11.)
                     'checked_in'      => $checked_in,
                     'checkin_time'    => get_post_meta($t->ID, '_tix_ticket_checkin_time', true),
                     'checked_in_count' => $checked_in ? 1 : 0,

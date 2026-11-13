@@ -264,6 +264,27 @@ $raw0 = TIX_Seatmap_Geometry::block_rows('x', ['origin' => ['x' => 500, 'y' => 1
 sp_eq('Überlagerung: Planpunkt − shift = Bildrahmen', [round($raw0['x'], 1), round($raw0['y'], 1)], [round($fs['x'] - ($d['overlay']['shift']['x'] ?? 0), 1), round($fs['y'] - ($d['overlay']['shift']['y'] ?? 0), 1)]);
 [$st, $d, $c] = sp_rest('POST', '/studio/seatmaps/from-image', ['image' => base64_encode('kein bild'), 'media_type' => 'image/png']);
 sp_eq('Kein Bild → 415', [415, 'tix_image'], [$st, $c]);
+// Audit 13.11. (1.38.797): Tokens, Zeitlimit, echte Fehlerursachen
+sp_eq('KI-Anfrage: max_tokens 16000', 16000, intval($sent['max_tokens'] ?? 0));
+$GLOBALS['sp_case'] = null;
+TIX_AI_Provider::$http = function ($url, $args) {
+    $GLOBALS['sp_to'] = $args['timeout'] ?? null;
+    $c = $GLOBALS['sp_case'];
+    if ($c === 'timeout') return new WP_Error('http_request_failed', 'cURL error 28: Operation timed out after 150001 milliseconds');
+    if ($c === 'cut') return ['headers' => [], 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null,
+        'body' => wp_json_encode(['model' => 'claude-sonnet-5-5', 'stop_reason' => 'max_tokens', 'content' => [['type' => 'tool_use', 'id' => 't1', 'name' => 'saalplan', 'input' => ['sections' => [['label' => 'Parkett']]]]], 'usage' => ['input_tokens' => 1, 'output_tokens' => 16000]])];
+    $map = ['key' => [401, 'authentication_error', 'invalid x-api-key'], 'busy' => [529, 'overloaded_error', 'Overloaded'], 'rate' => [429, 'rate_limit_error', 'rate limit'], 'img' => [400, 'invalid_request_error', 'Could not process image'], 'other' => [500, 'api_error', 'Internal']][$c];
+    return ['headers' => [], 'response' => ['code' => $map[0], 'message' => ''], 'cookies' => [], 'filename' => null, 'body' => wp_json_encode(['type' => 'error', 'error' => ['type' => $map[1], 'message' => $map[2]]])];
+};
+$got = [];
+foreach (['cut' => null, 'timeout' => null, 'key' => null, 'busy' => null, 'rate' => null, 'img' => null, 'other' => null] as $case => $_) {
+    $GLOBALS['sp_case'] = $case;
+    [$st, $d, $c] = sp_rest('POST', '/studio/seatmaps/from-image', ['image' => $png]);
+    $got[$case] = [$st, $c];
+}
+sp_eq('Zeitlimit 150 s an die KI', 150, intval($GLOBALS['sp_to'] ?? 0));
+sp_eq('Fehlerursachen als eigene Codes (nie 401/403)', ['cut' => [422, 'ai_too_large'], 'timeout' => [504, 'ai_timeout'], 'key' => [502, 'ai_key_invalid'], 'busy' => [503, 'ai_overloaded'], 'rate' => [429, 'ai_rate_limited'], 'img' => [422, 'ai_image_rejected'], 'other' => [502, 'ai_failed']], $got);
+delete_option(TIX_Seating::OPT_AI_USAGE);
 update_option(TIX_Seating::OPT_AI_USAGE, [current_time('Y-m-d') => [$multi ? $org : 0 => TIX_Seating::AI_PER_DAY]], false);
 [$st, $d, $c] = sp_rest('POST', '/studio/seatmaps/from-image', ['image' => $png]);
 sp_eq('Tageslimit → 429', [429, 'tix_rate_limit'], [$st, $c]);

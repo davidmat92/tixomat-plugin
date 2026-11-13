@@ -443,6 +443,11 @@ class TIX_Native_Checkout {
                 continue;
             }
 
+            // Kategorie eines Sitzbereichs nur über den Saalplan (Audit 13.11., 1.38.797: sonst Tickets ohne Platz → Überbuchung)
+            if (class_exists('TIX_Seatmap') && TIX_Seatmap::needs_seat($event_id, $cat_index)) {
+                return 'Für diese Kategorie bitte im Saalplan Plätze wählen.';
+            }
+
             // Ticket-Kategorie validieren
             $categories = get_post_meta($event_id, '_tix_ticket_categories', true);
             if (!is_array($categories) || empty($categories)) continue;

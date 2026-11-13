@@ -89,6 +89,10 @@ class TIX_Seatmap {
         add_filter('add_post_metadata', [__CLASS__, 'guard_assign'], 10, 4);
         add_filter('delete_post_metadata', [__CLASS__, 'guard_assign_delete'], 10, 3);
         add_action('tix_release_seat', [__CLASS__, 'release_ticket_seat'], 10, 3);
+        // Audit 13.11. (1.38.797): jedes stornierte/erstattete Ticket gibt seinen Platz frei – egal über welchen Weg
+        // (Teil-Erstattung, Kasse, WP-Liste …); vorher nur beim Storno der ganzen Bestellung
+        add_action('updated_post_meta', [__CLASS__, 'on_ticket_meta'], 10, 4);
+        add_action('added_post_meta', [__CLASS__, 'on_ticket_meta'], 10, 4);
     }
 
     /** Tabelle auf DB_VERSION bringen (Spalte ip_hash) */
@@ -581,6 +585,10 @@ class TIX_Seatmap {
 
     /** Saalplan eines Events (0 = keiner) */
     public static function event_seatmap($event_id) {
+        // Spiegel/Kopie (Audit 13.11., 1.38.797): die übernommene Plan-ID zeigt auf die Quelle, nicht auf diese Seite (sonst fremder
+        // Plan bei gleicher ID). Plätze verkauft nur der Ersteller; verkauft die Plattform selbst (_tix_sale_frozen), gilt ihr Plan.
+        $eid = intval($event_id);
+        if ((get_post_meta($eid, '_tix_syndicated', true) === '1' || (string) get_post_meta($eid, '_tix_platform_co', true) !== '') && get_post_meta($eid, '_tix_sale_frozen', true) !== '1') return 0;
         $id = intval(get_post_meta(intval($event_id), '_tix_seatmap_id', true));
         return ($id && get_post_type($id) === self::CPT) ? $id : 0;
     }
@@ -792,7 +800,7 @@ class TIX_Seatmap {
                             'id'   => sanitize_text_field($seat['id'] ?? ''),
                             'x'    => $num($seat['x'] ?? 0),
                             'y'    => $num($seat['y'] ?? 0),
-                            'type' => in_array($seat['type'] ?? 'standard', TIX_Seatmap_Geometry::TYPES, true) ? $seat['type'] : 'standard',
+                            'type' => in_array($seat['type'] ?? 'standard', TIX_Seatmap_Geometry::TYPES, true) ? ($seat['type'] ?? 'standard') : 'standard', // ohne Typ: Warnung brach auf KK das JSON (Audit 13.11.)
                         ];
                         if (isset($seat['label']) && $seat['label'] !== '') $one['label'] = sanitize_text_field((string) $seat['label']);
                         $r['seats'][] = $one;
@@ -1338,6 +1346,29 @@ class TIX_Seatmap {
     public static function on_native_cancelled($order_id) {
         global $wpdb;
         $wpdb->delete($wpdb->prefix . self::TABLE_SUFFIX, ['order_id' => intval($order_id)], ['%d']);
+    }
+
+    /** Ticket-Status storniert/erstattet → Platz frei (Hook auf _tix_ticket_status) */
+    public static function on_ticket_meta($meta_id, $post_id, $key, $value) {
+        if ($key !== '_tix_ticket_status' || !in_array((string) $value, ['cancelled', 'refunded'], true)) return;
+        if (get_post_type($post_id) !== 'tix_ticket') return;
+        $seat = (string) get_post_meta($post_id, '_tix_ticket_seat_id', true);
+        if ($seat !== '') self::release_ticket_seat(0, $seat, intval($post_id));
+    }
+
+    /** Muss diese Kategorie online über den Saalplan gebucht werden (Kategorie gehört zu einem Sitzbereich)? */
+    public static function needs_seat($event_id, $cat_index) {
+        $event_id = intval($event_id);
+        if ($cat_index === null || intval($cat_index) < 0 || !self::event_seatmap($event_id) || !self::module_on($event_id)) return false;
+        return in_array(intval($cat_index), array_map('intval', array_values(self::section_categories($event_id))), true);
+    }
+
+    /** Lesbare Platzangabe eines Tickets („Parkett · Reihe A, Platz 3“) oder '' */
+    public static function ticket_seat_label($ticket_id) {
+        $seat = (string) get_post_meta(intval($ticket_id), '_tix_ticket_seat_id', true);
+        if ($seat === '') return '';
+        $eid = intval(get_post_meta(intval($ticket_id), '_tix_ticket_event_id', true));
+        return self::seat_label($seat, $eid ? self::event_data($eid) : null);
     }
 
     /** Einzelnes Ticket storniert → seinen Platz freigeben (Aktion tix_release_seat) */

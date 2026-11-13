@@ -1357,6 +1357,7 @@ class TIX_REST_API {
             'code'            => $code,
             'category'        => $cat_name,
             'seat'            => get_post_meta($ticket->ID, '_tix_ticket_seat_id', true),
+            'seat_label'      => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($ticket->ID) : '', // lesbar (Audit 13.11.)
             'message'         => 'Willkommen!',
         ]);
     }
@@ -1563,6 +1564,7 @@ class TIX_REST_API {
                     'code'            => $code,
                     'category'        => $cat_name,
                     'seat'            => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
+                    'seat_label'      => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($t->ID) : '', // lesbar (Audit 13.11.)
                     'ticket_status'   => $status,
                     // Studio verlinkt zur Bestellung (1.38.465; Einlass sieht es nicht)
                     'order_id'        => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true)) ?: null,
@@ -1999,6 +2001,7 @@ class TIX_REST_API {
                 'order_id'      => intval(get_post_meta($t->ID, '_tix_ticket_order_id', true) ?: get_post_meta($t->ID, '_tix_order_id', true)),
                 'order_number'  => class_exists('TIX_Order') ? TIX_Order::number_for(get_post_meta($t->ID, '_tix_ticket_order_id', true) ?: get_post_meta($t->ID, '_tix_order_id', true)) : null,
                 'seat'          => get_post_meta($t->ID, '_tix_ticket_seat_id', true),
+                'seat_label'    => class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') ? TIX_Seatmap::ticket_seat_label($t->ID) : '', // lesbar (Audit 13.11.)
                 'price'         => floatval(get_post_meta($t->ID, '_tix_ticket_price', true)),
             ];
         }

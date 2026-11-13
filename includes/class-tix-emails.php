@@ -370,9 +370,12 @@ class TIX_Emails {
         foreach (array_slice($tickets, 0, $max) as $i => $t) {
             $code = (string) $t['code'];
             $eid = intval($t['event_id'] ?? 0);
+            // Sitzplatz (Audit 13.11., 1.38.797): steht im Ticket-Baustein
+            $seat = (class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'ticket_seat_label') && intval($t['id'] ?? 0) && get_post_type(intval($t['id'])) === 'tix_ticket') ? TIX_Seatmap::ticket_seat_label(intval($t['id'])) : '';
+            $sub = $show_event ? html_entity_decode((string) $t['event_name'], ENT_QUOTES, 'UTF-8') : (string) ($t['owner_name'] ?? '');
             $out[] = ['type' => 'ticket', 'label' => $n > 1 ? 'Ticket ' . ($i + 1) . ' von ' . $n : 'Ticket',
                 'title' => html_entity_decode((string) ($t['type_name'] ?: 'Ticket'), ENT_QUOTES, 'UTF-8'),
-                'sub' => $show_event ? html_entity_decode((string) $t['event_name'], ENT_QUOTES, 'UTF-8') : (string) ($t['owner_name'] ?? ''),
+                'sub' => $seat !== '' ? trim($seat . ($sub !== '' ? ' · ' . $sub : '')) : $sub,
                 'code' => $code,
                 'qr' => ($code !== '' && $eid && class_exists('TIX_QR')) ? TIX_QR::url('GL-' . $eid . '-' . $code, 240) : '',
                 'link' => (string) $t['download_url'], 'link_label' => $t['download_url'] ? 'Ticket als PDF' : ''];

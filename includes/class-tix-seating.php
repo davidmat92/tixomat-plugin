@@ -39,6 +39,8 @@ class TIX_Seating {
     const OPT_SETTINGS = 'tix_seating_settings';      // Einzel-Seite
     const META_SETTINGS = '_tix_seating_settings';    // Plattform: je Veranstalter
     const AI_PER_DAY = 20;
+    const AI_MAX_TOKENS = 16000; // Saalplan aus Bild (Audit 13.11.)
+    const AI_TIMEOUT = 150;      // Sekunden (vorher 90)
     const AI_MAX_BYTES = 8388608; // 8 MB
     const ACCURACY_NOTE = 'Die KI erkennt die Struktur (Bereiche, Reihen, Bögen) meist zu 80–90 %, die genaue Platzzahl zu 60–80 %. Bitte den Entwurf über dem Bild prüfen und im Editor korrigieren.';
 
@@ -825,16 +827,19 @@ class TIX_Seating {
             . "- Zähle sorgfältig; wenn du unsicher bist, schreibe es in notes und setze confidence niedriger."
             . ($expected ? "\n- Der Veranstalter nennt insgesamt {$expected} Plätze." : '')
             . ($hint !== '' ? "\n- Hinweis des Veranstalters: " . $hint : '');
-        $payload = ['max_tokens' => 4096, 'tools' => [self::tool()], 'tool_choice' => ['type' => 'tool', 'name' => 'saalplan'],
+        // Audit 13.11. (1.38.797): große Säle brauchen viele Tokens (4096 brach ab) und länger (90 s → 150 s)
+        $payload = ['max_tokens' => self::AI_MAX_TOKENS, 'tools' => [self::tool()], 'tool_choice' => ['type' => 'tool', 'name' => 'saalplan'],
             'messages' => [['role' => 'user', 'content' => [$media, ['type' => 'text', 'text' => $prompt]]]]];
-        $res = TIX_AI_Provider::with_org($org, function () use ($payload) { return TIX_AI_Provider::send($payload, 90); });
-        if (is_wp_error($res)) return $res;
-        $code = intval(wp_remote_retrieve_response_code($res));
+        if (function_exists('set_time_limit')) @set_time_limit(self::AI_TIMEOUT + 30);
+        $res = TIX_AI_Provider::with_org($org, function () use ($payload) { return TIX_AI_Provider::send($payload, self::AI_TIMEOUT); });
+        $err = method_exists('TIX_AI_Provider', 'error_of') ? TIX_AI_Provider::error_of($res) : (is_wp_error($res) ? $res : null);
+        if ($err) return $err;
         $body = json_decode((string) wp_remote_retrieve_body($res), true);
-        if ($code !== 200 || !is_array($body)) return new WP_Error('ai_failed', 'Die KI konnte das Bild gerade nicht auswerten. Bitte später noch einmal versuchen.', ['status' => 502, 'detail' => (string) ($body['error']['message'] ?? '')]);
+        if (!is_array($body)) return new WP_Error('ai_failed', 'Die KI konnte das Bild gerade nicht auswerten. Bitte später noch einmal versuchen.', ['status' => 502]);
         $input = null;
         foreach ((array) ($body['content'] ?? []) as $c) if (($c['type'] ?? '') === 'tool_use' && ($c['name'] ?? '') === 'saalplan') $input = (array) $c['input'];
         self::ai_count($org, true);
+        if (($body['stop_reason'] ?? '') === 'max_tokens') return new WP_Error('ai_too_large', 'Der Saal ist sehr groß – die KI ist nicht fertig geworden. Bitte in Teilen hochladen (z. B. Parkett und Rang einzeln) oder einen Hinweis geben.', ['status' => 422]);
         if (!$input || empty($input['sections'])) return new WP_Error('ai_no_plan', 'Auf dem Bild hat die KI keinen Saalplan erkannt. Versuche ein schärferes Bild oder eine Skizze.', ['status' => 422]);
         $out = self::draft_from_ai($input, $expected, sanitize_text_field((string) $req->get_param('title')), $org);
         $out['image'] = self::keep_image($req, $type, $bytes, $w, $h);
