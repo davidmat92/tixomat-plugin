@@ -1175,6 +1175,7 @@ class TIX_Native_Checkout {
      * Rendert den nativen Checkout — volle Feature-Parität mit WC-Checkout
      */
     public static function render_checkout() {
+        self::require_assets();
         wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
 
         $cart = self::get_cart();
@@ -2536,6 +2537,7 @@ class TIX_Native_Checkout {
 
         // F7 Stufe 1 (1.38.774): eigener Rahmen statt Theme-Kopf/-Fuß (ohne Breakdance sonst leer); Schalter tix_tool_frame
         $framed = class_exists('TIX_Tool_Frame') && TIX_Tool_Frame::enabled();
+        self::require_assets();
         if ($framed) ob_start(); else get_header();
         ?>
         <div class="tix-ty-wrap">
@@ -2670,8 +2672,40 @@ class TIX_Native_Checkout {
     // ASSETS
     // ──────────────────────────────────────────
 
+    /** Kassen-Dateien angefordert (Shortcode/Danke-Seite gerendert) – dann auch nachträglich laden */
+    private static $want_assets = false;
+    private static $assets_done = false;
+
+    /**
+     * Braucht diese Seite Kassen-CSS/-JS? (1.38.809, Audit evendis: Werbeseiten luden 57 KB Kasse ohne Kasse.)
+     * Ja auf: Kassen-Seite, Danke-Seite, Event-Seiten, Seiten mit einem Plugin-Shortcode [tix_…] im Inhalt oder in
+     * Breakdance. Filter tix_needs_checkout_assets für Sonderfälle. Kassen-Bausteine laden zusätzlich beim Rendern
+     * selbst nach (Sicherheitsnetz, z. B. Shortcode in einer Kopf-/Fußzeile).
+     */
+    public static function needs_assets() {
+        $need = self::$want_assets || !empty($_GET['tix_thankyou']);
+        if (!$need && is_singular()) {
+            $id = intval(get_queried_object_id());
+            if (is_singular('event') || ($id && $id === intval(get_option('tix_checkout_page_id')))) $need = true;
+            elseif ($id) {
+                $post = get_post($id);
+                $has = function ($t) { return is_string($t) && preg_match('/\[tix_[a-z0-9_]+/i', $t); };
+                $need = $post && ($has((string) $post->post_content) || $has((string) get_post_meta($id, '_breakdance_data', true)));
+            }
+        }
+        return (bool) apply_filters('tix_needs_checkout_assets', $need);
+    }
+
+    /** Aus Shortcodes/Danke-Seite: Dateien sicher laden (auch nach wp_head → im Fuß) */
+    public static function require_assets() {
+        self::$want_assets = true;
+        if (did_action('wp_enqueue_scripts')) self::enqueue_assets();
+    }
+
     public static function enqueue_assets() {
         if (is_admin() || tix_has_wc()) return; // Nur Frontend, nur ohne WC
+        if (self::$assets_done || !self::needs_assets()) return;
+        self::$assets_done = true;
 
         wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
         wp_enqueue_script('tix-native-checkout', TIXOMAT_URL . 'assets/js/native-checkout.js', ['jquery'], TIXOMAT_VERSION, true);
@@ -2706,6 +2740,7 @@ class TIX_Native_Checkout {
      * Cart Shortcode (optional)
      */
     public static function shortcode_cart() {
+        self::require_assets();
         $cart = self::get_cart();
         if (empty($cart['items'])) return '<p>Dein Warenkorb ist leer.</p>';
 

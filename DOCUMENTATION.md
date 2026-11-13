@@ -6580,3 +6580,14 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Schreibende Methode mit Kennung (auch ohne Schlüssel): 403 `tix_shadow_readonly` (`rest_pre_dispatch` −1000, außerhalb REST `plugins_loaded` 0).
   - **Neue Zähler oder Limits:** am Anfang `if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return …;` eintragen.
 - **Test:** `test-package-channel-wp` (kk 19/19 mit Lizenzserver, plat 6/6 nur Schatten).
+
+## 198. Kassen-Dateien nur dort, wo eine Kasse sein kann (ab 1.38.809)
+- **Anlass:** Audit evendis.de. Die Werbeseiten von veranstalter.evendis.de luden `checkout.css` (44 KB) und `native-checkout.js` (13 KB, mit jQuery), ohne dass es dort eine Kasse gibt.
+- **Regel (`TIX_Native_Checkout::needs_assets`):** Die Dateien laden auf
+  - der Kassen-Seite (`tix_checkout_page_id`),
+  - der Danke-Seite (`?tix_thankyou`),
+  - Event-Seiten,
+  - Seiten mit einem Plugin-Shortcode `[tix_…]` im Inhalt oder in `_breakdance_data`. Alle Plugin-Shortcodes beginnen mit `tix_`; Schrift-Pfade `plugins/tixomat/…` zählen nicht.
+- **Sicherheitsnetz:** `[tix_checkout]`, `[tix_native_cart]` und die Danke-Seite rufen `require_assets()` auf und laden auch nachträglich (im Fuß).
+- **Sonderfälle:** Filter `tix_needs_checkout_assets`.
+- **Test:** `test-checkout-assets-wp` (7/7).
