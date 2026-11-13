@@ -14,7 +14,10 @@ if (!defined('ABSPATH')) exit;
 class TIX_Sponsor_Logos {
 
     const NS = 'tixomat/v1';
-    const DB_VERSION = '1';
+    const DB_VERSION = '2'; // 2: description, button_label (Hauptsponsoren-Karte, 1.38.796)
+    const DESC_MAX = 300;
+    const LABEL_MAX = 30;
+    const LABEL_DEFAULT = 'Mehr erfahren';
     const OPT_DB = 'tix_sponsor_logos_db';
     const LIMITS = ['main' => 3, 'partner' => 20];
     /** Ausspielorte → Vorgabe */
@@ -50,6 +53,8 @@ class TIX_Sponsor_Logos {
             logo_dark_id bigint(20) unsigned NOT NULL DEFAULT 0,
             logo_dark_url varchar(500) NOT NULL DEFAULT '',
             link varchar(500) NOT NULL DEFAULT '',
+            description text NULL,
+            button_label varchar(60) NOT NULL DEFAULT '',
             position int(11) NOT NULL DEFAULT 0,
             active tinyint(1) NOT NULL DEFAULT 1,
             clicks bigint(20) unsigned NOT NULL DEFAULT 0,
@@ -95,6 +100,13 @@ class TIX_Sponsor_Logos {
         return $out;
     }
 
+    /** Beschreibung (rein): Text ohne HTML, nur Zeilenumbrüche (höchstens 2 hintereinander), Leerzeichen bereinigt */
+    public static function clean_text($t) {
+        $t = str_replace(["\r\n", "\r"], "\n", html_entity_decode(wp_strip_all_tags((string) $t), ENT_QUOTES, 'UTF-8'));
+        $t = implode("\n", array_map(function ($l) { return trim(preg_replace('/[ \t]+/u', ' ', $l)); }, explode("\n", $t)));
+        return trim(preg_replace("/\n{3,}/", "\n\n", $t));
+    }
+
     /** Logo-Angabe (rein): {id} | {url} | null → ['id' => int, 'url' => string] | null | false (ungültig) */
     public static function clean_logo($l) {
         if ($l === null || $l === '' || $l === []) return null;
@@ -131,7 +143,16 @@ class TIX_Sponsor_Logos {
                 if ($dark === false) return ['error' => ['tix_invalid_field', $f . '.logo_dark', 'Logo-Adresse bitte mit https://.', []]];
                 $link = trim((string) ($s['link'] ?? ''));
                 if ($link !== '' && (!preg_match('#^https://[^\s/]+\.[^\s]+#i', $link) || strlen($link) > 500)) return ['error' => ['tix_invalid_field', $f . '.link', 'Link bitte mit https://.', []]];
+                // Hauptsponsoren-Karte (1.38.796): kurzer Text (nur Zeilenumbrüche) und Knopf-Beschriftung; weitere Sponsoren ohne
+                $desc = ''; $label = '';
+                if ($tier === 'main') {
+                    $desc = self::clean_text($s['description'] ?? '');
+                    if (mb_strlen($desc) > self::DESC_MAX) return ['error' => ['tix_invalid_field', $f . '.description', 'Beschreibung höchstens ' . self::DESC_MAX . ' Zeichen.', ['max' => self::DESC_MAX]]];
+                    $label = trim(preg_replace('/\s+/u', ' ', wp_strip_all_tags((string) ($s['button_label'] ?? ''))));
+                    if (mb_strlen($label) > self::LABEL_MAX) return ['error' => ['tix_invalid_field', $f . '.button_label', 'Knopf-Text höchstens ' . self::LABEL_MAX . ' Zeichen.', ['max' => self::LABEL_MAX]]];
+                }
                 $out[$tier][] = ['id' => intval($s['id'] ?? 0), 'name' => $name, 'logo' => $logo, 'logo_dark' => $dark, 'link' => $link,
+                    'description' => $desc, 'button_label' => $label,
                     'active' => !array_key_exists('active', $s) || (bool) $s['active'], 'position' => $i];
             }
         }
@@ -192,6 +213,7 @@ class TIX_Sponsor_Logos {
             foreach ($clean[$tier] as $s) {
                 $row = ['tier' => $tier, 'name' => $s['name'], 'logo_id' => $s['logo']['id'], 'logo_url' => $s['logo']['url'],
                     'logo_dark_id' => $s['logo_dark']['id'] ?? 0, 'logo_dark_url' => $s['logo_dark']['url'] ?? '', 'link' => $s['link'],
+                    'description' => $s['description'] ?? '', 'button_label' => $s['button_label'] ?? '',
                     'position' => $s['position'], 'active' => $s['active'] ? 1 : 0, 'updated_at' => $now];
                 if ($s['id'] && in_array($s['id'], $all, true)) { $wpdb->update($t, $row, ['id' => $s['id']]); $keep[] = $s['id']; }
                 else { $wpdb->insert($t, $row + ['scope' => $scope, 'owner_id' => intval($owner), 'created_at' => $now, 'clicks' => 0]); $keep[] = intval($wpdb->insert_id); }
@@ -219,7 +241,15 @@ class TIX_Sponsor_Logos {
         $l = self::img(intval($r['logo_id']), (string) $r['logo_url']);
         $d = self::img(intval($r['logo_dark_id']), (string) $r['logo_dark_url']);
         return ['name' => (string) $r['name'], 'logo' => $l['url'] ?? null, 'logo_dark' => $d['url'] ?? null, 'w' => $l['w'] ?? null, 'h' => $l['h'] ?? null,
-            'link' => (string) $r['link'] !== '' ? self::go_url($r['id']) : null, 'target' => (string) $r['link'] !== '' ? (string) $r['link'] : null];
+            'link' => (string) $r['link'] !== '' ? self::go_url($r['id']) : null, 'target' => (string) $r['link'] !== '' ? (string) $r['link'] : null]
+            + self::card_fields($r);
+    }
+
+    /** Hauptsponsoren-Karte: description | null; button_label nur mit Link (Vorgabe „Mehr erfahren“), sonst null */
+    private static function card_fields($r) {
+        if (($r['tier'] ?? '') !== 'main') return ['description' => null, 'button_label' => null];
+        $d = (string) ($r['description'] ?? '');
+        return ['description' => $d !== '' ? $d : null, 'button_label' => (string) $r['link'] !== '' ? ((string) ($r['button_label'] ?? '') ?: self::LABEL_DEFAULT) : null];
     }
 
     private static function pub_lists(array $rows) {
@@ -277,7 +307,9 @@ class TIX_Sponsor_Logos {
                     if (!is_array($p) || empty($p['logo']) || !preg_match('#^https?://#i', (string) $p['logo'])) continue;
                     $u = function ($v) { $v = (string) $v; return preg_match('#^https?://#i', $v) ? esc_url_raw($v) : null; };
                     $clean[$k][] = ['name' => sanitize_text_field((string) ($p['name'] ?? '')), 'logo' => $u($p['logo']), 'logo_dark' => $u($p['logo_dark'] ?? ''),
-                        'w' => isset($p['w']) ? intval($p['w']) : null, 'h' => isset($p['h']) ? intval($p['h']) : null, 'link' => $u($p['link'] ?? ''), 'target' => $u($p['target'] ?? '')];
+                        'w' => isset($p['w']) ? intval($p['w']) : null, 'h' => isset($p['h']) ? intval($p['h']) : null, 'link' => $u($p['link'] ?? ''), 'target' => $u($p['target'] ?? ''),
+                        'description' => $k === 'main' && ($dd = mb_substr(self::clean_text($p['description'] ?? ''), 0, self::DESC_MAX)) !== '' ? $dd : null,
+                        'button_label' => $k === 'main' && $u($p['link'] ?? '') ? (mb_substr(trim(wp_strip_all_tags((string) ($p['button_label'] ?? ''))), 0, self::LABEL_MAX) ?: self::LABEL_DEFAULT) : null];
                 }
             }
             if (!$clean['main'] && !$clean['partners']) $clean = null;
@@ -479,6 +511,7 @@ class TIX_Sponsor_Logos {
             'logo' => $l ? ['id' => intval($r['logo_id']) ?: null, 'url' => $l['url']] : null,
             'logo_dark' => $d ? ['id' => intval($r['logo_dark_id']) ?: null, 'url' => $d['url']] : null,
             'link' => (string) $r['link'], 'active' => (bool) intval($r['active']), 'position' => intval($r['position']),
+            'description' => $r['tier'] === 'main' ? (string) ($r['description'] ?? '') : null, 'button_label' => $r['tier'] === 'main' ? (string) ($r['button_label'] ?? '') : null,
             'clicks' => ['total' => intval($r['clicks']), 'days30' => array_sum($s), 'by_source' => (object) $s]];
     }
 

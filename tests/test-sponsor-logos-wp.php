@@ -65,6 +65,25 @@ try {
         $eq('evendis app/config?organizer=: Liste des Veranstalters', 'Brauerei', $ac['sponsors']['main'][0]['name'] ?? null);
     }
 
+    // Hauptsponsoren-Karte (1.38.796): Beschreibung + Knopf
+    [$st, $d] = $rest('PUT', '/studio/sponsors', ['main' => [['id' => $sid, 'name' => 'Brauerei', 'logo' => ['id' => $l1], 'logo_dark' => ['id' => $l1d], 'link' => 'https://brauerei.example',
+        'description' => "<b>Frisch</b> gezapft.\r\n\r\n\r\nSeit 1890   aus Schwelm.", 'button_label' => '']]], $q);
+    $eq('Karte: Beschreibung ohne HTML, Umbrüche bereinigt, ID und Klicks bleiben', [200, "Frisch gezapft.\n\nSeit 1890 aus Schwelm.", '', $sid], [$st, $d['main'][0]['description'] ?? null, $d['main'][0]['button_label'] ?? null, $d['main'][0]['id'] ?? null]);
+    $pub = TIX_Sponsor_Logos::owner_public($scope, $owner);
+    $eq('öffentlich: description, Knopf-Vorgabe „Mehr erfahren“, weitere ohne', ["Frisch gezapft.\n\nSeit 1890 aus Schwelm.", 'Mehr erfahren', null, null],
+        [$pub['main'][0]['description'] ?? 'fehlt', $pub['main'][0]['button_label'] ?? 'fehlt', array_key_exists('description', $pub['partners'][0]) ? $pub['partners'][0]['description'] : 'fehlt', $pub['partners'][0]['button_label'] ?? null]);
+    [$st, $d] = $rest('PUT', '/studio/sponsors', ['main' => [['id' => $sid, 'name' => 'Brauerei', 'logo' => ['id' => $l1], 'link' => 'https://brauerei.example', 'description' => str_repeat('x', 301)]]], $q);
+    $eq('Beschreibung über 300 Zeichen: 400 mit Feld', [400, 'main.0.description'], [$st, $d['data']['field'] ?? null]);
+    [$st] = $rest('PUT', '/studio/sponsors', ['main' => [['id' => $sid, 'name' => 'Brauerei', 'logo' => ['id' => $l1], 'logo_dark' => ['id' => $l1d], 'link' => 'https://brauerei.example', 'description' => 'Frisch gezapft.', 'button_label' => 'Zum Biergarten']]], $q);
+    $pub = TIX_Sponsor_Logos::owner_public($scope, $owner);
+    $eq('eigener Knopf-Text; Knopf führt über den Klick-Link', [200, 'Zum Biergarten', true], [$st, $pub['main'][0]['button_label'] ?? null, strpos((string) $pub['main'][0]['link'], '/go') !== false]);
+    TIX_Sponsor_Logos::store_snapshot(999999991, $pub);
+    $sn = TIX_Sponsor_Logos::settings('event', 999999991)['pub'] ?? [];
+    $wpdb->delete(TIX_Sponsor_Logos::t('settings'), ['scope' => 'event', 'owner_id' => 999999991]);
+    $eq('Schnappschuss behält Beschreibung und Knopf', ['Frisch gezapft.', 'Zum Biergarten'], [$sn['main'][0]['description'] ?? null, $sn['main'][0]['button_label'] ?? null]);
+    [$st, $d] = $rest('PUT', '/studio/sponsors', ['partners' => [['name' => 'Bäcker', 'logo' => ['id' => $l2], 'description' => 'wird ignoriert'], ['name' => 'Alt', 'logo' => ['id' => $l3], 'active' => false]]], $q);
+    $eq('weitere Sponsoren: keine Beschreibung', null, $d['partners'][0]['description'] ?? null);
+
     // Event-Modus
     $ev = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'Sponsor-Event']); $posts[] = $ev;
     if ($multi) update_post_meta($ev, '_tix_organizer_id', $org);

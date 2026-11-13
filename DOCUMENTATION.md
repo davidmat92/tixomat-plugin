@@ -6370,8 +6370,9 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Verteilung und Co-Abgleich tragen die wirksame Liste als Schnappschuss (`mode: snapshot`).
   - Ändern geht per Durchgriff beim Ersteller (PUT wird dabei zu POST; Logo-IDs werden zu URLs).
   - Die Bearbeitungssperre gilt (`CONTENT_SUB` enthält `sponsors`).
+- **Hauptsponsoren-Karte (ab 1.38.796):** `description` (≤ 300 Zeichen, ohne HTML, nur Umbrüche, `clean_text`) und `button_label` (≤ 30, Vorgabe „Mehr erfahren“, öffentlich nur mit Link). Tabellen-Version 2 (Spalten über `install`/dbDelta). In Studio-, Pub-Liste und Schnappschuss.
 - **Tests:**
-  - `test-sponsor-logos-wp` (27/27 kk/plat).
+  - `test-sponsor-logos-wp` (33/33 kk/plat).
   - `test-co-remote-e2e` 4e: Quelle → Spiegel; der Betreiber ändert am Spiegel, die Quelle speichert.
 
 ## 185. Website-Vorlage „Festival“ entfernt (ab 1.38.794)
