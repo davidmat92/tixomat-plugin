@@ -14,7 +14,7 @@
  *   Break-even = erste Ticketzahl mit Vorteil > 0 (linear je Staffel-Stufe).
  * Alle Annahmen sind je Aufruf änderbar (User 14.11.: „IMMER änderbar“). Vorgaben im Katalog `plan_defaults`:
  * Ø 25 €, eigene Gebühr 1,50 €, 2 Tickets je Bestellung, Mischung 60 % PayPal / 40 % Karte, Stufen 1.000/5.000/10.000 (Staffel 790 € bis 5.000, 1.690 € bis 10.000, darüber auf Anfrage).
- * Zahlungsanbieter: Mollie und Stripe nebeneinander ohne Empfehlung (User 14.11.).
+ * Zahlungsanbieter: Mollie, Stripe und PayPal gleichwertig nebeneinander ohne Empfehlung (User 14.11.; PayPal seit 1.38.826).
  */
 if (!defined('ABSPATH')) exit;
 
@@ -286,9 +286,9 @@ class TIX_Offer_Plan {
                 'base' => $ctx['base'] ?? null, 'options' => array_values((array) ($ctx['extras'] ?? [])), 'options_year' => round($x['extras_year'], 2), 'once' => round(floatval($ctx['once'] ?? 0), 2),
                 'channel' => $x['channel'] ? $x['channel'] + ['share' => $p['channel_share'] ?? 0, 'tax_note' => 'inkl. MwSt.'] : null,
                 'above' => 'auf Anfrage', 'per_ticket' => 0.0, 'tax_note' => 'zzgl. MwSt.'],
-            // Block 2: an den Zahlungsanbieter (Mollie und Stripe nebeneinander, ohne Empfehlung)
+            // Block 2: an den Zahlungsanbieter (Mollie, Stripe und PayPal nebeneinander, ohne Empfehlung)
             'to_psp' => ['methods' => $methods, 'blended_percent' => round($b['pct'] * 100, 4), 'blended_fixed' => round($b['fix'], 4), 'catalog' => $all_rates,
-                'note' => (string) ($cat['payment_note'] ?? ''), 'providers_note' => 'Mollie und Stripe stehen gleichwertig nebeneinander – du wählst deinen Anbieter.'],
+                'note' => (string) ($cat['payment_note'] ?? ''), 'providers_note' => 'Mollie, Stripe und PayPal stehen gleichwertig nebeneinander – du wählst deinen Anbieter.'],
             // Block 3: was dein Gast zahlt
             'guest' => ['ticket_price' => round($p['avg_price'], 2), 'own_fee' => round($p['service_fee'], 2), 'pays_own_shop' => round($p['avg_price'] + $p['service_fee'], 2),
                 'platform_fee' => round($pf_gross, 2), 'pays_platform' => round($p['avg_price'] + $pf_gross, 2), 'own_fee_stays_with_you' => true],

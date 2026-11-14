@@ -163,7 +163,7 @@ class TIX_Platform_Offers {
             return $a + ['type' => 'module', 'short' => '', 'description' => '', 'prices' => [], 'default_interval' => 'monthly', 'fee_percent' => null, 'fee_fixed' => null,
                 'price_note' => '', 'tax_note' => '', 'term' => '', 'benefits' => [], 'adds' => [], 'recommended' => false, 'active' => true, 'modes' => []]; // modes leer = alle Betriebsarten
         };
-        $shop = ['shop_domain', 'daten_gehoeren_dir', 'null_je_ticket', 'evendis_kanal', 'updates'];
+        $shop = ['shop_domain', 'daten_gehoeren_dir', 'null_je_ticket', 'updates']; // „Zusätzlich auf evendis.de“ nur mit Häkchen evendis_channel (1.38.826)
         $items = [
             $i(['key' => 'kostenlos', 'type' => 'plan', 'name' => 'Kostenlos eintragen', 'short' => 'Ohne Ticketverkauf',
                 'description' => 'Event auf evendis.de und in der evendis-App, ohne Ticketverkauf. Eintritt frei, Abendkasse oder Link zu deinem eigenen Ticketshop.',
@@ -173,10 +173,10 @@ class TIX_Platform_Offers {
                 'default_interval' => 'per_ticket', 'fee_percent' => 2.9, 'fee_fixed' => 0.49, /* 11.11.2026, vorher 2,5 % + 0,59 € */ 'price_note' => 'je verkauftem Ticket, inkl. MwSt. – Zahlungskosten enthalten, evendis trägt sie',
                 'tax_note' => 'inkl. MwSt.', 'term' => 'keine Bindung', 'benefits' => ['eigene_seite', 'keine_grundgebuehr', 'zahlung_inklusive', 'gebuehr_weitergeben', 'einlass_kasse', 'abrechnung'], 'recommended' => true]),
             $i(['key' => 'shop', 'type' => 'plan', 'name' => 'Eigener Shop', 'short' => 'Jahresvertrag',
-                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: ' . $ch_txt . '. Einrichtung inklusive.',
+                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop. Einrichtung inklusive.',
                 'prices' => [], 'default_interval' => 'yearly', /* Jahresvertrag: Listenpreis = Staffel bei der führenden Ticketzahl (1.38.823, clean_data); monatlich nur „Eigener Shop – monatlich kündbar“ */ 'price_note' => 'Jahresvertrag nach Staffel, Einrichtung inklusive', 'term' => 'Jahresvertrag', 'benefits' => array_merge($shop, ['einrichtung_inklusive'])]),
             $i(['key' => 'shop_monatlich', 'type' => 'plan', 'name' => 'Eigener Shop – monatlich kündbar', 'short' => 'Ohne Jahresbindung',
-                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop. Verkäufe über evendis.de: ' . $ch_txt . '.',
+                'description' => 'Shop unter deiner Domain, Betrieb durch uns. Gäste und Bestellungen gehören dir, 0 € je Ticket im eigenen Shop.',
                 'prices' => ['monthly' => 99], 'price_note' => 'monatlich kündbar', 'term' => 'monatlich kündbar', 'benefits' => $shop]),
             $i(['key' => 'app', 'name' => 'Eigene App – Basis', 'short' => 'In App Store und Google Play',
                 'description' => 'Deine App unter deinem Namen in App Store und Google Play. Setzt eigenen Shop oder Lizenz voraus.',
@@ -218,11 +218,11 @@ class TIX_Platform_Offers {
             'valid_days' => 30,
             'number_prefix' => 'AN',
             'intro' => 'vielen Dank für das gute Gespräch. Wie besprochen schicken wir dir hier unser Angebot. Von Veranstaltern für Veranstalter: Wir stehen selbst seit über 20 Jahren hinter Events.',
-            'conditions' => "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters direkt an ihn (z. B. Mollie Karte 1,8 % + 0,25 € je Zahlung).\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
+            'conditions' => "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters (z. B. Mollie, Stripe oder PayPal) direkt an ihn.\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
             'general_benefits' => ['designs', 'dein_link', 'kalender_abo', 'csv_export', 'awareness'],
             // Hochrechnung je Event (Nachtrag 06.11.): Sätze der Zahlungsdienstleister bei „Selbstgehostet“, aus den öffentlichen Preisseiten
             'payment_rates' => self::default_payment_rates(),
-            'payment_note' => 'Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.',
+            'payment_note' => 'Die Gebühren deines Zahlungsanbieters (z. B. Mollie, Stripe oder PayPal) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.',
             'projection_defaults' => ['paypal_share' => 30, 'klarna_within' => 50, 'tickets_per_order' => 1, 'events_year' => 12],
             // Planrechnung (AN1, 1.38.816): Staffel eigener Shop je Jahr (F-AN1 B) und Vorgaben der Annahmen (F-AN2, immer änderbar)
             'shop_tiers' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : [],
@@ -289,7 +289,7 @@ class TIX_Platform_Offers {
     /** Zahlungs-Sätze (Online, Deutschland, Standardtarif) mit Stand und Quelle; fehlt ein Satz, steht percent/fixed null. */
     public static function default_payment_rates() {
         return [
-            'paypal' => ['label' => 'PayPal', 'provider' => 'PayPal', 'detail' => 'PayPal Checkout, Inlandszahlung (direkt bei PayPal; über Mollie zusätzlich 0,10 € je Zahlung)',
+            'paypal' => ['label' => 'PayPal (direkt)', 'provider' => 'PayPal', 'detail' => 'PayPal Händlergebühren Deutschland, Checkout Inlandszahlung – direkt mit PayPal als eigenem Zahlungsanbieter (über Mollie zusätzlich 0,10 € je Zahlung)',
                 'percent' => 2.99, 'fixed' => 0.39, 'as_of' => '2026-11-04', 'retrieved' => '2026-11-06', 'source' => 'https://www.paypal.com/de/business/paypal-business-fees'],
             'card' => ['label' => 'Kreditkarte', 'provider' => 'Mollie', 'detail' => 'Verbraucherkarte aus dem EWR (auch Apple Pay)',
                 'percent' => 1.80, 'fixed' => 0.25, 'as_of' => '2026-11-05', 'retrieved' => '2026-11-06', 'source' => 'https://www.mollie.com/de/pricing'],
@@ -321,7 +321,7 @@ class TIX_Platform_Offers {
                 $s('Server und Hosting bei uns einrichten', ['own_shop']),
                 $s('Server bei deinem Hoster einrichten, absichern und installieren', ['self_hosted']),
                 $s('Domain und DNS einrichten'),
-                $s('Zahlungsanbieter verbinden (Mollie oder Stripe)'),
+                $s('Zahlungsanbieter verbinden (Mollie, Stripe oder PayPal)'),
                 $s('Website und Marke einrichten (Logo, Farben, Seiten)'),
                 $s('Rechtstexte-Vorlagen einspielen (Impressum, AGB, Datenschutz)'),
                 $s('Erste Events anlegen'),
@@ -330,7 +330,7 @@ class TIX_Platform_Offers {
                 $s('Einweisung für dich und dein Team'),
             ],
             'customer_tasks' => [
-                $s('Vertrag mit deinem Zahlungsanbieter (Mollie oder Stripe) selbst abschließen – wir helfen beim Ausfüllen'),
+                $s('Vertrag mit deinem Zahlungsanbieter (Mollie, Stripe oder PayPal) selbst abschließen – wir helfen beim Ausfüllen'),
                 $s('Inhalte liefern: Logo, Farben, Texte, Bilder und Event-Daten'),
                 $s('Rechtstexte prüfen und freigeben'),
                 $s('Zugang zu deiner Domain bzw. DNS geben'),
@@ -397,6 +397,10 @@ class TIX_Platform_Offers {
         foreach (['payment_rates', 'payment_note', 'projection_defaults', 'shop_tiers', 'plan_defaults', 'self_hosted_tiers', 'server_month', 'setup', 'references'] as $k) if (!array_key_exists($k, $c)) $c[$k] = $def[$k]; // ältere gespeicherte Kataloge
         foreach ($def['payment_rates'] as $k => $r) if (!isset($c['payment_rates'][$k])) $c['payment_rates'][$k] = $r; // neue Zahlarten (1.38.816)
         if (!array_key_exists('sales_reps', $c)) $c['sales_reps'] = $def['sales_reps']; // Vertriebler (1.38.825)
+        // PayPal als eigener Zahlungsanbieter neben Mollie und Stripe (1.38.826, User: „Paypal auch reinbringen“)
+        foreach (['steps', 'customer_tasks'] as $k) foreach ((array) ($c['setup'][$k] ?? []) as $i => $r) if (is_array($r) && isset($r['text'])) $c['setup'][$k][$i]['text'] = str_replace('(Mollie oder Stripe)', '(Mollie, Stripe oder PayPal)', $r['text']);
+        if (($c['payment_note'] ?? '') === 'Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.') $c['payment_note'] = $def['payment_note'];
+        if (isset($c['payment_rates']['paypal']['label']) && $c['payment_rates']['paypal']['label'] === 'PayPal') { $c['payment_rates']['paypal']['label'] = $def['payment_rates']['paypal']['label']; $c['payment_rates']['paypal']['detail'] = $def['payment_rates']['paypal']['detail']; }
         // Neue Staffel (1.38.825): unveränderte alte Vorgaben 790/1.490/2.490 bzw. Stufen bis 50.000 auf 790/1.690 und 1.000/5.000/10.000 heben
         if (class_exists('TIX_Offer_Plan')) {
             $norm = function ($t) { return array_map(function ($x) { return [intval($x['max'] ?? 0), round(floatval($x['price'] ?? 0), 2)]; }, (array) $t); };
@@ -647,13 +651,17 @@ class TIX_Platform_Offers {
 
         $benefits = [];
         $raw = $g('benefits', null);
-        if ($raw === null) $raw = self::suggest_benefits(array_values(array_filter($items, function ($x) { return !empty($x['on']); })));
+        if ($raw === null) $raw = self::suggest_benefits(array_values(array_filter($items, function ($x) { return !empty($x['on']); })), $extras);
         foreach (array_slice((array) $raw, 0, 30) as $b) {
             if (!is_array($b)) continue;
             $t = self::txt($b['title'] ?? '', 120, false);
             if ($t === '') continue;
             $benefits[] = ['key' => sanitize_key((string) ($b['key'] ?? '')) ?: null, 'title' => $t, 'text' => self::txt($b['text'] ?? '', 400), 'on' => !array_key_exists('on', $b) || !empty($b['on'])];
         }
+        // „Zusätzlich auf evendis.de“ folgt dem Häkchen evendis_channel (1.38.826): ohne Häkchen nie in den Vorteilen, mit Häkchen dabei
+        $chk = false;
+        foreach ($benefits as $i => $b) if ($b['key'] === 'evendis_kanal') { $benefits[$i]['on'] = !empty($extras['evendis_channel']); $chk = true; }
+        if (!$chk && !empty($extras['evendis_channel'])) foreach ((array) $cat['benefits'] as $b) if ($b['key'] === 'evendis_kanal') $benefits[] = ['key' => $b['key'], 'title' => $b['title'], 'text' => $b['text'], 'on' => true];
 
         $comparison = null;
         $cmp = $g('comparison', null);
@@ -732,10 +740,12 @@ class TIX_Platform_Offers {
     /** Angebot nur mit dem Grundpaket (optionale Positionen abgehakt) – Faktenblock und Summe „Grundpaket“ */
     public static function base_data(array $d) {
         foreach ((array) ($d['items'] ?? []) as $i => $it) if (self::is_optional($it)) $d['items'][$i]['on'] = false;
+        $d['extras']['evendis_channel'] = false; // Verkauf über evendis.de ist eine Option (1.38.826)
         return $d;
     }
 
     public static function has_options(array $d) {
+        if (!empty($d['extras']['evendis_channel'])) return true;
         foreach (self::active_items($d) as $it) if (self::is_optional($it)) return true;
         return false;
     }
@@ -1016,7 +1026,7 @@ class TIX_Platform_Offers {
     }
 
     /** Vorteile passend zu den Positionen (Katalog-Reihenfolge), dazu die allgemeinen. */
-    public static function suggest_benefits(array $items) {
+    public static function suggest_benefits(array $items, array $extras = []) {
         $cat = self::catalog();
         $want = [];
         foreach ($items as $it) {
@@ -1024,6 +1034,9 @@ class TIX_Platform_Offers {
             if ($c) foreach ((array) $c['benefits'] as $k) $want[$k] = true;
         }
         foreach ((array) $cat['general_benefits'] as $k) $want[$k] = true;
+        // Verkauf über evendis.de standardmäßig nicht im Angebot (1.38.826, User: „da evendis noch lange braucht bis es attraktiv wird als Plattform“)
+        unset($want['evendis_kanal']);
+        if (!empty($extras['evendis_channel'])) $want['evendis_kanal'] = true;
         $out = [];
         foreach ((array) $cat['benefits'] as $b) if (isset($want[$b['key']])) $out[] = ['key' => $b['key'], 'title' => $b['title'], 'text' => $b['text'], 'on' => true];
         return $out;
@@ -1497,7 +1510,7 @@ class TIX_Platform_Offers {
         if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b);
         if ($e = self::mode_error($d)) return $e; // Betriebsart (1.38.819)
-        return rest_ensure_response(['ok' => true, 'data' => $d, 'totals' => self::totals($d), 'plan_calc' => self::plan_result($d), 'mode_hints' => self::mode_hints($d), 'benefits_suggested' => self::suggest_benefits(self::active_items($d))]);
+        return rest_ensure_response(['ok' => true, 'data' => $d, 'totals' => self::totals($d), 'plan_calc' => self::plan_result($d), 'mode_hints' => self::mode_hints($d), 'benefits_suggested' => self::suggest_benefits(self::active_items($d), (array) $d['extras'])]);
     }
 
     /** POST /platform/offers/plan {…Annahmen} → nur die Planrechnung (Studio-Vorschau, Rechner); fehlende Annahmen aus den Vorgaben */
@@ -2410,7 +2423,7 @@ class TIX_Platform_Offers {
         if ($mode === 'self_hosted') $rows[] = ['name' => 'Server bei deinem Hoster (nicht an evendis)', 'detail' => 'Server-Miete und Verantwortung bei dir; Installation und Updates per Paket – nicht in der Summe',
             'price' => 'ca. ' . self::eur($pc['server_month']) . ' / Monat', 'list_price' => null, 'tiered' => false, 'info' => true, 'optional' => false];
         $ch = $ev['channel'];
-        if ($ch) $rows[] = ['name' => 'Zusätzlich über evendis.de verkaufen', 'detail' => 'je Ticket, trägst du, zzgl. Zahlungskosten deines Anbieters', 'price' => self::fee_label($ch['percent'], $ch['fixed']) . ' inkl. MwSt.', 'list_price' => null, 'tiered' => false, 'optional' => false];
+        if ($ch) $opt_rows[] = ['name' => 'Zusätzlich über evendis.de verkaufen', 'detail' => 'je Ticket, trägst du, zzgl. Zahlungskosten deines Anbieters', 'price' => self::fee_label($ch['percent'], $ch['fixed']) . ' inkl. MwSt.', 'list_price' => null, 'tiered' => false, 'optional' => true]; // nur mit Häkchen, unter „Optional“ (1.38.826)
         $base_rows = $rows;
         $rows = array_merge($rows, $opt_rows);
         // Kachel „an evendis“

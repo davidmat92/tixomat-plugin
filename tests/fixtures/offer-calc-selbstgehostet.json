@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.825",
+    "plugin_version": "1.38.826",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -146,6 +146,12 @@
                     "key": "daten_eigener_server",
                     "title": "Deine Daten liegen allein bei dir",
                     "text": "Deine Daten liegen allein bei dir auf deinem eigenen Server.",
+                    "on": true
+                },
+                {
+                    "key": "evendis_kanal",
+                    "title": "Zusätzlich auf evendis.de",
+                    "text": "Verkäufe über evendis.de: 2,9 % + 0,49 € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters. Die Gebühr trägst du; deine Gäste zahlen nur deine eigene Service- bzw. Vorverkaufsgebühr.",
                     "on": true
                 }
             ],
@@ -605,7 +611,7 @@
                     "methods": [
                         {
                             "key": "paypal",
-                            "label": "PayPal",
+                            "label": "PayPal (direkt)",
                             "provider": "PayPal",
                             "share": 60,
                             "percent": 2.99,
@@ -842,9 +848,9 @@
                 "methods": [
                     {
                         "key": "paypal",
-                        "label": "PayPal",
+                        "label": "PayPal (direkt)",
                         "provider": "PayPal",
-                        "detail": "PayPal Checkout, Inlandszahlung (direkt bei PayPal; über Mollie zusätzlich 0,10 € je Zahlung)",
+                        "detail": "PayPal Händlergebühren Deutschland, Checkout Inlandszahlung – direkt mit PayPal als eigenem Zahlungsanbieter (über Mollie zusätzlich 0,10 € je Zahlung)",
                         "share": 60,
                         "percent": 2.99,
                         "fixed": 0.39,
@@ -868,7 +874,7 @@
                 "catalog": [
                     {
                         "key": "paypal",
-                        "label": "PayPal",
+                        "label": "PayPal (direkt)",
                         "provider": "PayPal",
                         "percent": 2.99,
                         "fixed": 0.39,
@@ -912,8 +918,8 @@
                         "source": "https://stripe.com/de/pricing"
                     }
                 ],
-                "note": "Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.",
-                "providers_note": "Mollie und Stripe stehen gleichwertig nebeneinander – du wählst deinen Anbieter."
+                "note": "Die Gebühren deines Zahlungsanbieters (z. B. Mollie, Stripe oder PayPal) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.",
+                "providers_note": "Mollie, Stripe und PayPal stehen gleichwertig nebeneinander – du wählst deinen Anbieter."
             },
             "guest": {
                 "ticket_price": 25,
@@ -940,16 +946,16 @@
                 "revenue": 75000,
                 "own_fee": 4500,
                 "orders": 1500,
-                "to_evendis": 1286.3,
+                "to_evendis": 980,
                 "to_evendis_once": 190,
                 "base_price": 790,
                 "options_year": 0,
-                "channel_fee": 306.3,
+                "channel_fee": 0,
                 "to_psp": 2499.63,
                 "to_hoster": 240,
-                "kept": 75474.07,
-                "kept_per_ticket": 25.16,
-                "kept_percent": 100.6,
+                "kept": 75780.37,
+                "kept_per_ticket": 25.26,
+                "kept_percent": 101,
                 "platform": {
                     "fee_per_ticket_gross": 1.22,
                     "fee_per_ticket_net": 1.02,
@@ -957,10 +963,10 @@
                     "kept_guests_pay": 75000,
                     "guest_fee_total": 3645
                 },
-                "savings_vs_platform": 3537.1,
-                "savings_vs_platform_guests": 474.07,
+                "savings_vs_platform": 3843.4,
+                "savings_vs_platform_guests": 780.37,
                 "other_mode": "own_shop",
-                "other_kept": 75904.07,
+                "other_kept": 76210.37,
                 "order_example": {
                     "tickets": 2,
                     "ticket_price": 25,
@@ -969,7 +975,7 @@
                     "methods": [
                         {
                             "key": "paypal",
-                            "label": "PayPal",
+                            "label": "PayPal (direkt)",
                             "provider": "PayPal",
                             "share": 60,
                             "percent": 2.99,
@@ -1032,6 +1038,12 @@
                 "key": "null_je_ticket",
                 "title": "0 € je Ticket",
                 "text": "Keine Gebühr je Ticket in deinem eigenen Shop.",
+                "on": true
+            },
+            {
+                "key": "evendis_kanal",
+                "title": "Zusätzlich auf evendis.de",
+                "text": "Verkäufe über evendis.de: 2,9 % + 0,49 € je Ticket inkl. MwSt., zzgl. Zahlungskosten deines eigenen Anbieters. Die Gebühr trägst du; deine Gäste zahlen nur deine eigene Service- bzw. Vorverkaufsgebühr.",
                 "on": true
             },
             {

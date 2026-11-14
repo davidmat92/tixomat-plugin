@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.826: PayPal als eigener Zahlungsanbieter, Verkauf über evendis.de nur mit Häkchen (unter „Optional“).
  * 1.38.825: Staffel 790/1.690 (bis 5.000/10.000, darüber Anfrage), Vertriebler (sales_reps/sales_rep), Blöcke nie über Seitengrenzen.
  * 1.38.823: Jahresvertrag nach Staffel (nie 12 × Monat), „Optional dazubuchbar“ (totals.base/with_options), Plattform-Vergleich nur mit compare_platform.
  *   wp eval-file …/test-offer-options-wp.php (Teil REST nur auf der Plattform)
@@ -221,6 +222,21 @@ if ($bak2 === null) delete_option($O::OPT_CATALOG); else update_option($O::OPT_C
 $many = [$it('shop')]; for ($i = 0; $i < 45; $i++) $many[] = $it('seating', null, ['price' => 5 + $i, 'name' => 'Modul Nr. ' . ($i + 1)]);
 $pdf_m = $ptxt($O::render_pdf($O::clean_data(['items' => $many, 'mode' => 'own_shop']), ['number' => 'AN-T-M', 'date' => wp_date('Y-m-d')]));
 $eq('Block größer als eine Seite: bricht um, Tabellenkopf wird wiederholt (PREIS mindestens 3×)', true, substr_count($pdf_m, '(PREIS)') >= 3);
+
+// ── 1.38.826: PayPal als eigener Zahlungsanbieter, evendis.de-Verkauf nur mit Häkchen
+$C6 = $O::catalog();
+$eq('PayPal direkt im Katalog (2,99 % + 0,39 €, Quelle), gleichwertig neben Mollie und Stripe; Texte nennen PayPal', ['PayPal', 2.99, 0.39, true, true, true],
+    [$C6['payment_rates']['paypal']['provider'], floatval($C6['payment_rates']['paypal']['percent']), floatval($C6['payment_rates']['paypal']['fixed']), strpos((string) $C6['payment_rates']['paypal']['source'], 'paypal.com') !== false,
+     (bool) preg_grep('/Mollie, Stripe oder PayPal/', array_column($C6['setup']['customer_tasks'], 'text')), strpos(TIX_Offer_Plan::compute(TIX_Offer_Plan::clean([], $C6), $C6)['to_psp']['providers_note'], 'Mollie, Stripe und PayPal') === 0]);
+$k0 = $O::clean_data(['customer' => ['company' => 'Kanal'], 'mode' => 'own_shop']);
+$k1 = $O::clean_data(['extras' => ['evendis_channel' => true]], $k0);
+$bk0 = array_column(array_filter($k0['benefits'], function ($b) { return $b['on']; }), 'key');
+$Bk1 = $O::own_blocks($k1);
+$eq('evendis.de-Verkauf: Standard aus, kein Vorteil „Zusätzlich auf evendis.de“; mit Häkchen Vorteil an und Zeile unter „Optional“, Faktenblock ohne Kanal-Gebühr', [false, false, true, true, false, true, 0.0],
+    [$k0['extras']['evendis_channel'], in_array('evendis_kanal', $bk0, true), in_array('evendis_kanal', array_column(array_filter($k1['benefits'], function ($b) { return $b['on']; }), 'key'), true),
+     in_array('Zusätzlich über evendis.de verkaufen', array_column($Bk1['block1']['option_rows'], 'name'), true), in_array('Zusätzlich über evendis.de verkaufen', array_column($Bk1['block1']['base_rows'], 'name'), true),
+     $O::totals($k1)['has_options'], floatval($O::plan_for_offer($k1)['lead_base']['channel_fee'])]);
+$eq('Häkchen wieder aus → Vorteil wieder aus', false, in_array('evendis_kanal', array_column(array_filter($O::clean_data(['extras' => ['evendis_channel' => false]], $k1)['benefits'], function ($b) { return $b['on']; }), 'key'), true));
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

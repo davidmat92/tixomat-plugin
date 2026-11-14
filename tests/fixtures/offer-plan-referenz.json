@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.825",
+    "plugin_version": "1.38.826",
     "name": "plan-referenz",
     "request": {
         "route": "POST /platform/offers/plan",
@@ -239,7 +239,7 @@
                         },
                         {
                             "key": "paypal",
-                            "label": "PayPal",
+                            "label": "PayPal (direkt)",
                             "provider": "PayPal",
                             "share": 40,
                             "percent": 2.99,
@@ -395,9 +395,9 @@
                     },
                     {
                         "key": "paypal",
-                        "label": "PayPal",
+                        "label": "PayPal (direkt)",
                         "provider": "PayPal",
-                        "detail": "PayPal Checkout, Inlandszahlung (direkt bei PayPal; über Mollie zusätzlich 0,10 € je Zahlung)",
+                        "detail": "PayPal Händlergebühren Deutschland, Checkout Inlandszahlung – direkt mit PayPal als eigenem Zahlungsanbieter (über Mollie zusätzlich 0,10 € je Zahlung)",
                         "share": 40,
                         "percent": 2.99,
                         "fixed": 0.39,
@@ -410,7 +410,7 @@
                 "catalog": [
                     {
                         "key": "paypal",
-                        "label": "PayPal",
+                        "label": "PayPal (direkt)",
                         "provider": "PayPal",
                         "percent": 2.99,
                         "fixed": 0.39,
@@ -454,8 +454,8 @@
                         "source": "https://stripe.com/de/pricing"
                     }
                 ],
-                "note": "Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.",
-                "providers_note": "Mollie und Stripe stehen gleichwertig nebeneinander – du wählst deinen Anbieter."
+                "note": "Die Gebühren deines Zahlungsanbieters (z. B. Mollie, Stripe oder PayPal) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.",
+                "providers_note": "Mollie, Stripe und PayPal stehen gleichwertig nebeneinander – du wählst deinen Anbieter."
             },
             "guest": {
                 "ticket_price": 25,
