@@ -6824,3 +6824,9 @@ Vertrag (endgültig, mit „Umzug nach evendis-api“): `uebergaben/vertrag-zwei
 **Rückweg:** Schalter Seite/Veranstalter/Event/Kategorie aus → offene Angebote werden zurückgezogen (Mitteilung), verkaufte bleiben gültig.
 
 **Test:** `bash tests/test-resale.sh <container…>` (`tests/test-resale-wp.php`, setzt für den Lauf einen Test-Mollie- und Partner-Schlüssel): Einzel-Seite 90/90, Plattform 93/93. Fixtures `tests/fixtures/resale-*.json` (1.38.835).
+
+### 223a. Höchstpreis = Originalpreis, Löschfrist (ab 1.38.837)
+- **Höchstpreis** (User 14.11.: „Max. Originalpreis“): `TIX_Resale_Rules::max_price` ist immer der erste Kaufpreis. Speichern von `max_price.mode` `percent` > 100 oder `none` → 400 `tix_invalid_field`; gespeicherte Altwerte werden beim Lesen still gekappt (`sanitize(…, strict = false)`). Antwort immer `{mode: original, percent: 100}`.
+- **Löschfrist** (Befund Rechtstexte): `TIX_Resale::purge_old()` im Cron löscht Angebote ohne Verkauf 30 Tage nach Veranstaltungsende (`end_ts`, gelöschte Events sofort), Spiegel löscht mit; verkaufte bleiben nach den Aufbewahrungsregeln der Bestellungen. Reine Regel `purge_due`.
+- Datenspiegel-Abgleich für `resale_offers` aus `dev/datenspiegel-resale` (1.38.836) eingemergt.
+- **Test:** `test-resale` 100/100 (Einzel-Seite), 103/103 (Plattform).

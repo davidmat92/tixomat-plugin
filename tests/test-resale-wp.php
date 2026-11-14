@@ -69,9 +69,12 @@ $setstock($ev, 0, 0); // Regulär ausverkauft
 // ═══ Regeln (reine Funktionen) ═══
 list($r0) = TIX_Resale_Rules::sanitize([]);
 rs_eq('Vorgabe: aus, nur ausverkauft, Originalpreis, 2 h', [false, true, 'original', 2], [$r0['enabled'], $r0['sold_out_only'], $r0['max_price']['mode'], $r0['deadline_hours']]);
-rs_eq('Prozent außerhalb 100–200 → max_price.percent', 'max_price.percent', TIX_Resale_Rules::sanitize(['max_price' => ['mode' => 'percent', 'percent' => 250]])[1]['field'] ?? '');
+rs_eq('Höchstpreis über Originalpreis (120 %) → max_price.percent', 'max_price.percent', TIX_Resale_Rules::sanitize(['max_price' => ['mode' => 'percent', 'percent' => 120]])[1]['field'] ?? '');
+rs_eq('Ohne Grenze (none) → max_price', 'max_price', TIX_Resale_Rules::sanitize(['max_price' => ['mode' => 'none']])[1]['field'] ?? '');
+rs_eq('Alter Wert 150 % beim Lesen → still auf Originalpreis gekappt', [null, 'original'], [TIX_Resale_Rules::sanitize(['max_price' => ['mode' => 'percent', 'percent' => 150]], null, false)[1], TIX_Resale_Rules::sanitize(['max_price' => ['mode' => 'percent', 'percent' => 150]], null, false)[0]['max_price']['mode']]);
 rs_eq('Frist über 168 h → deadline_hours', 'deadline_hours', TIX_Resale_Rules::sanitize(['deadline_hours' => 200])[1]['field'] ?? '');
-rs_eq('Höchstpreis 120 % von 20 = 24', 24.0, TIX_Resale_Rules::max_price(20, ['max_price' => ['mode' => 'percent', 'percent' => 120]]));
+rs_eq('Höchstpreis immer Originalpreis (auch mit altem 120 %)', 20.0, TIX_Resale_Rules::max_price(20, ['max_price' => ['mode' => 'percent', 'percent' => 120]]));
+rs_eq('Löschfrist: ohne Verkauf 30 Tage nach Ende, verkauft/gesperrt nie', [false, true, true, false, false], [TIX_Resale_Rules::purge_due('expired', 1000, 1000 + 29 * 86400), TIX_Resale_Rules::purge_due('expired', 1000, 1000 + 30 * 86400), TIX_Resale_Rules::purge_due('withdrawn', 1000, 1000 + 31 * 86400), TIX_Resale_Rules::purge_due('sold', 1000, 1000 + 400 * 86400), TIX_Resale_Rules::purge_due('locked', 1000, 1000 + 400 * 86400)]);
 rs_eq('Frist = Beginn − 2 h', 1000000 - 7200, TIX_Resale_Rules::deadline_ts(1000000, $r0));
 rs_eq('Preis über Originalpreis → tix_resale_price', 'tix_resale_price', TIX_Resale_Rules::price_error(21, 20, $r0)['code'] ?? '');
 rs_eq('Preis mit 3 Nachkommastellen → Fehler', true, TIX_Resale_Rules::price_error(10.555, 20, $r0) !== null);
@@ -86,8 +89,10 @@ rs_eq('Gast ohne Rolle → keine Studio-Einstellungen', true, in_array($s, [401,
 wp_set_current_user($owner);
 [$s, $d] = rs_rest('GET', "/public/events/$ev/resale");
 rs_eq('Vorgabe aus → öffentlich enabled=false, reason disabled', [200, false, 'disabled'], [$s, $d['enabled'] ?? null, $d['reason'] ?? '']);
-[$s, $d, $c] = rs_rest('POST', '/studio/resale/settings', ['max_price' => ['mode' => 'percent', 'percent' => 50]]);
-rs_eq('Ungültiger Prozentwert → 400 tix_invalid_field', [400, 'tix_invalid_field', 'max_price.percent'], [$s, $c, $d['data']['field'] ?? '']);
+[$s, $d, $c] = rs_rest('POST', '/studio/resale/settings', ['max_price' => ['mode' => 'percent', 'percent' => 120]]);
+rs_eq('Höchstpreis über Originalpreis speichern → 400 tix_invalid_field', [400, 'tix_invalid_field', 'max_price.percent'], [$s, $c, $d['data']['field'] ?? '']);
+[$s, $d, $c] = rs_rest('POST', '/studio/resale/settings', ['max_price' => ['mode' => 'none']]);
+rs_eq('Ohne Grenze speichern → 400 tix_invalid_field max_price', [400, 'max_price'], [$s, $d['data']['field'] ?? '']);
 [$s, $d] = rs_rest('POST', '/studio/resale/settings', ['enabled' => true]);
 rs_eq('Seite: an, Rest Vorgabe', [200, true, true, 'original', 2], [$s, $d['enabled'] ?? null, $d['sold_out_only'] ?? null, $d['max_price']['mode'] ?? '', $d['deadline_hours'] ?? 0]);
 [$s, $d] = rs_rest('GET', "/events/$ev/resale/settings");
@@ -392,6 +397,31 @@ rs_eq('Seite aus → offene Angebote zurückgezogen, verkaufte bleiben gültig',
 $plan = TIX_Mirror_Map::plan('resale_offer', $oid1, 'upsert', null);
 $row = is_array($plan) ? ($plan[0][2][0] ?? []) : [];
 rs_eq('Spiegel: Upsert resale_offers ohne E-Mail', ['upsert', 'resale_offers', 'sold', false], [$plan[0][0] ?? '', $plan[0][1] ?? '', $row['status'] ?? '', strpos(wp_json_encode($row), '@') !== false]);
+
+// ═══ Alter gespeicherter Höchstpreis wird gekappt ═══
+update_option(TIX_Resale::OPT_SITE, ['enabled' => true, 'sold_out_only' => false, 'max_price' => ['mode' => 'percent', 'percent' => 150], 'deadline_hours' => 2]);
+if ($multi && $org) TIX_Object_Data::write('tix_resale_org', $org, ['enabled' => true, 'sold_out_only' => false, 'max_price' => ['mode' => 'none', 'percent' => 100], 'deadline_hours' => 2]);
+list($so7, $st7) = $mkorder($seller, $ev, 0, 1, 20.0);
+wp_set_current_user($owner);
+[$s, $d] = rs_rest('GET', '/studio/resale/settings');
+rs_eq('Alte Regel 150 % bzw. ohne Grenze → Studio zeigt original', 'original', $d['max_price']['mode'] ?? '');
+wp_set_current_user($seller);
+[$s, $d] = rs_rest('GET', "/customer/tickets/{$st7[0]}/resale");
+rs_eq('Alte Regel: Höchstpreis bleibt der Originalpreis', 20.0, $d['max_price'] ?? null);
+[$s, $d, $c] = rs_rest('POST', "/customer/tickets/{$st7[0]}/resale", ['price' => 25, 'accept_terms' => true]);
+rs_eq('Alte Regel: Preis über Originalpreis → 422', [422, 'tix_resale_price'], [$s, $c]);
+delete_option(TIX_Resale::OPT_SITE);
+if ($multi && $org) TIX_Object_Data::remove('tix_resale_org', $org);
+
+// ═══ Löschfrist (Cron) ═══
+$cnt = function ($id) use ($wpdb) { return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Resale::table() . " WHERE id = %d", $id))); };
+TIX_Resale::$now = TIX_Resale::end_ts($ev) + 29 * DAY_IN_SECONDS; TIX_Resale::purge_old();
+rs_eq('29 Tage nach dem Event: noch da (zurückgezogen, abgelaufen, verkauft)', [1, 1, 1], [$cnt($oid8), $cnt($oid7), $cnt($oid1)]);
+TIX_Resale::$now = TIX_Resale::end_ts($ev) + 31 * DAY_IN_SECONDS; TIX_Resale::purge_old();
+rs_eq('31 Tage nach dem Event: ohne Verkauf gelöscht, verkaufte bleiben', [0, 1, 1], [$cnt($oid8), $cnt($oid1), $cnt($oid2)]);
+TIX_Resale::$now = null;
+$plan = TIX_Mirror_Map::plan('resale_offer', $oid8, 'delete', null);
+rs_eq('Spiegel: gelöschtes Angebot wird gelöscht', ['delete', 'resale_offers'], [$plan[0][0] ?? '', $plan[0][1] ?? '']);
 
 // ═══ Aufräumen ═══
 foreach ($orders as $id) { $wpdb->delete($wpdb->prefix . 'tix_orders', ['id' => $id]); $wpdb->delete($wpdb->prefix . 'tix_order_items', ['order_id' => $id]); delete_option('_tix_mollie_payment_' . $id); }

@@ -172,10 +172,10 @@ class TIX_Resale {
         $org = intval($org);
         if ($org && self::multi()) {
             $own = TIX_Object_Data::read('tix_resale_org', $org, null);
-            if (is_array($own)) return TIX_Resale_Rules::sanitize($own)[0] ?: TIX_Resale_Rules::DEFAULTS;
+            if (is_array($own)) return TIX_Resale_Rules::sanitize($own, null, false)[0] ?: TIX_Resale_Rules::DEFAULTS;
         }
         $s = get_option(self::OPT_SITE, null);
-        return is_array($s) ? (TIX_Resale_Rules::sanitize($s)[0] ?: TIX_Resale_Rules::DEFAULTS) : TIX_Resale_Rules::DEFAULTS;
+        return is_array($s) ? (TIX_Resale_Rules::sanitize($s, null, false)[0] ?: TIX_Resale_Rules::DEFAULTS) : TIX_Resale_Rules::DEFAULTS;
     }
 
     /** Eintrag des Events {inherit, rules?, categories_off[]} */
@@ -184,7 +184,7 @@ class TIX_Resale {
         $e = is_array($e) ? $e : [];
         return [
             'inherit'        => !isset($e['inherit']) || !empty($e['inherit']),
-            'rules'          => isset($e['rules']) && is_array($e['rules']) ? (TIX_Resale_Rules::sanitize($e['rules'])[0] ?: null) : null,
+            'rules'          => isset($e['rules']) && is_array($e['rules']) ? (TIX_Resale_Rules::sanitize($e['rules'], null, false)[0] ?: null) : null,
             'categories_off' => array_values(array_unique(array_map('intval', (array) ($e['categories_off'] ?? [])))),
         ];
     }
@@ -325,9 +325,7 @@ class TIX_Resale {
     // ═══════════════ Antworten ═══════════════
 
     private static function info_text(array $rules) {
-        $mode = $rules['max_price']['mode'] ?? 'original';
-        $price = $mode === 'original' ? 'zum Originalpreis oder günstiger' : ($mode === 'percent' ? 'höchstens zum vom Veranstalter erlaubten Preis' : 'zum Preis des Anbieters');
-        return 'Tickets von anderen Gästen ' . $price . '. Das alte Ticket wird ungültig, du bekommst ein neues.';
+        return 'Tickets von anderen Gästen zum Originalpreis oder günstiger. Das alte Ticket wird ungültig, du bekommst ein neues.';
     }
 
     private static function terms_url() {
@@ -904,9 +902,41 @@ class TIX_Resale {
     public static function cron() {
         if (!self::ready()) return;
         self::expire_due();
+        self::purge_old();
         global $wpdb;
         $due = (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE status = 'sold' AND payout_status = 'pending' AND updated_at < %s LIMIT 50", self::utc(self::now() - 600)));
         foreach ($due as $id) self::payout(intval($id));
+    }
+
+    /** Veranstaltungsende (Unix): Enddatum/-zeit, sonst Beginn-Datum 23:59; 0 = unbekannt. */
+    public static function end_ts($event_id) {
+        $d = (string) (get_post_meta(intval($event_id), '_tix_date_end', true) ?: get_post_meta(intval($event_id), '_tix_date_start', true));
+        if ($d === '') return 0;
+        $t = (string) (get_post_meta(intval($event_id), '_tix_time_end', true) ?: '23:59');
+        try { return (new DateTime($d . ' ' . $t, wp_timezone()))->getTimestamp(); } catch (\Throwable $e) { return 0; }
+    }
+
+    /**
+     * Löschfrist (Rechtstexte 14.11.): Angebote ohne Verkauf 30 Tage nach der Veranstaltung löschen (Zeile weg, Spiegel löscht mit).
+     * Gelöschte Events: Angebote ohne Verkauf sofort. Verkaufte bleiben (Aufbewahrung wie die Bestellungen). → Anzahl gelöscht.
+     */
+    public static function purge_old() {
+        global $wpdb;
+        if (!self::ready()) return 0;
+        $n = 0; $ends = [];
+        foreach ((array) $wpdb->get_results("SELECT id, event_id, status, ticket_id FROM " . self::table() . " WHERE status IN ('withdrawn','expired','open') ORDER BY id LIMIT 2000", ARRAY_A) as $r) {
+            $e = intval($r['event_id']);
+            if (!isset($ends[$e])) $ends[$e] = get_post_type($e) === 'event' ? self::end_ts($e) : -1;
+            $gone = $ends[$e] === -1;
+            if (!$gone && !TIX_Resale_Rules::purge_due($r['status'], $ends[$e], self::now())) continue;
+            if ($wpdb->delete(self::table(), ['id' => intval($r['id'])], ['%d'])) {
+                $n++;
+                $tid = intval($r['ticket_id']);
+                if ($tid && !self::active_for_ticket($tid) && in_array((string) get_post_meta($tid, self::TICKET_META, true), ['open', 'reserved'], true)) delete_post_meta($tid, self::TICKET_META);
+                if (class_exists('TIX_Mirror')) TIX_Mirror::touch('resale_offer', intval($r['id']), 'delete');
+            }
+        }
+        return $n;
     }
 
     // ═══════════════ Ticket-Anzeige ═══════════════

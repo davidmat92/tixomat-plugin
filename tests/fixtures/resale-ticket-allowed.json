@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.835",
+    "plugin_version": "1.38.837",
     "name": "ticket-allowed",
     "request": {
         "route": "GET /customer/tickets/{id}/resale",

@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.835",
+    "plugin_version": "1.38.837",
     "name": "studio-overview",
     "request": {
         "route": "GET /studio/resale",

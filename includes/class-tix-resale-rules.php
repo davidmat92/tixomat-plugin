@@ -10,11 +10,14 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Resale_Rules {
 
-    /** Vorgaben (User-Entscheide F-RS3/F-RS4): aus, nur bei ausverkauft, höchstens Originalpreis, bis 2 h vor Beginn. */
+    /**
+     * Vorgaben (User-Entscheide F-RS3/F-RS4): aus, nur bei ausverkauft, höchstens Originalpreis, bis 2 h vor Beginn.
+     * Höchstpreis (User 14.11.: „Max. Originalpreis“): immer der erste Kaufpreis – es gibt nur noch mode = original.
+     */
     const DEFAULTS = ['enabled' => false, 'sold_out_only' => true, 'max_price' => ['mode' => 'original', 'percent' => 100], 'deadline_hours' => 2];
 
     const MIN_PRICE   = 1.0;      // kleinster Angebotspreis
-    const ABS_MAX     = 10000.0;  // Obergrenze bei max_price.mode = none
+    const PURGE_DAYS  = 30;       // Angebote ohne Verkauf: Löschfrist nach Veranstaltungsende (Rechtstexte, 14.11.)
     const LOCK_SETUP  = 900;      // Sekunden: Sperre zwischen Prüfung und angelegter Bestellung
     const LOCK_ORDER  = 3600;     // Sekunden: Sperre, solange die Zahlung läuft
     const PAYOUT_TRIES = 3;       // Versuche der Erstattung aufs Zahlungsmittel, dann Rückfall
@@ -49,31 +52,38 @@ class TIX_Resale_Rules {
     /**
      * Regeln prüfen und normalisieren. Rückgabe [rules, null] oder [null, ['field' => …, 'message' => …]].
      * Fehlende Felder kommen aus $base (Vorgabe: DEFAULTS).
+     * $strict (Speichern): ein Höchstpreis über dem Originalpreis (mode percent > 100, none) → Fehler.
+     * Lesen ($strict = false): alte gespeicherte Werte werden still auf den Originalpreis gekappt.
      */
-    public static function sanitize($in, array $base = null) {
+    public static function sanitize($in, array $base = null, $strict = true) {
         $base = $base ?: self::DEFAULTS;
         if (!is_array($in)) $in = [];
         $r = $base;
+        $r['max_price'] = ['mode' => 'original', 'percent' => 100];
         if (array_key_exists('enabled', $in)) $r['enabled'] = self::bool($in['enabled']);
         if (array_key_exists('sold_out_only', $in)) $r['sold_out_only'] = self::bool($in['sold_out_only']);
-        if (array_key_exists('max_price', $in)) {
+        if (array_key_exists('max_price', $in) && $strict) {
             $mp = $in['max_price'];
-            if (!is_array($mp)) return [null, ['field' => 'max_price', 'message' => 'Höchstpreis: mode original, percent oder none.']];
-            $mode = (string) ($mp['mode'] ?? $r['max_price']['mode']);
-            if (!in_array($mode, ['original', 'percent', 'none'], true)) return [null, ['field' => 'max_price', 'message' => 'Höchstpreis: mode original, percent oder none.']];
-            $pct = array_key_exists('percent', $mp) ? $mp['percent'] : ($mode === 'percent' ? null : 100);
+            $msg = 'Der Höchstpreis ist immer der Originalpreis (max_price.mode = original).';
+            if (is_string($mp)) $mp = ['mode' => $mp];
+            if (!is_array($mp)) return [null, ['field' => 'max_price', 'message' => $msg]];
+            $mode = (string) ($mp['mode'] ?? 'original');
             if ($mode === 'percent') {
-                if (!is_numeric($pct) || floatval($pct) < 100 || floatval($pct) > 200) return [null, ['field' => 'max_price.percent', 'message' => 'Der Höchstpreis in Prozent liegt zwischen 100 und 200.']];
-                $pct = intval(round(floatval($pct)));
-            } else {
-                $pct = 100;
+                $pct = $mp['percent'] ?? null;
+                if (!is_numeric($pct) || abs(floatval($pct) - 100) > 0.000001) return [null, ['field' => 'max_price.percent', 'message' => $msg]];
+            } elseif ($mode !== 'original') {
+                return [null, ['field' => 'max_price', 'message' => $msg]];
+            } elseif (array_key_exists('percent', $mp) && (!is_numeric($mp['percent']) || abs(floatval($mp['percent']) - 100) > 0.000001)) {
+                return [null, ['field' => 'max_price.percent', 'message' => $msg]];
             }
-            $r['max_price'] = ['mode' => $mode, 'percent' => $pct];
         }
         if (array_key_exists('deadline_hours', $in)) {
             $h = $in['deadline_hours'];
-            if (!is_numeric($h) || floatval($h) < 0 || floatval($h) > 168 || floor(floatval($h)) != floatval($h)) return [null, ['field' => 'deadline_hours', 'message' => 'Die Frist liegt zwischen 0 und 168 Stunden vor Beginn.']];
-            $r['deadline_hours'] = intval($h);
+            if (!is_numeric($h) || floatval($h) < 0 || floatval($h) > 168 || floor(floatval($h)) != floatval($h)) {
+                if ($strict) return [null, ['field' => 'deadline_hours', 'message' => 'Die Frist liegt zwischen 0 und 168 Stunden vor Beginn.']];
+            } else {
+                $r['deadline_hours'] = intval($h);
+            }
         }
         return [$r, null];
     }
@@ -83,13 +93,19 @@ class TIX_Resale_Rules {
         return in_array(strtolower(trim((string) $v)), ['1', 'true', 'yes', 'on'], true);
     }
 
-    /** Höchstpreis für einen Originalpreis (Euro, 2 Stellen). */
-    public static function max_price($original, array $rules) {
-        $original = round(max(0, floatval($original)), 2);
-        $mode = $rules['max_price']['mode'] ?? 'original';
-        if ($mode === 'none') return self::ABS_MAX;
-        if ($mode === 'percent') return round($original * intval($rules['max_price']['percent'] ?? 100) / 100, 2);
-        return $original;
+    /** Höchstpreis = Originalpreis (erster Kaufpreis, Euro, 2 Stellen) – nie darüber, egal was gespeichert ist. */
+    public static function max_price($original, array $rules = []) {
+        return round(max(0, floatval($original)), 2);
+    }
+
+    /**
+     * Löschfrist: Angebote ohne Verkauf (withdrawn, expired, open) werden PURGE_DAYS nach Veranstaltungsende gelöscht;
+     * verkaufte (sold) und gerade gesperrte (locked) nie hier – sie folgen den Aufbewahrungsregeln der Bestellungen.
+     */
+    public static function purge_due($status, $event_end_ts, $now) {
+        if (!in_array((string) $status, ['withdrawn', 'expired', 'open'], true)) return false;
+        $end = intval($event_end_ts);
+        return $end > 0 && intval($now) >= $end + self::PURGE_DAYS * 86400;
     }
 
     /** Letzter Zeitpunkt (Unix) zum Anbieten/Kaufen; 0 = Beginn unbekannt (dann kein Weiterverkauf). */
