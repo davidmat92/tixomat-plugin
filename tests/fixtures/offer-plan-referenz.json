@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.820",
+    "plugin_version": "1.38.822",
     "name": "plan-referenz",
     "request": {
         "route": "POST /platform/offers/plan",
@@ -33,7 +33,8 @@
                 ],
                 "custom": null,
                 "shop_price": 790,
-                "channel_share": 0
+                "channel_share": 0,
+                "lead": 5000
             },
             "mode": "own_shop",
             "server_month": 20,
@@ -241,6 +242,62 @@
                     }
                 }
             ],
+            "lead": {
+                "tickets": 5000,
+                "mode": "own_shop",
+                "on_request": false,
+                "revenue": 125000,
+                "own_fee": 7500,
+                "orders": 2500,
+                "to_evendis": 790,
+                "to_evendis_once": 0,
+                "base_price": 790,
+                "options_year": 0,
+                "channel_fee": 0,
+                "to_psp": 3780.7,
+                "to_hoster": 0,
+                "kept": 127929.3,
+                "kept_per_ticket": 25.59,
+                "kept_percent": 102.3,
+                "platform": {
+                    "fee_per_ticket_gross": 1.22,
+                    "fee_per_ticket_net": 1.02,
+                    "kept_you_pay": 119894.96,
+                    "kept_guests_pay": 125000,
+                    "guest_fee_total": 6075
+                },
+                "savings_vs_platform": 8034.34,
+                "savings_vs_platform_guests": 2929.3,
+                "other_mode": "self_hosted",
+                "other_kept": 127689.3,
+                "order_example": {
+                    "tickets": 2,
+                    "ticket_price": 25,
+                    "own_fee": 1.5,
+                    "gross": 53,
+                    "methods": [
+                        {
+                            "key": "card",
+                            "label": "Kreditkarte",
+                            "provider": "Mollie",
+                            "share": 60,
+                            "percent": 1.8,
+                            "fixed": 0.25,
+                            "fee": 1.2
+                        },
+                        {
+                            "key": "paypal",
+                            "label": "PayPal",
+                            "provider": "PayPal",
+                            "share": 40,
+                            "percent": 2.99,
+                            "fixed": 0.39,
+                            "fee": 1.97
+                        }
+                    ],
+                    "blended_fee": 1.51
+                }
+            },
             "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
             "rows": [
                 {

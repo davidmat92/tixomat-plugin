@@ -3,9 +3,10 @@
  * AN2 (1.38.817): Häkchen je Option, frei gesetzte Preise, Gliederung „Dein eigener Ticketshop“ (PDF + Online-Ansicht).
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
+ * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
  *   wp eval-file …/test-offer-options-wp.php (Teil REST nur auf der Plattform)
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Offer_Plan') || !method_exists('TIX_Platform_Offers', 'mode_error')) { echo "Tixomat ab 1.38.819 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Offer_Plan') || !method_exists('TIX_Platform_Offers', 'lead_texts')) { echo "Tixomat ab 1.38.822 nötig\n"; return; }
 $f = 0; $n = 0;
 $eq = function ($l, $e, $a) use (&$f, &$n) { $n++; if ($e === $a) { echo "ok    $l\n"; return; } $f++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; };
 $O = 'TIX_Platform_Offers';
@@ -102,6 +103,34 @@ $eq('Plattform (du trägst): an evendis 1.000 × (25 × 2,9 % + 0,49)/1,19 = 1.0
 $eq('Selbstgehostet erlassen: einmalig 0 im Vergleich', 0.0, $O::plan_result($O::clean_data(['extras' => ['setup_free' => true]], $dt))['totals'][0]['modes']['self_hosted']['to_evendis_once']);
 $eq('Reihenfolge im Überblick: Angebots-Betriebsart zuerst', ['self_hosted', 'own_shop', 'platform'], $O::own_blocks($dt)['block4']['totals_order']);
 
+
+// ── 1.38.822 führende Stufe
+$C = $O::catalog();
+$pl = TIX_Offer_Plan::compute(TIX_Offer_Plan::clean([], $C), $C);
+$eq('Vorgabe führend: 5.000 Tickets (in den Stufen), Stufen unverändert', [5000, [1000, 5000, 20000, 50000]], [$pl['lead']['tickets'], array_column($pl['rows'], 'tickets')]);
+$pl2 = TIX_Offer_Plan::compute(TIX_Offer_Plan::clean(['lead' => 8000], $C), $C);
+$eq('Gewählt 8.000 → als Stufe ergänzt, Faktenblock = Summen-Zeile', [8000, true, true], [$pl2['lead']['tickets'], in_array(8000, array_column($pl2['rows'], 'tickets'), true),
+    $pl2['lead']['kept'] === $pl2['totals'][array_search(8000, array_column($pl2['totals'], 'tickets'), true)]['modes']['own_shop']['kept']]);
+$eq('Eigene Zahl ist führend, wenn nichts gewählt', 3000, TIX_Offer_Plan::compute(TIX_Offer_Plan::clean(['custom' => 3000], $C), $C)['lead']['tickets']);
+$eq('Ungültig → 400 plan.lead', 'plan.lead', TIX_Offer_Plan::clean(['lead' => 0], $C)->get_error_data()['field'] ?? '');
+$L = $pl['lead'];
+$eq('Faktenblock 5.000: an evendis 790, Zahlung 4.166,05, bleibt 127.543,95, je Ticket 25,51; gegenüber Plattform (du trägst) + 7.648,99, (Gäste zahlen) + 2.543,95', [790.0, 4166.05, 127543.95, 25.51, 7648.99, 2543.95],
+    [$L['to_evendis'], $L['to_psp'], $L['kept'], $L['kept_per_ticket'], $L['savings_vs_platform'], $L['savings_vs_platform_guests']]);
+$eq('Beispiel einer Bestellung: 2 × (25 + 1,50) = 53 €, PayPal 1,97 €, Karte 1,20 €, Mittel 1,67 € (× 2.500 = Zahlung)', [53.0, [1.97, 1.2], 1.67, true],
+    [$L['order_example']['gross'], array_column($L['order_example']['methods'], 'fee'), $L['order_example']['blended_fee'], abs($L['orders'] * 53 * 0.02514 + $L['orders'] * 0.334 - $L['to_psp']) < 1]);
+$dp = $O::clean_data(['items' => [$it('shop', 'yearly')], 'mode' => 'own_shop', 'projection' => ['model' => 'selfhosted', 'tickets' => 400, 'avg_price' => 20, 'events_year' => 10]]);
+$eq('Ohne Wahl: führend aus der Hochrechnung des Angebots (400 × 10 = 4.000)', 4000, $O::plan_for_offer($dp)['lead']['tickets']);
+$Bl = $O::own_blocks($dp);
+$eq('Texte: Überschrift, „dir bleiben“ hervorgehoben, Schritte von Ticketeinnahmen bis Vergleich', ['Bei 4.000 Tickets im Jahr', true, 'Deine Ticketeinnahmen', 'Zum Vergleich: die Ticketplattform', true],
+    [$Bl['lead']['headline'], (bool) array_filter($Bl['lead']['facts'], function ($f) { return $f['strong'] && $f['label'] === 'dir bleiben'; }), $Bl['lead']['steps'][0]['title'] ?? '', end($Bl['lead']['steps'])['title'] ?? '', strpos($Bl['lead']['glossary'], 'Netto = ohne Mehrwertsteuer') === 0]);
+$Bs2 = $O::own_blocks($O::clean_data(['items' => [$it('lizenz', 'yearly')], 'mode' => 'self_hosted', 'plan' => []]));
+$eq('Selbstgehostet: Hoster als eigener Fakt und eigener Schritt', [true, true], [in_array('an deinen Hoster (Server, ca.)', array_column($Bs2['lead']['facts'], 'label'), true), in_array('Dein Server', array_column($Bs2['lead']['steps'], 'title'), true)]);
+$Bq = $O::own_blocks($O::clean_data(['items' => [$it('shop', 'yearly')], 'mode' => 'own_shop', 'plan' => ['lead' => 80000]]));
+$eq('Über der Staffel führend → „individuelles Angebot“ statt Zahlen', [true, []], [$Bq['lead']['on_request'], $Bq['lead']['facts']]);
+$pdf_l = (string) $O::render_pdf($dp, ['number' => 'AN-T-3', 'date' => wp_date('Y-m-d')]);
+$pdf_lt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; })($pdf_l);
+$eq('PDF: Faktenblock und Erklärung', [true, true], [strpos($pdf_l, '%PDF') === 0, stripos($pdf_lt, 'So kommen die Zahlen zustande') !== false]);
+
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);
 $Be = $O::own_blocks($de);
@@ -154,6 +183,7 @@ if (TIX_Platform_Offers::multi()) {
             [$pv['layout'], count($pv['own']['tiles'] ?? []), isset($pv['own']['plan_calc']['rows']), in_array('Hosting', array_column($pv['items'], 'name'), true)]);
         $m = new ReflectionMethod('TIX_Platform_Offers', 'page_html'); $m->setAccessible(true);
         $html = (string) $m->invoke(null, $O::get($oid), 'optt' . $oid, '');
+        $eq('Online-Seite: Faktenblock und Erklärung oben', [true, true], [strpos($html, 'das zahlst du, das bleibt dir') !== false, strpos($html, 'So kommen die Zahlen zustande') !== false && strpos($html, 'So kommen die Zahlen zustande') < strpos($html, 'Was du an evendis zahlst')]);
         $eq('Online-Seite: „Dein eigener Ticketshop“, Blöcke 1–4, kein Hosting', [true, true, true, false],
             [strpos($html, 'Dein eigener Ticketshop') !== false, strpos($html, 'Was du an deinen Zahlungsdienstleister zahlst') !== false, strpos($html, 'Planrechnung') !== false, strpos($html, '>Hosting<') !== false]);
         // 1.38.821: schnell anlegen nur mit Namen; PDF immer, Prüfung nur beim Versenden (Empfänger, Betriebsart, Positionen, Preise)

@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.820",
+    "plugin_version": "1.38.822",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -22,7 +22,7 @@
             },
             "items": [
                 {
-                    "id": "7cf93877",
+                    "id": "32ee8d39",
                     "catalog_key": "lizenz",
                     "type": "plan",
                     "name": "Lizenz",
@@ -37,7 +37,7 @@
                     "on": true
                 },
                 {
-                    "id": "3a4a91a0",
+                    "id": "60335f77",
                     "catalog_key": "app",
                     "type": "module",
                     "name": "Eigene App – Basis",
@@ -52,7 +52,7 @@
                     "on": true
                 },
                 {
-                    "id": "9bd63d27",
+                    "id": "7567abb1",
                     "catalog_key": "einrichtung",
                     "type": "service",
                     "name": "Rundum-Einrichtung durch evendis",
@@ -169,29 +169,30 @@
                 ],
                 "custom": 3000,
                 "shop_price": null,
-                "channel_share": 10
+                "channel_share": 10,
+                "lead": null
             },
             "options": [
                 {
-                    "key": "7cf93877",
+                    "key": "32ee8d39",
                     "kind": "item",
-                    "item_id": "7cf93877",
+                    "item_id": "32ee8d39",
                     "catalog_key": "lizenz",
                     "label": "Lizenz",
                     "on": true
                 },
                 {
-                    "key": "3a4a91a0",
+                    "key": "60335f77",
                     "kind": "item",
-                    "item_id": "3a4a91a0",
+                    "item_id": "60335f77",
                     "catalog_key": "app",
                     "label": "Eigene App – Basis",
                     "on": true
                 },
                 {
-                    "key": "9bd63d27",
+                    "key": "7567abb1",
                     "kind": "item",
-                    "item_id": "9bd63d27",
+                    "item_id": "7567abb1",
                     "catalog_key": "einrichtung",
                     "label": "Rundum-Einrichtung durch evendis",
                     "on": true
@@ -234,7 +235,7 @@
         "totals": {
             "lines": [
                 {
-                    "id": "7cf93877",
+                    "id": "32ee8d39",
                     "on": true,
                     "unit": 790,
                     "net": 790,
@@ -243,7 +244,7 @@
                     "overridden": false
                 },
                 {
-                    "id": "3a4a91a0",
+                    "id": "60335f77",
                     "on": true,
                     "unit": 149,
                     "net": 149,
@@ -252,7 +253,7 @@
                     "overridden": false
                 },
                 {
-                    "id": "9bd63d27",
+                    "id": "7567abb1",
                     "on": true,
                     "unit": 190,
                     "net": 190,
@@ -300,7 +301,8 @@
                 ],
                 "custom": 3000,
                 "shop_price": null,
-                "channel_share": 10
+                "channel_share": 10,
+                "lead": 3000
             },
             "mode": "self_hosted",
             "server_month": 20,
@@ -555,6 +557,62 @@
                     }
                 }
             ],
+            "lead": {
+                "tickets": 3000,
+                "mode": "self_hosted",
+                "on_request": false,
+                "revenue": 75000,
+                "own_fee": 4500,
+                "orders": 1500,
+                "to_evendis": 3074.3,
+                "to_evendis_once": 190,
+                "base_price": 790,
+                "options_year": 1788,
+                "channel_fee": 306.3,
+                "to_psp": 2499.63,
+                "to_hoster": 240,
+                "kept": 73686.07,
+                "kept_per_ticket": 24.56,
+                "kept_percent": 98.2,
+                "platform": {
+                    "fee_per_ticket_gross": 1.22,
+                    "fee_per_ticket_net": 1.02,
+                    "kept_you_pay": 71936.97,
+                    "kept_guests_pay": 75000,
+                    "guest_fee_total": 3645
+                },
+                "savings_vs_platform": 1749.1,
+                "savings_vs_platform_guests": -1313.93,
+                "other_mode": "own_shop",
+                "other_kept": 74116.07,
+                "order_example": {
+                    "tickets": 2,
+                    "ticket_price": 25,
+                    "own_fee": 1.5,
+                    "gross": 53,
+                    "methods": [
+                        {
+                            "key": "paypal",
+                            "label": "PayPal",
+                            "provider": "PayPal",
+                            "share": 60,
+                            "percent": 2.99,
+                            "fixed": 0.39,
+                            "fee": 1.97
+                        },
+                        {
+                            "key": "card",
+                            "label": "Kreditkarte",
+                            "provider": "Mollie",
+                            "share": 40,
+                            "percent": 1.8,
+                            "fixed": 0.25,
+                            "fee": 1.2
+                        }
+                    ],
+                    "blended_fee": 1.67
+                }
+            },
             "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
             "rows": [
                 {

@@ -83,6 +83,10 @@ class TIX_Offer_Plan {
         $cs = array_key_exists('channel_share', $in) ? self::num($in['channel_share'], 0, 100) : floatval($d['channel_share'] ?? 0);
         if ($cs === false || $cs === null) return self::bad('channel_share', 'Anteil über evendis.de 0 bis 100 %.');
         $out['channel_share'] = $cs; // AN2: Anteil der Tickets über evendis.de (zählt nur mit Option evendis_channel)
+        // Führende Stufe (1.38.822): Faktenblock ganz oben; null = Vorgabe (eigene Zahl, sonst Hochrechnung des Angebots, sonst 5.000)
+        $lead = array_key_exists('lead', $in) && $in['lead'] !== null && $in['lead'] !== '' ? intval($in['lead']) : null;
+        if ($lead !== null && ($lead < 1 || $lead > self::MAX_T)) return self::bad('lead', 'Führende Stufe 1 bis 10.000.000 Tickets.');
+        $out['lead'] = $lead;
         return $out;
     }
 
@@ -162,6 +166,13 @@ class TIX_Offer_Plan {
         $pf = ['percent' => floatval($pl['fee_percent'] ?? 2.9), 'fixed' => floatval($pl['fee_fixed'] ?? 0.49)];
         $b = self::blend($p['mix'], $rates);
         $r2 = function ($v) { return $v === null ? null : round($v, 2); };
+        // Führende Stufe: gewählt → eigene Zahl → Hinweis aus dem Angebot (Hochrechnung) → 5.000 (bzw. mittlere Stufe); fehlt sie in den Stufen, kommt sie dazu
+        $lead = $p['lead'] ?? null;
+        if ($lead === null) $lead = $p['custom'] ?? null;
+        if ($lead === null && !empty($ctx['lead_hint'])) $lead = max(1, min(self::MAX_T, intval($ctx['lead_hint'])));
+        if ($lead === null) $lead = in_array(5000, $p['steps'], true) ? 5000 : $p['steps'][intdiv(count($p['steps']), 2)];
+        if (!in_array($lead, $p['steps'], true)) { $p['steps'][] = $lead; sort($p['steps']); }
+        $p['lead'] = $lead;
         $rows = [];
         foreach ($p['steps'] as $t) {
             $shop = self::shop_price($t, $tiers, $fixed);
@@ -210,6 +221,34 @@ class TIX_Offer_Plan {
                 'bearer' => 'organizer', 'guests_pay_variant' => ['guest_fee_total' => $r2($t * $w['pf_gross']), 'kept' => $r2($w['revenue'])]];
             $totals[] = ['tickets' => $t, 'custom' => $p['custom'] === $t, 'modes' => $modes];
         }
+        // Faktenblock der führenden Stufe (User 14.11.: „ganz oben als Fakt … das Hauptargument“) + Beispiel einer Bestellung
+        $li = array_search($lead, $p['steps'], true);
+        $tm = $totals[$li]['modes'];
+        $own = $tm[$mode];
+        $wl = $raw[$li][$mode];
+        $order_gross = $p['tickets_per_order'] * ($p['avg_price'] + $p['service_fee']);
+        $ex = []; $blended_fee = 0.0;
+        foreach ($p['mix'] as $k => $share) {
+            $r = $rates[$k] ?? [];
+            $fee = $order_gross * floatval($r['percent'] ?? 0) / 100 + floatval($r['fixed'] ?? 0);
+            $blended_fee += $fee * $share / 100;
+            $ex[] = ['key' => $k, 'label' => (string) ($r['label'] ?? $k), 'provider' => (string) ($r['provider'] ?? ''), 'share' => $share,
+                'percent' => isset($r['percent']) ? floatval($r['percent']) : null, 'fixed' => isset($r['fixed']) ? floatval($r['fixed']) : null, 'fee' => round($fee, 2)];
+        }
+        $lead_block = empty($own['on_request']) ? [
+            'tickets' => $lead, 'mode' => $mode, 'on_request' => false,
+            'revenue' => $own['revenue'], 'own_fee' => $own['own_fee'], 'orders' => round($wl['orders'], 1),
+            'to_evendis' => $own['to_evendis'], 'to_evendis_once' => $own['to_evendis_once'], 'base_price' => $r2($wl['shop']), 'options_year' => $r2($wl['options']), 'channel_fee' => $r2($wl['channel']),
+            'to_psp' => $own['to_psp'], 'to_hoster' => $own['to_hoster'],
+            'kept' => $own['kept'], 'kept_per_ticket' => $own['kept_per_ticket'], 'kept_percent' => $own['kept_percent'],
+            'platform' => ['fee_per_ticket_gross' => $r2($wl['pf_gross']), 'fee_per_ticket_net' => $r2($wl['pf_net']), 'kept_you_pay' => $tm['platform']['kept'],
+                'kept_guests_pay' => $tm['platform']['guests_pay_variant']['kept'], 'guest_fee_total' => $tm['platform']['guests_pay_variant']['guest_fee_total']],
+            'savings_vs_platform' => $r2($own['kept'] - $tm['platform']['kept']), // gegenüber Plattform, wenn du die Gebühr trägst
+            'savings_vs_platform_guests' => $r2($own['kept'] - $tm['platform']['guests_pay_variant']['kept']), // gegenüber Plattform, wenn Gäste die Gebühr zahlen
+            'other_mode' => $mode === 'self_hosted' ? 'own_shop' : 'self_hosted', 'other_kept' => $tm[$mode === 'self_hosted' ? 'own_shop' : 'self_hosted']['kept'] ?? null,
+            'order_example' => ['tickets' => $p['tickets_per_order'], 'ticket_price' => round($p['avg_price'], 2), 'own_fee' => round($p['service_fee'], 2), 'gross' => round($order_gross, 2),
+                'methods' => $ex, 'blended_fee' => round($blended_fee, 2)],
+        ] : ['tickets' => $lead, 'mode' => $mode, 'on_request' => true];
         $methods = [];
         foreach ($p['mix'] as $k => $share) {
             $r = $rates[$k];
@@ -227,6 +266,7 @@ class TIX_Offer_Plan {
             'server_month' => round($server_year / 12, 2),
             'by_mode' => $by_mode,
             'totals' => $totals,
+            'lead' => $lead_block,
             'totals_note' => 'Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ ' . number_format($vat, 2, ',', '') . '); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.',
             'rows' => $rows,
             'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, true, $x), 'without_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, false, $x)],

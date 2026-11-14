@@ -6694,3 +6694,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - Nur Senden prüft → 422 `tix_offer_incomplete` mit `data.missing[]` (ersetzt `tix_offer_email`, `tix_offer_empty`, `tix_offer_price_missing`); Betriebsart muss gewählt sein.
 - PDF immer exportierbar ohne Entwurf-Hinweis: leere Kundendaten/Nummer/Positionen werden weggelassen (beide Gliederungen), Vorschau ohne Nummer.
 - **Test:** `test-offer-options-wp` (61 Plattform, 46 Einzel-Seiten), `test-platform-offers-wp` (Senden ohne Preis 422, Test-Angebote mit `mode`).
+
+## 210. Angebote: führende Stufe mit Faktenblock und Erklärung (ab 1.38.822)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt 1.38.822).
+- `TIX_Offer_Plan::clean` nimmt `lead`; `compute` ergänzt die Stufe und liefert `lead` (Zahlen, Plattform-Vergleich, Beispiel einer Bestellung); `plan_context` gibt `lead_hint` aus der Hochrechnung.
+- `TIX_Platform_Offers::lead_texts()` (Faktenblock, Schritte, Begriffe), PDF Seite 1 oben, online `page_lead()`; über der Staffel die Kacheln wie bisher.
+- **Test:** `test-offer-options-wp` (73 Plattform, 57 Einzel-Seiten); Fixtures 1.38.822.
+
