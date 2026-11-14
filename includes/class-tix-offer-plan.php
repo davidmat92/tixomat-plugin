@@ -148,7 +148,7 @@ class TIX_Offer_Plan {
         $f = isset($ctx['factor']) ? floatval($ctx['factor']) : 1.0;
         $tiers_of = function ($m) use ($ctx, $cat, $f) {
             $t = !empty($ctx['tiers_by_mode'][$m]) ? (array) $ctx['tiers_by_mode'][$m]
-                : ($m === 'self_hosted' ? (!empty($cat['self_hosted_tiers']) ? (array) $cat['self_hosted_tiers'] : [['max' => self::MAX_T, 'price' => 699.0]])
+                : ($m === 'self_hosted' ? (!empty($cat['self_hosted_tiers']) ? (array) $cat['self_hosted_tiers'] : self::default_tiers())
                 : (!empty($cat['shop_tiers']) ? (array) $cat['shop_tiers'] : self::default_tiers()));
             return abs($f - 1) > 0.00001 ? array_map(function ($x) use ($f) { return ['max' => $x['max'], 'price' => floatval($x['price']) * $f]; }, $t) : $t;
         };

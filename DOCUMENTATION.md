@@ -6683,3 +6683,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`TIX_Offer_Plan::compute`:** `totals[]` je Stufe und Betriebsart (inkl. einmalig über `ctx.once_by_mode`), `totals_note`; PDF/online „Ergebnis im Überblick“.
 - **Test:** `test-offer-options-wp` (54 Plattform, 46 Einzel-Seiten); `test-platform-offers-wp` erwartet die automatische Einrichtung beim eigenen Shop.
 
+## 208. Selbstgehostet wie eigener Shop plus Server (ab 1.38.820)
+- User 14.11.2026: „wie eigener shop plus 20 server“. Vorgabe `self_hosted_tiers` = `TIX_Offer_Plan::default_tiers()` (790/1.490/2.490 €, darüber auf Anfrage) statt 699 € pauschal; Server-Kosten beim Kunden ca. 20 €/Monat bleiben eigene Zeile; Lizenz jährlich im Angebot: Listenpreis = 1. Stufe. Einrichtung selbstgehostet unverändert 190 € bzw. erlassen.
+- Live: evendis hat keinen gespeicherten Katalog (`tix_offer_catalog`), daher gilt die Vorgabe nach dem Plugin-Update ohne weiteren Schritt.
+

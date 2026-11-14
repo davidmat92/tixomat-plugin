@@ -227,8 +227,8 @@ class TIX_Platform_Offers {
             // Planrechnung (AN1, 1.38.816): Staffel eigener Shop je Jahr (F-AN1 B) und Vorgaben der Annahmen (F-AN2, immer änderbar)
             'shop_tiers' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : [],
             'plan_defaults' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_settings() : [],
-            // Betriebsarten (User 14.11.): Staffel selbstgehostet (Vorgabe Lizenzpreis je Jahr, ohne Ticket-Grenze), Server-Kosten beim Kunden (ca. je Monat, frei)
-            'self_hosted_tiers' => [['max' => 10000000, 'price' => 699.0]],
+            // Betriebsarten (User 14.11.: „wie eigener shop plus 20 server“): Staffel selbstgehostet = Staffel eigener Shop, Server-Kosten beim Kunden ca. je Monat (eigene Zeile, frei)
+            'self_hosted_tiers' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : [],
             'server_month' => 20.0,
             // Rundum-Einrichtung (Position „einrichtung“): Schritte und was beim Kunden bleibt, je Betriebsart (modes) bzw. nur mit App (needs app)
             'setup' => self::default_setup(),
@@ -532,7 +532,9 @@ class TIX_Platform_Offers {
         $tiers = $po['shop_tiers'] ?: ((array) ($cat['shop_tiers'] ?? []) ?: (class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : []));
         foreach ($items as &$x) if ($x['catalog_key'] === 'shop' && $x['interval'] === 'yearly' && $tiers) { usort($tiers, function ($a, $b) { return $a['max'] <=> $b['max']; }); $x['list_price'] = floatval($tiers[0]['price']); }
         unset($x);
-        if (!empty($po['self_hosted_tiers'])) { foreach ($items as &$x) if ($x['catalog_key'] === 'lizenz' && $x['interval'] === 'yearly') $x['list_price'] = floatval($po['self_hosted_tiers'][0]['price']); unset($x); }
+        // Lizenz jährlich im Angebot: Listenpreis = 1. Stufe der Staffel selbstgehostet (frei gesetzt oder Katalog)
+        $sht = $po['self_hosted_tiers'] ?: ((array) ($cat['self_hosted_tiers'] ?? []));
+        if ($sht) { usort($sht, function ($a, $b) { return $a['max'] <=> $b['max']; }); foreach ($items as &$x) if ($x['catalog_key'] === 'lizenz' && $x['interval'] === 'yearly') $x['list_price'] = floatval($sht[0]['price']); unset($x); }
         // Referenzen: nur freigegebene aus dem Katalog (Schlüssel-Liste)
         $refs = [];
         foreach ((array) (array_key_exists('references', $in) ? $in['references'] : ($old['references'] ?? [])) as $rk) {

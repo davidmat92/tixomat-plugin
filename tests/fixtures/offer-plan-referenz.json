@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.819",
+    "plugin_version": "1.38.820",
     "name": "plan-referenz",
     "request": {
         "route": "POST /platform/offers/plan",
@@ -46,8 +46,8 @@
                 },
                 "self_hosted": {
                     "break_even": {
-                        "with_fee": 1263,
-                        "without_fee": 3141
+                        "with_fee": 1385,
+                        "without_fee": 3445
                     }
                 }
             },
@@ -72,13 +72,13 @@
                             "on_request": false,
                             "revenue": 25000,
                             "own_fee": 1500,
-                            "to_evendis": 699,
+                            "to_evendis": 790,
                             "to_evendis_once": 0,
                             "to_psp": 756.14,
                             "to_hoster": 240,
-                            "kept": 24804.86,
-                            "kept_per_ticket": 24.8,
-                            "kept_percent": 99.2
+                            "kept": 24713.86,
+                            "kept_per_ticket": 24.71,
+                            "kept_percent": 98.9
                         },
                         "platform": {
                             "on_request": false,
@@ -119,12 +119,12 @@
                             "on_request": false,
                             "revenue": 125000,
                             "own_fee": 7500,
-                            "to_evendis": 699,
+                            "to_evendis": 790,
                             "to_evendis_once": 0,
                             "to_psp": 3780.7,
                             "to_hoster": 240,
-                            "kept": 127780.3,
-                            "kept_per_ticket": 25.56,
+                            "kept": 127689.3,
+                            "kept_per_ticket": 25.54,
                             "kept_percent": 102.2
                         },
                         "platform": {
@@ -166,13 +166,13 @@
                             "on_request": false,
                             "revenue": 500000,
                             "own_fee": 30000,
-                            "to_evendis": 699,
+                            "to_evendis": 1490,
                             "to_evendis_once": 0,
                             "to_psp": 15122.8,
                             "to_hoster": 240,
-                            "kept": 513938.2,
-                            "kept_per_ticket": 25.7,
-                            "kept_percent": 102.8
+                            "kept": 513147.2,
+                            "kept_per_ticket": 25.66,
+                            "kept_percent": 102.6
                         },
                         "platform": {
                             "on_request": false,
@@ -213,13 +213,13 @@
                             "on_request": false,
                             "revenue": 1250000,
                             "own_fee": 75000,
-                            "to_evendis": 699,
+                            "to_evendis": 2490,
                             "to_evendis_once": 0,
                             "to_psp": 37807,
                             "to_hoster": 240,
-                            "kept": 1286254,
-                            "kept_per_ticket": 25.73,
-                            "kept_percent": 102.9
+                            "kept": 1284463,
+                            "kept_per_ticket": 25.69,
+                            "kept_percent": 102.8
                         },
                         "platform": {
                             "on_request": false,
@@ -270,10 +270,10 @@
                             "advantage": -46.14
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 790,
                             "server": 240,
-                            "kept": 24804.86,
-                            "advantage": -195.14
+                            "kept": 24713.86,
+                            "advantage": -286.14
                         }
                     }
                 },
@@ -304,10 +304,10 @@
                             "advantage": 2929.3
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 790,
                             "server": 240,
-                            "kept": 127780.3,
-                            "advantage": 2780.3
+                            "kept": 127689.3,
+                            "advantage": 2689.3
                         }
                     }
                 },
@@ -338,10 +338,10 @@
                             "advantage": 14087.2
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 1490,
                             "server": 240,
-                            "kept": 513938.2,
-                            "advantage": 13938.2
+                            "kept": 513147.2,
+                            "advantage": 13147.2
                         }
                     }
                 },
@@ -372,10 +372,10 @@
                             "advantage": 36403
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 2490,
                             "server": 240,
-                            "kept": 1286254,
-                            "advantage": 36254
+                            "kept": 1284463,
+                            "advantage": 34463
                         }
                     }
                 }

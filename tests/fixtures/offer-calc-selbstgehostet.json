@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.819",
+    "plugin_version": "1.38.820",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -22,14 +22,14 @@
             },
             "items": [
                 {
-                    "id": "747bf239",
+                    "id": "7cf93877",
                     "catalog_key": "lizenz",
                     "type": "plan",
                     "name": "Lizenz",
                     "description": "Für deinen eigenen Server (deine WordPress-Seite). Installation und Updates per Paket, Support inklusive, 0 € je Ticket.",
                     "qty": 1,
                     "interval": "yearly",
-                    "list_price": 699,
+                    "list_price": 790,
                     "price": null,
                     "fee_percent": null,
                     "fee_fixed": null,
@@ -37,7 +37,7 @@
                     "on": true
                 },
                 {
-                    "id": "c0c53b92",
+                    "id": "3a4a91a0",
                     "catalog_key": "app",
                     "type": "module",
                     "name": "Eigene App – Basis",
@@ -52,7 +52,7 @@
                     "on": true
                 },
                 {
-                    "id": "655cc81f",
+                    "id": "9bd63d27",
                     "catalog_key": "einrichtung",
                     "type": "service",
                     "name": "Rundum-Einrichtung durch evendis",
@@ -173,25 +173,25 @@
             },
             "options": [
                 {
-                    "key": "747bf239",
+                    "key": "7cf93877",
                     "kind": "item",
-                    "item_id": "747bf239",
+                    "item_id": "7cf93877",
                     "catalog_key": "lizenz",
                     "label": "Lizenz",
                     "on": true
                 },
                 {
-                    "key": "c0c53b92",
+                    "key": "3a4a91a0",
                     "kind": "item",
-                    "item_id": "c0c53b92",
+                    "item_id": "3a4a91a0",
                     "catalog_key": "app",
                     "label": "Eigene App – Basis",
                     "on": true
                 },
                 {
-                    "key": "655cc81f",
+                    "key": "9bd63d27",
                     "kind": "item",
-                    "item_id": "655cc81f",
+                    "item_id": "9bd63d27",
                     "catalog_key": "einrichtung",
                     "label": "Rundum-Einrichtung durch evendis",
                     "on": true
@@ -234,16 +234,16 @@
         "totals": {
             "lines": [
                 {
-                    "id": "747bf239",
+                    "id": "7cf93877",
                     "on": true,
-                    "unit": 699,
-                    "net": 699,
-                    "year": 699,
+                    "unit": 790,
+                    "net": 790,
+                    "year": 790,
                     "once": 0,
                     "overridden": false
                 },
                 {
-                    "id": "c0c53b92",
+                    "id": "3a4a91a0",
                     "on": true,
                     "unit": 149,
                     "net": 149,
@@ -252,7 +252,7 @@
                     "overridden": false
                 },
                 {
-                    "id": "655cc81f",
+                    "id": "9bd63d27",
                     "on": true,
                     "unit": 190,
                     "net": 190,
@@ -262,11 +262,11 @@
                 }
             ],
             "yearly": {
-                "net": 2487,
+                "net": 2578,
                 "discount": 0,
-                "net_after": 2487,
-                "tax": 472.53,
-                "gross": 2959.53
+                "net_after": 2578,
+                "tax": 489.82,
+                "gross": 3067.82
             },
             "once": {
                 "net": 190,
@@ -275,8 +275,8 @@
                 "tax": 36.1,
                 "gross": 226.1
             },
-            "monthly_net": 207.25,
-            "first_year_net": 2677,
+            "monthly_net": 214.83,
+            "first_year_net": 2768,
             "tax_rate": 19,
             "missing_prices": [],
             "fees": [],
@@ -313,8 +313,8 @@
                 },
                 "self_hosted": {
                     "break_even": {
-                        "with_fee": 4830,
-                        "without_fee": 22098
+                        "with_fee": 4991,
+                        "without_fee": 36611
                     }
                 }
             },
@@ -339,13 +339,13 @@
                             "on_request": false,
                             "revenue": 25000,
                             "own_fee": 1500,
-                            "to_evendis": 2779.1,
+                            "to_evendis": 2870.1,
                             "to_evendis_once": 190,
                             "to_psp": 833.21,
                             "to_hoster": 240,
-                            "kept": 22647.69,
-                            "kept_per_ticket": 22.65,
-                            "kept_percent": 90.6
+                            "kept": 22556.69,
+                            "kept_per_ticket": 22.56,
+                            "kept_percent": 90.2
                         },
                         "platform": {
                             "on_request": false,
@@ -386,13 +386,13 @@
                             "on_request": false,
                             "revenue": 75000,
                             "own_fee": 4500,
-                            "to_evendis": 2983.3,
+                            "to_evendis": 3074.3,
                             "to_evendis_once": 190,
                             "to_psp": 2499.63,
                             "to_hoster": 240,
-                            "kept": 73777.07,
-                            "kept_per_ticket": 24.59,
-                            "kept_percent": 98.4
+                            "kept": 73686.07,
+                            "kept_per_ticket": 24.56,
+                            "kept_percent": 98.2
                         },
                         "platform": {
                             "on_request": false,
@@ -433,12 +433,12 @@
                             "on_request": false,
                             "revenue": 125000,
                             "own_fee": 7500,
-                            "to_evendis": 3187.5,
+                            "to_evendis": 3278.5,
                             "to_evendis_once": 190,
                             "to_psp": 4166.05,
                             "to_hoster": 240,
-                            "kept": 124906.45,
-                            "kept_per_ticket": 24.98,
+                            "kept": 124815.45,
+                            "kept_per_ticket": 24.96,
                             "kept_percent": 99.9
                         },
                         "platform": {
@@ -480,13 +480,13 @@
                             "on_request": false,
                             "revenue": 500000,
                             "own_fee": 30000,
-                            "to_evendis": 4719.02,
+                            "to_evendis": 5510.02,
                             "to_evendis_once": 190,
                             "to_psp": 16664.2,
                             "to_hoster": 240,
-                            "kept": 508376.78,
-                            "kept_per_ticket": 25.42,
-                            "kept_percent": 101.7
+                            "kept": 507585.78,
+                            "kept_per_ticket": 25.38,
+                            "kept_percent": 101.5
                         },
                         "platform": {
                             "on_request": false,
@@ -527,13 +527,13 @@
                             "on_request": false,
                             "revenue": 1250000,
                             "own_fee": 75000,
-                            "to_evendis": 7782.04,
+                            "to_evendis": 9573.04,
                             "to_evendis_once": 190,
                             "to_psp": 41660.5,
                             "to_hoster": 240,
-                            "kept": 1275317.46,
-                            "kept_per_ticket": 25.51,
-                            "kept_percent": 102
+                            "kept": 1273526.46,
+                            "kept_per_ticket": 25.47,
+                            "kept_percent": 101.9
                         },
                         "platform": {
                             "on_request": false,
@@ -564,18 +564,18 @@
                     "revenue": 25000,
                     "own_fee": 1500,
                     "psp": 833.21,
-                    "evendis": 699,
+                    "evendis": 790,
                     "on_request": false,
                     "options": 1788,
                     "channel_fee": 102.1,
-                    "evendis_total": 2589.1,
+                    "evendis_total": 2680.1,
                     "server": 240,
-                    "kept": 22837.69,
+                    "kept": 22746.69,
                     "platform_guests_pay": 25000,
                     "platform_you_pay": 23978.99,
-                    "advantage": -2162.31,
-                    "kept_without_fee": 21375.4,
-                    "advantage_without_fee": -2603.59,
+                    "advantage": -2253.31,
+                    "kept_without_fee": 21284.4,
+                    "advantage_without_fee": -2694.59,
                     "compare": {
                         "own_shop": {
                             "evendis": 790,
@@ -584,10 +584,10 @@
                             "advantage": -2013.31
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 790,
                             "server": 240,
-                            "kept": 22837.69,
-                            "advantage": -2162.31
+                            "kept": 22746.69,
+                            "advantage": -2253.31
                         }
                     }
                 },
@@ -598,18 +598,18 @@
                     "revenue": 75000,
                     "own_fee": 4500,
                     "psp": 2499.63,
-                    "evendis": 699,
+                    "evendis": 790,
                     "on_request": false,
                     "options": 1788,
                     "channel_fee": 306.3,
-                    "evendis_total": 2793.3,
+                    "evendis_total": 2884.3,
                     "server": 240,
-                    "kept": 73967.07,
+                    "kept": 73876.07,
                     "platform_guests_pay": 75000,
                     "platform_you_pay": 71936.97,
-                    "advantage": -1032.93,
-                    "kept_without_fee": 69580.2,
-                    "advantage_without_fee": -2356.78,
+                    "advantage": -1123.93,
+                    "kept_without_fee": 69489.2,
+                    "advantage_without_fee": -2447.78,
                     "compare": {
                         "own_shop": {
                             "evendis": 790,
@@ -618,10 +618,10 @@
                             "advantage": -883.93
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 790,
                             "server": 240,
-                            "kept": 73967.07,
-                            "advantage": -1032.93
+                            "kept": 73876.07,
+                            "advantage": -1123.93
                         }
                     }
                 },
@@ -632,18 +632,18 @@
                     "revenue": 125000,
                     "own_fee": 7500,
                     "psp": 4166.05,
-                    "evendis": 699,
+                    "evendis": 790,
                     "on_request": false,
                     "options": 1788,
                     "channel_fee": 510.5,
-                    "evendis_total": 2997.5,
+                    "evendis_total": 3088.5,
                     "server": 240,
-                    "kept": 125096.45,
+                    "kept": 125005.45,
                     "platform_guests_pay": 125000,
                     "platform_you_pay": 119894.96,
-                    "advantage": 96.45,
-                    "kept_without_fee": 117785,
-                    "advantage_without_fee": -2109.96,
+                    "advantage": 5.45,
+                    "kept_without_fee": 117694,
+                    "advantage_without_fee": -2200.96,
                     "compare": {
                         "own_shop": {
                             "evendis": 790,
@@ -652,10 +652,10 @@
                             "advantage": 245.45
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 790,
                             "server": 240,
-                            "kept": 125096.45,
-                            "advantage": 96.45
+                            "kept": 125005.45,
+                            "advantage": 5.45
                         }
                     }
                 },
@@ -666,18 +666,18 @@
                     "revenue": 500000,
                     "own_fee": 30000,
                     "psp": 16664.2,
-                    "evendis": 699,
+                    "evendis": 1490,
                     "on_request": false,
                     "options": 1788,
                     "channel_fee": 2042.02,
-                    "evendis_total": 4529.02,
+                    "evendis_total": 5320.02,
                     "server": 240,
-                    "kept": 508566.78,
+                    "kept": 507775.78,
                     "platform_guests_pay": 500000,
                     "platform_you_pay": 479579.83,
-                    "advantage": 8566.78,
-                    "kept_without_fee": 479320.98,
-                    "advantage_without_fee": -258.85,
+                    "advantage": 7775.78,
+                    "kept_without_fee": 478529.98,
+                    "advantage_without_fee": -1049.85,
                     "compare": {
                         "own_shop": {
                             "evendis": 1490,
@@ -686,10 +686,10 @@
                             "advantage": 8015.78
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 1490,
                             "server": 240,
-                            "kept": 508566.78,
-                            "advantage": 8566.78
+                            "kept": 507775.78,
+                            "advantage": 7775.78
                         }
                     }
                 },
@@ -700,18 +700,18 @@
                     "revenue": 1250000,
                     "own_fee": 75000,
                     "psp": 41660.5,
-                    "evendis": 699,
+                    "evendis": 2490,
                     "on_request": false,
                     "options": 1788,
                     "channel_fee": 5105.04,
-                    "evendis_total": 7592.04,
+                    "evendis_total": 9383.04,
                     "server": 240,
-                    "kept": 1275507.46,
+                    "kept": 1273716.46,
                     "platform_guests_pay": 1250000,
                     "platform_you_pay": 1198949.58,
-                    "advantage": 25507.46,
-                    "kept_without_fee": 1202392.96,
-                    "advantage_without_fee": 3443.38,
+                    "advantage": 23716.46,
+                    "kept_without_fee": 1200601.96,
+                    "advantage_without_fee": 1652.38,
                     "compare": {
                         "own_shop": {
                             "evendis": 2490,
@@ -720,23 +720,31 @@
                             "advantage": 23956.46
                         },
                         "self_hosted": {
-                            "evendis": 699,
+                            "evendis": 2490,
                             "server": 240,
-                            "kept": 1275507.46,
-                            "advantage": 25507.46
+                            "kept": 1273716.46,
+                            "advantage": 23716.46
                         }
                     }
                 }
             ],
             "break_even": {
-                "with_fee": 4830,
-                "without_fee": 22098
+                "with_fee": 4991,
+                "without_fee": 36611
             },
             "to_evendis": {
                 "tiers": [
                     {
-                        "max": 10000000,
-                        "price": 699
+                        "max": 5000,
+                        "price": 790
+                    },
+                    {
+                        "max": 20000,
+                        "price": 1490
+                    },
+                    {
+                        "max": 50000,
+                        "price": 2490
                     }
                 ],
                 "fixed_price": null,

@@ -67,9 +67,9 @@ $eq('Hosting nur beim eigenen Shop (Fehler), Lizenz im eigenen Shop (Hinweis)', 
     [($e1 = $O::mode_error($O::clean_data(['items' => [$it('lizenz'), $it('hosting')]]))) ? $e1->get_error_code() : '', $e1 ? $e1->get_error_data()['field'] : '', array_column($O::mode_hints($O::clean_data(['items' => [$it('lizenz')], 'mode' => 'own_shop'])), 'code')]);
 $ds = $O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app')], 'mode' => 'self_hosted', 'plan' => [], 'price_overrides' => ['server_month' => 30]]);
 $ps = $O::plan_result($ds);
-$eq('Selbstgehostet: Lizenz 699 €/Jahr pauschal, Server 30 × 12 = 360 € (nicht an evendis), Vergleich eigener Shop 790 €', ['self_hosted', 699.0, 360.0, 699.0, 790.0, 0.0],
+$eq('Selbstgehostet „wie eigener Shop plus Server“: Staffel 790 … 2.490 €, Server 30 × 12 = 360 € (nicht an evendis), Vergleich eigener Shop 790 € ohne Server', ['self_hosted', 790.0, 360.0, 2490.0, 790.0, 0.0],
     [$ps['mode'], $ps['rows'][0]['evendis'], $ps['rows'][0]['server'], $ps['rows'][3]['evendis'], $ps['rows'][0]['compare']['own_shop']['evendis'], $ps['rows'][0]['compare']['own_shop']['server']]);
-$eq('Bleibt selbstgehostet = Umsatz + Gebühr − Zahlung − 699 − App 1.788 − Server 360', round(25000 + 1500 - $ps['rows'][0]['psp'] - 699 - 1788 - 360, 2), $ps['rows'][0]['kept']);
+$eq('Bleibt selbstgehostet = Umsatz + Gebühr − Zahlung − 790 − App 1.788 − Server 360; Lizenz-Listenpreis jährlich = 1. Stufe', [round(25000 + 1500 - $ps['rows'][0]['psp'] - 790 - 1788 - 360, 2), 790.0], [$ps['rows'][0]['kept'], $ds['items'][0]['list_price']]);
 $eq('Break-even je Betriebsart vorhanden', [true, true], [isset($ps['by_mode']['own_shop']['break_even']['with_fee']), isset($ps['by_mode']['self_hosted']['break_even']['with_fee'])]);
 $eq('Ungültige Betriebsart → 400 mode', 'mode', $O::plan_error(['mode' => 'cloud'])->get_error_data()['field'] ?? '');
 $Bs = $O::own_blocks($ds);
@@ -94,7 +94,7 @@ $eq('Selbstgehostet: Vorteil „Deine Daten liegen allein bei dir“ immer dabei
 $dt = $O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app')], 'mode' => 'self_hosted', 'plan' => ['steps' => [1000]]]);
 $tt = $O::plan_result($dt)['totals'][0]['modes'];
 $psp = $O::plan_result($dt)['rows'][0]['psp'];
-$eq('Summen selbstgehostet 1.000 Tickets: an evendis 699 + 1.788 + 190 = 2.677, Hoster 240, bleibt 25.000 + 1.500 − 2.677 − Zahlung − 240', [2677.0, 190.0, 240.0, round(26500 - 2677 - $psp - 240, 2)],
+$eq('Summen selbstgehostet 1.000 Tickets: an evendis 790 + 1.788 + 190 = 2.768, Hoster 240, bleibt 25.000 + 1.500 − 2.768 − Zahlung − 240', [2768.0, 190.0, 240.0, round(26500 - 2768 - $psp - 240, 2)],
     [$tt['self_hosted']['to_evendis'], $tt['self_hosted']['to_evendis_once'], $tt['self_hosted']['to_hoster'], $tt['self_hosted']['kept']]);
 $eq('Vergleich eigener Shop: 790 + 1.788, Einrichtung 0, kein Hoster', [2578.0, 0.0, 0.0], [$tt['own_shop']['to_evendis'], $tt['own_shop']['to_evendis_once'], $tt['own_shop']['to_hoster']]);
 $eq('Plattform (du trägst): an evendis 1.000 × (25 × 2,9 % + 0,49)/1,19 = 1.021,01, keine Zahlungskosten, je Ticket und Prozent', [1021.01, 0.0, 23978.99, 23.98, 95.9, 25000.0],
