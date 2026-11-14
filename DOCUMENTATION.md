@@ -6659,3 +6659,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`TIX_Platform_Offers`:** Katalog `shop_tiers` und `plan_defaults`, Zahlarten `paypal_mollie` und `card_stripe`; Annahmen `plan` am Angebot (`data.plan`) und in `/platform/offers/calc`, neu `POST /platform/offers/plan`; Ergebnis immer als `plan_calc` (das Feld `plan` bleibt der Tarifname).
 - **Test:** `test-offer-plan-wp` (17 auf der Plattform, 13 auf Einzel-Seiten).
 
+## 205. Angebote: Optionen per Häkchen, freie Preise, PDF „Dein eigener Ticketshop“ (AN2, ab 1.38.817)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt AN2).
+- **`TIX_Platform_Offers`:** `items[].on`, `options_list()`/`active_items()`, `extras` (`evendis_channel`), `clean_price_overrides()` (`shop_tiers`, `channel_fee`, `items`), `channel_fee()`, `layout_of()`, `plan_context()`, `plan_for_offer()`, `selfhosted_blocks()`, `render_pdf_selfhosted()`, `page_tiles()`/`page_selfhosted()`; neue Katalog-Positionen (Veranstalter-App, Einrichtung, Hosting, API, Module).
+- **`TIX_Offer_Plan::compute($p, $cat, $ctx)`:** Kontext aus dem Angebot (Staffel, fester Preis, Optionen, Kanal-Gebühr, Rabatt-Faktor); `channel_share`.
+- **`TIX_Offer_Hosting`:** nur angehakte Positionen.
+- **Test:** `test-offer-options-wp` (22 Plattform, 17 Einzel-Seiten).
+

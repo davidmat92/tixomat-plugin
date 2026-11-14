@@ -26,7 +26,7 @@ class TIX_Offer_Plan {
     public static function default_tiers() { return [['max' => 5000, 'price' => 790.0], ['max' => 20000, 'price' => 1490.0], ['max' => 50000, 'price' => 2490.0]]; }
 
     public static function default_settings() {
-        return ['avg_price' => 25.0, 'service_fee' => 1.50, 'tickets_per_order' => 2, 'mix' => ['paypal' => 60, 'card' => 40], 'steps' => [1000, 5000, 20000, 50000]];
+        return ['avg_price' => 25.0, 'service_fee' => 1.50, 'tickets_per_order' => 2, 'mix' => ['paypal' => 60, 'card' => 40], 'steps' => [1000, 5000, 20000, 50000], 'channel_share' => 0];
     }
 
     private static function num($v, $min, $max) {
@@ -80,6 +80,9 @@ class TIX_Offer_Plan {
         $sp = array_key_exists('shop_price', $in) ? self::num($in['shop_price'], 0, 1000000) : null;
         if ($sp === false) return self::bad('shop_price', 'Jahrespreis 0 bis 1.000.000 €.');
         $out['shop_price'] = $sp; // null = Staffel aus dem Katalog
+        $cs = array_key_exists('channel_share', $in) ? self::num($in['channel_share'], 0, 100) : floatval($d['channel_share'] ?? 0);
+        if ($cs === false || $cs === null) return self::bad('channel_share', 'Anteil über evendis.de 0 bis 100 %.');
+        $out['channel_share'] = $cs; // AN2: Anteil der Tickets über evendis.de (zählt nur mit Option evendis_channel)
         return $out;
     }
 
@@ -99,7 +102,7 @@ class TIX_Offer_Plan {
     }
 
     /** Eine Stufe wie rechne() (ungerundet) */
-    public static function row($t, array $p, array $b, $shop, array $pf, $vat, $with_fee = true) {
+    public static function row($t, array $p, array $b, $shop, array $pf, $vat, $with_fee = true, array $x = []) {
         $sg = $with_fee ? $p['service_fee'] : 0.0;
         $orders = $t / $p['tickets_per_order'];
         $umsatz = $t * $p['avg_price'];
@@ -107,21 +110,23 @@ class TIX_Offer_Plan {
         $zahlung = $t * ($p['avg_price'] + $sg) * $b['pct'] + $orders * $b['fix'];
         $pf_brutto = $p['avg_price'] * $pf['percent'] / 100 + $pf['fixed'];
         $pf_netto = $pf_brutto / $vat;
-        $selbst = $shop === null ? null : $umsatz + $ein - $zahlung - $shop;
+        $opt = floatval($x['extras_year'] ?? 0); // angehakte Optionen im Jahr (AN2)
+        $kanal = !empty($x['channel']) ? $t * floatval($p['channel_share'] ?? 0) / 100 * ($p['avg_price'] * $x['channel']['percent'] / 100 + $x['channel']['fixed']) / $vat : 0.0; // netto
+        $selbst = $shop === null ? null : $umsatz + $ein - $zahlung - $shop - $opt - $kanal;
         $pf_g = $umsatz; $pf_s = $umsatz - $t * $pf_netto;
-        return ['tickets' => $t, 'orders' => $orders, 'revenue' => $umsatz, 'own_fee' => $ein, 'psp' => $zahlung, 'evendis' => $shop, 'kept' => $selbst,
+        return ['tickets' => $t, 'orders' => $orders, 'revenue' => $umsatz, 'own_fee' => $ein, 'psp' => $zahlung, 'evendis' => $shop, 'options' => $opt, 'channel' => $kanal, 'kept' => $selbst,
             'pf_gross' => $pf_brutto, 'pf_net' => $pf_netto, 'platform_guests' => $pf_g, 'platform_self' => $pf_s,
             'advantage' => $selbst === null ? null : $selbst - ($with_fee ? $pf_g : $pf_s)];
     }
 
     /** Break-even wie break_even(), je Staffel-Stufe linear → Tickets oder null */
-    public static function break_even(array $p, array $b, array $tiers, $fixed, array $pf, $vat, $with_fee) {
+    public static function break_even(array $p, array $b, array $tiers, $fixed, array $pf, $vat, $with_fee, array $x = []) {
         $segs = [];
         if ($fixed !== null) $segs[] = [0, self::MAX_T, floatval($fixed)];
-        else { usort($tiers, function ($a, $c) { return $a['max'] <=> $c['max']; }); $prev = 0; foreach ($tiers as $x) { $segs[] = [$prev, intval($x['max']), floatval($x['price'])]; $prev = intval($x['max']); } }
+        else { usort($tiers, function ($a, $c) { return $a['max'] <=> $c['max']; }); $prev = 0; foreach ($tiers as $tr) { $segs[] = [$prev, intval($tr["max"]), floatval($tr["price"])]; $prev = intval($tr["max"]); } }
         foreach ($segs as [$from, $to, $price]) {
-            $lo = self::row(0, $p, $b, $price, $pf, $vat, $with_fee)['advantage'];
-            $hi = self::row(1, $p, $b, $price, $pf, $vat, $with_fee)['advantage'] - $lo;
+            $lo = self::row(0, $p, $b, $price, $pf, $vat, $with_fee, $x)['advantage'];
+            $hi = self::row(1, $p, $b, $price, $pf, $vat, $with_fee, $x)['advantage'] - $lo;
             if ($hi <= 0) continue;
             $t = intval(-$lo / $hi) + 1;
             if ($t <= $from) $t = $from + 1;
@@ -131,9 +136,17 @@ class TIX_Offer_Plan {
     }
 
     /** Planrechnung komplett (gerundet) für die Studio-Vorschau, das PDF und die Online-Ansicht */
-    public static function compute(array $p, array $cat) {
+    /**
+     * $ctx (aus dem Angebot, AN2): tiers (frei gesetzte Staffel), fixed (Jahrespreis des angehakten Grundpakets), extras_year,
+     * extras [{name, year}], once (einmalig), channel {percent, fixed} | null (Option evendis_channel), factor (Rabatt auf „an evendis“)
+     */
+    public static function compute(array $p, array $cat, array $ctx = []) {
         $rates = TIX_Platform_Offers::rates_by_key($cat['payment_rates'] ?? []);
-        $tiers = !empty($cat['shop_tiers']) ? (array) $cat['shop_tiers'] : self::default_tiers();
+        $tiers = !empty($ctx['tiers']) ? (array) $ctx['tiers'] : (!empty($cat['shop_tiers']) ? (array) $cat['shop_tiers'] : self::default_tiers());
+        $f = isset($ctx['factor']) ? floatval($ctx['factor']) : 1.0;
+        if (abs($f - 1) > 0.00001) $tiers = array_map(function ($x) use ($f) { return ['max' => $x['max'], 'price' => floatval($x['price']) * $f]; }, $tiers);
+        $fixed = $p['shop_price'] !== null ? $p['shop_price'] : (isset($ctx['fixed']) && $ctx['fixed'] !== null ? floatval($ctx['fixed']) * $f : null);
+        $x = ['extras_year' => floatval($ctx['extras_year'] ?? 0) * $f, 'channel' => $ctx['channel'] ?? null];
         $vat = 1 + floatval($cat['tax_rate'] ?? 19) / 100;
         $pl = TIX_Platform_Offers::catalog_item('tickets');
         $pf = ['percent' => floatval($pl['fee_percent'] ?? 2.9), 'fixed' => floatval($pl['fee_fixed'] ?? 0.49)];
@@ -141,11 +154,12 @@ class TIX_Offer_Plan {
         $r2 = function ($v) { return $v === null ? null : round($v, 2); };
         $rows = [];
         foreach ($p['steps'] as $t) {
-            $shop = self::shop_price($t, $tiers, $p['shop_price']);
-            $w = self::row($t, $p, $b, $shop, $pf, $vat, true);
-            $wo = self::row($t, $p, $b, $shop, $pf, $vat, false);
+            $shop = self::shop_price($t, $tiers, $fixed);
+            $w = self::row($t, $p, $b, $shop, $pf, $vat, true, $x);
+            $wo = self::row($t, $p, $b, $shop, $pf, $vat, false, $x);
             $rows[] = ['tickets' => $t, 'custom' => $p['custom'] === $t, 'orders' => round($w['orders'], 1), 'revenue' => $r2($w['revenue']), 'own_fee' => $r2($w['own_fee']),
-                'psp' => $r2($w['psp']), 'evendis' => $r2($shop), 'on_request' => $shop === null, 'kept' => $r2($w['kept']),
+                'psp' => $r2($w['psp']), 'evendis' => $r2($shop), 'on_request' => $shop === null, 'options' => $r2($w['options']), 'channel_fee' => $r2($w['channel']),
+                'evendis_total' => $shop === null ? null : $r2($shop + $w['options'] + $w['channel']), 'kept' => $r2($w['kept']),
                 'platform_guests_pay' => $r2($w['platform_guests']), 'platform_you_pay' => $r2($w['platform_self']),
                 'advantage' => $r2($w['advantage']), 'kept_without_fee' => $r2($wo['kept']), 'advantage_without_fee' => $r2($wo['advantage'])];
         }
@@ -163,9 +177,11 @@ class TIX_Offer_Plan {
         return [
             'input' => $p,
             'rows' => $rows,
-            'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $p['shop_price'], $pf, $vat, true), 'without_fee' => self::break_even($p, $b, $tiers, $p['shop_price'], $pf, $vat, false)],
+            'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, true, $x), 'without_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, false, $x)],
             // Block 1: an evendis
-            'to_evendis' => ['tiers' => array_map(function ($x) { return ['max' => intval($x['max']), 'price' => round(floatval($x['price']), 2)]; }, $sorted), 'fixed_price' => $p['shop_price'],
+            'to_evendis' => ['tiers' => array_map(function ($x) { return ['max' => intval($x['max']), 'price' => round(floatval($x['price']), 2)]; }, $sorted), 'fixed_price' => $fixed === null ? null : round($fixed, 2),
+                'base' => $ctx['base'] ?? null, 'options' => array_values((array) ($ctx['extras'] ?? [])), 'options_year' => round($x['extras_year'], 2), 'once' => round(floatval($ctx['once'] ?? 0), 2),
+                'channel' => $x['channel'] ? $x['channel'] + ['share' => $p['channel_share'] ?? 0, 'tax_note' => 'inkl. MwSt.'] : null,
                 'above' => 'auf Anfrage', 'per_ticket' => 0.0, 'tax_note' => 'zzgl. MwSt.'],
             // Block 2: an den Zahlungsanbieter (Mollie und Stripe nebeneinander, ohne Empfehlung)
             'to_psp' => ['methods' => $methods, 'blended_percent' => round($b['pct'] * 100, 4), 'blended_fixed' => round($b['fix'], 4), 'catalog' => $all_rates,

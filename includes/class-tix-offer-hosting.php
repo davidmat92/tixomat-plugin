@@ -46,7 +46,7 @@ class TIX_Offer_Hosting {
     public static function prefill($row) {
         $d = TIX_Platform_Offers::data($row);
         $c = (array) ($d['customer'] ?? []);
-        $items = array_values((array) ($d['items'] ?? []));
+        $items = TIX_Platform_Offers::active_items($d); // nur angehakte Positionen (AN2)
         $keys = array_map(function ($i) { return (string) ($i['catalog_key'] ?? ''); }, $items);
         $has = function ($k) use ($keys) { return in_array($k, $keys, true); };
         $name = trim((string) ($c['company'] ?? '')) ?: trim((string) ($c['name'] ?? ''));
