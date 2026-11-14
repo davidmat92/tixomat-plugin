@@ -1313,6 +1313,18 @@ class TIX_REST_API {
                 'message' => 'Ticket storniert.',
             ]);
         }
+        // Zweitmarkt (§223): weiterverkauftes Ticket ist ungültig (Apps kennen „cancelled“ → rot)
+        if ($status === 'resold') {
+            return rest_ensure_response([
+                'ok'      => true,
+                'status'  => 'cancelled',
+                'resold'  => true,
+                'name'    => $name,
+                'type'    => 'ticket',
+                'code'    => $code,
+                'message' => 'Ticket weiterverkauft – nicht mehr gültig.',
+            ]);
+        }
 
         // Spiegel-Ticket eines geteilten Events: Einlass nur beim Veranstalter (Quelle)
         if ($lock = TIX_Tickets::mirror_lock_message($ticket->ID)) {
@@ -1568,7 +1580,7 @@ class TIX_REST_API {
             $tickets = TIX_Tickets::get_tickets_by_event($event_id);
             foreach ($tickets as $t) {
                 $status = get_post_meta($t->ID, '_tix_ticket_status', true) ?: 'valid';
-                if ($status === 'cancelled') continue;
+                if ($status === 'cancelled' || $status === 'resold') continue; // weiterverkauft: nur das neue Ticket zählt
 
                 $checked_in = (bool) get_post_meta($t->ID, '_tix_ticket_checked_in', true);
                 $code       = get_post_meta($t->ID, '_tix_ticket_code', true);
@@ -2750,7 +2762,7 @@ class TIX_REST_API {
         $out = ['total' => 0, 'checked' => 0, 'by_cat' => []];
         foreach ((array) $rows as $r) {
             $status = (string) ($r['status'] ?: 'valid');
-            if ($status === 'cancelled') continue;
+            if ($status === 'cancelled' || $status === 'resold') continue; // weiterverkauft (§223): nur das neue Ticket zählt
             $out['total']++;
             if ($status === 'used' || (string) $r['checked'] === '1') $out['checked']++;
             $ci = ($r['cat_index'] === null || $r['cat_index'] === '') ? -1 : intval($r['cat_index']);

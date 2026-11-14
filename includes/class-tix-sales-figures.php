@@ -195,7 +195,7 @@ class TIX_Sales_Figures {
                 WHERE p.post_type = 'tix_ticket' AND p.post_status IN ('publish', 'private')");
             foreach ((array) $rows as $r) {
                 $status = (string) ($r->status ?: 'valid');
-                if ($status === 'cancelled') continue;
+                if ($status === 'cancelled' || $status === 'resold') continue; // weiterverkauft (§223): nur das neue Ticket zählt
                 $out[] = ['eid' => intval($r->eid), 'cat' => ($r->cat_index === null || $r->cat_index === '') ? -1 : intval($r->cat_index),
                     'checked' => $status === 'used' || (string) $r->checked === '1', 'oid' => intval($r->oid), 'date' => (string) $r->post_date];
             }

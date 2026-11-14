@@ -33,6 +33,8 @@ class TIX_Object_Data {
         'tix_org_ticket_design'      => 'org_ticket_design', // PDF-Ticket-Vorlage je Veranstalter (1.38.800)
         'tix_event_social'           => 'event_social',      // Social-Planer an/aus je Event (1.38.811)
         'tix_org_guest_flows'        => 'org_guest_flows',   // Gäste-Abläufe je Veranstalter (1.38.813)
+        'tix_resale_org'             => 'resale_org',        // Weiterverkauf: Regeln je Veranstalter (§223)
+        'tix_resale_event'           => 'resale_event',      // Weiterverkauf: Regeln/Kategorien je Event (§223)
     ];
 
     public static function table() {

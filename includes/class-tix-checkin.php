@@ -667,9 +667,9 @@ class TIX_Checkin {
             }
         }
 
-        if ($status === 'cancelled') {
+        if ($status === 'cancelled' || $status === 'resold') {
             wp_send_json_error([
-                'message' => 'Ticket storniert.',
+                'message' => $status === 'resold' ? 'Ticket weiterverkauft – nicht mehr gültig.' : 'Ticket storniert.',
                 'status'  => 'cancelled',
                 'name'    => get_post_meta($ticket->ID, '_tix_ticket_owner_name', true),
                 'type'    => 'ticket',

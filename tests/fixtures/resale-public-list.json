@@ -1,0 +1,30 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "public-list",
+    "request": {
+        "route": "GET /public/events/{id}/resale",
+        "body": {}
+    },
+    "response": {
+        "enabled": true,
+        "visible": true,
+        "reason": "",
+        "count": 1,
+        "deadline": "2026-12-12T18:00:00+00:00",
+        "info": "Tickets von anderen Gästen zum Originalpreis oder günstiger. Das alte Ticket wird ungültig, du bekommst ein neues.",
+        "offers": [
+            {
+                "id": 47,
+                "category_index": 0,
+                "category": "Regulär",
+                "price": 22.0,
+                "fee": 1.54,
+                "total": 23.54,
+                "seat": "",
+                "seat_label": "",
+                "checkout_url": "http://tqc-kk/kasse/sommerfest-fx/?resale=47"
+            }
+        ]
+    },
+    "status": 200
+}

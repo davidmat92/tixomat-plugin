@@ -1,0 +1,24 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "taken",
+    "request": {
+        "route": "POST /customer/cart/quote",
+        "body": {
+            "event_id": "{id}",
+            "items": [
+                {
+                    "resale_offer": "{offer}",
+                    "qty": 1
+                }
+            ]
+        }
+    },
+    "response": {
+        "code": "tix_resale_taken",
+        "message": "Dieses Angebot ist gerade nicht verfügbar.",
+        "data": {
+            "status": 409
+        }
+    },
+    "status": 409
+}

@@ -1069,7 +1069,21 @@ class TIX_Sync {
             $event_id
         )));
 
-        $total_sold = max(0, $paid - $cancelled);
+        // 3. Weiterverkaufte Tickets (§223): alte Bestellung bleibt bezahlt, das neue Ticket zählt schon über die Käufer-Bestellung
+        $resold = 0;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$t'") === $t) {
+            $resold = intval($wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} ps ON p.ID = ps.post_id AND ps.meta_key = '_tix_ticket_status' AND ps.meta_value = 'resold'
+                 INNER JOIN {$wpdb->postmeta} pe ON p.ID = pe.post_id AND pe.meta_key = '_tix_ticket_event_id' AND pe.meta_value = %d
+                 INNER JOIN {$wpdb->postmeta} po ON p.ID = po.post_id AND po.meta_key = '_tix_ticket_order_id'
+                 INNER JOIN $t o ON o.id = po.meta_value AND o.status IN ('completed','processing')
+                 WHERE p.post_type = 'tix_ticket'",
+                $event_id
+            )));
+        }
+
+        $total_sold = max(0, $paid - $cancelled - $resold);
 
         // Meta updaten
         update_post_meta($event_id, '_tix_sold_total', $total_sold);

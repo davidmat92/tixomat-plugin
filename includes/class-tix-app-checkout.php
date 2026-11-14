@@ -448,6 +448,8 @@ class TIX_App_Checkout {
 
     /** Warenkorb im Format des Web-Checkouts aus der Auswahl der App bauen. */
     private static function build_cart($event_id, array $items, $hold_token = '') {
+        // Zweitmarkt (§223): {resale_offer: id} – eigenes Angebot, eigener Preis, kein Bestand, keine Rabatte
+        if (class_exists('TIX_Resale') && TIX_Resale::wants($items)) return TIX_Resale::build_cart($event_id, $items);
         if (self::is_syndicated($event_id) && !(class_exists('TIX_Co_Seller') && TIX_Co_Seller::sells_here($event_id))) { // Plattform verkauft für den Co (1.38.713)
             return self::syndicated_error($event_id);
         }
@@ -706,6 +708,9 @@ class TIX_App_Checkout {
                 'combo'          => is_array($meta['combo'] ?? null) ? ['combo_id' => (string) $meta['combo']['combo_id'], 'group_id' => (string) $meta['combo']['group_id'], 'name' => (string) $meta['combo']['label']] : null,
                 // Gutschein-Position: Geschenk-Angaben wie gesendet (null = keine bzw. kein Gutschein)
                 'gift'           => !empty($meta['gift']) ? (is_array($meta['gift_info'] ?? null) ? $meta['gift_info'] : null) : null,
+                // Zweitmarkt (§223): Zeile aus einem Weiterverkaufs-Angebot
+                'resale'         => !empty($meta['resale_offer']),
+                'resale_offer'   => !empty($meta['resale_offer']) ? intval($meta['resale_offer']) : null,
             ];
             if (!empty($meta['bundle']) && class_exists('TIX_Cart_Pricing')
                 && ($b = TIX_Cart_Pricing::bundle(intval($it['event_id']), intval($it['cat_index'])))) {
@@ -906,6 +911,9 @@ class TIX_App_Checkout {
         }
         $status  = (string) ($m('_tix_ticket_status') ?: 'valid');
         $checked = (string) $m('_tix_ticket_checked_in') === '1' || $status === 'used';
+        // Zweitmarkt (§223): „resold“ kennen die Apps im Store nicht → „transferred“ (QR blass), Stand in resale_status
+        $resale_status = class_exists('TIX_Resale') ? TIX_Resale::ticket_flag($id) : '';
+        if ($status === 'resold') { $status = 'transferred'; $resale_status = 'sold'; }
         return [
             'id'             => $id,
             'code'           => (string) $m('_tix_ticket_code'),
@@ -941,6 +949,8 @@ class TIX_App_Checkout {
             'wallet'         => (string) $m('_tix_ticket_mirror') === '1' ? null : self::wallet_links($id),
             // Online-Ticket zum Teilen/Öffnen (Kunden-Adresse, Token wie in den Mails); '' bei Spiegel-Tickets (gelten bei der Quelle)
             'online_url'     => self::online_url($id, (string) $m('_tix_ticket_mirror') === '1'),
+            // Weiterverkauf: '' | open | reserved | sold (Details: GET /customer/tickets/{id}/resale)
+            'resale_status'  => $resale_status,
         ] + self::mirror_fields($id) + self::gift_fields($id);
     }
 
@@ -1318,7 +1328,11 @@ class TIX_App_Checkout {
             $email = $user ? (string) $user->user_email : (string) ($req->get_param('email') ?? '');
             // Guthaben aufladen: Konto Pflicht, Limits schon hier, keine Gutscheine
             $topup = class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart);
-            if ($topup) {
+            if (!empty($cart['resale'])) {
+                // Weiterverkauf: keine Gutscheine (Preis des Anbieters gilt)
+                if ($coupon !== '') return self::error('tix_resale_coupon', 'Gutscheine gelten nicht für Tickets aus dem Weiterverkauf.', 400);
+                $resp['resale'] = TIX_Resale::quote_info($cart);
+            } elseif ($topup) {
                 if ($coupon !== '') return self::error('tix_wallet_coupon', 'Gutscheine gelten nicht für das Aufladen von Guthaben.', 400);
                 if ($e = TIX_Wallet_Balance::cart_error($cart, $user)) return $e;
             } else {
@@ -1328,6 +1342,7 @@ class TIX_App_Checkout {
             if ($topup) $resp['wallet_topup'] = TIX_Wallet_Balance::quote_info($cart);
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
+            if (!empty($cart['resale'])) $resp['payment_methods'] = array_values(array_filter($resp['payment_methods'], function ($m) { return ($m['id'] ?? '') !== 'bank'; }));
             // Mit Guthaben bezahlen (1.38.436): erst Gutschein (in totals), dann Guthaben; Rest normal.
             // Seit 1.38.476 kommt `wallet` bei angemeldeten Kunden immer mit (auch ohne use_wallet), damit die App
             // „Guthaben nutzen (x €)“ anbieten kann: selected = use_wallet, can_apply = möglicher Anteil, applied/rest wirksam.
@@ -1480,7 +1495,11 @@ class TIX_App_Checkout {
         $hold_token = (string) $req->get_param('hold_token');
         $cart  = self::build_cart($event_id, is_array($items) ? $items : [], $hold_token);
         if (is_wp_error($cart)) return $cart;
-        if (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart)) {
+        $resale = !empty($cart['resale']);
+        if ($resale) {
+            // Weiterverkauf: keine Gutscheine
+            if ((string) ($req->get_param('coupon') ?? '') !== '') return self::error('tix_resale_coupon', 'Gutscheine gelten nicht für Tickets aus dem Weiterverkauf.', 400);
+        } elseif (class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart)) {
             // Guthaben aufladen: Konto Pflicht, Limits erneut prüfen, keine Gutscheine
             if ((string) ($req->get_param('coupon') ?? '') !== '') return self::error('tix_wallet_coupon', 'Gutscheine gelten nicht für das Aufladen von Guthaben.', 400);
             if ($e = TIX_Wallet_Balance::cart_error($cart, $user)) return $e;
@@ -1524,6 +1543,8 @@ class TIX_App_Checkout {
             if (!in_array($payment_method, $allowed, true)) {
                 return self::error('tix_payment_method', 'Bitte eine gültige Zahlungsart wählen.');
             }
+            // Weiterverkauf: keine Vorkasse (das Angebot wäre sonst tagelang gesperrt)
+            if ($resale && $payment_method === 'bank') return self::error('tix_payment_method', 'Für Tickets aus dem Weiterverkauf bitte direkt bezahlen (keine Überweisung).');
             if (strpos($payment_method, 'mollie:') === 0) {
                 $mollie_method  = substr($payment_method, 7);
                 $payment_method = 'mollie';
@@ -1569,6 +1590,12 @@ class TIX_App_Checkout {
         }
         if ($user) self::remember_billing($user, $billing);
 
+        // Weiterverkauf: Angebot jetzt sperren (bedingtes UPDATE, zwei gleichzeitige Käufe → nur einer gewinnt)
+        $resale_lock = null;
+        if ($resale) {
+            $resale_lock = TIX_Resale::lock($cart, $billing['email']);
+            if (is_wp_error($resale_lock)) return $resale_lock;
+        }
         // Warenkorb in die Nutzer-Session legen: create_order liest Gutschein und Gebühren daraus
         $previous_cart = TIX_Native_Checkout::get_cart();
         TIX_Native_Checkout::save_cart($cart);
@@ -1592,6 +1619,8 @@ class TIX_App_Checkout {
         } else {
             TIX_Native_Checkout::clear_cart();
         }
+        if ($resale_lock && !$order_id) TIX_Resale::unlock($resale_lock);
+        if ($resale_lock && $order_id) TIX_Resale::bind($resale_lock, $order_id);
         if (!$order_id) {
             $err = TIX_Native_Checkout::$last_error;
             if (is_wp_error($err) && $err->get_error_code() === 'tix_sold_out') {

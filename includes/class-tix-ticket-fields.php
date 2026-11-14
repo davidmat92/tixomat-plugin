@@ -515,7 +515,7 @@ class TIX_Ticket_Fields {
         $orders = [];
         foreach ($tickets as $tid) {
             $st = (string) (get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid');
-            if (in_array($st, ['cancelled', 'refunded'], true)) continue;
+            if (in_array($st, ['cancelled', 'refunded', 'resold'], true)) continue;
             $h = self::holder($tid);
             $oid = intval(get_post_meta($tid, '_tix_ticket_order_id', true));
             $orders[$oid] = true;

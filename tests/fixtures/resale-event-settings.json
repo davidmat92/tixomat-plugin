@@ -1,0 +1,45 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "event-settings",
+    "request": {
+        "route": "GET /events/{id}/resale/settings",
+        "body": {}
+    },
+    "response": {
+        "inherit": true,
+        "rules": {
+            "enabled": true,
+            "sold_out_only": true,
+            "max_price": {
+                "mode": "original",
+                "percent": 100
+            },
+            "deadline_hours": 2
+        },
+        "site": {
+            "enabled": true,
+            "sold_out_only": true,
+            "max_price": {
+                "mode": "original",
+                "percent": 100
+            },
+            "deadline_hours": 2
+        },
+        "starts_at": "2026-12-12T20:00:00+00:00",
+        "categories": [
+            {
+                "index": 0,
+                "name": "Regulär",
+                "enabled": true,
+                "sold_out": true
+            },
+            {
+                "index": 1,
+                "name": "VIP",
+                "enabled": true,
+                "sold_out": false
+            }
+        ]
+    },
+    "status": 200
+}

@@ -229,7 +229,7 @@ class TIX_Checkin_Areas {
         $p = $tid ? get_post($tid) : null;
         if (!$p || $p->post_type !== 'tix_ticket' || intval(get_post_meta($tid, '_tix_ticket_event_id', true)) !== intval($eid)) return ['status' => 'not_found'];
         if (class_exists('TIX_Tickets') && TIX_Tickets::mirror_lock_message($tid) !== null) return ['status' => 'invalid'];
-        if ((string) (get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid') === 'cancelled') return ['status' => 'cancelled'];
+        if (in_array((string) (get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid'), ['cancelled', 'resold'], true)) return ['status' => 'cancelled']; // weiterverkauft = ungültig (§223)
         $allowed = self::allowed_ids($eid, intval(get_post_meta($tid, '_tix_ticket_cat_index', true)), $areas);
         if ($allowed && !in_array(intval($area_id), $allowed, true)) return ['status' => 'denied', 'error' => 'tix_area_denied', 'area' => intval($area_id)];
         $prev = self::entry($eid, $area_id, 'ticket', $tid);

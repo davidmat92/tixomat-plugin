@@ -1,0 +1,200 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "cart-quote",
+    "request": {
+        "route": "POST /customer/cart/quote",
+        "body": {
+            "event_id": "{id}",
+            "items": [
+                {
+                    "resale_offer": "{offer}",
+                    "qty": 1
+                }
+            ]
+        }
+    },
+    "response": {
+        "ok": true,
+        "event_id": 785,
+        "sale_open": true,
+        "syndicated": null,
+        "categories": [
+            {
+                "index": 0,
+                "name": "Regulär",
+                "price": 25.0,
+                "fee_per_ticket": 1.62,
+                "price_total": 26.62,
+                "base_price": 25.0,
+                "base_total": 26.62,
+                "description": "",
+                "quantity_available": 0,
+                "sold_out": true,
+                "phase_label": "",
+                "max_per_order": 0,
+                "gift_card": false,
+                "gift_free_amount": false,
+                "access": "",
+                "access_hint": "",
+                "low_stock_text": "",
+                "phase": null,
+                "bundle": null
+            },
+            {
+                "index": 1,
+                "name": "VIP",
+                "price": 60.0,
+                "fee_per_ticket": 2.49,
+                "price_total": 62.49,
+                "base_price": 60.0,
+                "base_total": 62.49,
+                "description": "",
+                "quantity_available": 10,
+                "sold_out": false,
+                "phase_label": "",
+                "max_per_order": 10,
+                "gift_card": false,
+                "gift_free_amount": false,
+                "access": "",
+                "access_hint": "",
+                "low_stock_text": "Nur noch 10 verfügbar!",
+                "phase": null,
+                "bundle": null
+            }
+        ],
+        "group_discount": null,
+        "seatmap": false,
+        "combos": [],
+        "specials": [],
+        "presale": {
+            "starts_at": "",
+            "started": true,
+            "waitlist_presale": false,
+            "waitlist_soldout": false,
+            "ends_at": ""
+        },
+        "demo": false,
+        "totals": {
+            "lines": [
+                {
+                    "event_id": 785,
+                    "index": 0,
+                    "name": "Regulär",
+                    "qty": 1,
+                    "unit_price": 22.0,
+                    "total": 22.0,
+                    "list_price": null,
+                    "group_discount": null,
+                    "bundle": null,
+                    "special_id": null,
+                    "seats": null,
+                    "combo": null,
+                    "gift": null,
+                    "resale": true,
+                    "resale_offer": 47,
+                    "fee": 1.54
+                }
+            ],
+            "count": 1,
+            "subtotal": 22.0,
+            "group_discount": 0.0,
+            "discount": 0.0,
+            "fee": 1.54,
+            "fee_label": "Vorverkaufsgebühr",
+            "tax": 0.0,
+            "tax_rate": 0.0,
+            "tax_inclusive": false,
+            "total": 23.54,
+            "currency": "EUR"
+        },
+        "payment_methods": [
+            {
+                "id": "mollie",
+                "title": "Online bezahlen",
+                "icon": "http://tqc-kk/wp-content/plugins/tixomat/assets/img/mollie.svg"
+            }
+        ],
+        "coupon": {
+            "code": "",
+            "valid": false,
+            "discount": 0.0,
+            "message": ""
+        },
+        "guest": true,
+        "billing": null,
+        "fields": {
+            "company": false,
+            "countries": [
+                {
+                    "code": "DE",
+                    "name": "Deutschland"
+                },
+                {
+                    "code": "AT",
+                    "name": "Österreich"
+                },
+                {
+                    "code": "CH",
+                    "name": "Schweiz"
+                },
+                {
+                    "code": "NL",
+                    "name": "Niederlande"
+                },
+                {
+                    "code": "BE",
+                    "name": "Belgien"
+                },
+                {
+                    "code": "LU",
+                    "name": "Luxemburg"
+                },
+                {
+                    "code": "FR",
+                    "name": "Frankreich"
+                },
+                {
+                    "code": "PL",
+                    "name": "Polen"
+                },
+                {
+                    "code": "DK",
+                    "name": "Dänemark"
+                },
+                {
+                    "code": "CZ",
+                    "name": "Tschechien"
+                },
+                {
+                    "code": "IT",
+                    "name": "Italien"
+                },
+                {
+                    "code": "ES",
+                    "name": "Spanien"
+                },
+                {
+                    "code": "GB",
+                    "name": "Vereinigtes Königreich"
+                }
+            ]
+        },
+        "checkout_fields": {
+            "company": false,
+            "coupon": true,
+            "newsletter": false,
+            "address_required": true,
+            "offer_account": true,
+            "phone": "off"
+        },
+        "resale": {
+            "offer_id": 47,
+            "category_index": 0,
+            "category": "Regulär",
+            "price": 22.0,
+            "seat": "",
+            "deadline": "2026-12-12T18:00:00+00:00"
+        }
+    },
+    "status": 200
+}

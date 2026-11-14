@@ -1,0 +1,34 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "ticket-sold",
+    "request": {
+        "route": "GET /customer/tickets/{id}/resale",
+        "body": {}
+    },
+    "response": {
+        "allowed": false,
+        "reason": "resold",
+        "reason_text": "Dieses Ticket wurde bereits weiterverkauft.",
+        "original_price": 25.0,
+        "max_price": 25.0,
+        "min_price": 1.0,
+        "deadline": "2026-12-12T18:00:00+00:00",
+        "fee_text": "Die Gebühr zahlt der Käufer. Du bekommst deinen Preis voll.",
+        "payout_text": "Das Geld geht nach dem Verkauf auf dein ursprüngliches Zahlungsmittel zurück. Geht das nicht mehr, bekommst du Guthaben bzw. einen Gutschein.",
+        "terms_url": "https://kitchenklub.de/agb/#weiterverkauf",
+        "offer": {
+            "id": 47,
+            "price": 22.0,
+            "status": "sold",
+            "created_at": "2026-11-14T19:21:06+00:00",
+            "sold_at": "2026-11-14T19:21:06+00:00",
+            "payout": {
+                "amount": 22.0,
+                "method": "original",
+                "status": "paid",
+                "text": "Das Geld geht nach dem Verkauf auf dein ursprüngliches Zahlungsmittel zurück. Geht das nicht mehr, bekommst du Guthaben bzw. einen Gutschein."
+            }
+        }
+    },
+    "status": 200
+}

@@ -6776,3 +6776,50 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Referenzen:** Feld `tag` (z. B. „Mehrere Events“, „Einzelevent“); Bild aus `image_url` (Plugin-, Upload- oder https-Adresse) bzw. eingebaut `assets/img/references/<key>.png` (KitchenKlub: App-Startseite, Mallorca Festival XXL: App-Startseite). Lang: Karten mit Bild, Name, Etikett, Satz und Links, zwei nebeneinander; kurz: zwei kleine Bildkacheln unter dem Faktenblock (≤ 2 Seiten); online mit Bild und Etikett.
 - Skript `uebergaben/referenzen-setzen.php` setzt Texte („viele Events im Jahr (wöchentliche Partys)“ bzw. „ein großes Einzelevent im Jahr“), Etikett und Bild-Adresse.
 - **Test:** `test-offer-options-wp` (128); Fixtures 1.38.834.
+
+## 223. Zweitmarkt: Weiterverkauf über die eigene Kasse (RS1, RS5, RS7, ab 1.38.835)
+Vertrag (endgültig, mit „Umzug nach evendis-api“): `uebergaben/vertrag-zweitmarkt.md`. Auftrag: `uebergaben/auftrag-resale-api.md` Teil A, User-Entscheide F-RS1 bis F-RS4.
+
+**Ablauf:**
+1. Der Käufer eines Tickets bietet es an (Preis 1 € bis Höchstpreis, Vorgabe: Originalpreis).
+2. Das Angebot erscheint öffentlich, in der Vorgabe nur bei ausverkaufter Kategorie.
+3. Ein anderer kauft es über die normale Kasse (`items: [{resale_offer, qty: 1}]`). Das Angebot ist dabei gesperrt.
+4. Bei Zahlungseingang wird das alte Ticket ungültig (`_tix_ticket_status = resold`), der Käufer bekommt ein neues Ticket mit neuem Code, der Bestand bleibt gleich.
+5. Der Verkäufer bekommt seinen Preis voll als Teil-Erstattung aufs ursprüngliche Zahlungsmittel. Rückfall: Guthaben, sonst Gutschein. Der Käufer zahlt die normale Gebühr.
+
+**Klassen:**
+- `TIX_Resale_Rules` (reine Regeln, ohne WP): Vorgaben, Prüfung der Regeln, Höchstpreis, Frist, Gründe, Auszahlungsweg, Zustandsautomat.
+- `TIX_Resale` (Tabelle, Routen, Kasse, Abschluss, Auszahlung, Hooks, Cron `tix_resale_cron`).
+- Geladen nur mit nativer Kasse (wie die Partner-API).
+
+**Daten (Weg 1):**
+- Tabelle `{prefix}tix_resale_offers` (Migration beim ersten Aufruf, `tix_resale_db`).
+- Regeln: Option `tix_resale_settings` (Seite), `TIX_Object_Data` `resale_org` / `resale_event`.
+- Ticket-Merker `_tix_ticket_resale` (`open|reserved|sold`).
+
+**Routen:**
+- `GET /public/events/{id}/resale`
+- `GET|POST|DELETE /customer/tickets/{id}/resale`, `POST …/resale/withdraw`
+- `GET|POST /studio/resale/settings`, `GET|POST /events/{id}/resale/settings`, `GET /studio/resale`
+- `GET /partner/resale`, `POST /partner/resale/ticket` (RS5)
+- Die Veranstalter-Bereiche der Apps nutzen die Studio-Routen; `/organizer/resale/*` aus dem App-Entwurf gibt es nicht.
+
+**Kasse** (`TIX_App_Checkout`):
+- `build_cart` gibt `{resale_offer}` an `TIX_Resale::build_cart` ab (einzige Position, fester Preis, kein Bestand – `TIX_Stock::lines` überspringt `meta.resale_offer`).
+- Keine Gutscheine (`tix_resale_coupon`), keine Überweisung.
+- Sperre `TIX_Resale::lock` direkt vor `create_order`, `bind` an die Bestellung bzw. `unlock`.
+- `totals.lines[].resale` / `resale_offer`, `quote.resale`.
+- Abschluss auf `tix_order_completed` (Priorität 25, nach der Ticket-Erstellung), idempotent.
+- Konflikt (Angebot inzwischen weg oder altes Ticket ungültig): späte Bestellung voll erstatten, Ticket storniert.
+
+**„resold“ an diesen Stellen:**
+- Scanner (`/checkin/scan`: `status cancelled`, `resold: true`), Web-Einlass, Offline-Liste/Abgleich, Einlassbereiche.
+- Zählungen: `ticket_counts`, `TIX_Sales_Figures::ticket_rows`, `TIX_Sync::recompute_event_sold_count` (alte Bestellung bezahlt → abziehen), Gästeliste der App, Teilnehmerliste.
+- `ticket_from_post` liefert für Kunden `status: transferred` + `resale_status: sold` (Apps im Store kennen `resold` nicht).
+- `can_transfer` ist false, solange ein Angebot läuft.
+- Partner-Webhook `ticket.resold`.
+- Spiegel: Typ `resale_offer` → Supabase-Tabelle `resale_offers` (Migration `20261114120000_mirror_resale_offers.sql` **vor** dem Rollout einspielen), Erstbefüllungs-Schritt `resale_offer`.
+
+**Rückweg:** Schalter Seite/Veranstalter/Event/Kategorie aus → offene Angebote werden zurückgezogen (Mitteilung), verkaufte bleiben gültig.
+
+**Test:** `bash tests/test-resale.sh <container…>` (`tests/test-resale-wp.php`, setzt für den Lauf einen Test-Mollie- und Partner-Schlüssel): Einzel-Seite 90/90, Plattform 93/93. Fixtures `tests/fixtures/resale-*.json` (1.38.835).

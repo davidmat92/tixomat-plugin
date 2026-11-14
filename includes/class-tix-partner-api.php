@@ -14,7 +14,7 @@
  *
  * Webhooks an die Plattform (POST {syndication_api_url}/partner/webhook, HMAC mit dem
  * API Key der Event-Verteilung, Wiederholung per Cron): order.paid, order.cancelled,
- * order.refunded, ticket.checked_in, ticket.checkin_reset, ticket.transferred – nur für
+ * order.refunded, ticket.checked_in, ticket.checkin_reset, ticket.transferred, ticket.resold (§223) – nur für
  * Bestellungen mit Partner-Markierung (Option `_tix_order_partner_{id}`). Jeder Webhook
  * trägt den aktuellen Stand der ganzen Bestellung (Status + alle Tickets).
  *
@@ -47,6 +47,8 @@ class TIX_Partner_API {
         add_action('tix_ticket_checked_in', function ($tid) { self::enqueue_ticket('ticket.checked_in', $tid); }, 60);
         add_action('tix_ticket_checkin_reset', function ($tid) { self::enqueue_ticket('ticket.checkin_reset', $tid); }, 60);
         add_action('tix_ticket_transferred', function ($tid) { self::enqueue_ticket('ticket.transferred', $tid); }, 60);
+        // Zweitmarkt (§223): altes Ticket weiterverkauft (Status „resold“ im Stand der Bestellung des Verkäufers)
+        add_action('tix_ticket_resold', function ($old_tid) { self::enqueue_ticket('ticket.resold', $old_tid); }, 60);
 
         add_action('tix_partner_webhook_flush', [__CLASS__, 'flush']);
     }

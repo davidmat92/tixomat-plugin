@@ -76,7 +76,7 @@ class TIX_Checkin_Offline {
                 'h'    => self::hash($eid, $code),
                 'name' => (string) get_post_meta($tid, '_tix_ticket_owner_name', true),
                 'cat'  => $cats[intval(get_post_meta($tid, '_tix_ticket_cat_index', true))] ?? '',
-                'st'   => $mirror ? 'mirror' : ($st === 'cancelled' ? 'cancelled' : ($in ? 'used' : 'valid')),
+                'st'   => $mirror ? 'mirror' : (in_array($st, ['cancelled', 'resold'], true) ? 'cancelled' : ($in ? 'used' : 'valid')), // weiterverkauft = ungültig (§223)
                 'at'   => $in ? (string) get_post_meta($tid, '_tix_ticket_checkin_time', true) : '',
             ];
         }
@@ -174,7 +174,7 @@ class TIX_Checkin_Offline {
         if (!$p || $p->post_type !== 'tix_ticket' || intval(get_post_meta($tid, '_tix_ticket_event_id', true)) !== $eid) return ['status' => 'not_found'];
         if (class_exists('TIX_Tickets') && TIX_Tickets::mirror_lock_message($tid) !== null) return ['status' => 'invalid'];
         $st = (string) (get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid');
-        if ($st === 'cancelled') return ['status' => 'cancelled'];
+        if ($st === 'cancelled' || $st === 'resold') return ['status' => 'cancelled'];
         if ((bool) get_post_meta($tid, '_tix_ticket_checked_in', true)) {
             $prev = (string) get_post_meta($tid, '_tix_ticket_checkin_by', true);
             // dasselbe Gerät erneut (Abbruch beim Abgleich) → ok

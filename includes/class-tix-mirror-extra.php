@@ -39,6 +39,7 @@ class TIX_Mirror_Extra {
             case 'org_follower':    return self::plan_org_follower($site, (int) $id);
             case 'artist_proof':    return self::plan_artist_proof($site, (int) $id);
             case 'short_link':      return self::plan_short_link($site, (int) $id);
+            case 'resale_offer':    return self::plan_resale_offer($site, (int) $id);
             case 'forget_email':    // Gast ohne Konto gelöscht (1.38.494): Verlauf mit dieser E-Mail tilgen, wie beim Konto
                 return [['rpc', 'mirror_forget', ['p_site' => $site, 'p_customer_id' => 0, 'p_email' => (string) ($payload['email'] ?? '')]]];
         }
@@ -550,6 +551,40 @@ class TIX_Mirror_Extra {
         $keep = $rows ? min(array_column($rows, 'day')) : '9999-12-31';
         $ops[] = ['delete', 'short_link_clicks', ['site' => 'eq.' . $site, 'link_id' => 'eq.' . $id, 'day' => 'lt.' . $keep]];
         return $ops;
+    }
+
+    /** Zweitmarkt (§223, RS7): Angebot aus tix_resale_offers – ohne E-Mail des Verkäufers (Konto-ID + Bestellungen genügen). */
+    private static function plan_resale_offer($site, $id) {
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $o = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tix_resale_offers WHERE id = %d", $id), ARRAY_A);
+        $wpdb->suppress_errors($prev);
+        if ($o && TIX_Mirror_Map::is_sandbox_event((int) $o['event_id'])) $o = null;
+        if (!$o) return [self::del('resale_offers', $site, $id)];
+        return [['upsert', 'resale_offers', [TIX_Mirror_Map::clean([
+            'site' => $site, 'id' => (int) $o['id'],
+            'event_id'        => self::idn($o['event_id']),
+            'cat_index'       => (int) $o['cat_index'],
+            'organizer_id'    => self::idn($o['organizer_id']),
+            'ticket_id'       => self::idn($o['ticket_id']),
+            'new_ticket_id'   => self::idn($o['new_ticket_id']),
+            'seller_user_id'  => self::idn($o['seller_user_id']),
+            'seller_order_id' => self::idn($o['seller_order_id']),
+            'buyer_order_id'  => self::idn($o['buyer_order_id']),
+            'channel'         => (string) $o['channel'],
+            'price'           => self::num($o['price']),
+            'original_price'  => self::num($o['original_price']),
+            'buyer_fee'       => self::num($o['buyer_fee']),
+            'status'          => (string) $o['status'],
+            'close_reason'    => (string) $o['close_reason'],
+            'payout_method'   => (string) $o['payout_method'],
+            'payout_status'   => (string) $o['payout_status'],
+            'payout_amount'   => self::num($o['payout_amount']),
+            'created_at'      => self::gmt_iso($o['created_at']),
+            'sold_at'         => self::gmt_iso($o['sold_at']),
+            'closed_at'       => self::gmt_iso($o['closed_at']),
+            'modified_at'     => self::gmt_iso($o['updated_at']),
+        ])]]];
     }
 
     /** E-Mail-Folgen eines Veranstalters (tix_mail_followers) – pseudonymisiert wie bei Künstlern (Entscheid User 2026-10-20). */

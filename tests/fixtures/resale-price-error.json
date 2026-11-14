@@ -1,0 +1,22 @@
+{
+    "plugin_version": "1.38.835",
+    "name": "price-error",
+    "request": {
+        "route": "POST /customer/tickets/{id}/resale",
+        "body": {
+            "price": 30,
+            "accept_terms": true
+        }
+    },
+    "response": {
+        "code": "tix_resale_price",
+        "message": "Der Preis darf höchstens 25,00 € betragen.",
+        "data": {
+            "status": 422,
+            "field": "price",
+            "max_price": 25.0,
+            "min_price": 1.0
+        }
+    },
+    "status": 422
+}

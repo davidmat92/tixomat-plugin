@@ -233,6 +233,7 @@ class TIX_Stock {
         foreach ($items as $it) {
             $e = intval($it['event_id'] ?? 0); $c = intval($it['cat_index'] ?? -1); $q = intval($it['qty'] ?? 0);
             if (!$e || $c < 0 || $q <= 0) continue;
+            if (!empty($it['meta']['resale_offer'])) continue; // Weiterverkauf (§223): Ticket gibt es schon, Bestand bleibt gleich
             $k = $e . '|' . $c;
             if (!isset($need[$k])) $need[$k] = ['event_id' => $e, 'cat_index' => $c, 'qty' => 0, 'name' => (string) ($it['name'] ?? '')];
             $need[$k]['qty'] += $q;
