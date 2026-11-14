@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.832: Referenzen im Kurzangebot.
  * 1.38.831: kein Vorsteuer-Satz, Kurzangebot (length short, ≤ 2 Seiten).
  * 1.38.830: App-Vorteile mit Etikett „mit App-Paket“.
  * 1.38.829: Markenrot, Planrechnung nur Grundpaket, App-Gruppe („nur mit App“), Ticketpreis als Annahme, Angebotsnummern AN-JJMM-NNNN.
@@ -330,6 +331,18 @@ $eq('Kurzangebot: höchstens 2 Seiten (lang mehr), Faktenblock, Festpreis, ohne 
     [$pages($short31) <= 2, $pages($long31) > 2, strpos($st31, 'das zahlst du, das bleibt dir') !== false, strpos($st31, 'Festpreis: Bis 5.000') !== false, strpos($st31, 'komplett ohne App') !== false,
      strpos($st31, 'Annahme:') !== false, strpos($st31, 'Geschenkt dazu') !== false, strpos($st31, 'NUR MIT APP') !== false, strpos($st31, 'Planrechnung') !== false,
      strpos($st31, 'Mollie, Stripe oder PayPal') !== false, strpos($st31, 'Interesse') !== false, strpos($st31, 'DEIN KONTAKT BEI EVENDIS') !== false]);
+
+// ── 1.38.832: Referenzen im Kurzangebot (Katalog im Test, danach zurück)
+$bak32 = get_option($O::OPT_CATALOG, null);
+$c32 = $O::catalog(); $c32['references'] = [['key' => 'kitchenklub', 'name' => 'KitchenKlub', 'text' => 'Club in Wuppertal – eigener Ticketshop und eigene App', 'url' => 'https://kitchenklub.de', 'app_store_url' => 'https://apps.apple.com/de/app/id6814961638', 'mode' => 'own_shop', 'approved' => true],
+    ['key' => 'mallorca-festival-xxl', 'name' => 'Mallorca Festival XXL', 'text' => 'Open-Air-Festival – eigener Ticketshop und eigene App', 'url' => 'https://mallorca-festival-xxl.de', 'play_store_url' => 'https://play.google.com/store/apps/details?id=de.mallorcafestivalxxl.app', 'mode' => 'own_shop', 'approved' => true]];
+update_option($O::OPT_CATALOG, $c32, false);
+$d32 = $O::clean_data(['customer' => ['company' => 'Ref'], 'items' => [$it('shop'), $it('app'), $it('wallet', null, ['gift' => true])], 'mode' => 'own_shop', 'references' => ['kitchenklub', 'mallorca-festival-xxl']]);
+$s32 = (string) $O::render_pdf($d32, ['number' => 'AN-T-32', 'date' => wp_date('Y-m-d'), 'length' => 'short', 'link' => 'https://evendis.de/?tix_offer=x']);
+$l32 = $ptxt($O::render_pdf($d32, ['number' => 'AN-T-32', 'date' => wp_date('Y-m-d')]));
+$eq('Referenzen kurz (Kacheln, ≤ 2 Seiten) und lang', [true, true, true, true, true],
+    [substr_count($s32, '/Type /Page /Parent') <= 2, strpos($ptxt($s32), 'So sieht es bei anderen aus') !== false, strpos($ptxt($s32), 'Mallorca Festival XXL') !== false, strpos($ptxt($s32), 'App Store') !== false, strpos($l32, 'So sieht es bei anderen aus') !== false]);
+if ($bak32 === null) delete_option($O::OPT_CATALOG); else update_option($O::OPT_CATALOG, $bak32, false);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

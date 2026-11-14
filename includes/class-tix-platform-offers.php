@@ -2191,8 +2191,8 @@ class TIX_Platform_Offers {
             $out .= '<div class="c"><h2>So sieht es bei anderen aus</h2>';
             foreach ($B['references'] as $r) {
                 $img = $r['image_url'] ?: $r['logo_url'];
-                $links = array_filter([$r['url'] ? '<a href="' . esc_url($r['url']) . '" rel="noopener">' . $e(preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/'))) . '</a>' : '',
-                    $r['app_store_url'] ? '<a href="' . esc_url($r['app_store_url']) . '" rel="noopener">App Store</a>' : '', $r['play_store_url'] ? '<a href="' . esc_url($r['play_store_url']) . '" rel="noopener">Google Play</a>' : '']);
+                $links = array_filter([!empty($r['url']) ? '<a href="' . esc_url($r['url']) . '" rel="noopener">' . $e(preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/'))) . '</a>' : '',
+                    !empty($r['app_store_url']) ? '<a href="' . esc_url($r['app_store_url']) . '" rel="noopener">App Store</a>' : '', !empty($r['play_store_url']) ? '<a href="' . esc_url($r['play_store_url']) . '" rel="noopener">Google Play</a>' : '']);
                 $out .= '<div class="b" style="align-items:center">' . ($img ? '<img src="' . esc_url($img) . '" alt="' . esc_attr($r['name']) . '" style="width:72px;height:72px;object-fit:cover;border-radius:12px;flex:0 0 72px">' : '<i></i>')
                     . '<div><strong>' . $e($r['name']) . '</strong> <span class="mu">· ' . $e($r['mode_label']) . '</span>' . ($r['text'] !== '' ? '<div>' . $e($r['text']) . '</div>' : '') . ($links ? '<div class="mu">' . implode(' · ', $links) . '</div>' : '') . '</div></div>';
             }
@@ -2944,6 +2944,29 @@ class TIX_Platform_Offers {
         // ═══ Kurzangebot (1.38.831, User: „ein bisschen komprimiert … ob lang oder kurz“): höchstens 2 Seiten, gleiches Design
         if ($short) {
             $xPs = $xR - 8;
+            // Referenzen kompakt (1.38.832): bis zu 2 kleine Kacheln nebeneinander – direkt unter dem Faktenblock (passt meist noch auf Seite 1)
+            if ($B['references']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                $y -= 12;
+                $col(self::K_INK); $font(true, 10.5); $tx($M, $y, 'So sieht es bei anderen aus'); $y -= 12;
+                foreach (array_chunk($B['references'], 2) as $pair) {
+                    $tw2 = ($CW - 12) / 2; $tiles = []; $hmax = 0;
+                    foreach ($pair as $r) {
+                        $font(false, 8); $tl = $wrap($r['text'], $tw2 - 24);
+                        $links = implode(' · ', array_filter([!empty($r['url']) ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', !empty($r['app_store_url']) ? 'App Store' : '', !empty($r['play_store_url']) ? 'Google Play' : '']));
+                        $tiles[] = [$r, $tl, $links]; $hmax = max($hmax, 34 + 10 * count($tl) + ($links !== '' ? 11 : 0));
+                    }
+                    $ensure($hmax + 8);
+                    foreach ($tiles as $j => [$r, $tl, $links]) {
+                        $x = $M + $j * ($tw2 + 12);
+                        $col(self::K_SOFT); $P->rrect($x, $y - $hmax + 8, $tw2, $hmax, 12, true);
+                        $yy = $y - 10;
+                        $col(self::K_INK); $font(true, 9.5); $tx($x + 12, $yy, $r['name']); $yy -= 12;
+                        $col(self::K_MUTED); $font(false, 8); foreach ($tl as $ln) { $tx($x + 12, $yy, $ln); $yy -= 10; }
+                        if ($links !== '') { $col(self::K_RED); $font(false, 8); $tx($x + 12, $yy, $links); }
+                    }
+                    $y -= $hmax + 6;
+                }
+            }
             // Leistungen kompakt: Grundpaket (geschenkte Module in einer Zeile), Optional als kurze Liste
             for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
                 $section('Leistungen');
@@ -3300,7 +3323,7 @@ class TIX_Platform_Offers {
         if ($B['references']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $section('So sieht es bei anderen aus');
             foreach ($B['references'] as $r) {
-                $links = array_filter([$r['url'] ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', $r['app_store_url'] ? 'App Store' : '', $r['play_store_url'] ? 'Google Play' : '']);
+                $links = array_filter([!empty($r['url']) ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', !empty($r['app_store_url']) ? 'App Store' : '', !empty($r['play_store_url']) ? 'Google Play' : '']);
                 $font(false, 9); $rt2 = $r['text'] !== '' ? $wrap($r['text'], $CW - 14) : [];
                 $ensure(30 + 12 * count($rt2));
                 $col(self::K_RED); $P->rrect($M, $y + 2.5, 4, 4, 2.0, true);
