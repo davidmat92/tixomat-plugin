@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.833: „So kommen die Zahlen zustande“ auf eigener Seite.
  * 1.38.832: Referenzen im Kurzangebot.
  * 1.38.831: kein Vorsteuer-Satz, Kurzangebot (length short, ≤ 2 Seiten).
  * 1.38.830: App-Vorteile mit Etikett „mit App-Paket“.
@@ -343,6 +344,16 @@ $l32 = $ptxt($O::render_pdf($d32, ['number' => 'AN-T-32', 'date' => wp_date('Y-m
 $eq('Referenzen kurz (Kacheln, ≤ 2 Seiten) und lang', [true, true, true, true, true],
     [substr_count($s32, '/Type /Page /Parent') <= 2, strpos($ptxt($s32), 'So sieht es bei anderen aus') !== false, strpos($ptxt($s32), 'Mallorca Festival XXL') !== false, strpos($ptxt($s32), 'App Store') !== false, strpos($l32, 'So sieht es bei anderen aus') !== false]);
 if ($bak32 === null) delete_option($O::OPT_CATALOG); else update_option($O::OPT_CATALOG, $bak32, false);
+
+// ── 1.38.833: „So kommen die Zahlen zustande“ auf eigener Seite
+$d33 = $O::clean_data(['customer' => ['company' => 'Seite GmbH', 'name' => 'Eva Test'], 'items' => [$it('shop'), $it('app')], 'mode' => 'own_shop', 'plan' => ['lead' => 5000]]);
+$raw33 = (string) $O::render_pdf($d33, ['number' => 'AN-T-33', 'date' => wp_date('Y-m-d')]);
+$pg33 = [];
+if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $raw33, $m33)) foreach ($m33[1] as $z) { $u = @gzuncompress($z); if ($u !== false && strpos($u, ' Tf ') !== false) $pg33[] = $u; }
+$ix = null; foreach ($pg33 as $i => $c) if (strpos($c, 'So kommen die Zahlen zustande') !== false) $ix = $i;
+$eq('Erklärung auf eigener Seite: beginnt nach Seite 1 (Anschreiben), alle Schritte und Fußnote auf derselben Seite, ohne Faktenblock/Anrede', [true, true, true, false, false],
+    [$ix !== null && $ix > 0, $ix !== null && strpos($pg33[$ix], 'Was dir bleibt') !== false && strpos($pg33[$ix], 'Deine Ticketeinnahmen') !== false, $ix !== null && strpos($pg33[$ix], 'Netto = ohne') !== false,
+     $ix !== null && strpos($pg33[$ix], 'Hallo') !== false, $ix !== null && strpos($pg33[$ix], 'das zahlst du, das bleibt dir') !== false]);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

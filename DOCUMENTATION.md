@@ -6766,3 +6766,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - Kurzangebot zeigt gewählte Referenzen kompakt direkt unter dem Faktenblock: Überschrift „So sieht es bei anderen aus“ und bis zu 2 Kacheln je Reihe (Name, ein Satz, Website · App Store · Google Play); die Langfassung behält ihren Block. 2-Seiten-Grenze geprüft (Ina-Colada-Nachbau mit allen geschenkten Modulen und 2 Referenzen).
 - Skript `uebergaben/referenzen-setzen.php` (WP-CLI, Probelauf ohne Argument, `apply` schreibt): legt die Referenzen KitchenKlub und Mallorca Festival XXL im Angebots-Katalog an bzw. aktualisiert sie (approved, Logos bleiben) und setzt sie in `data.references` von Angebot id 2.
 - **Test:** `test-offer-options-wp` (125); Fixtures 1.38.832.
+
+## 221. Angebots-PDF: „So kommen die Zahlen zustande“ auf eigener Seite (ab 1.38.833)
+- Langfassung: Der Abschnitt (Überschrift, alle Schritte, Begriffe) beginnt immer auf einer neuen Seite und bleibt zusammen; Seite 1 endet nach Faktenblock, Festpreis und Anschreiben. Kurzfassung unverändert.
+- **Test:** `test-offer-options-wp` (126); Fixtures 1.38.833.

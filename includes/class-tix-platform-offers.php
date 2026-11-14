@@ -3069,11 +3069,12 @@ class TIX_Platform_Offers {
                 }
                 $y -= 8;
             };
-            $nst = count($LD['steps']);
-            foreach (array_values($LD['steps']) as $k => $st) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
-                if ($k === 0) $section('So kommen die Zahlen zustande', $LD['headline'] . ', nur Grundpaket – Schritt für Schritt.');
-                $drawstep($k, $st);
-                if ($k === $nst - 1) $para($LD['glossary'], 8, self::K_MUTED);
+            // Ganzer Abschnitt auf eigener Seite (1.38.833, User: „So kommen die Zahlen zustande bitte komplett auf eigene Seite“)
+            $newpage();
+            for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                $section('So kommen die Zahlen zustande', $LD['headline'] . ', nur Grundpaket – Schritt für Schritt.');
+                foreach (array_values($LD['steps']) as $k => $st) $drawstep($k, $st);
+                $para($LD['glossary'], 8, self::K_MUTED);
             }
         }
 
