@@ -111,10 +111,11 @@ class TIX_Offer_Plan {
         $pf_brutto = $p['avg_price'] * $pf['percent'] / 100 + $pf['fixed'];
         $pf_netto = $pf_brutto / $vat;
         $opt = floatval($x['extras_year'] ?? 0); // angehakte Optionen im Jahr (AN2)
+        $server = floatval($x['server'] ?? 0); // selbstgehostet: Server beim Hoster des Kunden (ca., je Jahr)
         $kanal = !empty($x['channel']) ? $t * floatval($p['channel_share'] ?? 0) / 100 * ($p['avg_price'] * $x['channel']['percent'] / 100 + $x['channel']['fixed']) / $vat : 0.0; // netto
-        $selbst = $shop === null ? null : $umsatz + $ein - $zahlung - $shop - $opt - $kanal;
+        $selbst = $shop === null ? null : $umsatz + $ein - $zahlung - $shop - $opt - $server - $kanal;
         $pf_g = $umsatz; $pf_s = $umsatz - $t * $pf_netto;
-        return ['tickets' => $t, 'orders' => $orders, 'revenue' => $umsatz, 'own_fee' => $ein, 'psp' => $zahlung, 'evendis' => $shop, 'options' => $opt, 'channel' => $kanal, 'kept' => $selbst,
+        return ['tickets' => $t, 'orders' => $orders, 'revenue' => $umsatz, 'own_fee' => $ein, 'psp' => $zahlung, 'evendis' => $shop, 'options' => $opt, 'server' => $server, 'channel' => $kanal, 'kept' => $selbst,
             'pf_gross' => $pf_brutto, 'pf_net' => $pf_netto, 'platform_guests' => $pf_g, 'platform_self' => $pf_s,
             'advantage' => $selbst === null ? null : $selbst - ($with_fee ? $pf_g : $pf_s)];
     }
@@ -142,11 +143,20 @@ class TIX_Offer_Plan {
      */
     public static function compute(array $p, array $cat, array $ctx = []) {
         $rates = TIX_Platform_Offers::rates_by_key($cat['payment_rates'] ?? []);
-        $tiers = !empty($ctx['tiers']) ? (array) $ctx['tiers'] : (!empty($cat['shop_tiers']) ? (array) $cat['shop_tiers'] : self::default_tiers());
+        // Betriebsart (User 14.11.): own_shop = unsere Server, self_hosted = Server des Kunden; Vorgabe own_shop (AN1)
+        $mode = in_array($ctx['mode'] ?? '', ['own_shop', 'self_hosted'], true) ? $ctx['mode'] : 'own_shop';
         $f = isset($ctx['factor']) ? floatval($ctx['factor']) : 1.0;
-        if (abs($f - 1) > 0.00001) $tiers = array_map(function ($x) use ($f) { return ['max' => $x['max'], 'price' => floatval($x['price']) * $f]; }, $tiers);
+        $tiers_of = function ($m) use ($ctx, $cat, $f) {
+            $t = !empty($ctx['tiers_by_mode'][$m]) ? (array) $ctx['tiers_by_mode'][$m]
+                : ($m === 'self_hosted' ? (!empty($cat['self_hosted_tiers']) ? (array) $cat['self_hosted_tiers'] : [['max' => self::MAX_T, 'price' => 699.0]])
+                : (!empty($cat['shop_tiers']) ? (array) $cat['shop_tiers'] : self::default_tiers()));
+            return abs($f - 1) > 0.00001 ? array_map(function ($x) use ($f) { return ['max' => $x['max'], 'price' => floatval($x['price']) * $f]; }, $t) : $t;
+        };
+        if (!empty($ctx['tiers'])) $ctx['tiers_by_mode'][$mode] = $ctx['tiers'];
+        $tiers = $tiers_of($mode);
         $fixed = $p['shop_price'] !== null ? $p['shop_price'] : (isset($ctx['fixed']) && $ctx['fixed'] !== null ? floatval($ctx['fixed']) * $f : null);
-        $x = ['extras_year' => floatval($ctx['extras_year'] ?? 0) * $f, 'channel' => $ctx['channel'] ?? null];
+        $server_year = array_key_exists('server_year', $ctx) ? floatval($ctx['server_year']) : floatval($cat['server_month'] ?? 20) * 12;
+        $x = ['extras_year' => floatval($ctx['extras_year'] ?? 0) * $f, 'channel' => $ctx['channel'] ?? null, 'server' => $mode === 'self_hosted' ? $server_year : 0.0];
         $vat = 1 + floatval($cat['tax_rate'] ?? 19) / 100;
         $pl = TIX_Platform_Offers::catalog_item('tickets');
         $pf = ['percent' => floatval($pl['fee_percent'] ?? 2.9), 'fixed' => floatval($pl['fee_fixed'] ?? 0.49)];
@@ -159,9 +169,22 @@ class TIX_Offer_Plan {
             $wo = self::row($t, $p, $b, $shop, $pf, $vat, false, $x);
             $rows[] = ['tickets' => $t, 'custom' => $p['custom'] === $t, 'orders' => round($w['orders'], 1), 'revenue' => $r2($w['revenue']), 'own_fee' => $r2($w['own_fee']),
                 'psp' => $r2($w['psp']), 'evendis' => $r2($shop), 'on_request' => $shop === null, 'options' => $r2($w['options']), 'channel_fee' => $r2($w['channel']),
-                'evendis_total' => $shop === null ? null : $r2($shop + $w['options'] + $w['channel']), 'kept' => $r2($w['kept']),
+                'evendis_total' => $shop === null ? null : $r2($shop + $w['options'] + $w['channel']), 'server' => $r2($w['server']), 'kept' => $r2($w['kept']),
                 'platform_guests_pay' => $r2($w['platform_guests']), 'platform_you_pay' => $r2($w['platform_self']),
                 'advantage' => $r2($w['advantage']), 'kept_without_fee' => $r2($wo['kept']), 'advantage_without_fee' => $r2($wo['advantage'])];
+        }
+        // Vergleich der Betriebsarten (Plattform steckt in jeder Zeile): eigener Shop und selbstgehostet mit ihrer Staffel
+        $by_mode = [];
+        foreach (['own_shop', 'self_hosted'] as $m) {
+            $tm = $m === $mode ? $tiers : $tiers_of($m);
+            $fm = $m === $mode ? $fixed : null;
+            $xm = ['extras_year' => $x['extras_year'], 'channel' => $x['channel'], 'server' => $m === 'self_hosted' ? $server_year : 0.0];
+            $by_mode[$m] = ['break_even' => ['with_fee' => self::break_even($p, $b, $tm, $fm, $pf, $vat, true, $xm), 'without_fee' => self::break_even($p, $b, $tm, $fm, $pf, $vat, false, $xm)]];
+            foreach ($p['steps'] as $i => $t) {
+                $sp = self::shop_price($t, $tm, $fm);
+                $w = self::row($t, $p, $b, $sp, $pf, $vat, true, $xm);
+                $rows[$i]['compare'][$m] = ['evendis' => $r2($sp), 'server' => $r2($w['server']), 'kept' => $r2($w['kept']), 'advantage' => $r2($w['advantage'])];
+            }
         }
         $methods = [];
         foreach ($p['mix'] as $k => $share) {
@@ -176,6 +199,9 @@ class TIX_Offer_Plan {
         foreach ($rates as $k => $r) $all_rates[] = ['key' => $k, 'label' => (string) ($r['label'] ?? $k), 'provider' => (string) ($r['provider'] ?? ''), 'percent' => $r['percent'] ?? null, 'fixed' => $r['fixed'] ?? null, 'as_of' => (string) ($r['as_of'] ?? ''), 'source' => (string) ($r['source'] ?? '')];
         return [
             'input' => $p,
+            'mode' => $mode, // Betriebsart der Hauptzeilen (rows.kept); rows[].compare und by_mode für beide eigenen Betriebsarten
+            'server_month' => round($server_year / 12, 2),
+            'by_mode' => $by_mode,
             'rows' => $rows,
             'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, true, $x), 'without_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, false, $x)],
             // Block 1: an evendis

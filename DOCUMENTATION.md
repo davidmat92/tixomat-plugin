@@ -6661,8 +6661,17 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 
 ## 205. Angebote: Optionen per Häkchen, freie Preise, PDF „Dein eigener Ticketshop“ (AN2, ab 1.38.817)
 - **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt AN2).
-- **`TIX_Platform_Offers`:** `items[].on`, `options_list()`/`active_items()`, `extras` (`evendis_channel`), `clean_price_overrides()` (`shop_tiers`, `channel_fee`, `items`), `channel_fee()`, `layout_of()`, `plan_context()`, `plan_for_offer()`, `selfhosted_blocks()`, `render_pdf_selfhosted()`, `page_tiles()`/`page_selfhosted()`; neue Katalog-Positionen (Veranstalter-App, Einrichtung, Hosting, API, Module).
+- **`TIX_Platform_Offers`:** `items[].on`, `options_list()`/`active_items()`, `extras` (`evendis_channel`), `clean_price_overrides()` (`shop_tiers`, `channel_fee`, `items`), `channel_fee()`, `layout_of()`, `plan_context()`, `plan_for_offer()`, `own_blocks()`, `render_pdf_own()`, `page_tiles()`/`page_own()` (ab 818 umbenannt); neue Katalog-Positionen (Veranstalter-App, Einrichtung, Hosting, API, Module).
 - **`TIX_Offer_Plan::compute($p, $cat, $ctx)`:** Kontext aus dem Angebot (Staffel, fester Preis, Optionen, Kanal-Gebühr, Rabatt-Faktor); `channel_share`.
 - **`TIX_Offer_Hosting`:** nur angehakte Positionen.
 - **Test:** `test-offer-options-wp` (22 Plattform, 17 Einzel-Seiten).
+
+## 206. Angebote: Betriebsart, Rundum-Einrichtung, Referenzen (ab 1.38.818)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt 1.38.818).
+- **Betriebsart** `data.mode` platform | own_shop (= Lizenz `managed`) | self_hosted (= Lizenz `selfhosted`): `MODES`, `MODE_LICENSE`, `MODE_TEXTS`, `derive_mode()`, `mode_of()`, `base_keys()`, `mode_hints()`; Katalog `self_hosted_tiers`, `server_month`; `price_overrides.self_hosted_tiers|server_month`.
+- **`TIX_Offer_Plan::compute`:** `ctx.mode`, `tiers_by_mode`, `server_year`; `rows[].server`, `rows[].compare`, `by_mode`.
+- **Rundum-Einrichtung:** Position `einrichtung` + Katalog `setup` (`default_setup()`, `clean_setup()`), Block im PDF/online.
+- **Referenzen:** Katalog `references` (`clean_references()`, `reference()`), `GET /platform/offer-references`, `data.references`, Block „So sieht es bei anderen aus“.
+- **Layout-Wert** `own` statt `selfhosted`.
+- **Test:** `test-offer-options-wp` (41 Plattform, 34 Einzel-Seiten); `test-platform-offers-wp` erwartet „EIGENER SHOP“ in der Hochrechnung eines Shop-Angebots.
 

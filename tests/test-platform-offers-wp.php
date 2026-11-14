@@ -134,7 +134,7 @@ $pdf_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\ne
 po_eq('PDF lesbar („Bedingungen“, „Interesse bestätigen“), ohne Wettbewerbsvergleich und ohne Startangebot', [true, true, false, false, false],
     [stripos($pdf_txt, 'Bedingungen') !== false, stripos($pdf_txt, 'Interesse') !== false, stripos($pdf_txt, 'Im Vergleich') !== false, stripos($pdf_txt, 'EVENTIM') !== false, strpos($pdf_txt, '31.01.2027') !== false]);
 po_eq('PDF: Block „Hochrechnung je Event“ mit beiden Modellen und Hinweis zum Zahlungsdienstleister', [true, true, true, true],
-    [strpos($pdf_txt, 'Hochrechnung je Event') !== false, strpos($pdf_txt, 'PROVISIONSMODELL') !== false && strpos($pdf_txt, 'SELBSTGEHOSTET') !== false,
+    [strpos($pdf_txt, 'Hochrechnung je Event') !== false, strpos($pdf_txt, 'PROVISIONSMODELL') !== false && strpos($pdf_txt, 'EIGENER SHOP') !== false, // Begriffe 14.11.: Shop-Angebot = eigener Shop, nicht selbstgehostet
         strpos($pdf_txt, 'Zahlungsdienstleister') !== false, strpos($pdf_txt, 'Tickets im Monat') !== false]);
 $o_nf = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_nf['projection']['in_pdf'] = false;
 $pdf_off = (string) TIX_Platform_Offers::render_pdf($o_nf, ['number' => 'T', 'link' => '']);
