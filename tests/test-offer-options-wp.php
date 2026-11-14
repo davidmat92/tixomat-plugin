@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.825: Staffel 790/1.690 (bis 5.000/10.000, darüber Anfrage), Vertriebler (sales_reps/sales_rep), Blöcke nie über Seitengrenzen.
  * 1.38.823: Jahresvertrag nach Staffel (nie 12 × Monat), „Optional dazubuchbar“ (totals.base/with_options), Plattform-Vergleich nur mit compare_platform.
  *   wp eval-file …/test-offer-options-wp.php (Teil REST nur auf der Plattform)
  */
@@ -38,7 +39,7 @@ $eq('Kanal-Gebühr netto: 1.000 × 20 % × (25 × 2,5 % + 0,39) / 1,19 = 170,59'
 $eq('Bleibt = Umsatz + Gebühr − Zahlung − Shop − Optionen − Kanal', round($pc['rows'][0]['revenue'] + $pc['rows'][0]['own_fee'] - $pc['rows'][0]['psp'] - 590 - 300 - 170.59, 2), $pc['rows'][0]['kept']);
 $d5 = $O::clean_data(['items' => [$it('shop', 'yearly', ['price' => 1200])], 'plan' => []]);
 $p5 = $O::plan_result(array_merge($d5, ['plan' => TIX_Offer_Plan::clean([], $O::catalog())]));
-$eq('Shop-Preis frei → fester Jahrespreis in allen Stufen, auch über 50.000 keine Anfrage', [1200.0, 1200.0], [$p5['rows'][0]['evendis'], $p5['rows'][3]['evendis']]);
+$eq('Shop-Preis frei → fester Jahrespreis in allen Stufen, auch über 10.000 keine Anfrage', [1200.0, 1200.0], [$p5['rows'][0]['evendis'], $p5['rows'][2]['evendis']]);
 $d6 = $O::clean_data(['items' => [$it('shop', 'yearly')], 'discount' => ['type' => 'percent', 'value' => 10]]);
 $p6 = $O::plan_result(array_merge($d6, ['plan' => TIX_Offer_Plan::clean([], $O::catalog())]));
 $eq('Rabatt wirkt auf „an evendis“ (790 − 10 % = 711)', 711.0, $p6['rows'][0]['evendis']);
@@ -70,8 +71,8 @@ $eq('Hosting nur beim eigenen Shop (Fehler), Lizenz im eigenen Shop (Hinweis)', 
     [($e1 = $O::mode_error($O::clean_data(['items' => [$it('lizenz'), $it('hosting')]]))) ? $e1->get_error_code() : '', $e1 ? $e1->get_error_data()['field'] : '', array_column($O::mode_hints($O::clean_data(['items' => [$it('lizenz')], 'mode' => 'own_shop'])), 'code')]);
 $ds = $O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app')], 'mode' => 'self_hosted', 'plan' => [], 'price_overrides' => ['server_month' => 30]]);
 $ps = $O::plan_result($ds);
-$eq('Selbstgehostet „wie eigener Shop plus Server“: Staffel 790 … 2.490 €, Server 30 × 12 = 360 € (nicht an evendis), Vergleich eigener Shop 790 € ohne Server', ['self_hosted', 790.0, 360.0, 2490.0, 790.0, 0.0],
-    [$ps['mode'], $ps['rows'][0]['evendis'], $ps['rows'][0]['server'], $ps['rows'][3]['evendis'], $ps['rows'][0]['compare']['own_shop']['evendis'], $ps['rows'][0]['compare']['own_shop']['server']]);
+$eq('Selbstgehostet „wie eigener Shop plus Server“: Staffel 790 … 1.690 €, Server 30 × 12 = 360 € (nicht an evendis), Vergleich eigener Shop 790 € ohne Server', ['self_hosted', 790.0, 360.0, 1690.0, 790.0, 0.0],
+    [$ps['mode'], $ps['rows'][0]['evendis'], $ps['rows'][0]['server'], $ps['rows'][2]['evendis'], $ps['rows'][0]['compare']['own_shop']['evendis'], $ps['rows'][0]['compare']['own_shop']['server']]);
 $eq('Bleibt selbstgehostet = Umsatz + Gebühr − Zahlung − 790 − App 1.788 − Server 360; Lizenz-Listenpreis jährlich = 1. Stufe', [round(25000 + 1500 - $ps['rows'][0]['psp'] - 790 - 1788 - 360, 2), 790.0], [$ps['rows'][0]['kept'], $ds['items'][0]['list_price']]);
 $eq('Break-even je Betriebsart vorhanden', [true, true], [isset($ps['by_mode']['own_shop']['break_even']['with_fee']), isset($ps['by_mode']['self_hosted']['break_even']['with_fee'])]);
 $eq('Ungültige Betriebsart → 400 mode', 'mode', $O::plan_error(['mode' => 'cloud'])->get_error_data()['field'] ?? '');
@@ -110,7 +111,7 @@ $eq('Reihenfolge im Überblick: Angebots-Betriebsart zuerst; Plattform nur mit c
 // ── 1.38.822 führende Stufe
 $C = $O::catalog();
 $pl = TIX_Offer_Plan::compute(TIX_Offer_Plan::clean([], $C), $C);
-$eq('Vorgabe führend: 5.000 Tickets (in den Stufen), Stufen unverändert', [5000, [1000, 5000, 20000, 50000]], [$pl['lead']['tickets'], array_column($pl['rows'], 'tickets')]);
+$eq('Vorgabe führend: 5.000 Tickets (in den Stufen), Stufen unverändert (1.000/5.000/10.000 ab 1.38.825)', [5000, [1000, 5000, 10000]], [$pl['lead']['tickets'], array_column($pl['rows'], 'tickets')]);
 $pl2 = TIX_Offer_Plan::compute(TIX_Offer_Plan::clean(['lead' => 8000], $C), $C);
 $eq('Gewählt 8.000 → als Stufe ergänzt, Faktenblock = Summen-Zeile', [8000, true, true], [$pl2['lead']['tickets'], in_array(8000, array_column($pl2['rows'], 'tickets'), true),
     $pl2['lead']['kept'] === $pl2['totals'][array_search(8000, array_column($pl2['totals'], 'tickets'), true)]['modes']['own_shop']['kept']]);
@@ -138,23 +139,23 @@ $eq('PDF: Faktenblock und Erklärung', [true, true], [strpos($pdf_l, '%PDF') ===
 $ptxt = function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', (string) $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; };
 $j1 = $O::clean_data(['items' => [$it('shop', 'monthly')], 'mode' => 'own_shop']);
 $eq('Jahresvertrag: Shop „monatlich“ angelegt → jährlich, 790 € (Staffel bei 5.000), nicht 12 × 79 = 948', ['yearly', 790.0, 790.0], [$j1['items'][0]['interval'], $j1['items'][0]['list_price'], $O::totals($j1)['yearly']['net']]);
-$j2 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'plan' => ['lead' => 20000]]);
-$j3 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'projection' => ['tickets' => 400, 'avg_price' => 20, 'events_year' => 50]]);
-$j4 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'plan' => ['lead' => 60000]]);
-$eq('Jahrespreis nach führender Stufe: 20.000 → 1.490, Hochrechnung 400 × 50 → 1.490, über 50.000 → kein Listenpreis (Preis fehlt)', [1490.0, 1490.0, null, true],
+$j2 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'plan' => ['lead' => 10000]]);
+$j3 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'projection' => ['tickets' => 400, 'avg_price' => 20, 'events_year' => 25]]);
+$j4 = $O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop', 'plan' => ['lead' => 20000]]);
+$eq('Jahrespreis nach führender Stufe (Staffel 1.38.825): 10.000 → 1.690, Hochrechnung 400 × 25 → 1.690, über 10.000 → kein Listenpreis (Preis fehlt)', [1690.0, 1690.0, null, true],
     [$j2['items'][0]['list_price'], $j3['items'][0]['list_price'], $j4['items'][0]['list_price'], in_array($j4['items'][0]['id'], $O::totals($j4)['missing_prices'], true)]);
-$j5 = $O::clean_data(['items' => [$it('lizenz', 'monthly')], 'mode' => 'self_hosted', 'plan' => ['lead' => 20000], 'extras' => ['setup_free' => true]]);
-$eq('Lizenz genauso: jährlich, 1.490 bei 20.000, Einrichtung erlassen 0 €', ['yearly', 1490.0, 1490.0, 0.0], [$j5['items'][0]['interval'], $j5['items'][0]['list_price'], $O::totals($j5)['yearly']['net'], $O::totals($j5)['once']['net']]);
+$j5 = $O::clean_data(['items' => [$it('lizenz', 'monthly')], 'mode' => 'self_hosted', 'plan' => ['lead' => 10000], 'extras' => ['setup_free' => true]]);
+$eq('Lizenz genauso: jährlich, 1.690 bei 10.000, Einrichtung erlassen 0 €', ['yearly', 1690.0, 1690.0, 0.0], [$j5['items'][0]['interval'], $j5['items'][0]['list_price'], $O::totals($j5)['yearly']['net'], $O::totals($j5)['once']['net']]);
 $Bj = $O::own_blocks($j2); $pj2 = $O::plan_result($j2);
 $pdf_j = $ptxt($O::render_pdf($j2, ['number' => 'AN-T-J', 'date' => wp_date('Y-m-d')]));
-$eq('Gleicher Jahreswert überall: Summe, plan_calc (Faktenblock + Zeile 20.000), Kachel/Fakt, PDF; kein 948 im PDF', [1490.0, 1490.0, 1490.0, '1.490 €', true, false],
-    [$O::totals($j2)['base']['yearly']['net'], $pj2['lead_base']['base_price'], $pj2['rows'][array_search(20000, array_column($pj2['rows'], 'tickets'), true)]['evendis'], $Bj['lead']['facts'][0]['value'],
-     (bool) preg_match('/1\.490,00 .{1,3}\/ Jahr/', $pdf_j), strpos($pdf_j, '948') !== false]);
-$eq('Festpreis (1.38.824): bei 20.000 „nie mehr als 1.490 €“, bei 5.000 „790 €“, mit Staffel; über der Staffel keiner', [true, true, true, null],
-    [strpos($Bj['fixed_price']['text'] ?? '', 'Bis 20.000 verkaufte Tickets im Jahr zahlst du nie mehr als 1.490') === 0, strpos($O::own_blocks($j1)['fixed_price']['text'] ?? '', 'nie mehr als 790') !== false,
+$eq('Gleicher Jahreswert überall: Summe, plan_calc (Faktenblock + Zeile 10.000), Kachel/Fakt, PDF; kein 948 im PDF', [1690.0, 1690.0, 1690.0, '1.690 €', true, false],
+    [$O::totals($j2)['base']['yearly']['net'], $pj2['lead_base']['base_price'], $pj2['rows'][array_search(10000, array_column($pj2['rows'], 'tickets'), true)]['evendis'], $Bj['lead']['facts'][0]['value'],
+     (bool) preg_match('/1\.690,00 .{1,3}\/ Jahr/', $pdf_j), strpos($pdf_j, '948') !== false]);
+$eq('Festpreis: bei 10.000 „nie mehr als 1.690 €“, bei 5.000 „790 €“, mit Staffel; über der Staffel keiner', [true, true, true, null],
+    [strpos($Bj['fixed_price']['text'] ?? '', 'Bis 10.000 verkaufte Tickets im Jahr zahlst du nie mehr als 1.690') === 0, strpos($O::own_blocks($j1)['fixed_price']['text'] ?? '', 'nie mehr als 790') !== false,
      strpos($Bj['fixed_price']['tiers'] ?? '', 'Staffel je Jahr') === 0, $O::own_blocks($j4)['fixed_price']]);
 $raw_j = (string) $O::render_pdf($j2, ['number' => 'AN-T-L', 'date' => wp_date('Y-m-d')]);
-$eq('PDF: Original-Logo als Bild, Festpreis-Satz sichtbar', [true, true], [strpos($raw_j, '/Subtype /Image') !== false || !function_exists('imagecreatefrompng'), strpos($ptxt($raw_j), 'Festpreis: Bis 20.000') !== false]);
+$eq('PDF: Original-Logo als Bild, Festpreis-Satz sichtbar', [true, true], [strpos($raw_j, '/Subtype /Image') !== false || !function_exists('imagecreatefrompng'), strpos($ptxt($raw_j), 'Festpreis: Bis 10.000') !== false]);
 $jm = $O::clean_data(['items' => [$it('shop_monatlich')], 'mode' => 'own_shop']);
 $eq('Monatspreis nur bei monatlicher Zahlung (Eigener Shop – monatlich kündbar): 99 €/Monat = 1.188 €/Jahr, „bei monatlicher Zahlung“', ['monthly', 1188.0, true],
     [$jm['items'][0]['interval'], $O::totals($jm)['yearly']['net'], strpos($O::own_blocks($jm)['block1']['base_rows'][0]['detail'], 'bei monatlicher Zahlung') === 0]);
@@ -190,6 +191,36 @@ $m2 = new ReflectionMethod('TIX_Platform_Offers', 'page_own'); $m2->setAccessibl
 $h2 = (string) $m2->invoke(null, ['own' => array_merge($Bo, ['plan_calc' => $O::strip_platform($Bo['plan'])]), 'totals' => $to], 'tok');
 $eq('Online: „Optional dazubuchbar“ mit Kennzeichen, Summe „Mit gewählten Optionen“, ohne Plattform-Spalte', [true, true, true, false],
     [strpos($h2, 'Optional dazubuchbar') !== false, strpos($h2, 'class="opt"') !== false, strpos($h2, 'Mit gewählten Optionen') !== false, strpos($h2, 'Plattform evendis.de') !== false]);
+
+// ── 1.38.825: neue Staffel, Vertriebler, Seitenumbruch
+$eq('Staffel 790 bis 5.000, 1.690 bis 10.000, darüber auf Anfrage; Stufen 1.000/5.000/10.000; selbstgehostet gleich', [[[5000, 790.0], [10000, 1690.0]], [1000, 5000, 10000], true],
+    [array_map(function ($x) { return [$x['max'], $x['price']]; }, TIX_Offer_Plan::default_tiers()), TIX_Offer_Plan::default_settings()['steps'], $O::default_catalog()['self_hosted_tiers'] == $O::default_catalog()['shop_tiers']]);
+$bak2 = get_option($O::OPT_CATALOG, null);
+$cm = $O::default_catalog(); $cm['shop_tiers'] = TIX_Offer_Plan::old_default_tiers(); $cm['self_hosted_tiers'] = TIX_Offer_Plan::old_default_tiers(); $cm['plan_defaults']['steps'] = [1000, 5000, 20000, 50000]; unset($cm['sales_reps']);
+update_option($O::OPT_CATALOG, $cm, false);
+$cc = $O::catalog();
+$eq('Gespeicherter Katalog mit alten Vorgaben → neue Staffel und Stufen, Vertriebler ergänzt', [1690.0, 1690.0, [1000, 5000, 10000], 3], [$cc['shop_tiers'][1]['price'], $cc['self_hosted_tiers'][1]['price'], $cc['plan_defaults']['steps'], count($cc['sales_reps'])]);
+$cm['shop_tiers'] = [['max' => 5000, 'price' => 690]]; update_option($O::OPT_CATALOG, $cm, false);
+$eq('Eigene Staffel im Katalog bleibt', [[5000, 690.0]], array_map(function ($x) { return [$x['max'], floatval($x['price'])]; }, $O::catalog()['shop_tiers']));
+$reps = $O::default_catalog()['sales_reps'];
+$eq('Vertriebler-Vorgaben: David (+49 175 5026857), Jan, Masod, E-Mail vertrieb@evendis.de', [['David Mathauschek', '+49 175 5026857'], ['Jan Preiß', '+49 1511 9712012'], ['Masod Kamaly', '+49 178 8281770'], ['vertrieb@evendis.de']],
+    [[$reps[0]['name'], $reps[0]['phone']], [$reps[1]['name'], $reps[1]['phone']], [$reps[2]['name'], $reps[2]['phone']], array_values(array_unique(array_column($reps, 'email')))]);
+$cm = $O::default_catalog(); $cm['sales_reps'][2]['user_id'] = get_current_user_id(); update_option($O::OPT_CATALOG, $cm, false);
+$sn = $O::clean_data(['customer' => ['company' => 'V'], 'mode' => 'own_shop']);
+$sj = $O::clean_data(['customer' => ['company' => 'V'], 'mode' => 'own_shop', 'sales_rep' => 'jan']);
+$eq('Neues Angebot: Vertriebler des eingeloggten Kontos vorausgewählt (Masod), gewählt Jan → Kontakt Jan', ['masod', 'Masod Kamaly', 'jan', ['Jan Preiß', 'vertrieb@evendis.de', '+49 1511 9712012']],
+    [$sn['sales_rep'], $sn['contact']['name'], $sj['sales_rep'], array_values($sj['contact'])]);
+$eq('Gewählter Vertriebler bleibt beim Ändern; Konto ohne Zuordnung → David; Altangebot ohne Vertriebler behält seinen Kontakt', ['jan', 'david', null, 'Alt Kontakt'],
+    [$O::clean_data(['intro' => 'x'], $sj)['sales_rep'], (function () use ($O) { update_option($O::OPT_CATALOG, $O::default_catalog(), false); return $O::clean_data(['customer' => ['company' => 'V']])['sales_rep']; })(),
+     ($ao = $O::clean_data(['intro' => 'y'], ['customer' => ['company' => 'A'], 'contact' => ['name' => 'Alt Kontakt', 'email' => 'alt@example.org', 'phone' => ''], 'items' => []]))['sales_rep'], $ao['contact']['name']]);
+$eq('Unbekannter Vertriebler → 400 sales_rep; Katalog: E-Mail ungültig → 400', ['sales_rep', 'sales_reps.0.email'],
+    [$O::plan_error(['sales_rep' => 'niemand'])->get_error_data()['field'] ?? '', $O::clean_sales_reps([['name' => 'X', 'email' => 'kaputt']])->get_error_data()['field'] ?? '']);
+$pdf_r = $ptxt($O::render_pdf($sj, ['number' => 'AN-T-R', 'date' => wp_date('Y-m-d')]));
+$eq('PDF: Kontakt zeigt den Vertriebler', [true, true], [strpos($pdf_r, '+49 1511 9712012') !== false, strpos($pdf_r, 'DEIN KONTAKT BEI EVENDIS') !== false]);
+if ($bak2 === null) delete_option($O::OPT_CATALOG); else update_option($O::OPT_CATALOG, $bak2, false);
+$many = [$it('shop')]; for ($i = 0; $i < 45; $i++) $many[] = $it('seating', null, ['price' => 5 + $i, 'name' => 'Modul Nr. ' . ($i + 1)]);
+$pdf_m = $ptxt($O::render_pdf($O::clean_data(['items' => $many, 'mode' => 'own_shop']), ['number' => 'AN-T-M', 'date' => wp_date('Y-m-d')]));
+$eq('Block größer als eine Seite: bricht um, Tabellenkopf wird wiederholt (PREIS mindestens 3×)', true, substr_count($pdf_m, '(PREIS)') >= 3);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

@@ -230,6 +230,8 @@ class TIX_Platform_Offers {
             // Betriebsarten (User 14.11.: „wie eigener shop plus 20 server“): Staffel selbstgehostet = Staffel eigener Shop, Server-Kosten beim Kunden ca. je Monat (eigene Zeile, frei)
             'self_hosted_tiers' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : [],
             'server_month' => 20.0,
+            // Vertriebler im Angebot (User 14.11.): „Dein Kontakt bei evendis“; user_id = Konto, bei dem er beim Anlegen vorausgewählt ist
+            'sales_reps' => self::default_sales_reps(),
             // Rundum-Einrichtung (Position „einrichtung“): Schritte und was beim Kunden bleibt, je Betriebsart (modes) bzw. nur mit App (needs app)
             'setup' => self::default_setup(),
             // Referenzen (User 14.11.): bestehende eigene Shops bzw. selbstgehostete Seiten; nur mit approved = true wählbar (Vorgabe aus)
@@ -254,6 +256,34 @@ class TIX_Platform_Offers {
                 $c('ticketino', 'TICKETINO', [1.13, 2.82, 4.93]),
             ],
         ];
+    }
+
+    public static function default_sales_reps() {
+        $r = function ($key, $name, $phone) { return ['key' => $key, 'name' => $name, 'phone' => $phone, 'email' => 'vertrieb@evendis.de', 'user_id' => null]; };
+        return [$r('david', 'David Mathauschek', '+49 175 5026857'), $r('jan', 'Jan Preiß', '+49 1511 9712012'), $r('masod', 'Masod Kamaly', '+49 178 8281770')];
+    }
+
+    /** Vertriebler-Liste bereinigen (nur Plattform-Admins pflegen sie über den Katalog) → array | WP_Error */
+    public static function clean_sales_reps($in) {
+        $out = []; $seen = [];
+        foreach (array_slice((array) $in, 0, 30) as $i => $r) {
+            if (!is_array($r)) continue;
+            $name = self::txt($r['name'] ?? '', 120, false);
+            $key = sanitize_key((string) ($r['key'] ?? '')) ?: sanitize_title($name);
+            if ($name === '' || $key === '') return new WP_Error('tix_catalog_invalid', 'Vertriebler: Name angeben.', ['status' => 400, 'field' => "sales_reps.$i.name"]);
+            if (isset($seen[$key])) return new WP_Error('tix_catalog_invalid', "Vertriebler „{$key}“ ist doppelt.", ['status' => 400, 'field' => "sales_reps.$i.key"]);
+            $mail = trim((string) ($r['email'] ?? ''));
+            if ($mail !== '' && !is_email($mail)) return new WP_Error('tix_catalog_invalid', 'Vertriebler: E-Mail ungültig.', ['status' => 400, 'field' => "sales_reps.$i.email"]);
+            $seen[$key] = true;
+            $uid = intval($r['user_id'] ?? 0);
+            $out[] = ['key' => $key, 'name' => $name, 'phone' => self::txt($r['phone'] ?? '', 60, false), 'email' => $mail !== '' ? sanitize_email($mail) : 'vertrieb@evendis.de', 'user_id' => $uid > 0 ? $uid : null];
+        }
+        return $out;
+    }
+
+    public static function sales_rep($key) {
+        foreach ((array) (self::catalog()['sales_reps'] ?? []) as $r) if (($r['key'] ?? '') === $key) return $r;
+        return null;
     }
 
     /** Zahlungs-Sätze (Online, Deutschland, Standardtarif) mit Stand und Quelle; fehlt ein Satz, steht percent/fixed null. */
@@ -366,6 +396,14 @@ class TIX_Platform_Offers {
         $def = self::default_catalog();
         foreach (['payment_rates', 'payment_note', 'projection_defaults', 'shop_tiers', 'plan_defaults', 'self_hosted_tiers', 'server_month', 'setup', 'references'] as $k) if (!array_key_exists($k, $c)) $c[$k] = $def[$k]; // ältere gespeicherte Kataloge
         foreach ($def['payment_rates'] as $k => $r) if (!isset($c['payment_rates'][$k])) $c['payment_rates'][$k] = $r; // neue Zahlarten (1.38.816)
+        if (!array_key_exists('sales_reps', $c)) $c['sales_reps'] = $def['sales_reps']; // Vertriebler (1.38.825)
+        // Neue Staffel (1.38.825): unveränderte alte Vorgaben 790/1.490/2.490 bzw. Stufen bis 50.000 auf 790/1.690 und 1.000/5.000/10.000 heben
+        if (class_exists('TIX_Offer_Plan')) {
+            $norm = function ($t) { return array_map(function ($x) { return [intval($x['max'] ?? 0), round(floatval($x['price'] ?? 0), 2)]; }, (array) $t); };
+            $old = $norm(TIX_Offer_Plan::old_default_tiers());
+            foreach (['shop_tiers', 'self_hosted_tiers'] as $k) if ($norm($c[$k]) === $old) $c[$k] = TIX_Offer_Plan::default_tiers();
+            if (array_map('intval', (array) ($c['plan_defaults']['steps'] ?? [])) === TIX_Offer_Plan::OLD_DEFAULT_STEPS) $c['plan_defaults']['steps'] = TIX_Offer_Plan::default_settings()['steps'];
+        }
         return $c;
     }
 
@@ -463,6 +501,9 @@ class TIX_Platform_Offers {
         if ($sm === null || $sm > 10000) return new WP_Error('tix_catalog_invalid', 'Server-Kosten je Monat 0 bis 10.000 €.', ['status' => 400, 'field' => 'server_month']);
         $out['server_month'] = $sm;
         $out['setup'] = self::clean_setup(array_key_exists('setup', $in) ? $in['setup'] : (self::catalog()['setup'] ?? $def['setup']));
+        $sr = self::clean_sales_reps(array_key_exists('sales_reps', $in) ? $in['sales_reps'] : (self::catalog()['sales_reps'] ?? self::default_sales_reps())); // ohne Feld bleibt die Liste
+        if (is_wp_error($sr)) return $sr;
+        $out['sales_reps'] = $sr;
         $refs = self::clean_references(array_key_exists('references', $in) ? $in['references'] : (self::catalog()['references'] ?? [])); // Studio ohne Feld löscht nichts
         if (is_wp_error($refs)) return $refs;
         $out['references'] = $refs;
@@ -636,6 +677,17 @@ class TIX_Platform_Offers {
         $me = wp_get_current_user();
         $contact = ['name' => self::txt($ct['name'] ?? '', 120, false) ?: (string) ($me->display_name ?? ''), 'email' => sanitize_email((string) ($ct['email'] ?? '')) ?: (string) ($me->user_email ?? ''),
             'phone' => self::txt($ct['phone'] ?? '', 60, false)];
+        // Vertriebler (1.38.825): gewählt → bisher gewählt → Konto des Anlegenden (user_id) → beim neuen Angebot David; sein Name, Telefon, E-Mail sind der Kontakt
+        $reps = (array) ($cat['sales_reps'] ?? []);
+        $rk = array_key_exists('sales_rep', $in) ? sanitize_key((string) $in['sales_rep']) : (string) ($old['sales_rep'] ?? '');
+        $rep = null;
+        foreach ($reps as $r) if ($rk !== '' && $r['key'] === $rk) $rep = $r;
+        if (!$rep && !array_key_exists('sales_rep', $in) && empty($old['sales_rep'])) {
+            $uid = intval($me->ID ?? 0);
+            foreach ($reps as $r) if ($uid > 0 && intval($r['user_id'] ?? 0) === $uid) { $rep = $r; break; }
+            if (!$rep && !$old) foreach ($reps as $r) if ($r['key'] === 'david') { $rep = $r; break; }
+        }
+        if ($rep) $contact = ['name' => $rep['name'], 'email' => $rep['email'] ?: 'vertrieb@evendis.de', 'phone' => $rep['phone']];
         $intro = $g('intro', null);
         $cond = $g('conditions', null);
         return [
@@ -652,7 +704,7 @@ class TIX_Platform_Offers {
             'mode' => $mode, 'mode_chosen' => $mode_chosen, 'references' => array_slice($refs, 0, 6),
             'intro' => $intro === null ? (string) $cat['intro'] : self::txt($intro, 3000),
             'conditions' => $cond === null ? (string) $cat['conditions'] : self::txt($cond, 3000),
-            'contact' => $contact, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
+            'contact' => $contact, 'sales_rep' => $rep ? $rep['key'] : null, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
         ];
     }
 
@@ -1368,6 +1420,7 @@ class TIX_Platform_Offers {
             $r = self::reference(sanitize_key(is_array($rk) ? (string) ($rk['key'] ?? '') : (string) $rk));
             if (!$r || !$r['approved']) return new WP_Error('tix_invalid_field', 'Diese Referenz gibt es nicht oder sie ist nicht freigegeben.', ['status' => 400, 'field' => "references.$i"]);
         }
+        if (array_key_exists('sales_rep', $b) && $b['sales_rep'] !== null && $b['sales_rep'] !== '' && !self::sales_rep(sanitize_key((string) $b['sales_rep']))) return new WP_Error('tix_invalid_field', 'Diesen Vertriebler gibt es nicht.', ['status' => 400, 'field' => 'sales_rep']);
         if (array_key_exists('layout', $b) && !in_array($b['layout'], ['auto', 'own', 'classic'], true)) return new WP_Error('tix_invalid_field', 'Gliederung auto, own oder classic.', ['status' => 400, 'field' => 'layout']);
         if (!class_exists('TIX_Offer_Plan') || !array_key_exists('plan', $b)) return null;
         $r = TIX_Offer_Plan::clean($b['plan'], self::catalog());
@@ -2514,9 +2567,15 @@ class TIX_Platform_Offers {
         $B = self::own_blocks($d);
         if (!$B) return null;
         $pdf = $pdfa ? new TIX_PDFA($W, $H, $M, 40) : new TIX_Simple_PDF($W, $H, $M, 40);
+        // Hülle: Probelauf (dry) misst Blöcke ohne zu zeichnen; Blöcke wandern als Ganzes auf die nächste Seite (1.38.825)
+        $P = new class($pdf) {
+            public $pdf; public $dry = false; public $inblock = false; public $rehead = null; public $y0 = 0;
+            public function __construct($p) { $this->pdf = $p; }
+            public function __call($m, $a) { if ($this->dry && in_array($m, ['text', 'rect', 'draw_logo', 'add_page'], true)) return null; return call_user_func_array([$this->pdf, $m], $a); }
+        };
         $brand = 'evendis'; // Angebote verschickt immer evendis (nie „Tixomat“)
         $nr = trim((string) ($meta['number'] ?? ''));
-        if ($pdfa) $pdf->set_meta(['title' => trim('Angebot ' . $nr) . ' – ' . $B['title'], 'author' => $brand]);
+        if ($pdfa) $P->set_meta(['title' => trim('Angebot ' . $nr) . ' – ' . $B['title'], 'author' => $brand]);
         $cmp = !empty($B['compare_platform']);
         $g = function ($k) { return function_exists('tix_get_settings') ? trim((string) tix_get_settings($k)) : ''; };
         $date = !empty($meta['date']) ? wp_date('d.m.Y', strtotime($meta['date'])) : wp_date('d.m.Y');
@@ -2526,18 +2585,18 @@ class TIX_Platform_Offers {
         $ct = $d['contact'];
         $t = $B['totals'];
         $xR = $W - $M;
-        $pdf->set_footer(implode(' · ', array_filter([$brand, $nr !== '' ? 'Angebot ' . $nr : 'Angebot', 'gültig bis ' . $valid, $ct['email'] ?: '', $ct['phone'] ?: ''])) . ' · Seite {p}/{n}');
+        $P->set_footer(implode(' · ', array_filter([$brand, $nr !== '' ? 'Angebot ' . $nr : 'Angebot', 'gültig bis ' . $valid, $ct['email'] ?: '', $ct['phone'] ?: ''])) . ' · Seite {p}/{n}');
 
         // ── Zeichen-Helfer
         $cur = ['bold' => false, 'size' => 10];
-        $col = function ($c) use ($pdf) { $pdf->set_color($c[0], $c[1], $c[2]); };
-        $font = function ($bold, $size) use ($pdf, &$cur) { $cur = ['bold' => $bold, 'size' => $size]; $pdf->set_font($bold ? 'Helvetica-Bold' : 'Helvetica', $size); };
+        $col = function ($c) use ($P) { $P->set_color($c[0], $c[1], $c[2]); };
+        $font = function ($bold, $size) use ($P, &$cur) { $cur = ['bold' => $bold, 'size' => $size]; $P->set_font($bold ? 'Helvetica-Bold' : 'Helvetica', $size); };
         $fix = function ($s) { return str_replace(['−', '≈'], ['–', 'ca.'], (string) $s); };
-        $wd = function ($s, $size = null, $bold = null) use ($pdf, $pdfa, &$cur, $fix) {
+        $wd = function ($s, $size = null, $bold = null) use ($P, $pdfa, &$cur, $fix) {
             $size = $size ?? $cur['size']; $bold = $bold ?? $cur['bold'];
-            return $pdfa ? $pdf->width($fix($s), $size, $bold ? 'Helvetica-Bold' : 'Helvetica') : mb_strlen($s) * $size * 0.5;
+            return $pdfa ? $P->width($fix($s), $size, $bold ? 'Helvetica-Bold' : 'Helvetica') : mb_strlen($s) * $size * 0.5;
         };
-        $tx = function ($x, $y, $s) use ($pdf, $fix) { $pdf->text(round($x, 2), round($y, 2), $fix($s)); };
+        $tx = function ($x, $y, $s) use ($P, $fix) { $P->text(round($x, 2), round($y, 2), $fix($s)); };
         $rt = function ($x, $y, $s) use ($tx, $wd) { $tx($x - $wd($s), $y, $s); };
         // Umbruch nach Breite (aktuelle Schrift); überlange Wörter werden hart geteilt, nie abgeschnitten
         $wrap = function ($text, $maxw) use ($wd) {
@@ -2576,40 +2635,54 @@ class TIX_Platform_Offers {
             imagefill($bgi, 0, 0, imagecolorallocate($bgi, (int) round(self::K_RED[0] * 255), (int) round(self::K_RED[1] * 255), (int) round(self::K_RED[2] * 255)));
             imagealphablending($bgi, true); imagecopy($bgi, $src, 0, 0, 0, 0, $lw0, $lh0);
             $tmp = tempnam(function_exists('get_temp_dir') ? get_temp_dir() : sys_get_temp_dir(), 'evl');
-            if ($tmp && @imagejpeg($bgi, $tmp, 95)) $logo = (bool) $pdf->load_logo($tmp);
+            if ($tmp && @imagejpeg($bgi, $tmp, 95)) $logo = (bool) $P->load_logo($tmp);
             if ($tmp) @unlink($tmp);
             imagedestroy($src); imagedestroy($bgi);
             if ($logo) $logo = $lh0 / max(1, $lw0); // Seitenverhältnis
         }
-        $mark = function ($x, $y, $h) use ($pdf, $logo, $col, $font, $tx) { // Logo, Grundlinie unten bei $y
-            if ($logo) { $w = $h / $logo; $pdf->draw_logo($x, $y, $w, $h); return $w; }
+        $mark = function ($x, $y, $h) use ($P, $logo, $col, $font, $tx) { // Logo, Grundlinie unten bei $y
+            if ($logo) { $w = $h / $logo; $P->draw_logo($x, $y, $w, $h); return $w; }
             $col([1, 1, 1]); $font(true, $h * 0.9); $tx($x, $y + $h * 0.15, 'evendis'); return 0;
         };
-        $newpage = function ($first = false) use (&$y, $pdf, $col, $font, $tx, $rt, $mark, $M, $W, $H, $xR, $nr, $who) {
-            $pdf->add_page();
+        $newpage = function ($first = false) use (&$y, $P, $col, $font, $tx, $rt, $mark, $M, $W, $H, $xR, $nr, $who) {
+            $P->add_page();
             if ($first) { $y = $H; return; }
-            $col(self::K_RED); $pdf->rect(0, $H - 46, $W, 46, true);
+            $col(self::K_RED); $P->rect(0, $H - 46, $W, 46, true);
             $mark($M, $H - 31, 17);
             $col([1, 1, 1]); $font(false, 8); $rt($xR, $H - 26, trim(($nr !== '' ? 'Angebot ' . $nr : 'Angebot') . ($who !== '' ? ' · ' . $who : '')));
             $y = $H - 78;
+            if ($P->rehead && !$P->dry) { $rh = $P->rehead; $rh(); }
         };
-        $ensure = function ($need) use (&$y, $newpage, $BOTTOM) { if ($y - $need < $BOTTOM) $newpage(); };
+        $ensure = function ($need) use (&$y, $newpage, $BOTTOM, $P) { if ($P->dry) return; if ($y - $need < $BOTTOM) $newpage(); };
+        // Block = for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) { … } – Durchlauf 0 misst, Durchlauf 1 zeichnet.
+        // Passt der Block nicht mehr, kommt er komplett auf die nächste Seite; nur ein Block größer als eine Seite bricht um (Tabellenkopf wiederholt).
+        $bs = function () use (&$y, $P) { $P->dry = true; $P->inblock = true; $P->rehead = null; $P->y0 = $y; return 0; };
+        $bn = function ($pass) use (&$y, $P, $newpage, $BOTTOM, $H) {
+            if ($pass === 0) {
+                $h = $P->y0 - $y; $y = $P->y0; $P->dry = false; $P->rehead = null;
+                $avail = $y - $BOTTOM;
+                if ($h > $avail && ($h <= ($H - 78) - $BOTTOM || $avail < 160)) $newpage();
+                return 1;
+            }
+            $P->inblock = false; $P->rehead = null;
+            return 2;
+        };
         $para = function ($text, $size = 9.5, $color = null, $x = null, $maxw = null, $lh = null) use (&$y, $col, $font, $tx, $wrap, $ensure, $M, $CW) {
             $x = $x ?? $M; $maxw = $maxw ?? $CW; $lh = $lh ?? round($size * 1.42, 1);
             $font(false, $size); $col($color ?? self::K_INK);
             foreach ($wrap($text, $maxw) as $ln) { $ensure($lh); $font(false, $size); $col($color ?? self::K_INK); $tx($x, $y, $ln); $y -= $lh; }
         };
-        $section = function ($title, $sub = '', $keep = 90) use (&$y, $col, $font, $tx, $ensure, $pdf, $M, $para) {
+        $section = function ($title, $sub = '', $keep = 90) use (&$y, $col, $font, $tx, $ensure, $P, $M, $para) {
             $y -= 20;
-            $ensure($keep); // Überschrift nie allein am Seitenende
+            if (!$P->inblock) $ensure($keep); // Überschrift nie allein am Seitenende (im Block entscheidet der Block)
             $col(self::K_INK); $font(true, 15); $tx($M, $y, $title);
-            $col(self::K_RED); $pdf->rect($M, $y - 8, 26, 2.2, true);
+            $col(self::K_RED); $P->rect($M, $y - 8, 26, 2.2, true);
             $y -= 26;
             if ($sub !== '') { $para($sub, 9, self::K_MUTED); $y -= 4; }
         };
-        $hair = function ($x1 = null, $x2 = null, $c = null) use (&$y, $pdf, $col, $M, $xR) { $x1 = $x1 ?? $M; $x2 = $x2 ?? $xR; $col($c ?? self::K_LINE); $pdf->rect($x1, $y, $x2 - $x1, 0.5, true); };
-        $thead = function (array $cols) use (&$y, $pdf, $col, $font, $tx, $rt, $M, $CW) {
-            $col(self::K_SOFT); $pdf->rect($M, $y - 7, $CW, 20, true);
+        $hair = function ($x1 = null, $x2 = null, $c = null) use (&$y, $P, $col, $M, $xR) { $x1 = $x1 ?? $M; $x2 = $x2 ?? $xR; $col($c ?? self::K_LINE); $P->rect($x1, $y, $x2 - $x1, 0.5, true); };
+        $thead = function (array $cols) use (&$y, $P, $col, $font, $tx, $rt, $M, $CW) {
+            $col(self::K_SOFT); $P->rect($M, $y - 7, $CW, 20, true);
             $col(self::K_MUTED); $font(true, 7);
             foreach ($cols as [$x, $txt, $right]) { if ($right) $rt($x, $y, mb_strtoupper($txt)); else $tx($x, $y, mb_strtoupper($txt)); }
             $y -= 24;
@@ -2623,7 +2696,7 @@ class TIX_Platform_Offers {
         $font(true, 7.5); $lab = mb_strtoupper($B['mode_label']); $lw = $wd($lab) + 14;
         $font(false, 9); $sl = array_slice($wrap($B['subtitle'], $CW - $lw - 10), 0, 2);
         $hh = 128 + 31 * count($tl) + 17 * count($wl) + 12 * count($sl) + 22;
-        $col(self::K_RED); $pdf->rect(0, $H - $hh, $W, $hh, true);
+        $col(self::K_RED); $P->rect(0, $H - $hh, $W, $hh, true);
         $mark($M, $H - 70, 30);
         $col($SOFTW); $font(true, 7.5); $rt($xR, $H - 46, 'ANGEBOT');
         $col($WHITE); $font(true, 11); if ($nr !== '') $rt($xR, $H - 60, 'Nr. ' . $nr);
@@ -2633,7 +2706,7 @@ class TIX_Platform_Offers {
         $y += 9;
         $col($WHITE); $font(false, 13); foreach ($wl as $ln) { $tx($M, $y, $ln); $y -= 17; }
         $y -= 10;
-        $col($DEEP); $pdf->rect($M, $y - 5, $lw, 16, true);
+        $col($DEEP); $P->rect($M, $y - 5, $lw, 16, true);
         $col($WHITE); $font(true, 7.5); $tx($M + 7, $y, $lab);
         $col($SOFTW); $font(false, 9); foreach ($sl as $k => $ln) $tx($M + $lw + 10, $y - 12 * $k, $ln);
         $y = $H - $hh - 34;
@@ -2664,13 +2737,13 @@ class TIX_Platform_Offers {
             $bh = 112 + $lx + 12 * count($notes);
             $ensure($bh + (!empty($B['fixed_price']) ? 80 : 10));
             $top = $y + 6;
-            $col(self::K_SOFT); $pdf->rect($M, $top - $bh, $CW, $bh, true);
-            $col(self::K_RED); $pdf->rect($M, $top - $bh, 3, $bh, true);
+            $col(self::K_SOFT); $P->rect($M, $top - $bh, $CW, $bh, true);
+            $col(self::K_RED); $P->rect($M, $top - $bh, 3, $bh, true);
             $col(self::K_INK); $font(true, 14); $tx($M + $pad, $top - 26, $LD['headline'] . ' – das zahlst du, das bleibt dir');
             $yv = $top - 52;
             foreach ($LD['facts'] as $i => $f) {
                 $x = $M + $pad + $i * $fw;
-                if ($i > 0) { $col(self::K_LINE); $pdf->rect($x - 10, $yv - 34 - $lx, 0.6, 46 + $lx, true); }
+                if ($i > 0) { $col(self::K_LINE); $P->rect($x - 10, $yv - 34 - $lx, 0.6, 46 + $lx, true); }
                 $col(self::K_MUTED); $font(true, 7);
                 foreach ($wrap(mb_strtoupper($f['label']), $fw - 14) as $k => $ln) $tx($x, $yv + 4 - 9 * $k, $ln);
                 $sz = $fit($f['value'], true, $f['strong'] ? 22 : 17, $fw - 14);
@@ -2686,8 +2759,8 @@ class TIX_Platform_Offers {
                 $font(true, 10.5); $fl = $wrap($fp['title'] . ': ' . $fp['text'], $CW - 2 * $pad);
                 $font(false, 8.5); $fs2 = $wrap($fp['tiers'], $CW - 2 * $pad);
                 $fh = 22 + 14 * count($fl) + 11.5 * count($fs2);
-                $col(self::K_TINT); $pdf->rect($M, $y - $fh, $CW, $fh, true);
-                $col(self::K_RED); $pdf->rect($M, $y - $fh, 3, $fh, true);
+                $col(self::K_TINT); $P->rect($M, $y - $fh, $CW, $fh, true);
+                $col(self::K_RED); $P->rect($M, $y - $fh, 3, $fh, true);
                 $yf = $y - 18;
                 $col(self::K_INK); $font(true, 10.5); foreach ($fl as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 14; }
                 $col(self::K_MUTED); $font(false, 8.5); foreach ($fs2 as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 11.5; }
@@ -2696,8 +2769,8 @@ class TIX_Platform_Offers {
             $y -= 22;
         } elseif ($LD && !empty($LD['on_request'])) {
             $ensure(60);
-            $col(self::K_SOFT); $pdf->rect($M, $y - 34, $CW, 46, true);
-            $col(self::K_RED); $pdf->rect($M, $y - 34, 3, 46, true);
+            $col(self::K_SOFT); $P->rect($M, $y - 34, $CW, 46, true);
+            $col(self::K_RED); $P->rect($M, $y - 34, 3, 46, true);
             $col(self::K_INK); $font(true, 13); $tx($M + 18, $y - 6, $LD['headline']);
             $col(self::K_MUTED); $font(false, 9.5); $tx($M + 18, $y - 22, $LD['note']);
             $y -= 60;
@@ -2706,7 +2779,7 @@ class TIX_Platform_Offers {
             $ensure(90);
             foreach ($B['tiles'] as $i => $tl) {
                 $x = $M + $i * ($tw + 10);
-                $col(self::K_SOFT); $pdf->rect($x, $y - 66, $tw, 74, true);
+                $col(self::K_SOFT); $P->rect($x, $y - 66, $tw, 74, true);
                 $col(self::K_MUTED); $font(true, 7); $tx($x + 10, $y - 6, mb_strtoupper($tl['title']));
                 $col($i === 2 ? self::K_RED : self::K_INK); $font(true, $fit($tl['value'], true, 13, $tw - 20)); $tx($x + 10, $y - 26, $tl['value']);
                 $col(self::K_MUTED); $font(false, 7.5); $yy = $y - 40; foreach (array_slice($wrap($tl['note'], $tw - 20), 0, 3) as $ln) { $tx($x + 10, $yy, $ln); $yy -= 9; }
@@ -2715,7 +2788,7 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Anrede
-        if (trim((string) $d['intro']) !== '') {
+        if (trim((string) $d['intro']) !== '') for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $ensure(40);
             $col(self::K_INK); $font(false, 10.5);
             $tx($M, $y, $cust['name'] !== '' ? 'Hallo ' . strtok($cust['name'], ' ') . ',' : 'Hallo,'); $y -= 17;
@@ -2723,29 +2796,32 @@ class TIX_Platform_Offers {
             $y -= 6;
         }
 
-        // ═══ So kommen die Zahlen zustande
+        // ═══ So kommen die Zahlen zustande (Überschrift mit dem ersten Schritt zusammen, jeder Schritt ein Block)
         if ($LD && empty($LD['on_request']) && $LD['steps']) {
-            $section('So kommen die Zahlen zustande', $LD['headline'] . ', nur Grundpaket – Schritt für Schritt.');
-            foreach ($LD['steps'] as $k => $st) {
+            $drawstep = function ($k, $st) use (&$y, $P, $col, $font, $tx, $wd, $wrap, $ensure, $M, $CW) {
                 $font(false, 9.5); $tl = $wrap($st['text'], $CW - 28);
                 $font(false, 9); $bl = []; foreach ($st['lines'] as $l) $bl[] = $wrap($l, $CW - 40);
-                $ensure(18 + 13 * count($tl) + 12 * count($bl, COUNT_RECURSIVE));
-                $col(self::K_TINT); $pdf->rect($M, $y - 4, 16, 16, true);
+                $col(self::K_TINT); $P->rect($M, $y - 4, 16, 16, true);
                 $col(self::K_RED); $font(true, 9); $s = (string) ($k + 1); $tx($M + 8 - $wd($s) / 2, $y, $s);
                 $col(self::K_INK); $font(true, 10.5); $tx($M + 28, $y, $st['title']); $y -= 15;
                 $font(false, 9.5); foreach ($tl as $ln) { $tx($M + 28, $y, $ln); $y -= 13; }
                 foreach ($bl as $lines) foreach ($lines as $j => $ln) {
-                    if ($j === 0) { $col(self::K_RED); $pdf->rect($M + 30, $y + 2.5, 3, 3, true); }
+                    if ($j === 0) { $col(self::K_RED); $P->rect($M + 30, $y + 2.5, 3, 3, true); }
                     $col(self::K_INK); $font(false, 9); $tx($M + 40, $y, $ln); $y -= 12;
                 }
                 $y -= 8;
+            };
+            $nst = count($LD['steps']);
+            foreach (array_values($LD['steps']) as $k => $st) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                if ($k === 0) $section('So kommen die Zahlen zustande', $LD['headline'] . ', nur Grundpaket – Schritt für Schritt.');
+                $drawstep($k, $st);
+                if ($k === $nst - 1) $para($LD['glossary'], 8, self::K_MUTED);
             }
-            $col(self::K_MUTED); $para($LD['glossary'], 8, self::K_MUTED);
         }
 
         // ═══ Tabellen-Zeilen (Grundpaket, Optionen)
         $xP = $xR - 8; $nameW = $CW - 170;
-        $item_rows = function (array $rows) use (&$y, $pdf, $col, $font, $tx, $rt, $wd, $wrap, $ensure, $hair, $B, $M, $xP, $nameW) {
+        $item_rows = function (array $rows) use (&$y, $P, $col, $font, $tx, $rt, $wd, $wrap, $ensure, $hair, $B, $M, $xP, $nameW) {
             foreach ($rows as $r) {
                 $font(true, 10); $nl = $wrap($r['name'], $nameW - (!empty($r['optional']) ? 52 : 0));
                 $font(false, 8.5); $det = $r['detail'] !== '' ? $wrap($r['detail'], $nameW) : [];
@@ -2757,7 +2833,7 @@ class TIX_Platform_Offers {
                     $col($info ? self::K_MUTED : self::K_INK); $font(!$info, 10); $tx($M + 8, $y, $ln);
                     if ($k === count($nl) - 1 && !empty($r['optional'])) {
                         $x = $M + 8 + $wd($ln, 10, !$info) + 8; $font(true, 6.5); $lb = 'OPTIONAL'; $pw = $wd($lb) + 10;
-                        $col(self::K_MUTED); $pdf->rect($x, $y - 2.5, $pw, 11, false); $tx($x + 5, $y + 0.5, $lb);
+                        $col(self::K_MUTED); $P->rect($x, $y - 2.5, $pw, 11, false); $tx($x + 5, $y + 0.5, $lb);
                     }
                     $y -= 14;
                 }
@@ -2771,9 +2847,9 @@ class TIX_Platform_Offers {
         };
         $rate = rtrim(rtrim(number_format($t['tax_rate'], 1, ',', ''), '0'), ',');
         $xL = $M + $CW * 0.45;
-        $sumline = function ($label, $amount, $style = '') use (&$y, $pdf, $col, $font, $tx, $rt, $ensure, $xL, $xR, $xP) {
+        $sumline = function ($label, $amount, $style = '') use (&$y, $P, $col, $font, $tx, $rt, $ensure, $xL, $xR, $xP) {
             $ensure(18);
-            if ($style === 'total') { $col(self::K_TINT); $pdf->rect($xL - 8, $y - 6, $xR - $xL + 8, 20, true); }
+            if ($style === 'total') { $col(self::K_TINT); $P->rect($xL - 8, $y - 6, $xR - $xL + 8, 20, true); }
             $col($style === 'muted' ? self::K_MUTED : ($style === 'total' ? self::K_INK : self::K_INK)); $font($style === 'total', $style === 'total' ? 10.5 : 9.5);
             $tx($xL, $y, $label); $rt($xP, $y, $amount);
             $y -= $style === 'total' ? 22 : 15;
@@ -2794,17 +2870,21 @@ class TIX_Platform_Offers {
         };
 
         // ═══ Grundpaket
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Grundpaket', 'Das zahlst du an evendis – 0 € je verkauftem Ticket. Alle Preise zzgl. MwSt.');
-        $thead([[$M + 8, 'Leistung', false], [$xP, 'Preis', true]]);
+        $cols = [[$M + 8, 'Leistung', false], [$xP, 'Preis', true]];
+        $thead($cols); $P->rehead = function () use ($thead, $cols) { $thead($cols); };
         $item_rows($B['block1']['base_rows']);
         $y -= 2;
         $sums($t['base'] ?? $t, 'Grundpaket');
         if (!empty($d['term_months'])) $sumline('Laufzeit', $d['term_months'] . ' Monate', 'muted');
+        }
 
         // ═══ Optional dazubuchbar
-        if (!empty($t['has_options']) && $B['block1']['option_rows']) {
+        if (!empty($t['has_options']) && $B['block1']['option_rows']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $section('Optional dazubuchbar', 'Nicht im Grundpaket enthalten – nur, wenn du es dazunimmst. Alle Preise zzgl. MwSt.');
-            $thead([[$M + 8, 'Option', false], [$xP, 'Preis', true]]);
+            $cols = [[$M + 8, 'Option', false], [$xP, 'Preis', true]];
+            $thead($cols); $P->rehead = function () use ($thead, $cols) { $thead($cols); };
             $item_rows($B['block1']['option_rows']);
             $y -= 2;
             $op = $t['options'];
@@ -2815,7 +2895,7 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Rundum-Einrichtung
-        if ($B['setup']) {
+        if ($B['setup']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $su = $B['setup'];
             $cw2 = ($CW - 24) / 2;
             $font(false, 9); $lists = [];
@@ -2825,7 +2905,7 @@ class TIX_Platform_Offers {
             if ($su['headline'] !== '') {
                 $font(true, 10.5); $hl = $wrap($su['headline'], $CW - 28);
                 $ensure(14 * count($hl) + 20);
-                $col(self::K_TINT); $pdf->rect($M, $y - 14 * count($hl) + 4, $CW, 14 * count($hl) + 12, true);
+                $col(self::K_TINT); $P->rect($M, $y - 14 * count($hl) + 4, $CW, 14 * count($hl) + 12, true);
                 $col(self::K_INK); foreach ($hl as $ln) { $tx($M + 14, $y, $ln); $y -= 14; }
                 $y -= 14;
             }
@@ -2835,7 +2915,7 @@ class TIX_Platform_Offers {
                 $x = $M + $j * ($cw2 + 24); $yy = $y0;
                 $col(self::K_MUTED); $font(true, 7.5); $tx($x, $yy, $ttl); $yy -= 15;
                 foreach ($w as $lines) {
-                    $col($j === 0 ? self::K_RED : self::K_MUTED); $pdf->rect($x, $yy + 2.5, 4, 4, true);
+                    $col($j === 0 ? self::K_RED : self::K_MUTED); $P->rect($x, $yy + 2.5, 4, 4, true);
                     $col(self::K_INK); $font(false, 9); foreach ($lines as $wl) { $tx($x + 12, $yy, $wl); $yy -= 11.5; }
                     $yy -= 3;
                 }
@@ -2845,8 +2925,10 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Zahlungsanbieter
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('An deinen Zahlungsanbieter', $B['block2']['note']);
-        $thead([[$M + 8, 'Zahlart', false], [$M + 190, 'Gebühr je Zahlung', false], [$M + 310, 'Quelle (Stand)', false]]);
+        $cols = [[$M + 8, 'Zahlart', false], [$M + 190, 'Gebühr je Zahlung', false], [$M + 310, 'Quelle (Stand)', false]];
+        $thead($cols); $P->rehead = function () use ($thead, $cols) { $thead($cols); };
         foreach ($B['block2']['rates'] as $r) {
             $font(false, 7.5); $src = $wrap($r['source'] . ($r['as_of'] ? ' (Stand ' . $r['as_of'] . ')' : ''), $CW - 318);
             $font(true, 9.5); $lab = $wrap($r['label'] . ($r['provider'] && stripos($r['label'], $r['provider']) === false ? ' (' . $r['provider'] . ')' : ''), 175);
@@ -2861,9 +2943,11 @@ class TIX_Platform_Offers {
         $y -= 2;
         $para($B['block2']['mix'], 8.5, self::K_MUTED);
         $para($B['block2']['providers_note'], 8.5, self::K_MUTED);
+        }
 
         // ═══ Was dein Gast zahlt
         $gb = $B['block3'];
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Was dein Gast zahlt', 'In deinem Shop legst du deine Service- bzw. VVK-Gebühr selbst fest. Sie gehört dir.');
         $x1 = $cmp ? $xR - 140 : $xP;
         $thead(array_merge([[$M + 8, 'Je Ticket', false], [$x1, 'Dein Shop', true]], $cmp ? [[$xP, 'Plattform evendis.de', true]] : []));
@@ -2874,6 +2958,7 @@ class TIX_Platform_Offers {
             $ensure(18);
             $col(self::K_INK); $font($j === 2, 9.5); $tx($M + 8, $y, $r[0]); $rt($x1, $y, $r[1]); if ($cmp) $rt($xP, $y, $r[2]);
             $y -= 6; $hair(); $y -= 13;
+        }
         }
 
         // ═══ Planrechnung
@@ -2886,23 +2971,24 @@ class TIX_Platform_Offers {
         $fs = $n > 5 ? 7.5 : 8.5;
         $cx = function ($k) use ($M, $lw, $cwv) { return $M + $lw + ($k + 1) * $cwv - 6; };
         $lead_t = intval($B['plan']['lead']['tickets'] ?? 0);
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Planrechnung', 'Was im Jahr insgesamt übrig bleibt – je nach Ticketzahl. Die markierte Spalte (' . $num($lead_t) . ' Tickets) gehört zum Faktenblock'
             . (!empty($t['has_options']) ? '; hier sind die gewählten Optionen mit eingerechnet.' : '.'));
         $y -= 6;
-        $vhead = function ($list) use (&$y, $pdf, $col, $font, $tx, $rt, $cx, $M, $CW, $num, $lead_t, $cwv, $lw) {
-            $col(self::K_SOFT); $pdf->rect($M, $y - 7, $CW, 20, true);
-            foreach ($list as $k => $r) if ($r['tickets'] === $lead_t) { $col(self::K_TINT); $pdf->rect($M + $lw + $k * $cwv, $y - 7, $cwv, 20, true); }
+        $vhead = function ($list) use (&$y, $P, $col, $font, $tx, $rt, $cx, $M, $CW, $num, $lead_t, $cwv, $lw) {
+            $col(self::K_SOFT); $P->rect($M, $y - 7, $CW, 20, true);
+            foreach ($list as $k => $r) if ($r['tickets'] === $lead_t) { $col(self::K_TINT); $P->rect($M + $lw + $k * $cwv, $y - 7, $cwv, 20, true); }
             $col(self::K_MUTED); $font(true, 7); $tx($M + 8, $y, 'TICKETS IM JAHR');
             foreach ($list as $k => $r) { $col($r['tickets'] === $lead_t ? self::K_RED : self::K_MUTED); $rt($cx($k), $y, $num($r['tickets']) . ($r['custom'] ? '*' : '')); }
             $y -= 22;
         };
-        $vrow = function ($label, array $vals, $style = '') use (&$y, $pdf, $col, $font, $tx, $rt, $cx, $M, $CW, $fs, $ensure, $hair, $wrap) {
+        $vrow = function ($label, array $vals, $style = '') use (&$y, $P, $col, $font, $tx, $rt, $cx, $M, $CW, $fs, $ensure, $hair, $wrap) {
             $font(in_array($style, ['hl', 'grp'], true), $style === 'sub' ? $fs - 0.5 : $fs + 0.5);
             $ll = $wrap($label, 186);
             $ensure(10 + 11 * count($ll) + 6);
             $h = 11 * (count($ll) - 1);
-            if ($style === 'hl') { $col(self::K_TINT); $pdf->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
-            if ($style === 'grp') { $col(self::K_SOFT); $pdf->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
+            if ($style === 'hl') { $col(self::K_TINT); $P->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
+            if ($style === 'grp') { $col(self::K_SOFT); $P->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
             $col($style === 'sub' ? self::K_MUTED : self::K_INK);
             foreach ($ll as $k => $ln) { $font(in_array($style, ['hl', 'grp'], true), $style === 'sub' ? $fs - 0.5 : $fs + 0.5); $tx($M + 8, $y - 11 * $k, $ln); }
             $font($style === 'hl', $style === 'sub' ? $fs - 0.5 : $fs);
@@ -2914,9 +3000,8 @@ class TIX_Platform_Offers {
                 if ($v === null) return '–'; if ($fmt === 'pt') return number_format($v, 2, ',', '.') . ' ' . self::$euro; if ($fmt === 'pc') return number_format($v, 1, ',', '.') . ' %';
                 return ($sign === '-' && $v != 0 ? '– ' : ($sign === '+' ? '+ ' : '')) . $eu0($v); }, $tt);
         };
-        $ensure(40 + 18 * 10);
         $col(self::K_INK); $font(true, 11); $tx($M, $y, 'Ergebnis im Überblick'); $y -= 18;
-        $vhead($tt);
+        $vhead($tt); $P->rehead = function () use ($vhead, $tt) { $vhead($tt); };
         $vrow('Ticketumsatz gesamt (brutto)', $pick('own_shop', 'revenue'));
         $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
         foreach ($b4['totals_order'] as $j => $m) {
@@ -2930,9 +3015,10 @@ class TIX_Platform_Offers {
         }
         $para($b4['totals_note'] . (!empty($t['has_options']) ? ' An evendis inkl. der gewählten Optionen.' : '') . ($cmp ? ' Plattform, wenn Gäste die Gebühr zahlen: dir bleibt der volle Ticketumsatz.' : ''), 7.5, self::K_MUTED);
         $y -= 16;
-        $ensure(40 + 18 * 9);
+        }
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $col(self::K_INK); $font(true, 11); $tx($M, $y, 'Rechnung im Detail (' . $B['mode_label'] . ', je Jahr)'); $y -= 18;
-        $vhead($rows);
+        $vhead($rows); $P->rehead = function () use ($vhead, $rows) { $vhead($rows); };
         $prow = function ($label, $key, $sign = '', $style = '') use ($vrow, $rows, $eu0) {
             $vrow($label, array_map(function ($r) use ($key, $sign, $eu0) { $v = $r[$key] ?? null; return $v === null ? 'auf Anfrage' : ($sign === '-' && $v != 0 ? '– ' . $eu0($v) : ($sign === '+' ? '+ ' . $eu0($v) : $eu0($v))); }, $rows), $style);
         };
@@ -2956,23 +3042,25 @@ class TIX_Platform_Offers {
         if ($b4['reading']) {
             $font(false, 9); $rl2 = $wrap('So liest du die Rechnung: ' . $b4['reading'], $CW - 24);
             $ensure(13 * count($rl2) + 18); $y -= 4;
-            $col(self::K_TINT); $pdf->rect($M, $y - 13 * count($rl2) + 6, $CW, 13 * count($rl2) + 10, true);
+            $col(self::K_TINT); $P->rect($M, $y - 13 * count($rl2) + 6, $CW, 13 * count($rl2) + 10, true);
             $col(self::K_INK); foreach ($rl2 as $ln) { $tx($M + 12, $y, $ln); $y -= 13; }
             $y -= 8;
         }
         $para($b4['assumptions'], 7.5, self::K_MUTED);
         $para($b4['disclaimer'], 7.5, self::K_MUTED);
+        }
 
         // ═══ Hochrechnung je Event (vergleicht mit dem Provisionsmodell → nur mit compare_platform)
         $fc = $t['projection'];
-        if ($cmp && $fc && !empty($d['projection']['in_pdf'])) {
+        if ($cmp && $fc && !empty($d['projection']['in_pdf'])) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $in = $fc['input']; $pv = $fc['commission']; $sh = $fc['selfhosted']; $cm = $fc['comparison'];
             $ownl = self::mode_of($d) === 'self_hosted' ? 'Selbstgehostet' : 'Eigener Shop';
             $na = function ($v) use ($eu) { return $v === null ? 'Satz fehlt' : $eu($v); };
             $pc = function ($v) { return $v === null ? '–' : rtrim(rtrim(number_format($v, 2, ',', '.'), '0'), ',') . ' %'; };
             $section('Hochrechnung je Event', $num($in['tickets']) . ' Tickets je Event · Ø ' . $eu($in['avg_price']) . ' · ' . $in['events_year'] . ' Events im Jahr · Umsatz je Event ' . $eu($fc['revenue_event']));
             $xa = $xR - 150;
-            $thead([[$M + 8, '', false], [$xa, 'Provisionsmodell', true], [$xP, $ownl, true]]);
+            $cols = [[$M + 8, '', false], [$xa, 'Provisionsmodell', true], [$xP, $ownl, true]];
+            $thead($cols); $P->rehead = function () use ($thead, $cols) { $thead($cols); };
             foreach ([['An evendis je Event', $eu($pv['to_evendis_event']), $eu($sh['to_evendis_event'])], ['An den Zahlungsanbieter', $eu(0) . ' (inklusive)', $na($sh['to_psp_event'])],
                       ['Summe je Event', $eu($pv['total_event']), $na($sh['total_event']), true], ['Je Ticket', $pv['per_ticket'] === null ? '–' : $eu($pv['per_ticket']), $na($sh['per_ticket'])],
                       ['In % vom Umsatz', $pc($pv['percent_of_revenue']), $pc($sh['percent_of_revenue'])], ['Aufs Jahr', $eu($pv['per_year']), $na($sh['per_year'])]] as $r) {
@@ -2984,13 +3072,13 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Referenzen
-        if ($B['references']) {
+        if ($B['references']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $section('So sieht es bei anderen aus');
             foreach ($B['references'] as $r) {
                 $links = array_filter([$r['url'] ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', $r['app_store_url'] ? 'App Store' : '', $r['play_store_url'] ? 'Google Play' : '']);
                 $font(false, 9); $rt2 = $r['text'] !== '' ? $wrap($r['text'], $CW - 14) : [];
                 $ensure(30 + 12 * count($rt2));
-                $col(self::K_RED); $pdf->rect($M, $y + 2.5, 4, 4, true);
+                $col(self::K_RED); $P->rect($M, $y + 2.5, 4, 4, true);
                 $col(self::K_INK); $font(true, 10); $tx($M + 14, $y, $r['name']);
                 $col(self::K_MUTED); $font(false, 8); $rt($xR, $y, $r['mode_label']); $y -= 13;
                 $col(self::K_INK); $font(false, 9); foreach ($rt2 as $ln) { $tx($M + 14, $y, $ln); $y -= 12; }
@@ -3001,8 +3089,8 @@ class TIX_Platform_Offers {
 
         // ═══ Vorteile (zweispaltig, umbrochen)
         $ben = $B['benefits'];
-        if ($ben) {
-            $section('Deine Vorteile', '', min(300, 70 + 18 * intval(ceil(count($ben) / 2)))); // Liste möglichst zusammen
+        if ($ben) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+            $section('Deine Vorteile');
             $colw = ($CW - 24) / 2;
             for ($i = 0; $i < count($ben); $i += 2) {
                 $pair = array_slice($ben, $i, 2);
@@ -3011,7 +3099,7 @@ class TIX_Platform_Offers {
                 $ensure($hgt + 8);
                 foreach ($pair as $j => $b) {
                     $x = $M + $j * ($colw + 24);
-                    $col(self::K_RED); $pdf->rect($x, $y + 2.5, 4, 4, true);
+                    $col(self::K_RED); $P->rect($x, $y + 2.5, 4, 4, true);
                     $col(self::K_INK); $font(true, 9.5); foreach ($wl[$j] as $k => $ln) $tx($x + 14, $y - 12 * $k, $ln);
                 }
                 $y -= $hgt + 6;
@@ -3019,17 +3107,20 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Bedingungen, Annahme, Kontakt
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Bedingungen');
         $cond = trim((string) $d['conditions']);
         if ($cond !== '') $para($cond, 9, self::K_INK);
         $para('Dieses Angebot gilt bis ' . $valid . '.', 9, self::K_INK);
         $y -= 10;
+        }
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         if (!empty($meta['link'])) {
             $font(false, 8); $ll = $wrap($meta['link'], $CW - 28);
             $bh = 44 + 11 * count($ll);
             $ensure($bh + 10);
-            $col(self::K_TINT); $pdf->rect($M, $y - $bh + 14, $CW, $bh, true);
-            $col(self::K_RED); $pdf->rect($M, $y - $bh + 14, 3, $bh, true);
+            $col(self::K_TINT); $P->rect($M, $y - $bh + 14, $CW, $bh, true);
+            $col(self::K_RED); $P->rect($M, $y - $bh + 14, 3, $bh, true);
             $col(self::K_INK); $font(true, 11); $tx($M + 14, $y - 2, 'Interesse bestätigen – unverbindlich');
             $col(self::K_MUTED); $font(false, 9); $tx($M + 14, $y - 17, 'Mit einem Klick unter diesem Link. Den Vertrag schicken wir dir danach separat.');
             $col(self::K_RED); $font(false, 8); foreach ($ll as $k => $ln) $tx($M + 14, $y - 31 - 11 * $k, $ln);
@@ -3038,7 +3129,8 @@ class TIX_Platform_Offers {
             $para('Interesse? Antworte einfach an ' . ($ct['email'] ?: 'uns') . ' – den Vertrag schicken wir dir danach separat.', 9.5);
             $y -= 6;
         }
-        $ensure(40);
+        }
+        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $col(self::K_INK); $font(true, 10.5); $tx($M, $y, 'Lass uns sprechen'); $y -= 15;
         $para(implode(' · ', array_filter([$ct['name'], $ct['email'], $ct['phone']])), 10);
         // Anbieter (Pflichtangaben klein am Ende)
@@ -3046,7 +3138,8 @@ class TIX_Platform_Offers {
             trim($g('invoice_register_court') . ' ' . $g('invoice_register_number')), $g('invoice_company_ust_id') ? 'USt-IdNr. ' . $g('invoice_company_ust_id') : '']);
         $issuer = array_map(function ($s) { return preg_replace('/tixomat/i', 'evendis', $s); }, $issuer);
         if (count($issuer) > 1) { $y -= 10; $para('Anbieter: ' . implode(' · ', $issuer), 7.5, self::K_MUTED); }
-        return $pdf->output();
+        }
+        return $P->output();
     }
 }
 

@@ -90,14 +90,14 @@ po_eq('Prognose am Angebot gespeichert, Modell aus dem Tarif (Shop → selfhoste
 [$st, $d] = po_rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'shop'], ['catalog_key' => 'app']], 'projection' => $pj]);
 $fc = $d['totals']['projection'] ?? [];
 $m = array_column((array) ($fc['selfhosted']['methods'] ?? []), null, 'key');
-po_eq('Stadthalle: Provisionsmodell 533,70 € je Event (450 × 1,186 €, 2,9 % + 0,49 €), Selbstgehostet 546,55 € (195,04 an evendis = (1.490 Staffel bei 9.000 Tickets + 12 × 149) × 1,19 = 3.900,82 € ÷ 20, 351,51 an den Zahlungsdienstleister)',
-    [200, 533.7, 0.0, 195.04, 351.51, 546.55, 3900.82, 'offer'],
+po_eq('Stadthalle: Provisionsmodell 533,70 € je Event (450 × 1,186 €, 2,9 % + 0,49 €), Selbstgehostet 558,45 € (206,94 an evendis = (1.690 Staffel bei 9.000 Tickets + 12 × 149) × 1,19 = 4.138,82 € ÷ 20, 351,51 an den Zahlungsdienstleister)',
+    [200, 533.7, 0.0, 206.94, 351.51, 558.45, 4138.82, 'offer'],
     [$st, floatval($fc['commission']['total_event'] ?? 0), floatval($fc['commission']['to_psp_event'] ?? -1), floatval($fc['selfhosted']['to_evendis_event'] ?? 0),
         floatval($fc['selfhosted']['to_psp_event'] ?? 0), floatval($fc['selfhosted']['total_event'] ?? 0), floatval($fc['selfhosted']['package_year'] ?? 0), $fc['selfhosted']['package_source'] ?? '']);
 po_eq('Zahlarten: PayPal 30 %, Karte und Klarna je 35 % (je zur Hälfte), Fixbetrag je Zahlung (2 Tickets je Bestellung)', [[30.0, 35.0, 35.0], 123.2, 87.73, 140.58],
     [[floatval($m['paypal']['share'] ?? 0), floatval($m['card']['share'] ?? 0), floatval($m['klarna']['share'] ?? 0)], floatval($m['paypal']['cost_event'] ?? 0), floatval($m['card']['cost_event'] ?? 0), floatval($m['klarna']['cost_event'] ?? 0)]);
-po_eq('Vergleich (Satz 2,9 % + 0,49 €): Provisionsmodell um 12,85 € je Event günstiger (257 € im Jahr), Selbstgehostet lohnt sich ab 803 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
-    ['commission', 12.85, 257.0, 803, '2026-11-04', true, true, true],
+po_eq('Vergleich (Satz 2,9 % + 0,49 €): Provisionsmodell um 24,75 € je Event günstiger (495 € im Jahr), Selbstgehostet lohnt sich ab 852 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
+    ['commission', 24.75, 495.0, 852, '2026-11-04', true, true, true],
     [$fc['comparison']['cheaper'] ?? '', floatval($fc['comparison']['difference_event'] ?? 0), floatval($fc['comparison']['difference_year'] ?? 0), intval($fc['comparison']['break_even_tickets_month'] ?? 0),
         $m['paypal']['as_of'] ?? '', strpos((string) ($m['card']['source'] ?? ''), 'mollie.com') !== false, strpos((string) ($fc['payment_note'] ?? ''), 'nicht an evendis') !== false,
         strpos((string) ($fc['rates_note'] ?? ''), 'Stand 04.11.2026') !== false]);
@@ -227,13 +227,13 @@ po_eq('Annahme-Seite: eigenständiges HTML mit Formular bzw. Hinweis', [true, tr
 wp_set_current_user($admin);
 [$st, , $c] = po_rest('POST', '/platform/offer-catalog', ['catalog' => ['items' => []]]);
 $cat = TIX_Platform_Offers::default_catalog();
-$cat['shop_tiers'] = [['max' => 5000, 'price' => 750], ['max' => 20000, 'price' => 1490], ['max' => 50000, 'price' => 2490]]; // Jahresvertrag nach Staffel (1.38.823)
+$cat['shop_tiers'] = [['max' => 5000, 'price' => 750], ['max' => 10000, 'price' => 1690]]; // Jahresvertrag nach Staffel (1.38.823)
 $cat['items'][] = ['key' => 'shop', 'name' => 'Doppelt'];
 [$st2, , $c2] = po_rest('POST', '/platform/offer-catalog', ['catalog' => $cat]);
 array_pop($cat['items']);
 [$st3, $d3] = po_rest('POST', '/platform/offer-catalog', ['catalog' => $cat]);
 $n = po_rest('POST', '/platform/offers', ['customer' => $cust, 'items' => [['catalog_key' => 'shop']]])[1]['offer']; $ids[] = intval($n['id']);
-po_eq('Katalog: leer 400, doppelter Schlüssel 400, Staffel geändert gilt für neue Angebote, altes behält seinen', [400, 400, 'tix_catalog_invalid', 200, true, 750.0, 1490.0],
+po_eq('Katalog: leer 400, doppelter Schlüssel 400, Staffel geändert gilt für neue Angebote, altes behält seinen', [400, 400, 'tix_catalog_invalid', 200, true, 750.0, 1690.0],
     [$st, $st2, $c2, $st3, $d3['custom'] ?? null, floatval($n['data']['items'][0]['list_price'] ?? 0), floatval(TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id']))['items'][0]['list_price'] ?? 0)]);
 $cat2 = TIX_Platform_Offers::default_catalog();
 $cat2['payment_rates']['klarna']['percent'] = null; $cat2['payment_rates']['klarna']['fixed'] = null;

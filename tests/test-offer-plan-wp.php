@@ -10,7 +10,7 @@ $eq = function ($l, $e, $a) use (&$f, &$n) { $n++; if ($e === $a) { echo "ok    
 $rest = function ($m, $r, $b = null) { $x = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b !== null) { $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($b)); } $res = rest_do_request($x); $d = $res->get_data(); return [$res->get_status(), $d, is_array($d) ? ($d['code'] ?? '') : '']; };
 $cat = TIX_Platform_Offers::catalog();
 // Referenz: Ø 25 €, Gebühr 1,50 €, 2 je Bestellung, 60 % Karte Mollie / 40 % PayPal, Shop 790 €/Jahr (fest)
-$p = TIX_Offer_Plan::clean(['avg_price' => 25, 'service_fee' => 1.5, 'tickets_per_order' => 2, 'mix' => ['card' => 60, 'paypal' => 40], 'shop_price' => 790], $cat);
+$p = TIX_Offer_Plan::clean(['avg_price' => 25, 'service_fee' => 1.5, 'tickets_per_order' => 2, 'mix' => ['card' => 60, 'paypal' => 40], 'shop_price' => 790, 'steps' => [1000, 5000, 20000, 50000]], $cat); // Referenz-Stufen des Auftrags
 $r = TIX_Offer_Plan::compute($p, $cat);
 $col = function ($k) use ($r) { return array_column($r['rows'], $k); };
 $eq('Referenz: an den Zahlungsanbieter', [756.14, 3780.7, 15122.8, 37807.0], $col('psp'));
@@ -21,8 +21,8 @@ $eq('Referenz: Plattform (du trägst) 50.000 Tickets', 1198949.58, $r['rows'][3]
 // Staffel (F-AN1 B) und Vorgaben (F-AN2: 60 % PayPal / 40 % Karte)
 $s = TIX_Offer_Plan::compute(TIX_Offer_Plan::clean(['custom' => 60000], $cat), $cat);
 $eq('Vorgaben: Ø 25 €, 1,50 €, 2 je Bestellung, 60 % PayPal / 40 % Karte', [25.0, 1.5, 2.0, ['paypal' => 60.0, 'card' => 40.0]], [$s['input']['avg_price'], $s['input']['service_fee'], $s['input']['tickets_per_order'], $s['input']['mix']]);
-$eq('Staffel: 790 / 790 / 1.490 / 2.490 €, über 50.000 auf Anfrage', [790.0, 790.0, 1490.0, 2490.0, null, true], array_merge(array_column($s['rows'], 'evendis'), [$s['rows'][4]['on_request']]));
-$eq('Eigene Zahl als Stufe markiert', [60000, true], [$s['rows'][4]['tickets'], $s['rows'][4]['custom']]);
+$eq('Staffel (1.38.825): Stufen 1.000/5.000/10.000 → 790 / 790 / 1.690 €, über 10.000 auf Anfrage', [790.0, 790.0, 1690.0, null, true], array_merge(array_column($s['rows'], 'evendis'), [$s['rows'][3]['on_request']]));
+$eq('Eigene Zahl als Stufe markiert', [60000, true], [$s['rows'][3]['tickets'], $s['rows'][3]['custom']]);
 $eq('Gast-Sicht: eigener Shop 26,50 €, Plattform 25 + 1,22 €', [26.5, 1.22, 26.22], [$s['guest']['pays_own_shop'], $s['guest']['platform_fee'], $s['guest']['pays_platform']]);
 $keys = array_column($s['to_psp']['catalog'], 'provider', 'key');
 $eq('Zahlarten im Katalog: Mollie und Stripe nebeneinander', ['Mollie', 'Stripe', 'Mollie'], [$keys['card'] ?? '', $keys['card_stripe'] ?? '', $keys['paypal_mollie'] ?? '']);
@@ -35,7 +35,7 @@ if (!TIX_Platform_Offers::multi()) { echo "skip  REST: /platform/offers nur auf 
 $adm = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0] ?? 1);
 wp_set_current_user($adm);
 [$st, $d] = $rest('POST', '/platform/offers/plan', ['avg_price' => 30]);
-$eq('POST /platform/offers/plan', [200, 30.0, 4], [$st, $d['plan_calc']['input']['avg_price'] ?? null, count($d['plan_calc']['rows'] ?? [])]);
+$eq('POST /platform/offers/plan', [200, 30.0, 3], [$st, $d['plan_calc']['input']['avg_price'] ?? null, count($d['plan_calc']['rows'] ?? [])]);
 [$st, $d] = $rest('POST', '/platform/offers/calc', ['customer' => ['company' => 'Plan-Test'], 'items' => [['catalog_key' => 'shop']], 'plan' => ['mix' => ['paypal' => 10]]]);
 $eq('Angebot mit ungültiger Planrechnung → 400 plan.mix', [400, 'plan.mix'], [$st, $d['data']['field'] ?? '']);
 [$st, $d] = $rest('POST', '/platform/offers/calc', ['customer' => ['company' => 'Plan-Test'], 'items' => [['catalog_key' => 'shop']], 'plan' => ['service_fee' => 2]]);
@@ -44,7 +44,7 @@ $eq('Angebot mit Planrechnung → plan_calc im Ergebnis', [200, 2.0], [$st, $d['
 $oid = intval($d['offer']['id'] ?? $d['id'] ?? 0);
 [$st2, $g] = $oid ? $rest('GET', "/platform/offers/$oid") : [0, []];
 $g = $g['offer'] ?? $g;
-$eq('Angebot gespeichert: plan bleibt Tarifname, Annahmen in data.plan, Ergebnis plan_calc', [true, true, 3000, 5], [$oid > 0, is_string($g['plan'] ?? null), $g['data']['plan']['custom'] ?? null, count($g['plan_calc']['rows'] ?? [])]);
+$eq('Angebot gespeichert: plan bleibt Tarifname, Annahmen in data.plan, Ergebnis plan_calc', [true, true, 3000, 4], [$oid > 0, is_string($g['plan'] ?? null), $g['data']['plan']['custom'] ?? null, count($g['plan_calc']['rows'] ?? [])]);
 if ($oid) { global $wpdb; $wpdb->delete(TIX_Platform_Offers::table(), ['id' => $oid]); }
 wp_set_current_user(0);
 echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen)\n";

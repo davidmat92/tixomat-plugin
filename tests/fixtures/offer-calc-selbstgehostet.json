@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.823",
+    "plugin_version": "1.38.825",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -230,6 +230,7 @@
             "references": [],
             "intro": "vielen Dank für das gute Gespräch. Wie besprochen schicken wir dir hier unser Angebot. Von Veranstaltern für Veranstalter: Wir stehen selbst seit über 20 Jahren hinter Events.",
             "conditions": "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters direkt an ihn (z. B. Mollie Karte 1,8 % + 0,25 € je Zahlung).\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
+            "sales_rep": "david",
             "accept_link": true,
             "internal_note": ""
         },
@@ -357,13 +358,13 @@
                 "own_shop": {
                     "break_even": {
                         "with_fee": 4566,
-                        "without_fee": 34666
+                        "without_fee": null
                     }
                 },
                 "self_hosted": {
                     "break_even": {
                         "with_fee": 4991,
-                        "without_fee": 36611
+                        "without_fee": null
                     }
                 }
             },
@@ -514,28 +515,10 @@
                     "custom": false,
                     "modes": {
                         "own_shop": {
-                            "on_request": false,
-                            "revenue": 500000,
-                            "own_fee": 30000,
-                            "to_evendis": 5320.02,
-                            "to_evendis_once": 0,
-                            "to_psp": 16664.2,
-                            "to_hoster": 0,
-                            "kept": 508015.78,
-                            "kept_per_ticket": 25.4,
-                            "kept_percent": 101.6
+                            "on_request": true
                         },
                         "self_hosted": {
-                            "on_request": false,
-                            "revenue": 500000,
-                            "own_fee": 30000,
-                            "to_evendis": 5510.02,
-                            "to_evendis_once": 190,
-                            "to_psp": 16664.2,
-                            "to_hoster": 240,
-                            "kept": 507585.78,
-                            "kept_per_ticket": 25.38,
-                            "kept_percent": 101.5
+                            "on_request": true
                         },
                         "platform": {
                             "on_request": false,
@@ -561,28 +544,10 @@
                     "custom": false,
                     "modes": {
                         "own_shop": {
-                            "on_request": false,
-                            "revenue": 1250000,
-                            "own_fee": 75000,
-                            "to_evendis": 9383.04,
-                            "to_evendis_once": 0,
-                            "to_psp": 41660.5,
-                            "to_hoster": 0,
-                            "kept": 1273956.46,
-                            "kept_per_ticket": 25.48,
-                            "kept_percent": 101.9
+                            "on_request": true
                         },
                         "self_hosted": {
-                            "on_request": false,
-                            "revenue": 1250000,
-                            "own_fee": 75000,
-                            "to_evendis": 9573.04,
-                            "to_evendis_once": 190,
-                            "to_psp": 41660.5,
-                            "to_hoster": 240,
-                            "kept": 1273526.46,
-                            "kept_per_ticket": 25.47,
-                            "kept_percent": 101.9
+                            "on_request": true
                         },
                         "platform": {
                             "on_request": false,
@@ -771,30 +736,30 @@
                     "revenue": 500000,
                     "own_fee": 30000,
                     "psp": 16664.2,
-                    "evendis": 1490,
-                    "on_request": false,
+                    "evendis": null,
+                    "on_request": true,
                     "options": 1788,
                     "channel_fee": 2042.02,
-                    "evendis_total": 5320.02,
+                    "evendis_total": null,
                     "server": 240,
-                    "kept": 507775.78,
+                    "kept": null,
                     "platform_guests_pay": 500000,
                     "platform_you_pay": 479579.83,
-                    "advantage": 7775.78,
-                    "kept_without_fee": 478529.98,
-                    "advantage_without_fee": -1049.85,
+                    "advantage": null,
+                    "kept_without_fee": null,
+                    "advantage_without_fee": null,
                     "compare": {
                         "own_shop": {
-                            "evendis": 1490,
+                            "evendis": null,
                             "server": 0,
-                            "kept": 508015.78,
-                            "advantage": 8015.78
+                            "kept": null,
+                            "advantage": null
                         },
                         "self_hosted": {
-                            "evendis": 1490,
+                            "evendis": null,
                             "server": 240,
-                            "kept": 507775.78,
-                            "advantage": 7775.78
+                            "kept": null,
+                            "advantage": null
                         }
                     }
                 },
@@ -805,37 +770,37 @@
                     "revenue": 1250000,
                     "own_fee": 75000,
                     "psp": 41660.5,
-                    "evendis": 2490,
-                    "on_request": false,
+                    "evendis": null,
+                    "on_request": true,
                     "options": 1788,
                     "channel_fee": 5105.04,
-                    "evendis_total": 9383.04,
+                    "evendis_total": null,
                     "server": 240,
-                    "kept": 1273716.46,
+                    "kept": null,
                     "platform_guests_pay": 1250000,
                     "platform_you_pay": 1198949.58,
-                    "advantage": 23716.46,
-                    "kept_without_fee": 1200601.96,
-                    "advantage_without_fee": 1652.38,
+                    "advantage": null,
+                    "kept_without_fee": null,
+                    "advantage_without_fee": null,
                     "compare": {
                         "own_shop": {
-                            "evendis": 2490,
+                            "evendis": null,
                             "server": 0,
-                            "kept": 1273956.46,
-                            "advantage": 23956.46
+                            "kept": null,
+                            "advantage": null
                         },
                         "self_hosted": {
-                            "evendis": 2490,
+                            "evendis": null,
                             "server": 240,
-                            "kept": 1273716.46,
-                            "advantage": 23716.46
+                            "kept": null,
+                            "advantage": null
                         }
                     }
                 }
             ],
             "break_even": {
                 "with_fee": 4991,
-                "without_fee": 36611
+                "without_fee": null
             },
             "to_evendis": {
                 "tiers": [
@@ -844,12 +809,8 @@
                         "price": 790
                     },
                     {
-                        "max": 20000,
-                        "price": 1490
-                    },
-                    {
-                        "max": 50000,
-                        "price": 2490
+                        "max": 10000,
+                        "price": 1690
                     }
                 ],
                 "fixed_price": null,

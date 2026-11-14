@@ -13,7 +13,7 @@
  *   Vorteil mit eigener Gebühr = bleibt bei dir − Plattform (Gäste zahlen); ohne eigene Gebühr = bleibt bei dir (ohne Gebühr) − Plattform (du trägst)
  *   Break-even = erste Ticketzahl mit Vorteil > 0 (linear je Staffel-Stufe).
  * Alle Annahmen sind je Aufruf änderbar (User 14.11.: „IMMER änderbar“). Vorgaben im Katalog `plan_defaults`:
- * Ø 25 €, eigene Gebühr 1,50 €, 2 Tickets je Bestellung, Mischung 60 % PayPal / 40 % Karte, Stufen 1.000/5.000/20.000/50.000.
+ * Ø 25 €, eigene Gebühr 1,50 €, 2 Tickets je Bestellung, Mischung 60 % PayPal / 40 % Karte, Stufen 1.000/5.000/10.000 (Staffel 790 € bis 5.000, 1.690 € bis 10.000, darüber auf Anfrage).
  * Zahlungsanbieter: Mollie und Stripe nebeneinander ohne Empfehlung (User 14.11.).
  */
 if (!defined('ABSPATH')) exit;
@@ -23,10 +23,14 @@ class TIX_Offer_Plan {
     const MAX_STEPS = 6;
     const MAX_T = 10000000;
 
-    public static function default_tiers() { return [['max' => 5000, 'price' => 790.0], ['max' => 20000, 'price' => 1490.0], ['max' => 50000, 'price' => 2490.0]]; }
+    /** Staffel eigener Shop und selbstgehostet (User 14.11. abends: „Bis 5000: 790, bis 10000 1690, darüber auf Anfrage“, 1.38.825) */
+    public static function default_tiers() { return [['max' => 5000, 'price' => 790.0], ['max' => 10000, 'price' => 1690.0]]; }
+    /** Frühere Vorgaben (bis 1.38.824) – gespeicherte Kataloge mit genau diesen Werten werden auf die neue Staffel gehoben */
+    public static function old_default_tiers() { return [['max' => 5000, 'price' => 790.0], ['max' => 20000, 'price' => 1490.0], ['max' => 50000, 'price' => 2490.0]]; }
+    const OLD_DEFAULT_STEPS = [1000, 5000, 20000, 50000];
 
     public static function default_settings() {
-        return ['avg_price' => 25.0, 'service_fee' => 1.50, 'tickets_per_order' => 2, 'mix' => ['paypal' => 60, 'card' => 40], 'steps' => [1000, 5000, 20000, 50000], 'channel_share' => 0];
+        return ['avg_price' => 25.0, 'service_fee' => 1.50, 'tickets_per_order' => 2, 'mix' => ['paypal' => 60, 'card' => 40], 'steps' => [1000, 5000, 10000], 'channel_share' => 0];
     }
 
     private static function num($v, $min, $max) {
