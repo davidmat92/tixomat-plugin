@@ -6687,3 +6687,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - User 14.11.2026: „wie eigener shop plus 20 server“. Vorgabe `self_hosted_tiers` = `TIX_Offer_Plan::default_tiers()` (790/1.490/2.490 €, darüber auf Anfrage) statt 699 € pauschal; Server-Kosten beim Kunden ca. 20 €/Monat bleiben eigene Zeile; Lizenz jährlich im Angebot: Listenpreis = 1. Stufe. Einrichtung selbstgehostet unverändert 190 € bzw. erlassen.
 - Live: evendis hat keinen gespeicherten Katalog (`tix_offer_catalog`), daher gilt die Vorgabe nach dem Plugin-Update ohne weiteren Schritt.
 
+## 209. Angebote schnell anlegen, später vervollständigen (ab 1.38.821)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt 1.38.821, Umzug-Tabelle ergänzt).
+- `POST /platform/offers {name}` → Entwurf mit Firma = Name; gewählte Betriebsart ohne Positionen → Grundpaket aus dem Katalog.
+- `missing()`/`incomplete_error()`; `summary` mit `complete`, `missing[]` (`name`, `email`, `mode`, `items`, `price`).
+- Nur Senden prüft → 422 `tix_offer_incomplete` mit `data.missing[]` (ersetzt `tix_offer_email`, `tix_offer_empty`, `tix_offer_price_missing`); Betriebsart muss gewählt sein.
+- PDF immer exportierbar ohne Entwurf-Hinweis: leere Kundendaten/Nummer/Positionen werden weggelassen (beide Gliederungen), Vorschau ohne Nummer.
+- **Test:** `test-offer-options-wp` (61 Plattform, 46 Einzel-Seiten), `test-platform-offers-wp` (Senden ohne Preis 422, Test-Angebote mit `mode`).

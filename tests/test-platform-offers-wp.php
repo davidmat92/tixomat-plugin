@@ -49,7 +49,7 @@ po_eq('Katalog: Preise der Preisseite (Plattform 2,9 % + 0,49 €, Shop 79 bzw. 
 
 // ═══ 3. Anlegen, Nummer, Summen, Vorteile ═══
 $cust = ['company' => "Club Nord $sfx", 'name' => 'Lena Berg', 'email' => "po_kunde_$sfx@example.test", 'street' => 'Hafenstr. 1', 'zip' => '20457', 'city' => 'Hamburg'];
-[$st, $d] = po_rest('POST', '/platform/offers', ['customer' => $cust, 'items' => [['catalog_key' => 'shop'], ['catalog_key' => 'app'], ['catalog_key' => 'datenumzug', 'price' => 250]],
+[$st, $d] = po_rest('POST', '/platform/offers', ['customer' => $cust, 'mode' => 'own_shop', /* Betriebsart Pflicht beim Senden ab 1.38.821 */ 'items' => [['catalog_key' => 'shop'], ['catalog_key' => 'app'], ['catalog_key' => 'datenumzug', 'price' => 250]],
     'discount' => ['type' => 'percent', 'value' => 10, 'on' => 'recurring'], 'comparison' => ['competitor_id' => 'eventim_light'], 'term_months' => 12]);
 $o1 = $d['offer'] ?? []; $ids[] = intval($o1['id'] ?? 0);
 $y = wp_date('Y');
@@ -65,7 +65,7 @@ $bk = array_column((array) ($o1['data']['benefits'] ?? []), 'key');
 po_eq('Vorteile automatisch je Tarif/Modul + „In jedem Konto“; Vergleich nur als Gesprächshilfe gespeichert', [true, true, true, true, 'EVENTIM.Light', 1.41],
     [in_array('shop_domain', $bk, true), in_array('app_stores', $bk, true), in_array('designs', $bk, true), !in_array('eigene_seite', $bk, true),
         $o1['data']['comparison']['name'] ?? '', floatval($o1['data']['comparison']['examples'][0]['them'] ?? 0)]);
-[$st, $d] = po_rest('POST', '/platform/offers', ['customer' => ['company' => "Theater Süd $sfx", 'email' => "po_t_$sfx@example.test"], 'items' => ['tickets']]);
+[$st, $d] = po_rest('POST', '/platform/offers', ['customer' => ['company' => "Theater Süd $sfx", 'email' => "po_t_$sfx@example.test"], 'mode' => 'platform', 'items' => ['tickets']]);
 $o2 = $d['offer'] ?? []; $ids[] = intval($o2['id'] ?? 0);
 $n1 = intval(substr((string) $o1['number'], -4)); $n2 = intval(substr((string) ($o2['number'] ?? ''), -4));
 po_eq('Nummernkreis fortlaufend; Ticketplattform als Gebühr je Ticket, keine Summe', [$n1 + 1, 0.0, 1, true],
@@ -148,7 +148,7 @@ po_eq('PDF-Vorschau ohne Speichern (auch mit fehlendem Preis)', [200, '%PDF'], [
 [$st2, , $c2] = po_rest('POST', '/platform/offers/calc', []);
 $o3 = po_rest('POST', '/platform/offers', ['customer' => $cust, 'items' => [['catalog_key' => 'datenumzug']]])[1]['offer']; $ids[] = intval($o3['id']);
 [$st3, , $c3] = po_rest('POST', '/platform/offers/' . $o3['id'] . '/send', ['confirm' => true]);
-po_eq('Senden: ohne Bestätigung 400, ohne Preis 400', [400, 'tix_confirm_required', 400, 'tix_offer_price_missing'], [$st, $c, $st3, $c3]);
+po_eq('Senden: ohne Bestätigung 400, ohne Preis 422 tix_offer_incomplete (ab 1.38.821)', [400, 'tix_confirm_required', 422, 'tix_offer_incomplete'], [$st, $c, $st3, $c3]);
 $mails = [];
 [$st, $d] = po_rest('POST', '/platform/offers/' . $o1['id'] . '/send', ['confirm' => true, 'message' => 'Wie besprochen, hier dein Angebot.']);
 $to = array_column($mails, 'to');

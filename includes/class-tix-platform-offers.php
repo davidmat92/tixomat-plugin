@@ -561,6 +561,14 @@ class TIX_Platform_Offers {
         $mode_in = array_key_exists('mode', $in) ? (string) $in['mode'] : (!empty($old['mode_chosen']) ? (string) ($old['mode'] ?? '') : '');
         $mode_chosen = in_array($mode_in, self::MODES, true);
         $mode = $mode_chosen ? $mode_in : self::derive_mode(array_values(array_filter($items, function ($x) { return !empty($x['on']); })));
+        // Unvollständig angelegt (1.38.821): gewählte Betriebsart ohne jede Position → Grundpaket aus den Vorgaben
+        if ($mode_chosen && !array_filter($items, function ($x) { return !empty($x['on']); })) {
+            $bk = ['platform' => ['tickets', null], 'own_shop' => ['shop', 'yearly'], 'self_hosted' => ['lizenz', 'yearly']][$mode];
+            if ($n = self::item_from_catalog($bk[0], $bk[1])) { $n['on'] = true; $items[] = $n; }
+            if ($mode !== 'platform' && $sht = ($mode === 'self_hosted' ? ($po['self_hosted_tiers'] ?: ((array) ($cat['self_hosted_tiers'] ?? []))) : $tiers)) {
+                usort($sht, function ($a, $b) { return $a['max'] <=> $b['max']; }); $items[count($items) - 1]['list_price'] = floatval($sht[0]['price']);
+            }
+        }
         // Ein Einrichtungsposten (User 14.11.): eigener Betrieb → Position „einrichtung“ immer im Angebot; eigener Shop 0 € inklusive, selbstgehostet Listenpreis (190 €) bzw. 0 € „erlassen“
         if (in_array($mode, self::OWN_MODES, true)) {
             $si = null;
@@ -763,6 +771,32 @@ class TIX_Platform_Offers {
             }
         }
         return null;
+    }
+
+    /**
+     * Was zum Senden fehlt (1.38.821) → [{field, code, message}]. Leer = vollständig.
+     * Geprüft nur beim Versenden (User 14.11.: PDF immer exportierbar). Gültigkeit hat einen eigenen Fehler (409).
+     */
+    public static function missing(array $d, $to = null) {
+        $m = [];
+        $cu = (array) ($d['customer'] ?? []);
+        if (trim((string) ($cu['company'] ?? '')) === '' && trim((string) ($cu['name'] ?? '')) === '') $m[] = ['field' => 'customer.company', 'code' => 'name', 'message' => 'Name bzw. Firma des Kunden fehlt.'];
+        $mail = $to !== null ? $to : (string) ($cu['email'] ?? '');
+        if (!is_email($mail)) $m[] = ['field' => 'customer.email', 'code' => 'email', 'message' => 'E-Mail-Adresse des Kunden fehlt oder ist ungültig.'];
+        if (empty($d['mode_chosen'])) $m[] = ['field' => 'mode', 'code' => 'mode', 'message' => 'Bitte die Betriebsart wählen (Plattform, eigener Shop oder selbstgehostet).'];
+        if (!self::active_items($d)) $m[] = ['field' => 'items', 'code' => 'items', 'message' => 'Das Angebot hat noch keine Positionen.'];
+        else {
+            $t = self::totals($d);
+            foreach ($t['missing_prices'] as $id) foreach ((array) $d['items'] as $i => $x) if ($x['id'] === $id) $m[] = ['field' => "items.$i.price", 'code' => 'price', 'message' => '„' . $x['name'] . '“: Preis fehlt.', 'item_id' => $id];
+        }
+        return $m;
+    }
+
+    /** 422 tix_offer_incomplete mit data.missing[] (und data.field = erstes fehlendes Feld) | null */
+    public static function incomplete_error(array $d, $to = null) {
+        $m = self::missing($d, $to);
+        if (!$m) return null;
+        return new WP_Error('tix_offer_incomplete', 'Bitte noch ergänzen: ' . implode(' ', array_column($m, 'message')), ['status' => 422, 'field' => $m[0]['field'], 'missing' => $m]);
     }
 
     public static function reference($key) {
@@ -1048,6 +1082,8 @@ class TIX_Platform_Offers {
             'views' => intval($row->views), 'viewed_at' => self::iso($row->viewed_at), 'sent_at' => self::iso($row->sent_at), 'decided_at' => self::iso($row->decided_at),
             'created_at' => self::iso($row->created_at), 'updated_at' => self::iso($row->updated_at),
             'owner' => $owner ? ['id' => intval($owner->ID), 'name' => (string) $owner->display_name] : null,
+            // Vollständigkeit (1.38.821): Anlegen geht mit einem Namen, geprüft wird erst beim Senden bzw. Kunden-PDF
+            'complete' => !($mi = self::missing($d)), 'missing' => array_column($mi, 'code'),
             'editable' => $row->status === 'draft', 'accept_link' => !empty($d['accept_link']), 'customer_key' => !empty($d['customer_key']) ? (string) $d['customer_key'] : null];
     }
 
@@ -1202,6 +1238,9 @@ class TIX_Platform_Offers {
             }
         }
         $b['items'] = $items;
+        // Schnell anlegen (1.38.821): nur ein Name → Kunde (Firma), alles andere aus den Vorgaben, Status Entwurf
+        $nm = isset($b['name']) && is_string($b['name']) ? trim($b['name']) : '';
+        if ($nm !== '') { $cu = (array) ($b['customer'] ?? []); if (trim((string) ($cu['company'] ?? '')) === '' && trim((string) ($cu['name'] ?? '')) === '') { $cu['company'] = $nm; $b['customer'] = $cu; } }
         if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b);
         if ($e = self::mode_error($d)) return $e; // Betriebsart (1.38.819)
@@ -1369,9 +1408,9 @@ class TIX_Platform_Offers {
     /** POST {…wie Anlegen} → PDF-Vorschau ohne Speichern (Nummer „Entwurf“). */
     public static function rest_preview_draft(WP_REST_Request $req) {
         $d = self::clean_data(self::body($req));
-        $bytes = self::render_pdf($d, ['number' => 'Entwurf', 'date' => wp_date('Y-m-d')]);
+        $bytes = self::render_pdf($d, ['number' => '', 'date' => wp_date('Y-m-d')]); // ohne Entwurf-Hinweis (User 14.11.)
         if (!$bytes) return new WP_Error('tix_pdf_unavailable', 'PDF gerade nicht möglich.', ['status' => 500]);
-        return self::pdf_response($bytes, 'Angebot-Entwurf.pdf');
+        return self::pdf_response($bytes, 'Angebot.pdf');
     }
 
     public static function filename($row) {
@@ -1402,10 +1441,8 @@ class TIX_Platform_Offers {
         if (in_array($row->status, ['accepted', 'rejected', 'replaced'], true)) return new WP_Error('tix_offer_locked', 'Dieses Angebot ist abgeschlossen.', ['status' => 409]);
         $d = self::data($row);
         $to = sanitize_email((string) ($b['to'] ?? '')) ?: $d['customer']['email'];
-        if (!is_email($to)) return new WP_Error('tix_offer_email', 'Bitte eine gültige E-Mail-Adresse des Kunden angeben.', ['status' => 400, 'field' => 'customer.email']);
-        if (!self::active_items($d)) return new WP_Error('tix_offer_empty', 'Das Angebot hat noch keine Positionen.', ['status' => 400, 'field' => 'items']);
+        if ($e = self::incomplete_error($d, $to)) return $e; // 422 mit Liste fehlender Felder (1.38.821)
         $t = self::totals($d);
-        if ($t['missing_prices']) return new WP_Error('tix_offer_price_missing', 'Bei einer Position fehlt der Preis.', ['status' => 400, 'field' => 'items', 'items' => $t['missing_prices']]);
         if ($d['valid_until'] < wp_date('Y-m-d') || self::is_expired($row)) return new WP_Error('tix_offer_expired', 'Das Angebot ist schon abgelaufen. Bitte „Gültig bis“ anpassen (neue Version).', ['status' => 409, 'field' => 'valid_until']);
         $token = (string) $row->token;
         $cols = [];
@@ -1913,7 +1950,8 @@ class TIX_Platform_Offers {
         self::$euro = $pdfa ? '€' : 'EUR';
         $pdf = $pdfa ? new TIX_PDFA($W, $H, $M, 40) : new TIX_Simple_PDF($W, $H, $M, 40);
         $brand = class_exists('TIX_Mail_Layout') ? (string) (TIX_Mail_Layout::brand()['name'] ?? 'evendis') : 'evendis';
-        if ($pdfa) $pdf->set_meta(['title' => 'Angebot ' . $meta['number'], 'author' => $brand]);
+        $nr = trim((string) ($meta['number'] ?? '')); // leer = Vorschau ohne Nummer (kein Entwurf-Hinweis)
+        if ($pdfa) $pdf->set_meta(['title' => trim('Angebot ' . $nr), 'author' => $brand]);
         $col = function ($c) use ($pdf) { $pdf->set_color($c[0], $c[1], $c[2]); };
         $font = function ($bold, $size) use ($pdf) { $pdf->set_font($bold ? 'Helvetica-Bold' : 'Helvetica', $size); };
         $width = function ($s, $size) use ($pdf, $pdfa) { return $pdfa ? $pdf->width($s, $size) : mb_strlen($s) * $size * 0.5; };
@@ -1936,18 +1974,18 @@ class TIX_Platform_Offers {
         $col(self::C_NIGHT); $pdf->rect(0, $H - 250, $W, 250, true);
         $col(self::C_RED); $pdf->rect($M, $H - 64, 28, 4, true);
         $col([1, 1, 1]); $font(true, 20); $pdf->text($M, $H - 92, $brand);
-        $col([0.79, 0.80, 0.85]); $font(false, 10); $rt($W - $M, $H - 92, 'Angebot ' . $meta['number'], 10);
+        $col([0.79, 0.80, 0.85]); $font(false, 10); if ($nr !== '') $rt($W - $M, $H - 92, 'Angebot ' . $nr, 10);
         $col([1, 1, 1]); $font(true, 26);
         $y = $H - 150;
-        foreach (self::wrap('Angebot für ' . $who, 32) as $ln) { $pdf->text($M, $y, $ln); $y -= 32; }
+        foreach (self::wrap($who !== '' ? 'Angebot für ' . $who : 'Angebot', 32) as $ln) { $pdf->text($M, $y, $ln); $y -= 32; }
         $col([0.79, 0.80, 0.85]); $font(false, 11);
-        $pdf->text($M, $H - 222, 'Nr. ' . $meta['number'] . ' · ' . $date . ' · gültig bis ' . $valid);
+        $pdf->text($M, $H - 222, ($nr !== '' ? 'Nr. ' . $nr . ' · ' : '') . $date . ' · gültig bis ' . $valid);
 
         // ── Empfänger und Kontakt
         $y = $H - 285;
-        $col(self::C_MUTED); $font(true, 8); $pdf->text($M, $y, 'FÜR'); $pdf->text(330, $y, 'DEIN KONTAKT');
-        $y -= 15;
         $rl = array_values(array_filter([$cust['company'], $cust['name'], $cust['street'], trim($cust['zip'] . ' ' . $cust['city']), $cust['country'] !== 'DE' ? $cust['country'] : '', $cust['vat_id'] ? 'USt-IdNr. ' . $cust['vat_id'] : '']));
+        $col(self::C_MUTED); $font(true, 8); if ($rl) $pdf->text($M, $y, 'FÜR'); $pdf->text(330, $y, 'DEIN KONTAKT'); // ohne Kundendaten kein leeres „FÜR“
+        $y -= 15;
         $cl = array_values(array_filter([$d['contact']['name'], $d['contact']['email'], $d['contact']['phone']]));
         $col(self::C_NIGHT);
         for ($i = 0; $i < max(count($rl), count($cl)); $i++) {
@@ -1994,7 +2032,9 @@ class TIX_Platform_Offers {
             $y -= 6;
         }
 
-        // ── Leistungen und Preise
+        // ── Leistungen und Preise (ohne angehakte Position weggelassen – kein leerer Block)
+        $xS = $W - $M;
+        if (self::active_items($d)) {
         $ensure(90);
         $col(self::C_NIGHT); $font(true, 16); $pdf->text($M, $y, 'Leistungen und Preise'); $y -= 8;
         $col(self::C_RED); $pdf->rect($M, $y, 28, 3, true); $y -= 24;
@@ -2065,6 +2105,7 @@ class TIX_Platform_Offers {
         if (!empty($d['term_months'])) $sum('Laufzeit', $d['term_months'] . ' Monate', false, true);
         $y -= 12;
 
+        } // Ende Leistungen und Preise
         // Vergleich mit dem bisherigen Anbieter: nie im PDF (User-Entscheid 06.11.), nur Gesprächshilfe im Studio
 
         // ── Hochrechnung je Event (abschaltbar über projection.in_pdf)
@@ -2251,7 +2292,8 @@ class TIX_Platform_Offers {
         if (!$B) return null;
         $pdf = $pdfa ? new TIX_PDFA($W, $H, $M, 40) : new TIX_Simple_PDF($W, $H, $M, 40);
         $brand = class_exists('TIX_Mail_Layout') ? (string) (TIX_Mail_Layout::brand()['name'] ?? 'evendis') : 'evendis';
-        if ($pdfa) $pdf->set_meta(['title' => 'Angebot ' . $meta['number'] . ' – ' . $B['title'], 'author' => $brand]);
+        $nr = trim((string) ($meta['number'] ?? ''));
+        if ($pdfa) $pdf->set_meta(['title' => trim('Angebot ' . $nr) . ' – ' . $B['title'], 'author' => $brand]);
         $col = function ($c) use ($pdf) { $pdf->set_color($c[0], $c[1], $c[2]); };
         $font = function ($bold, $size) use ($pdf) { $pdf->set_font($bold ? 'Helvetica-Bold' : 'Helvetica', $size); };
         $width = function ($s, $size) use ($pdf, $pdfa) { return $pdfa ? $pdf->width($s, $size) : mb_strlen($s) * $size * 0.5; };
@@ -2272,11 +2314,11 @@ class TIX_Platform_Offers {
         $col(self::C_NIGHT); $pdf->rect(0, $H - 200, $W, 200, true);
         $col(self::C_RED); $pdf->rect($M, $H - 64, 28, 4, true);
         $col([1, 1, 1]); $font(true, 20); $pdf->text($M, $H - 92, $brand);
-        $col([0.79, 0.80, 0.85]); $font(false, 10); $rt($xS, $H - 92, 'Angebot ' . $meta['number'], 10);
+        $col([0.79, 0.80, 0.85]); $font(false, 10); if ($nr !== '') $rt($xS, $H - 92, 'Angebot ' . $nr, 10);
         $col([1, 1, 1]); $font(true, 26); $pdf->text($M, $H - 132, $B['title']);
-        $col([0.79, 0.80, 0.85]); $font(false, 12); $pdf->text($M, $H - 152, mb_substr('Angebot mit Planrechnung für ' . $who, 0, 80));
+        $col([0.79, 0.80, 0.85]); $font(false, 12); $pdf->text($M, $H - 152, mb_substr($who !== '' ? 'Angebot mit Planrechnung für ' . $who : 'Angebot mit Planrechnung', 0, 80));
         $font(false, 9.5); $pdf->text($M, $H - 168, $B['mode_label'] . ': ' . $B['subtitle']);
-        $font(false, 9.5); $pdf->text($M, $H - 184, 'Nr. ' . $meta['number'] . ' · ' . $date . ' · gültig bis ' . $valid);
+        $font(false, 9.5); $pdf->text($M, $H - 184, ($nr !== '' ? 'Nr. ' . $nr . ' · ' : '') . $date . ' · gültig bis ' . $valid);
         // ── Drei Kacheln
         $y = $H - 222;
         $tw = ($W - 2 * $M - 2 * 10) / 3;
@@ -2290,9 +2332,9 @@ class TIX_Platform_Offers {
         }
         $y -= 90;
         // ── Empfänger und Kontakt
-        $col(self::C_MUTED); $font(true, 8); $pdf->text($M, $y, 'FÜR'); $pdf->text(330, $y, 'DEIN KONTAKT');
-        $y -= 14;
         $rl = array_values(array_filter([$cust['company'], $cust['name'], $cust['street'], trim($cust['zip'] . ' ' . $cust['city']), $cust['country'] !== 'DE' ? $cust['country'] : '', $cust['vat_id'] ? 'USt-IdNr. ' . $cust['vat_id'] : '']));
+        $col(self::C_MUTED); $font(true, 8); if ($rl) $pdf->text($M, $y, 'FÜR'); $pdf->text(330, $y, 'DEIN KONTAKT'); // ohne Kundendaten kein leeres „FÜR“
+        $y -= 14;
         $cl = array_values(array_filter([$d['contact']['name'], $d['contact']['email'], $d['contact']['phone']]));
         $col(self::C_NIGHT);
         for ($i = 0; $i < max(count($rl), count($cl)); $i++) {

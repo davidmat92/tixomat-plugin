@@ -156,6 +156,27 @@ if (TIX_Platform_Offers::multi()) {
         $html = (string) $m->invoke(null, $O::get($oid), 'optt' . $oid, '');
         $eq('Online-Seite: „Dein eigener Ticketshop“, Blöcke 1–4, kein Hosting', [true, true, true, false],
             [strpos($html, 'Dein eigener Ticketshop') !== false, strpos($html, 'Was du an deinen Zahlungsdienstleister zahlst') !== false, strpos($html, 'Planrechnung') !== false, strpos($html, '>Hosting<') !== false]);
+        // 1.38.821: schnell anlegen nur mit Namen; PDF immer, Prüfung nur beim Versenden (Empfänger, Betriebsart, Positionen, Preise)
+        [$st, $r] = $rest('POST', '/platform/offers', ['name' => 'Schnell-Club']);
+        $q = $r['offer'] ?? []; $qid = intval($q['id'] ?? 0);
+        $eq('Anlegen nur mit Namen: 201 Entwurf, Name als Firma, unvollständig (email, mode, items)', [201, 'draft', 'Schnell-Club', false, ['email', 'mode', 'items']], [$st, $q['status'] ?? '', $q['company'] ?? '', $q['complete'] ?? null, $q['missing'] ?? null]);
+        [$st, $r] = $rest('POST', "/platform/offers/$qid/send", ['confirm' => true]);
+        $eq('Senden unvollständig → 422 tix_offer_incomplete mit missing[] und field', [422, 'tix_offer_incomplete', ['customer.email', 'mode', 'items'], 'customer.email'], [$st, $r['code'] ?? '', array_column((array) ($r['data']['missing'] ?? []), 'field'), $r['data']['field'] ?? '']);
+        $x = new WP_REST_Request('GET', "/tixomat/v1/platform/offers/$qid/pdf"); $x->set_query_params(['customer' => 1]); $rx = rest_do_request($x);
+        $pdf_b = base64_decode((string) ($rx->get_data()['data'] ?? ''));
+        $pdf_t = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; })($pdf_b);
+        $eq('PDF auch unvollständig immer exportierbar, ohne Entwurf-Hinweis', [200, true, false], [$rx->get_status(), strpos($pdf_b, '%PDF') === 0, stripos($pdf_t, 'Entwurf') !== false]);
+        [$st, $r] = $rest('POST', '/platform/offers/preview', ['customer' => ['company' => 'Vorschau']]);
+        $pv_t = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; })(base64_decode((string) ($r['data'] ?? '')));
+        $eq('Vorschau ohne Speichern: ohne „Entwurf“, Dateiname Angebot.pdf', [200, false, 'Angebot.pdf'], [$st, stripos($pv_t, 'Entwurf') !== false, $r['filename'] ?? '']);
+        [$st, $r] = $rest('POST', "/platform/offers/$qid", ['mode' => 'own_shop', 'customer' => ['company' => 'Schnell-Club', 'email' => 'schnell@example.org']]);
+        $eq('Betriebsart gewählt ohne Positionen → Grundpaket aus den Vorgaben (Eigener Shop 790 €), vollständig', [200, true, [], true],
+            [$st, $r['offer']['complete'] ?? null, $r['offer']['missing'] ?? null, in_array('shop', array_column((array) ($r['offer']['data']['items'] ?? []), 'catalog_key'), true)]);
+        [, $l] = $rest('GET', '/platform/offers');
+        $row = null; foreach ((array) ($l['offers'] ?? []) as $o) if (intval($o['id'] ?? 0) === $qid) $row = $o;
+        $eq('Liste: complete und missing', [true, []], [$row['complete'] ?? null, $row['missing'] ?? null]);
+        global $wpdb; if ($qid) $wpdb->delete(TIX_Platform_Offers::table(), ['id' => $qid]);
+        $eq('Fehlender Preis als items.<i>.price mit item_id', ['price', 'items.0.price'], (function () use ($O, $it) { $m = $O::missing($O::clean_data(['customer' => ['company' => 'X', 'email' => 'x@example.org'], 'mode' => 'platform', 'items' => [$it('datenumzug')]])); return [$m[0]['code'] ?? '', $m[0]['field'] ?? '']; })());
         [$st, $r] = $rest('GET', '/platform/offer-references');
         $eq('GET /platform/offer-references: Katalog-Referenzen und Vorschläge mit Betriebsart', [200, true, true], [$st, is_array($r['references'] ?? null), is_array($r['candidates'] ?? null) && (!$r['candidates'] || isset($r['candidates'][0]['mode'], $r['candidates'][0]['live']))]);
         [$st, $r] = $rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'lizenz'], ['catalog_key' => 'hosting']]]);
