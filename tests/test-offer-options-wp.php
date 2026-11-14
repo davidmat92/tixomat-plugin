@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.831: kein Vorsteuer-Satz, Kurzangebot (length short, ≤ 2 Seiten).
  * 1.38.830: App-Vorteile mit Etikett „mit App-Paket“.
  * 1.38.829: Markenrot, Planrechnung nur Grundpaket, App-Gruppe („nur mit App“), Ticketpreis als Annahme, Angebotsnummern AN-JJMM-NNNN.
  * 1.38.828: eine Planrechnungs-Tabelle, kurze Hinweise, Bedingungen ohne Plattform-Satz.
@@ -317,6 +318,19 @@ $tags30 = array_column($b30, 'tag', 'title');
 $eq('App-Vorteile bleiben, Etikett „mit App-Paket“, am Ende; Shop-Vorteile ohne Etikett; im PDF sichtbar', ['mit App-Paket', '', 'mit App-Paket', true],
     [$tags30['In App Store und Google Play'] ?? null, $tags30['Shop unter deiner Domain'] ?? null, end($b30)['tag'], strpos($ptxt($O::render_pdf($d30, ['number' => 'AN-T-30', 'date' => wp_date('Y-m-d')])), 'MIT APP-PAKET') !== false]);
 
+// ── 1.38.831: ohne Vorsteuer-Satz, Kurzangebot
+$d31 = $O::clean_data(['customer' => ['company' => 'Kurz GmbH'], 'items' => [$it('shop'), $it('app'), $it('wallet', null, ['gift' => true]), $it('seating', null, ['gift' => true]), $it('music', null, ['gift' => true])], 'mode' => 'own_shop', 'plan' => ['lead' => 5000]]);
+$long31 = (string) $O::render_pdf($d31, ['number' => 'AN-T-31', 'date' => wp_date('Y-m-d'), 'link' => 'https://evendis.de/?tix_offer=x']);
+$short31 = (string) $O::render_pdf($d31, ['number' => 'AN-T-31', 'date' => wp_date('Y-m-d'), 'length' => 'short', 'link' => 'https://evendis.de/?tix_offer=x']);
+$st31 = $ptxt($short31);
+$pages = function ($b) { return substr_count($b, '/Type /Page /Parent'); };
+$eq('Kein „Vorsteuer“ mehr (PDF und Texte)', [false, false], [stripos($ptxt($long31), 'Vorsteuer') !== false, stripos(implode(' ', array_column($O::own_blocks($d31)['lead']['steps'], 'text')), 'Vorsteuer') !== false]);
+$eq('length: Standard long, short wählbar, sonst 400', ['long', 'short', 'length'], [$d31['length'], $O::clean_data(['length' => 'short'], $d31)['length'], $O::plan_error(['length' => 'mittel'])->get_error_data()['field'] ?? '']);
+$eq('Kurzangebot: höchstens 2 Seiten (lang mehr), Faktenblock, Festpreis, ohne App, Annahme, Leistungen mit „Geschenkt dazu“, Optional „nur mit App“, Planrechnung, Zahlungsanbieter-Satz, Interesse, Kontakt', [true, true, true, true, true, true, true, true, true, true, true, true],
+    [$pages($short31) <= 2, $pages($long31) > 2, strpos($st31, 'das zahlst du, das bleibt dir') !== false, strpos($st31, 'Festpreis: Bis 5.000') !== false, strpos($st31, 'komplett ohne App') !== false,
+     strpos($st31, 'Annahme:') !== false, strpos($st31, 'Geschenkt dazu') !== false, strpos($st31, 'NUR MIT APP') !== false, strpos($st31, 'Planrechnung') !== false,
+     strpos($st31, 'Mollie, Stripe oder PayPal') !== false, strpos($st31, 'Interesse') !== false, strpos($st31, 'DEIN KONTAKT BEI EVENDIS') !== false]);
+
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);
 $Be = $O::own_blocks($de);
@@ -382,6 +396,10 @@ if (TIX_Platform_Offers::multi()) {
         $pdf_b = base64_decode((string) ($rx->get_data()['data'] ?? ''));
         $pdf_t = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; })($pdf_b);
         $eq('PDF auch unvollständig immer exportierbar, ohne Entwurf-Hinweis', [200, true, false], [$rx->get_status(), strpos($pdf_b, '%PDF') === 0, stripos($pdf_t, 'Entwurf') !== false]);
+        $x2 = new WP_REST_Request('GET', "/tixomat/v1/platform/offers/$qid/pdf"); $x2->set_query_params(['length' => 'short']); $r2 = rest_do_request($x2);
+        $x3 = new WP_REST_Request('GET', "/tixomat/v1/platform/offers/$qid/pdf"); $x3->set_query_params(['length' => 'mittel']); $r3 = rest_do_request($x3);
+        $eq('PDF-Abruf ?length=short → Kurzangebot (Dateiname), Angebot unverändert; ungültig 400', [200, 0, 'long', 400],
+            [$r2->get_status(), strpos((string) ($r2->get_data()['filename'] ?? ''), 'Kurzangebot-'), $O::data($O::get($qid))['length'] ?? 'long', $r3->get_status()]);
         [$st, $r] = $rest('POST', '/platform/offers/preview', ['customer' => ['company' => 'Vorschau']]);
         $pv_t = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $z) { $u = @gzuncompress($z); $t .= $u !== false ? $u : $z; } return $t; })(base64_decode((string) ($r['data'] ?? '')));
         $eq('Vorschau ohne Speichern: ohne „Entwurf“, Dateiname Angebot.pdf', [200, false, 'Angebot.pdf'], [$st, stripos($pv_t, 'Entwurf') !== false, $r['filename'] ?? '']);

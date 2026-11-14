@@ -735,6 +735,8 @@ class TIX_Platform_Offers {
             'mode' => $mode, 'mode_chosen' => $mode_chosen, 'references' => array_slice($refs, 0, 6),
             'intro' => $intro === null ? (string) $cat['intro'] : self::txt($intro, 3000),
             'conditions' => $cond === null ? (string) $cat['conditions'] : self::txt($cond, 3000),
+            // Kurz- oder Langfassung des PDFs (1.38.831); beim PDF-Abruf bzw. Senden einzeln überschreibbar
+            'length' => in_array($g('length', 'long'), ['long', 'short'], true) ? $g('length', 'long') : 'long',
             'contact' => $contact, 'sales_rep' => $rep ? $rep['key'] : null, 'auto_added' => $auto_added, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
         ];
     }
@@ -1503,6 +1505,7 @@ class TIX_Platform_Offers {
             if (!$r || !$r['approved']) return new WP_Error('tix_invalid_field', 'Diese Referenz gibt es nicht oder sie ist nicht freigegeben.', ['status' => 400, 'field' => "references.$i"]);
         }
         if (array_key_exists('sales_rep', $b) && $b['sales_rep'] !== null && $b['sales_rep'] !== '' && !self::sales_rep(sanitize_key((string) $b['sales_rep']))) return new WP_Error('tix_invalid_field', 'Diesen Vertriebler gibt es nicht.', ['status' => 400, 'field' => 'sales_rep']);
+        if (array_key_exists('length', $b) && !in_array($b['length'], ['long', 'short'], true)) return new WP_Error('tix_invalid_field', 'Länge long oder short.', ['status' => 400, 'field' => 'length']);
         if (array_key_exists('layout', $b) && !in_array($b['layout'], ['auto', 'own', 'classic'], true)) return new WP_Error('tix_invalid_field', 'Gliederung auto, own oder classic.', ['status' => 400, 'field' => 'layout']);
         if (!class_exists('TIX_Offer_Plan') || !array_key_exists('plan', $b)) return null;
         $r = TIX_Offer_Plan::clean($b['plan'], self::catalog());
@@ -1619,29 +1622,44 @@ class TIX_Platform_Offers {
 
     /** POST {…wie Anlegen} → PDF-Vorschau ohne Speichern (Nummer „Entwurf“). */
     public static function rest_preview_draft(WP_REST_Request $req) {
-        $d = self::clean_data(self::body($req));
-        $bytes = self::render_pdf($d, ['number' => '', 'date' => wp_date('Y-m-d')]); // ohne Entwurf-Hinweis (User 14.11.)
+        $b = self::body($req);
+        if (($e = self::length_error($b['length'] ?? ($req['length'] ?? null)))) return $e;
+        $d = self::clean_data($b);
+        $len = self::length_of($d, $req['length'] ?? null);
+        $bytes = self::render_pdf($d, ['number' => '', 'date' => wp_date('Y-m-d'), 'length' => $len]); // ohne Entwurf-Hinweis (User 14.11.)
         if (!$bytes) return new WP_Error('tix_pdf_unavailable', 'PDF gerade nicht möglich.', ['status' => 500]);
-        return self::pdf_response($bytes, 'Angebot.pdf');
+        return self::pdf_response($bytes, $len === 'short' ? 'Kurzangebot.pdf' : 'Angebot.pdf');
     }
 
-    public static function filename($row) {
+    public static function filename($row, $length = 'long') {
         $c = preg_replace('/[^A-Za-z0-9äöüÄÖÜß_-]+/u', '-', (string) $row->company);
-        return 'Angebot-' . $row->number . ($c ? '-' . trim(mb_substr($c, 0, 40), '-') : '') . '.pdf';
+        return ($length === 'short' ? 'Kurzangebot-' : 'Angebot-') . $row->number . ($c ? '-' . trim(mb_substr($c, 0, 40), '-') : '') . '.pdf';
     }
 
-    public static function pdf_of($row) {
+    /** Länge: 'short' | 'long' | null (= data.length, Standard long) */
+    public static function length_of(array $d, $want = null) {
+        if (in_array($want, ['long', 'short'], true)) return $want;
+        return ($d['length'] ?? 'long') === 'short' ? 'short' : 'long';
+    }
+
+    public static function pdf_of($row, $length = null) {
         $d = self::data($row);
-        return self::render_pdf($d, ['number' => (string) $row->number, 'date' => substr((string) ($row->sent_at ?: $row->created_at), 0, 10),
+        return self::render_pdf($d, ['number' => (string) $row->number, 'length' => self::length_of($d, $length), 'date' => substr((string) ($row->sent_at ?: $row->created_at), 0, 10),
             'link' => ($row->token && !empty($d['accept_link'])) ? self::accept_url($row->token) : '']);
     }
 
     public static function rest_pdf(WP_REST_Request $req) {
         $row = self::load($req);
         if (is_wp_error($row)) return $row;
-        $bytes = self::pdf_of($row);
+        if (($e = self::length_error($req['length'] ?? null))) return $e;
+        $len = self::length_of(self::data($row), $req['length'] ?? null);
+        $bytes = self::pdf_of($row, $len);
         if (!$bytes) return new WP_Error('tix_pdf_unavailable', 'PDF gerade nicht möglich.', ['status' => 500]);
-        return self::pdf_response($bytes, self::filename($row));
+        return self::pdf_response($bytes, self::filename($row, $len));
+    }
+
+    private static function length_error($v) {
+        return ($v !== null && $v !== '' && !in_array($v, ['long', 'short'], true)) ? new WP_Error('tix_invalid_field', 'Länge long oder short.', ['status' => 400, 'field' => 'length']) : null;
     }
 
     /** POST {confirm: true, to?, cc?[], cc_me? (Standard true), subject?, message?} */
@@ -1650,6 +1668,7 @@ class TIX_Platform_Offers {
         if (is_wp_error($row)) return $row;
         $b = self::body($req);
         if (empty($b['confirm'])) return new WP_Error('tix_confirm_required', 'Bitte das Senden bestätigen.', ['status' => 400, 'field' => 'confirm']);
+        if (($e = self::length_error($b['length'] ?? null))) return $e;
         if (in_array($row->status, ['accepted', 'rejected', 'replaced'], true)) return new WP_Error('tix_offer_locked', 'Dieses Angebot ist abgeschlossen.', ['status' => 409]);
         $d = self::data($row);
         $to = sanitize_email((string) ($b['to'] ?? '')) ?: $d['customer']['email'];
@@ -1665,11 +1684,12 @@ class TIX_Platform_Offers {
         if ($cols) { self::set($row->id, $cols); $row = self::get($row->id); }
         $sent_at = current_time('mysql');
         if (!$row->sent_at) { self::set($row->id, ['sent_at' => $sent_at]); $row = self::get($row->id); }
-        $bytes = self::pdf_of($row);
+        $len = self::length_of($d, $b['length'] ?? null); // Kurz- oder Langfassung je Versand (1.38.831)
+        $bytes = self::pdf_of($row, $len);
         if (!$bytes) return new WP_Error('tix_pdf_unavailable', 'PDF gerade nicht möglich.', ['status' => 500]);
         $dir = trailingslashit(get_temp_dir()) . 'tix-offer-' . wp_generate_password(8, false);
         wp_mkdir_p($dir);
-        $file = $dir . '/' . self::filename($row);
+        $file = $dir . '/' . self::filename($row, $len);
         file_put_contents($file, $bytes);
         $brand = class_exists('TIX_Mail_Layout') ? (string) (TIX_Mail_Layout::brand()['name'] ?? 'evendis') : 'evendis';
         $subject = self::txt($b['subject'] ?? '', 160, false) ?: "Dein Angebot {$row->number} von {$brand}";
@@ -2602,7 +2622,7 @@ class TIX_Platform_Offers {
                     'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.), evendis-Preise netto zzgl. MwSt.; „bleibt dir“ gilt fürs 1. Jahr mit dem Grundpaket inkl. einmaliger Kosten.' . ($t['has_options'] ? ' Optionale Zubuchungen sind hier nicht eingerechnet.' : ''),
                     'Gebühren der Zahlungsanbieter laut deren Preisseiten, ohne Gewähr.'],
                 'assumptions' => 'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ' inkl. MwSt., ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . ', keine Erstattungen.',
-                'basis' => 'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.); evendis-Preise zzgl. MwSt' . ($cmp ? '; die Plattformgebühr ist ohne MwSt. gerechnet (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . '), weil du die MwSt. als Vorsteuer zurückbekommst.' : '.' . ($t['has_options'] ? ' Gewählte Optionen sind in der Planrechnung enthalten, im Faktenblock oben nur das Grundpaket.' : '')),
+                'basis' => 'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.); evendis-Preise zzgl. MwSt' . ($cmp ? '; die Plattformgebühr ist ohne MwSt. gerechnet (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . ').' : '.' . ($t['has_options'] ? ' Gewählte Optionen sind in der Planrechnung enthalten, im Faktenblock oben nur das Grundpaket.' : '')),
                 'disclaimer' => 'Ohne Gewähr: Gebühren der Zahlungsdienstleister laut deren öffentlichen Preisseiten; sie können sich beim Anbieter ändern und hängen von Kartenart und Vertrag ab. Alle evendis-Preise zzgl. MwSt.' . ($ev['once'] > 0 ? ' Einmalige Kosten (' . self::eur0($ev['once']) . ') sind in der Jahresrechnung nicht enthalten.' : '')],
         ];
     }
@@ -2653,7 +2673,7 @@ class TIX_Platform_Offers {
         if ($L['channel_fee'] > 0) $el[] = '+ Verkäufe über evendis.de: ' . $e0($L['channel_fee']) . ' (ohne Mehrwertsteuer)';
         if ($L['to_evendis_once'] > 0) $el[] = '+ einmalig (z. B. Einrichtung): ' . $e0($L['to_evendis_once']);
         $el[] = '= ' . $e0($L['to_evendis']) . ' an evendis im ersten Jahr – und 0 € je verkauftem Ticket.';
-        $steps[] = ['title' => 'An evendis', 'text' => ($mode === 'own_shop' ? 'Dein Shop läuft auf unseren Servern, Betrieb und Updates sind inklusive.' : 'Dein Shop läuft auf deinem eigenen Server, Installation und Updates kommen per Paket.') . ' Alle evendis-Preise sind ohne Mehrwertsteuer – die bekommst du als Vorsteuer zurück.', 'lines' => $el];
+        $steps[] = ['title' => 'An evendis', 'text' => ($mode === 'own_shop' ? 'Dein Shop läuft auf unseren Servern, Betrieb und Updates sind inklusive.' : 'Dein Shop läuft auf deinem eigenen Server, Installation und Updates kommen per Paket.') . ' Alle evendis-Preise sind netto, zzgl. Mehrwertsteuer.', 'lines' => $el];
         if ($mode === 'self_hosted') $steps[] = ['title' => 'Dein Server', 'text' => 'Dein Server beim Hoster kostet ca. ' . $e2($pc['server_month']) . ' im Monat = ' . $e0($L['to_hoster']) . ' im Jahr. Den zahlst du direkt an deinen Hoster. Dafür liegen deine Daten allein bei dir.', 'lines' => []];
         $calc = $e0($L['revenue']) . ' + ' . $e0($L['own_fee']) . ' − ' . $e0($L['to_psp']) . ' − ' . $e0($L['to_evendis']) . ($mode === 'self_hosted' ? ' − ' . $e0($L['to_hoster']) : '') . ' = ' . $e0($L['kept']);
         $steps[] = ['title' => 'Was dir bleibt', 'text' => $calc . '. Das sind ' . $e2($L['kept_per_ticket']) . ' je verkauftem Ticket.', 'lines' => []];
@@ -2707,6 +2727,7 @@ class TIX_Platform_Offers {
         $nr = trim((string) ($meta['number'] ?? ''));
         if ($pdfa) $P->set_meta(['title' => trim('Angebot ' . $nr) . ' – ' . $B['title'], 'author' => $brand]);
         $cmp = !empty($B['compare_platform']);
+        $short = ($meta['length'] ?? 'long') === 'short'; // Kurzangebot: engere Abstände (1.38.831)
         $g = function ($k) { return function_exists('tix_get_settings') ? trim((string) tix_get_settings($k)) : ''; };
         $date = !empty($meta['date']) ? wp_date('d.m.Y', strtotime($meta['date'])) : wp_date('d.m.Y');
         $valid = wp_date('d.m.Y', strtotime($d['valid_until']));
@@ -2808,13 +2829,13 @@ class TIX_Platform_Offers {
             $font(false, $size); $col($color ?? self::K_INK);
             foreach ($wrap($text, $maxw) as $ln) { $ensure($lh); $font(false, $size); $col($color ?? self::K_INK); $tx($x, $y, $ln); $y -= $lh; }
         };
-        $section = function ($title, $sub = '', $keep = 90) use (&$y, $col, $font, $tx, $ensure, $P, $M, $para) {
-            $y -= 20;
+        $section = function ($title, $sub = '', $keep = 90) use (&$y, $col, $font, $tx, $ensure, $P, $M, $para, $short) {
+            $y -= $short ? 12 : 20;
             if (!$P->inblock) $ensure($keep); // Überschrift nie allein am Seitenende (im Block entscheidet der Block)
             $col(self::K_INK); $font(true, 15); $tx($M, $y, $title);
             $col(self::K_RED); $P->rrect($M, $y - 13, 28, 2.6, 1.3, true); // roter Strich mit Abstand (1.38.827)
-            $y -= 34;
-            if ($sub !== '') { $para($sub, 9, self::K_MUTED); $y -= 8; }
+            $y -= $short ? 30 : 34;
+            if ($sub !== '') { $para($sub, 9, self::K_MUTED); $y -= $short ? 4 : 8; }
         };
         $hair = function ($x1 = null, $x2 = null, $c = null) use (&$y, $P, $col, $M, $xR) { $x1 = $x1 ?? $M; $x2 = $x2 ?? $xR; $col($c ?? self::K_LINE); $P->rect($x1, $y, $x2 - $x1, 0.5, true); };
         $thead = function (array $cols) use (&$y, $P, $col, $font, $tx, $rt, $M, $CW) {
@@ -2918,6 +2939,87 @@ class TIX_Platform_Offers {
                 $col(self::K_MUTED); $font(false, 7.5); $yy = $y - 40; foreach (array_slice($wrap($tl['note'], $tw - 20), 0, 3) as $ln) { $tx($x + 10, $yy, $ln); $yy -= 9; }
             }
             $y -= 90;
+        }
+
+        // ═══ Kurzangebot (1.38.831, User: „ein bisschen komprimiert … ob lang oder kurz“): höchstens 2 Seiten, gleiches Design
+        if ($short) {
+            $xPs = $xR - 8;
+            // Leistungen kompakt: Grundpaket (geschenkte Module in einer Zeile), Optional als kurze Liste
+            for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                $section('Leistungen');
+                $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);
+                $col(self::K_MUTED); $font(true, 7); $tx($M + 8, $y, 'GRUNDPAKET · 0 € JE VERKAUFTEM TICKET'); $rt($xPs, $y, 'PREIS ZZGL. MWST.'); $y -= 28;
+                $srow = function ($name, $price, $sub = '', $pills = []) use (&$y, $P, $col, $font, $tx, $rt, $wd, $wrap, $hair, $M, $CW, $xPs) {
+                    $font(true, 9.5); $nl = $wrap($name, $CW - 200);
+                    foreach ($nl as $k => $ln) { $col(self::K_INK); $font(true, 9.5); $tx($M + 8, $y, $ln);
+                        if ($k === count($nl) - 1 && $pills) { $x = $M + 8 + $wd($ln, 9.5, true) + 8;
+                            foreach ($pills as [$lb, $bg, $fg]) { $font(true, 6.5); $pw = $wd($lb) + 10; $col($bg); $P->rrect($x, $y - 3, $pw, 12, 6, true); $col($fg); $tx($x + 5, $y + 0.5, $lb); $x += $pw + 6; } }
+                        if ($k === 0) { $font(false, 9.5); $rt($xPs, $y, $price); }
+                        $y -= 12.5; }
+                    if ($sub !== '') { $col(self::K_MUTED); $font(false, 8); foreach ($wrap($sub, $CW - 40) as $ln) { $tx($M + 8, $y + 1, $ln); $y -= 10; } }
+                    $y -= 2; $hair(); $y -= 12;
+                };
+                $gifts = [];
+                foreach ($B['block1']['base_rows'] as $r) {
+                    if (!empty($r['gift'])) { $gifts[] = $r['name']; continue; }
+                    if (!empty($r['info']) || strpos($r['name'], '0 € je verkauftem Ticket') === 0) continue; // steht im Untertitel
+                    $srow($r['name'], $r['price'], ($r['tiered'] ? 'Jahresvertrag, Festpreis nach Staffel (siehe oben)' : ''));
+                }
+                if ($gifts) $srow('Geschenkt dazu', self::eur(0) . ' – geschenkt', implode(', ', $gifts));
+                $gp = $t['base'] ?? $t;
+                $col(self::K_TINT); $P->rrect($M + $CW * 0.45 - 10, $y - 7, $CW * 0.55 + 10, 22, 8, true);
+                $col(self::K_INK); $font(true, 10); $tx($M + $CW * 0.45, $y, 'Grundpaket im Jahr, brutto'); $rt($xPs, $y, self::eur($gp['yearly']['gross'])); $y -= 26;
+            }
+            if ($B['block1']['option_rows']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                {
+                    $y -= 4;
+                    $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);
+                    $col(self::K_MUTED); $font(true, 7); $tx($M + 8, $y, 'OPTIONAL DAZUBUCHBAR'); $rt($xPs, $y, 'PREIS ZZGL. MWST.'); $y -= 28;
+                    foreach ($B['block1']['option_rows'] as $r) {
+                        $pills = array_values(array_filter([!empty($r['needed_for']) ? [mb_strtoupper(str_replace('Modul ', '', $r['needed_for'])), self::K_SOFT, self::K_INK] : null,
+                            !empty($r['discount_label']) ? [mb_strtoupper($r['discount_label']), self::K_TINT, self::K_RED] : null]));
+                        $srow($r['name'], $r['price'] . (!empty($r['list_price']) ? ' (statt ' . $r['list_price'] . ')' : ''), '', $pills);
+                    }
+                }
+            }
+            // Planrechnung klein: 3 Stufen um die führende Zahl, nur Grundpaket
+            for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                $tb = array_values($B['block4']['table']);
+                $lt = intval($B['plan']['lead']['tickets'] ?? 0);
+                $li = max(0, (int) array_search($lt, array_column($tb, 'tickets'), true));
+                $from = max(0, min($li - 1, count($tb) - 3));
+                $tb3 = array_slice($tb, $from, 3);
+                foreach ($tb3 as $k => $r) { $tb3[$k]['revenue_fee'] = $r['revenue'] + $r['own_fee']; $tb3[$k]['ev_all'] = $r['evendis'] === null ? null : $r['evendis'] + floatval($r['once'] ?? 0); }
+                $section('Planrechnung', 'Was dir im Jahr mit dem Grundpaket bleibt (Ticketpreis wie oben angenommen).');
+                $lw3 = 210; $cw3 = ($CW - $lw3) / max(1, count($tb3));
+                $cx3 = function ($k) use ($M, $lw3, $cw3) { return $M + $lw3 + ($k + 1) * $cw3 - 8; };
+                $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);
+                foreach ($tb3 as $k => $r) if ($r['tickets'] === $lt) { $col(self::K_TINT); $P->rrect($M + $lw3 + $k * $cw3 + 4, $y - 8, $cw3 - 4, 22, 8, true); }
+                $col(self::K_MUTED); $font(true, 7); $tx($M + 8, $y, 'TICKETS IM JAHR');
+                foreach ($tb3 as $k => $r) { $col($r['tickets'] === $lt ? self::K_RED : self::K_MUTED); $rt($cx3($k), $y, $num($r['tickets'])); }
+                $y -= 26;
+                $line3 = function ($label, $key, $sign = '', $hl = false, $fmt = 'eur') use (&$y, $P, $col, $font, $tx, $rt, $cx3, $tb3, $eu0, $hair, $M, $CW) {
+                    if ($hl) { $col(self::K_TINT); $P->rrect($M, $y - 7, $CW, 19, 7, true); }
+                    $col(self::K_INK); $font($hl, 9); $tx($M + 8, $y, $label);
+                    foreach ($tb3 as $k => $r) { $v = $r[$key] ?? null; $rt($cx3($k), $y, $v === null ? 'auf Anfrage' : ($fmt === 'pt' ? number_format($v, 2, ',', '.') . ' ' . self::$euro : ($sign === '-' && $v != 0 ? '– ' : ($sign === '+' ? '+ ' : '')) . $eu0($v))); }
+                    $y -= 6; if (!$hl) $hair(); $y -= 10;
+                };
+                $line3('Ticketumsatz + eigene Servicegebühr', 'revenue_fee');
+                $line3('– an den Zahlungsanbieter', 'psp', '-');
+                $line3('– an evendis (Grundpaket)', 'ev_all', '-');
+                if (!empty($B['block4']['server'])) $line3('– Server beim Hoster (ca.)', 'server', '-');
+                $line3('= bleibt dir', 'kept', '', true);
+                $line3('je Ticket', 'kept_per_ticket', '', false, 'pt');
+            }
+            // Zahlungsanbieter in einem Satz
+            for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+                $cat_r = array_values(array_filter((array) ($B['plan']['to_psp']['catalog'] ?? []), function ($r) { return $r['percent'] !== null; }));
+                usort($cat_r, function ($a, $b) { return $a['percent'] <=> $b['percent']; });
+                $from_fee = $cat_r ? self::pct($cat_r[0]['percent']) . ' % + ' . number_format(floatval($cat_r[0]['fixed']), 2, ',', '.') . ' ' . self::$euro : '';
+                $y -= 8;
+                $para('Zahlung über deinen eigenen Zahlungsanbieter (Mollie, Stripe oder PayPal)' . ($from_fee ? ', Gebühren ab ' . $from_fee . ' je Zahlung' : '') . ' – direkt an den Anbieter, nicht an evendis. Das Geld landet sofort auf deinem Konto.', 9, self::K_INK);
+            }
+            goto ende_kurz;
         }
 
         // ═══ Anrede
@@ -3232,11 +3334,15 @@ class TIX_Platform_Offers {
         }
 
         // ═══ Bedingungen, Annahme, Kontakt
+        ende_kurz:
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Bedingungen');
         $cond = self::conditions_text($d);
+        if ($short) $para(trim(preg_replace('/\s*\n\s*/', ' ', $cond) . ' Dieses Angebot gilt bis ' . $valid . '.'), 8, self::K_INK); // Kurzangebot: ein Absatz
+        else {
         if ($cond !== '') $para($cond, 9, self::K_INK);
         $para('Dieses Angebot gilt bis ' . $valid . '.', 9, self::K_INK);
+        }
         $y -= 10;
         }
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
@@ -3254,7 +3360,7 @@ class TIX_Platform_Offers {
             $y -= 6;
         }
         }
-        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
+        if (!$short) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) { // Kurzangebot: Kontakt steht oben und im Fuß
         $col(self::K_INK); $font(true, 10.5); $tx($M, $y, 'Lass uns sprechen'); $y -= 15;
         $para(implode(' · ', array_filter([$ct['name'], $ct['email'], $ct['phone']])), 10);
         // Anbieter (Pflichtangaben klein am Ende)

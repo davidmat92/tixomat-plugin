@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.829",
+    "plugin_version": "1.38.831",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -245,6 +245,7 @@
             "references": [],
             "intro": "vielen Dank für das gute Gespräch. Wie besprochen schicken wir dir hier unser Angebot. Von Veranstaltern für Veranstalter: Wir stehen selbst seit über 20 Jahren hinter Events.",
             "conditions": "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters direkt an ihn (z. B. Mollie Karte 1,8 % + 0,25 € je Zahlung).\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
+            "length": "long",
             "sales_rep": "david",
             "auto_added": [],
             "accept_link": true,
@@ -641,7 +642,7 @@
                     "blended_fee": 1.67
                 }
             },
-            "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
+            "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
             "rows": [
                 {
                     "tickets": 1000,

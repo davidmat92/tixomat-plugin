@@ -6755,3 +6755,9 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 ## 218. Angebote: App-Vorteile mit Etikett „mit App-Paket“ (ab 1.38.830)
 - User-Entscheid: Vorteile der Gruppe `app` im Katalog („In App Store und Google Play“, „Module nach Wahl“, „Einrichtung und Updates“) bleiben unter „Deine Vorteile“, stehen am Ende und tragen `own.benefits[].tag = "mit App-Paket"` (PDF als Pille, online als Etikett).
 - **Test:** `test-offer-options-wp` (120).
+
+## 219. Angebote: ohne Vorsteuer-Satz, Kurzangebot (ab 1.38.831)
+- **Vorsteuer** (User: „Entferne das mit der Vorsteuer“): Erklärschritt „An evendis“ sagt nur noch „Alle evendis-Preise sind netto, zzgl. Mehrwertsteuer.“; auch `totals_note`/`basis` ohne Vorsteuer.
+- **Kurzangebot** (User: „immer beide Optionen … ob lang oder kurz“): `data.length` = `long` (Standard) | `short`; je Abruf überschreibbar, ohne das Angebot zu ändern: `GET /platform/offers/{id}/pdf?length=short`, `POST /platform/offers/{id}/send {…, length: 'short'}`, `POST /platform/offers/preview {…, length}` bzw. `?length=short`; ungültig → 400 `length`. Dateiname `Kurzangebot-<Nr>-<Kunde>.pdf`. Die Online-Ansicht bleibt lang.
+- Kurzfassung (höchstens 2 Seiten, gleiches Design): roter Kopf, Für/Kontakt, Faktenblock mit Festpreis, Annahme und „Shop läuft ohne App“, Leistungen kompakt (Grundpaket, geschenkte Module als eine Zeile „Geschenkt dazu“, Optional als kurze Liste mit „nur mit App“ und Rabatt), Planrechnung mit 3 Stufen um die führende Zahl (nur Grundpaket), Zahlungsanbieter in einem Satz (Mollie, Stripe oder PayPal, Gebühren ab …), Bedingungen als ein Absatz, „Interesse bestätigen“.
+- **Test:** `test-offer-options-wp` (124); Fixtures 1.38.831.

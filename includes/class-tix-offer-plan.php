@@ -278,7 +278,7 @@ class TIX_Offer_Plan {
             'by_mode' => $by_mode,
             'totals' => $totals,
             'lead' => $lead_block,
-            'totals_note' => 'Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ ' . number_format($vat, 2, ',', '') . '); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.',
+            'totals_note' => 'Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt; Plattformgebühr netto (÷ ' . number_format($vat, 2, ',', '') . '); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.',
             'rows' => $rows,
             'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, true, $x), 'without_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, false, $x)],
             // Block 1: an evendis

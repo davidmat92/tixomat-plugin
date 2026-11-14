@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.829",
+    "plugin_version": "1.38.831",
     "name": "plan-referenz",
     "request": {
         "route": "POST /platform/offers/plan",
@@ -250,7 +250,7 @@
                     "blended_fee": 1.51
                 }
             },
-            "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
+            "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
             "rows": [
                 {
                     "tickets": 1000,
