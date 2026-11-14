@@ -174,7 +174,7 @@ class TIX_Offer_Plan {
                 'advantage' => $r2($w['advantage']), 'kept_without_fee' => $r2($wo['kept']), 'advantage_without_fee' => $r2($wo['advantage'])];
         }
         // Vergleich der Betriebsarten (Plattform steckt in jeder Zeile): eigener Shop und selbstgehostet mit ihrer Staffel
-        $by_mode = [];
+        $by_mode = []; $raw = [];
         foreach (['own_shop', 'self_hosted'] as $m) {
             $tm = $m === $mode ? $tiers : $tiers_of($m);
             $fm = $m === $mode ? $fixed : null;
@@ -184,7 +184,31 @@ class TIX_Offer_Plan {
                 $sp = self::shop_price($t, $tm, $fm);
                 $w = self::row($t, $p, $b, $sp, $pf, $vat, true, $xm);
                 $rows[$i]['compare'][$m] = ['evendis' => $r2($sp), 'server' => $r2($w['server']), 'kept' => $r2($w['kept']), 'advantage' => $r2($w['advantage'])];
+                $raw[$i][$m] = $w + ['shop' => $sp];
             }
+        }
+        // Summen-Zusammenfassung je Stufe und Betriebsart (User 14.11.: was insgesamt an evendis, an den Zahlungsdienstleister, was übrig bleibt)
+        // Im 1. Jahr inkl. einmaliger Kosten (Einrichtung, App-Einrichtung …). evendis netto (zzgl. USt, Vorsteuer), Ticketumsatz und eigene Gebühr brutto wie vom Gast bezahlt.
+        $once_by = (array) ($ctx['once_by_mode'] ?? []);
+        $totals = [];
+        foreach ($p['steps'] as $i => $t) {
+            $modes = [];
+            foreach (['own_shop', 'self_hosted'] as $m) {
+                $w = $raw[$i][$m];
+                $once = floatval($once_by[$m] ?? ($ctx['once'] ?? 0)); // Rabatt schon eingerechnet (plan_context)
+                if ($w['shop'] === null) { $modes[$m] = ['on_request' => true]; continue; }
+                $ev = $w['shop'] + $w['options'] + $w['channel'] + $once;
+                $kept = $w['revenue'] + $w['own_fee'] - $ev - $w['psp'] - $w['server'];
+                $modes[$m] = ['on_request' => false, 'revenue' => $r2($w['revenue']), 'own_fee' => $r2($w['own_fee']), 'to_evendis' => $r2($ev), 'to_evendis_once' => $r2($once),
+                    'to_psp' => $r2($w['psp']), 'to_hoster' => $r2($w['server']), 'kept' => $r2($kept), 'kept_per_ticket' => $t > 0 ? $r2($kept / $t) : null,
+                    'kept_percent' => $w['revenue'] > 0 ? round($kept / $w['revenue'] * 100, 1) : null];
+            }
+            $w = $raw[$i]['own_shop'];
+            $pf_you = $t * $w['pf_net'];
+            $modes['platform'] = ['on_request' => false, 'revenue' => $r2($w['revenue']), 'own_fee' => 0.0, 'to_evendis' => $r2($pf_you), 'to_evendis_once' => 0.0, 'to_psp' => 0.0, 'to_hoster' => 0.0,
+                'kept' => $r2($w['revenue'] - $pf_you), 'kept_per_ticket' => $t > 0 ? $r2(($w['revenue'] - $pf_you) / $t) : null, 'kept_percent' => $w['revenue'] > 0 ? round(($w['revenue'] - $pf_you) / $w['revenue'] * 100, 1) : null,
+                'bearer' => 'organizer', 'guests_pay_variant' => ['guest_fee_total' => $r2($t * $w['pf_gross']), 'kept' => $r2($w['revenue'])]];
+            $totals[] = ['tickets' => $t, 'custom' => $p['custom'] === $t, 'modes' => $modes];
         }
         $methods = [];
         foreach ($p['mix'] as $k => $share) {
@@ -202,6 +226,8 @@ class TIX_Offer_Plan {
             'mode' => $mode, // Betriebsart der Hauptzeilen (rows.kept); rows[].compare und by_mode für beide eigenen Betriebsarten
             'server_month' => round($server_year / 12, 2),
             'by_mode' => $by_mode,
+            'totals' => $totals,
+            'totals_note' => 'Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ ' . number_format($vat, 2, ',', '') . '); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.',
             'rows' => $rows,
             'break_even' => ['with_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, true, $x), 'without_fee' => self::break_even($p, $b, $tiers, $fixed, $pf, $vat, false, $x)],
             // Block 1: an evendis

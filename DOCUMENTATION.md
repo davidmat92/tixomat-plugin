@@ -6069,6 +6069,7 @@ Plan `docs/plan-wordpress.md` (Strategie), Inventar `uebergaben/plan-wordpress/p
 4. **Keine neuen Shortcodes, keine `wp_ajax_`-Endpunkte.** Webhooks und Aktionen gehen als REST-Route.
 5. **Keine Fremd-Plugins:** keine neuen Abhängigkeiten von WooCommerce, Breakdance & Co.
 6. **Weg 3 („Die Daten liegen stets bei dir“):** Was für einen künftigen Dienst vorbereitet wird, muss auch auf dem Kundenserver laufen können. Daher keine zentrale evendis-Datenbank als Voraussetzung: lokale Tabellen, schlichtes SQL, kein Netz für Kernfunktionen.
+7. **WordPress-Ablösung (User 14.11.2026: „so dass es sicher ist und der schnellste weg. sicherheit geht vor“):** Jeder neue oder geänderte Vertrag (`uebergaben/vertrag-*.md`) bekommt einen Abschnitt **„Umzug nach evendis-api“** mit: Tabellen/Meta/Optionen · Rechenregeln und Zustandsautomaten · Rechte und Prüfungen (wer darf was, Mehr-Veranstalter-Abschottung) · Sicherheitsregeln (Validierung, Ratenlimit, Signaturen, Geheimnisse nie ausgeben) · Tests als Abnahme (der neue Dienst muss dieselben Ergebnisse liefern) · Seiteneffekte (Mails, Push, Datenspiegel). **Je Route zusätzlich** (Wunsch evendis-api, `uebergaben/evendis-api.md`): Antwortform (Statuscodes, Fehlerformat, Kopfzeilen Cache-Control/LiteSpeed/CORS, leere Werte, Zahl oder Zeichenkette) · Sortierung/Filter (Standard-Reihenfolge, Gleichstand, page/per_page/total/has_more, Zeitzone, Datumsgrenzen) · Cache (Transient-Schlüssel, Laufzeit, was ihn leert) · öffentliche Felder gegenüber Konto-/Rollen-Feldern, was nie ausgegeben wird · Seiteneffekte beim Lesen (Zähler, „zuletzt angesehen“) · 3–5 echte öffentliche Beispielantworten mit Plugin-Version als Fixtures (keine Kundendaten). Neue Logik: reine Funktionen ohne WP im Kern, WP nur als dünne Hülle. Sicherheit geht vor Tempo. Ältere Verträge werden nachgezogen: zuerst Kasse und Geld, dazu die Lese-Routen aus Phase 2 (Events, Künstler, Orte).
 - **Prüfung:** `bash tests/check-weg1.sh` zählt Shortcodes, Menüs, Metaboxen, `wp_ajax_`, `register_setting`, WooCommerce-Aufrufe und Optionen je Objekt gegen `tests/weg1-baseline.txt`. Mehr als die Grundlinie ergibt Exit 1. Weniger ist gut: dann mit `--update` die Grundlinie senken.
 
 ### Migrationen beim ersten Aufruf (`TIX_Migrations`)
@@ -6674,4 +6675,11 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Referenzen:** Katalog `references` (`clean_references()`, `reference()`), `GET /platform/offer-references`, `data.references`, Block „So sieht es bei anderen aus“.
 - **Layout-Wert** `own` statt `selfhosted`.
 - **Test:** `test-offer-options-wp` (41 Plattform, 34 Einzel-Seiten); `test-platform-offers-wp` erwartet „EIGENER SHOP“ in der Hochrechnung eines Shop-Angebots.
+
+## 207. Angebote: Regeln je Betriebsart, ein Einrichtungsposten, Summen-Zusammenfassung (ab 1.38.819)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt 1.38.819).
+- **Katalog `modes[]`** je Position, `mode_error()` (400 `tix_offer_item_mode`) in Anlegen/Ändern/calc; App nur beim eigenen Betrieb, Hosting nur beim eigenen Shop.
+- **Einrichtung:** `clean_data` hält genau eine Position `einrichtung` beim eigenen Betrieb (eigener Shop 0 € inklusive, selbstgehostet 190 € bzw. `extras.setup_free` „erlassen“); Vorteil `daten_eigener_server`.
+- **`TIX_Offer_Plan::compute`:** `totals[]` je Stufe und Betriebsart (inkl. einmalig über `ctx.once_by_mode`), `totals_note`; PDF/online „Ergebnis im Überblick“.
+- **Test:** `test-offer-options-wp` (54 Plattform, 46 Einzel-Seiten); `test-platform-offers-wp` erwartet die automatische Einrichtung beim eigenen Shop.
 

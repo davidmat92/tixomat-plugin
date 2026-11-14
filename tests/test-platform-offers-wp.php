@@ -54,7 +54,7 @@ $cust = ['company' => "Club Nord $sfx", 'name' => 'Lena Berg', 'email' => "po_ku
 $o1 = $d['offer'] ?? []; $ids[] = intval($o1['id'] ?? 0);
 $y = wp_date('Y');
 $keys = array_column((array) ($o1['data']['items'] ?? []), 'catalog_key');
-po_eq('Anlegen: 201, Nummer AN-JJJJ-NNNN, Entwurf, App-Einrichtung automatisch dazu', [201, 1, 'draft', ['shop', 'app', 'datenumzug', 'app_einrichtung']],
+po_eq('Anlegen: 201, Nummer AN-JJJJ-NNNN, Entwurf, App-Einrichtung automatisch dazu (ab 819 auch „Einrichtung inklusive“ beim eigenen Shop)', [201, 1, 'draft', ['shop', 'app', 'datenumzug', 'app_einrichtung', 'einrichtung']],
     [$st, preg_match("/^AN-$y-\\d{4}$/", (string) ($o1['number'] ?? '')), $o1['status'] ?? '', $keys]);
 $t = $o1['totals'] ?? [];
 po_eq('Summen: Jahr 12 × 79 + 12 × 149 = 2.736, −10 % = 2.462,40 netto, 2.930,26 brutto; einmalig 250 + 1.490 = 1.740 netto, 2.070,60 brutto; 205,20 im Monat',

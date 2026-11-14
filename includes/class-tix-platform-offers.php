@@ -156,10 +156,12 @@ class TIX_Platform_Offers {
             $b('app_stores', 'In App Store und Google Play', 'Unter deinem Namen.', 'app'),
             $b('app_module', 'Module nach Wahl', 'Module wie Prämien und Musikwunsch.', 'app'),
             $b('app_betreuung', 'Einrichtung und Updates', 'Wir richten die App ein und kümmern uns um Updates.', 'app'),
+            // Selbstgehostet (User 14.11.)
+            $b('daten_eigener_server', 'Deine Daten liegen allein bei dir', 'Deine Daten liegen allein bei dir auf deinem eigenen Server.', 'selfhosted'),
         ];
         $i = function (array $a) {
             return $a + ['type' => 'module', 'short' => '', 'description' => '', 'prices' => [], 'default_interval' => 'monthly', 'fee_percent' => null, 'fee_fixed' => null,
-                'price_note' => '', 'tax_note' => '', 'term' => '', 'benefits' => [], 'adds' => [], 'recommended' => false, 'active' => true];
+                'price_note' => '', 'tax_note' => '', 'term' => '', 'benefits' => [], 'adds' => [], 'recommended' => false, 'active' => true, 'modes' => []]; // modes leer = alle Betriebsarten
         };
         $shop = ['shop_domain', 'daten_gehoeren_dir', 'null_je_ticket', 'evendis_kanal', 'updates'];
         $items = [
@@ -178,21 +180,23 @@ class TIX_Platform_Offers {
                 'prices' => ['monthly' => 99], 'price_note' => 'monatlich kündbar', 'term' => 'monatlich kündbar', 'benefits' => $shop]),
             $i(['key' => 'app', 'name' => 'Eigene App – Basis', 'short' => 'In App Store und Google Play',
                 'description' => 'Deine App unter deinem Namen in App Store und Google Play. Setzt eigenen Shop oder Lizenz voraus.',
-                'prices' => ['monthly' => 149], 'adds' => ['app_einrichtung'], 'benefits' => ['app_stores', 'app_module', 'app_betreuung']]),
+                'prices' => ['monthly' => 149], 'adds' => ['app_einrichtung'], 'benefits' => ['app_stores', 'app_module', 'app_betreuung'], 'modes' => self::OWN_MODES]),
             $i(['key' => 'app_einrichtung', 'type' => 'service', 'name' => 'App-Einrichtung', 'description' => 'Einmalig für die Einrichtung der App.',
-                'prices' => ['once' => 1490], 'default_interval' => 'once']),
-            $i(['key' => 'app_modul', 'name' => 'App-Modul', 'description' => 'Je Modul, z. B. Prämien oder Musikwunsch.', 'prices' => ['monthly' => 29]]),
-            $i(['key' => 'app_alle_module', 'name' => 'Alle App-Module', 'description' => 'Alle Module der App zusammen.', 'prices' => ['monthly' => 249]]),
+                'prices' => ['once' => 1490], 'default_interval' => 'once', 'modes' => self::OWN_MODES]),
+            $i(['key' => 'app_modul', 'name' => 'App-Modul', 'description' => 'Je Modul, z. B. Prämien oder Musikwunsch.', 'prices' => ['monthly' => 29], 'modes' => self::OWN_MODES]),
+            $i(['key' => 'app_alle_module', 'name' => 'Alle App-Module', 'description' => 'Alle Module der App zusammen.', 'prices' => ['monthly' => 249], 'modes' => self::OWN_MODES]),
             $i(['key' => 'lizenz', 'type' => 'plan', 'name' => 'Lizenz', 'short' => 'Selbstgehostet',
                 'description' => 'Für deinen eigenen Server (deine WordPress-Seite). Installation und Updates per Paket, Support inklusive, 0 € je Ticket.',
-                'prices' => ['yearly' => 699], 'default_interval' => 'yearly', 'price_note' => 'je Website', 'term' => '12 Monate je Website', 'benefits' => ['null_je_ticket', 'daten_gehoeren_dir', 'updates']]),
+                'prices' => ['yearly' => 699], 'default_interval' => 'yearly', 'price_note' => 'je Website', 'term' => '12 Monate je Website', 'benefits' => ['daten_eigener_server', 'null_je_ticket', 'daten_gehoeren_dir', 'updates']]),
             $i(['key' => 'domain', 'type' => 'service', 'name' => 'Eigene Domain für deine Veranstalter-Seite', 'description' => 'Seite, Events und Kasse unter deiner Domain.',
                 'price_note' => 'auf Anfrage']),
             // Optionen fürs Angebot (AN2, User 14.11.: je Option ein Häkchen, jeder Preis frei) – ohne Listenpreis = Preis im Angebot setzen
             $i(['key' => 'veranstalter_app', 'name' => 'Veranstalter-App', 'description' => 'Einlass, Kasse, Statistik und Push für dein Team – auf iOS und Android.']),
             $i(['key' => 'einrichtung', 'type' => 'service', 'name' => 'Rundum-Einrichtung durch evendis', 'short' => 'Ohne technisches Wissen',
-                'description' => 'Du brauchst kein technisches Wissen – wir richten alles für dich ein: Server, Domain, Zahlungsanbieter, Website, Rechtstexte-Vorlagen, erste Events, Einlass und Kasse, Einweisung.', 'default_interval' => 'once']),
-            $i(['key' => 'hosting', 'type' => 'service', 'name' => 'Hosting', 'description' => 'Betrieb deiner Website auf unseren Servern in Deutschland, mit Updates und Sicherung (nur beim eigenen Shop).']),
+                'description' => 'Du brauchst kein technisches Wissen – wir richten alles für dich ein: Server, Domain, Zahlungsanbieter, Website, Rechtstexte-Vorlagen, erste Events, Einlass und Kasse, Einweisung.',
+                // Einziger Einrichtungsposten (User 14.11.): eigener Shop immer inklusive (0 €), selbstgehostet 190 € (erlassbar), Plattform ohne
+                'prices' => ['once' => 190], 'default_interval' => 'once', 'modes' => self::OWN_MODES]),
+            $i(['key' => 'hosting', 'type' => 'service', 'name' => 'Hosting', 'description' => 'Betrieb deiner Website auf unseren Servern in Deutschland, mit Updates und Sicherung (nur beim eigenen Shop).', 'modes' => ['own_shop']]),
             $i(['key' => 'api', 'name' => 'API-Modul', 'description' => 'Schnittstelle für deine eigene Website, Kasse oder Warenwirtschaft.']),
             $i(['key' => 'seating', 'name' => 'Modul Saalplan & Tische', 'description' => 'Sitzplätze, Tische und Bereiche im Saalplan buchbar.']),
             $i(['key' => 'wallet', 'name' => 'Modul Guthaben', 'description' => 'Guthaben aufladen und vor Ort bezahlen.']),
@@ -270,6 +274,7 @@ class TIX_Platform_Offers {
     }
 
     const MODES = ['platform', 'own_shop', 'self_hosted'];
+    const OWN_MODES = ['own_shop', 'self_hosted'];
     /** Betriebsart des Angebots ↔ Lizenz-Betriebsart (TIX_License::MODES): own_shop = managed (unsere Server), self_hosted = selfhosted (Server des Kunden) */
     const MODE_LICENSE = ['platform' => null, 'own_shop' => 'managed', 'self_hosted' => 'selfhosted'];
     const MODE_TEXTS = [
@@ -416,7 +421,8 @@ class TIX_Platform_Offers {
                 'price_note' => self::txt($it['price_note'] ?? '', 160, false), 'tax_note' => self::txt($it['tax_note'] ?? '', 60, false), 'term' => self::txt($it['term'] ?? '', 80, false),
                 'benefits' => array_values(array_filter(array_map('sanitize_key', (array) ($it['benefits'] ?? [])), function ($x) use ($bkeys) { return isset($bkeys[$x]); })),
                 'adds' => array_values(array_filter(array_map('sanitize_key', (array) ($it['adds'] ?? [])))),
-                'recommended' => !empty($it['recommended']), 'active' => !array_key_exists('active', $it) || !empty($it['active'])];
+                'recommended' => !empty($it['recommended']), 'active' => !array_key_exists('active', $it) || !empty($it['active']),
+                'modes' => array_values(array_intersect((array) ($it['modes'] ?? []), self::MODES))];
         }
         if (!$out['items']) return new WP_Error('tix_catalog_invalid', 'Der Katalog braucht mindestens eine Position.', ['status' => 400, 'field' => 'items']);
         $out['general_benefits'] = array_values(array_filter(array_map('sanitize_key', (array) ($in['general_benefits'] ?? [])), function ($x) use ($bkeys) { return isset($bkeys[$x]); }));
@@ -553,6 +559,23 @@ class TIX_Platform_Offers {
         $mode_in = array_key_exists('mode', $in) ? (string) $in['mode'] : (!empty($old['mode_chosen']) ? (string) ($old['mode'] ?? '') : '');
         $mode_chosen = in_array($mode_in, self::MODES, true);
         $mode = $mode_chosen ? $mode_in : self::derive_mode(array_values(array_filter($items, function ($x) { return !empty($x['on']); })));
+        // Ein Einrichtungsposten (User 14.11.): eigener Betrieb → Position „einrichtung“ immer im Angebot; eigener Shop 0 € inklusive, selbstgehostet Listenpreis (190 €) bzw. 0 € „erlassen“
+        if (in_array($mode, self::OWN_MODES, true)) {
+            $si = null;
+            foreach ($items as $k => $x) if ($x['catalog_key'] === 'einrichtung') { $si = $k; break; }
+            if ($si === null && ($n = self::item_from_catalog('einrichtung'))) { $n['on'] = true; $items[] = $n; $si = count($items) - 1; }
+            if ($si !== null) {
+                $c = self::catalog_item('einrichtung');
+                $items[$si]['on'] = true;
+                $items[$si]['interval'] = 'once';
+                if ($mode === 'own_shop') { $items[$si]['list_price'] = 0.0; $items[$si]['price'] = 0.0; $items[$si]['note'] = 'inklusive beim eigenen Shop'; }
+                else {
+                    $items[$si]['list_price'] = isset($c['prices']['once']) ? floatval($c['prices']['once']) : null;
+                    if (!empty($extras['setup_free'])) { $items[$si]['price'] = 0.0; $items[$si]['note'] = 'erlassen'; }
+                    elseif ($items[$si]['note'] === 'erlassen' || $items[$si]['note'] === 'inklusive beim eigenen Shop') { $items[$si]['note'] = (string) ($c['price_note'] ?? ''); $items[$si]['price'] = null; } // erzwungene 0 € zurücknehmen
+                }
+            }
+        }
         $layout = (string) $g('layout', 'auto');
         if (!in_array($layout, ['auto', 'own', 'classic'], true)) $layout = 'auto';
 
@@ -616,7 +639,7 @@ class TIX_Platform_Offers {
     const SELF_HOSTED_KEYS = ['shop', 'shop_monatlich', 'lizenz', 'app', 'app_modul', 'app_alle_module'];
 
     /** Zusatz-Optionen ohne eigene Position (AN2) */
-    const EXTRAS = ['evendis_channel' => 'Zusätzlich über evendis.de verkaufen'];
+    const EXTRAS = ['evendis_channel' => 'Zusätzlich über evendis.de verkaufen', 'setup_free' => 'Einrichtung kostenlos (selbstgehostet)'];
     /** Grundpaket des eigenen Betriebs (Planrechnung „an evendis“) */
     const BASE_KEYS = ['shop', 'shop_monatlich', 'lizenz'];
 
@@ -719,11 +742,25 @@ class TIX_Platform_Offers {
         $m = self::mode_of($d);
         $keys = array_column(self::active_items($d), 'catalog_key');
         $h = [];
-        if ($m !== 'own_shop' && in_array('hosting', $keys, true)) $h[] = ['code' => 'tix_offer_hosting_own_shop_only', 'message' => 'Hosting gibt es nur beim eigenen Shop (auf unseren Servern).'];
         if ($m === 'own_shop' && in_array('lizenz', $keys, true)) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Die Lizenz gehört zu „Selbstgehostet“, nicht zum eigenen Shop.'];
         if ($m === 'self_hosted' && array_intersect($keys, ['shop', 'shop_monatlich'])) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Der eigene Shop läuft auf unseren Servern – bei „Selbstgehostet“ gehört die Lizenz ins Angebot.'];
         if ($m === 'platform' && array_intersect($keys, ['shop', 'shop_monatlich', 'lizenz'])) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Im Angebot steht ein eigener Betrieb – Betriebsart prüfen.'];
         return $h;
+    }
+
+    /** Positionen, die es in der Betriebsart nicht gibt (Katalog „modes“, z. B. App nur beim eigenen Betrieb, Hosting nur beim eigenen Shop) → WP_Error | null */
+    public static function mode_error(array $d) {
+        $m = self::mode_of($d);
+        foreach ((array) $d['items'] as $i => $x) {
+            if (array_key_exists('on', $x) && empty($x['on'])) continue;
+            $c = !empty($x['catalog_key']) ? self::catalog_item($x['catalog_key']) : null;
+            $ms = (array) ($c['modes'] ?? []);
+            if ($ms && !in_array($m, $ms, true)) {
+                $label = implode(' bzw. ', array_map(function ($k) { return self::MODE_TEXTS[$k]['label']; }, $ms));
+                return new WP_Error('tix_offer_item_mode', '„' . $x['name'] . '“ gibt es nur bei ' . $label . '.', ['status' => 400, 'field' => "items.$i", 'mode' => $m, 'allowed' => $ms]);
+            }
+        }
+        return null;
     }
 
     public static function reference($key) {
@@ -1165,6 +1202,7 @@ class TIX_Platform_Offers {
         $b['items'] = $items;
         if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b);
+        if ($e = self::mode_error($d)) return $e; // Betriebsart (1.38.819)
         // Neues Angebot aus der Kundenakte (§100)
         if (!empty($b['customer_key']) && class_exists('TIX_Platform_Customers')) {
             $ck = self::is_admin_user() ? TIX_Platform_Customers::canonical($b['customer_key']) : null;
@@ -1201,6 +1239,7 @@ class TIX_Platform_Offers {
         }
         if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b, $old);
+        if ($e = self::mode_error($d)) return $e; // Betriebsart (1.38.819)
         $d['history'] = $old['history'] ?? [];
         if (isset($old['hosting'])) $d['hosting'] = $old['hosting']; // Verknüpfung „Aus Angebot anlegen“ (§99) bleibt
         if (isset($old['customer_key'])) $d['customer_key'] = $old['customer_key']; // Kundenakte (§100) bleibt
@@ -1254,11 +1293,13 @@ class TIX_Platform_Offers {
             'server_year' => $sm * 12, 'fixed' => null, 'base' => null, 'extras_year' => 0.0, 'extras' => [], 'once' => 0.0,
             'channel' => !empty($d['extras']['evendis_channel']) ? self::channel_fee($d) : null, 'factor' => 1.0];
         $bases = self::base_keys($mode);
+        $setup_now = 0.0;
         foreach ((array) ($d['items'] ?? []) as $i => $it) {
             $ln = $t['lines'][$i] ?? null;
             if (!$ln || empty($ln['on'])) continue;
             $ctx['once'] += floatval($ln['once'] ?? 0);
             $k = (string) ($it['catalog_key'] ?? '');
+            if ($k === 'einrichtung') $setup_now += floatval($ln['once'] ?? 0);
             if ($ctx['base'] === null && in_array($k, $bases, true)) {
                 $ctx['base'] = ['name' => $it['name'], 'catalog_key' => $k, 'interval' => $it['interval']];
                 $tiered = in_array($k, ['shop', 'lizenz'], true) && $it['interval'] === 'yearly' && !$ln['overridden'] && $it['price'] === null;
@@ -1271,6 +1312,12 @@ class TIX_Platform_Offers {
             $ctx['extras'][] = ['name' => $it['name'], 'year' => round(floatval($ln['year']), 2)];
         }
         if ($t['yearly']['net'] > 0 && $t['yearly']['discount'] > 0) $ctx['factor'] = $t['yearly']['net_after'] / $t['yearly']['net'];
+        // Einmalig je Betriebsart (Summen-Zusammenfassung): Einrichtung eigener Shop 0 €, selbstgehostet Angebotspreis bzw. Katalog (190 €) oder 0 € erlassen
+        $ce = self::catalog_item('einrichtung');
+        $sh_setup = !empty($d['extras']['setup_free']) ? 0.0 : ($om === 'self_hosted' ? $setup_now : floatval($ce['prices']['once'] ?? 0));
+        $of = ($t['once']['net'] > 0 && $t['once']['discount'] > 0) ? $t['once']['net_after'] / $t['once']['net'] : 1.0;
+        $rest = max(0, $ctx['once'] - $setup_now);
+        $ctx['once_by_mode'] = ['own_shop' => round($rest * $of, 2), 'self_hosted' => round(($rest + $sh_setup) * $of, 2)];
         return $ctx;
     }
 
@@ -1278,6 +1325,7 @@ class TIX_Platform_Offers {
         $b = self::body($req);
         if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b);
+        if ($e = self::mode_error($d)) return $e; // Betriebsart (1.38.819)
         return rest_ensure_response(['ok' => true, 'data' => $d, 'totals' => self::totals($d), 'plan_calc' => self::plan_result($d), 'mode_hints' => self::mode_hints($d), 'benefits_suggested' => self::suggest_benefits(self::active_items($d))]);
     }
 
@@ -1684,9 +1732,9 @@ class TIX_Platform_Offers {
         }
         if (!empty($v['own'])) {
             $out .= self::page_own($v, $token);
-            if ($v['benefits']) {
+            if ($v['own']['benefits']) {
                 $out .= '<div class="c"><h2>Deine Vorteile</h2>';
-                foreach ($v['benefits'] as $b) $out .= '<div class="b"><i></i><div><strong>' . $e($b['title']) . '</strong>' . ($b['text'] ? '<div class="mu">' . $e($b['text']) . '</div>' : '') . '</div></div>';
+                foreach ($v['own']['benefits'] as $b) $out .= '<div class="b"><i></i><div><strong>' . $e($b['title']) . '</strong>' . ($b['text'] ? '<div class="mu">' . $e($b['text']) . '</div>' : '') . '</div></div>';
                 $out .= '</div>';
             }
         } else {
@@ -1770,7 +1818,30 @@ class TIX_Platform_Offers {
         $b4 = $B['block4'];
         $rows = $b4['rows'];
         $ev = $B['plan_calc']['to_evendis'];
-        $out .= '<div class="c"><h2><em>4</em>Planrechnung</h2><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
+        // Ergebnis im Überblick (alle Betriebsarten, Angebots-Betriebsart zuerst)
+        $tt = $b4['totals'];
+        $cell = function ($m, $key, $sign = '') use ($tt, $e) {
+            $h = '';
+            foreach ($tt as $r) { $x = $r['modes'][$m] ?? null;
+                $v = (!$x || !empty($x['on_request'])) ? 'auf Anfrage' : ($key === 'pt' ? number_format($x['kept_per_ticket'], 2, ',', '.') . ' €' : ($key === 'pc' ? number_format($x['kept_percent'], 1, ',', '.') . ' %'
+                    : (($sign === '-' && $x[$key] != 0 ? '− ' : ($sign === '+' ? '+ ' : '')) . self::eur0($x[$key]))));
+                $h .= '<td class="r">' . $e($v) . '</td>'; }
+            return $h;
+        };
+        $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
+        $out .= '<div class="c"><h2><em>4</em>Planrechnung</h2><h3 style="font-size:15px;margin:4px 0 8px">Ergebnis im Überblick – was insgesamt übrig bleibt</h3><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
+        foreach ($tt as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
+        $out .= '</tr><tr><td>Ticketumsatz gesamt (brutto)</td>' . $cell('own_shop', 'revenue') . '</tr>';
+        foreach ($b4['totals_order'] as $j => $m) {
+            $out .= '<tr class="cmp"><td colspan="' . (count($tt) + 1) . '" style="background:#F4F5F8;color:#2C2F3F"><strong>' . $e($labels[$m] . ($j === 0 ? ' – dieses Angebot' : '')) . '</strong></td></tr>';
+            if ($m !== 'platform') $out .= '<tr><td>+ Einnahmen eigene Servicegebühr</td>' . $cell($m, 'own_fee', '+') . '</tr>';
+            $out .= '<tr><td>− an evendis gesamt' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto, inkl. einmalig)') . '</td>' . $cell($m, 'to_evendis', '-') . '</tr>';
+            if ($m !== 'platform') $out .= '<tr><td>− an Zahlungsdienstleister gesamt</td>' . $cell($m, 'to_psp', '-') . '</tr>';
+            if ($m === 'self_hosted') $out .= '<tr><td>− an deinen Hoster (Server, ca.)</td>' . $cell($m, 'to_hoster', '-') . '</tr>';
+            $out .= '<tr class="hl"><td>= bleibt dir insgesamt</td>' . $cell($m, 'kept') . '</tr><tr class="cmp"><td>je Ticket</td>' . $cell($m, 'pt') . '</tr><tr class="cmp"><td>in % vom Ticketumsatz</td>' . $cell($m, 'pc') . '</tr>';
+        }
+        $out .= '</table></div><p class="mu">' . $e($b4['totals_note'] . ' Plattform, wenn Gäste die Gebühr zahlen: dir bleibt der volle Ticketumsatz.') . '</p>'
+            . '<h3 style="font-size:15px;margin:16px 0 8px">Rechnung im Detail (' . $e($B['mode_label']) . ', je Jahr)</h3><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
         foreach ($rows as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
         $out .= '</tr>';
         $line = function ($label, $key, $sign = '', $cls = '') use ($rows, $e) {
@@ -2139,8 +2210,11 @@ class TIX_Platform_Offers {
         }
         $refs = [];
         foreach ((array) ($d['references'] ?? []) as $rk) if (($r = self::reference($rk)) && $r['approved']) $refs[] = array_diff_key($r, ['approved' => 1, 'customer_key' => 1]) + ['mode_label' => self::MODE_TEXTS[$r['mode']]['label']];
+        // Vorteile: angehakte; selbstgehostet immer mit „Deine Daten liegen allein bei dir …“ (User 14.11.)
+        $ben = array_values(array_map(function ($b) { return ['title' => $b['title'], 'text' => $b['text']]; }, array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); })));
+        if ($mode === 'self_hosted' && !in_array('Deine Daten liegen allein bei dir', array_column($ben, 'title'), true)) array_unshift($ben, ['title' => 'Deine Daten liegen allein bei dir', 'text' => 'Deine Daten liegen allein bei dir auf deinem eigenen Server.']);
         return [
-            'plan' => $pc, 'totals' => $t, 'mode' => $mode, 'mode_label' => $mt['label'], 'title' => $mt['title'], 'subtitle' => $mt['sub'],
+            'plan' => $pc, 'totals' => $t, 'mode' => $mode, 'mode_label' => $mt['label'], 'benefits' => $ben, 'title' => $mt['title'], 'subtitle' => $mt['sub'],
             'other_mode' => $other, 'other_label' => self::MODE_TEXTS[$other]['label'], 'setup' => $setup, 'references' => $refs,
             'tiles' => [
                 ['title' => 'An evendis', 'value' => $tile1, 'note' => $tile1n],
@@ -2155,6 +2229,8 @@ class TIX_Platform_Offers {
                 'providers_note' => $m['providers_note']],
             'block3' => $pc['guest'],
             'block4' => ['rows' => $prow, 'options' => $ev['options_year'] > 0, 'channel' => (bool) $ch, 'server' => $mode === 'self_hosted',
+                // Ergebnis im Überblick (User 14.11.): je Stufe und Betriebsart, Angebots-Betriebsart zuerst
+                'totals' => $pc['totals'], 'totals_order' => [$mode, $other, 'platform'], 'totals_note' => $pc['totals_note'],
                 'reading' => $be['with_fee'] ? 'Mit eigener Gebühr von ' . self::eur($in['service_fee']) . ' lohnt sich ' . ($mode === 'self_hosted' ? 'dein Shop auf deinem Server' : 'der eigene Shop') . ' gegenüber der Ticketplattform ab rund ' . number_format($be['with_fee'], 0, ',', '.') . ' Tickets im Jahr. '
                     . ($be['without_fee'] ? 'Ohne eigene Gebühr ab rund ' . number_format($be['without_fee'], 0, ',', '.') . ' Tickets. ' : '') . 'Darunter ist die Ticketplattform für dich günstiger – dort ist die Zahlung schon enthalten.' : '',
                 'assumptions' => 'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ' inkl. MwSt., ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . ', keine Erstattungen.',
@@ -2348,12 +2424,49 @@ class TIX_Platform_Offers {
         $b4 = $B['block4'];
         $rows = $b4['rows'];
         $n = count($rows);
-        $ensure(230); // Überschrift nie allein am Seitenende
+        $ensure(330); // Überschrift nie allein am Seitenende (Überblick folgt direkt)
         $head(4, 'Planrechnung');
         $lw = 190;
         $cw = ($W - 2 * $M - $lw) / max(1, $n);
         $fs = $n > 4 ? 7.5 : 8.5;
         $cx = function ($k) use ($M, $lw, $cw) { return $M + $lw + ($k + 1) * $cw - 6; };
+        // ── 4.1 Ergebnis im Überblick: was an evendis, an den Zahlungsdienstleister (und Hoster) geht und was dir bleibt – alle Betriebsarten
+        $tt = $b4['totals'];
+        $vrow = function ($label, array $vals, $style = '') use (&$y, $pdf, $col, $font, $rt, $cx, $M, $W, $fs, $ensure) {
+            $ensure(15);
+            if ($style === 'hl') { $col(self::C_PINK); $pdf->rect($M, $y - 5, $W - 2 * $M, 16, true); }
+            if ($style === 'grp') { $col(self::C_SOFT); $pdf->rect($M, $y - 5, $W - 2 * $M, 16, true); }
+            $col($style === 'sub' ? self::C_MUTED : self::C_NIGHT); $font(in_array($style, ['hl', 'grp'], true), $style === 'sub' ? $fs - 0.5 : $fs + 0.5);
+            $pdf->text($M + 8, $y, mb_substr($label, 0, 46));
+            foreach ($vals as $k => $v) $rt($cx($k), $y, $v, $style === 'sub' ? $fs - 0.5 : $fs);
+            $y -= 6; $col(self::C_LINE); $pdf->rect($M, $y, $W - 2 * $M, 0.5, true); $y -= 9;
+        };
+        $ensure(40 + 16 * 16);
+        $col(self::C_NIGHT); $font(true, 11); $pdf->text($M, $y, 'Ergebnis im Überblick – was insgesamt übrig bleibt'); $y -= 16;
+        $col(self::C_SOFT); $pdf->rect($M, $y - 6, $W - 2 * $M, 19, true);
+        $col(self::C_MUTED); $font(true, 7.5); $pdf->text($M + 8, $y, 'TICKETS IM JAHR');
+        foreach ($tt as $k => $r) $rt($cx($k), $y, number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : ''), 7.5);
+        $y -= 20;
+        $pick = function ($m, $key, $fmt = 'eur', $sign = '') use ($tt) {
+            return array_map(function ($r) use ($m, $key, $fmt, $sign) { $x = $r['modes'][$m] ?? null; if (!$x || !empty($x['on_request'])) return 'auf Anfrage'; $v = $x[$key];
+                if ($v === null) return '–'; if ($fmt === 'pt') return number_format($v, 2, ',', '.') . ' ' . self::$euro; if ($fmt === 'pc') return number_format($v, 1, ',', '.') . ' %';
+                return ($sign === '-' && $v != 0 ? '− ' : ($sign === '+' ? '+ ' : '')) . self::eur0($v); }, $tt);
+        };
+        $vrow('Ticketumsatz gesamt (brutto)', $pick('own_shop', 'revenue'));
+        $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
+        foreach ($b4['totals_order'] as $j => $m) {
+            $vrow($labels[$m] . ($j === 0 ? ' – dieses Angebot' : ''), array_fill(0, count($tt), ''), 'grp');
+            if ($m !== 'platform') $vrow('+ Einnahmen eigene Servicegebühr', $pick($m, 'own_fee', 'eur', '+'));
+            $vrow('− an evendis gesamt' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto, inkl. einmalig)'), $pick($m, 'to_evendis', 'eur', '-'));
+            if ($m !== 'platform') $vrow('− an Zahlungsdienstleister gesamt', $pick($m, 'to_psp', 'eur', '-'));
+            if ($m === 'self_hosted') $vrow('− an deinen Hoster (Server, ca.)', $pick($m, 'to_hoster', 'eur', '-'));
+            $vrow('= bleibt dir insgesamt', $pick($m, 'kept'), 'hl');
+            $vrow('je Ticket', $pick($m, 'kept_per_ticket', 'pt'), 'sub');
+            $vrow('in % vom Ticketumsatz', $pick($m, 'kept_percent', 'pc'), 'sub');
+        }
+        $note($b4['totals_note'] . ' Plattform, wenn Gäste die Gebühr zahlen: dir bleibt der volle Ticketumsatz.', 7.5, 135);
+        $y -= 10;
+        $col(self::C_NIGHT); $font(true, 11); $pdf->text($M, $y, 'Rechnung im Detail (' . $B['mode_label'] . ', je Jahr)'); $y -= 16;
         $ensure(200);
         $col(self::C_SOFT); $pdf->rect($M, $y - 6, $W - 2 * $M, 19, true);
         $col(self::C_MUTED); $font(true, 7.5);
@@ -2467,7 +2580,7 @@ class TIX_Platform_Offers {
         }
 
         // ── Vorteile (kurz, zweispaltig)
-        $ben = array_values(array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); }));
+        $ben = $B['benefits'];
         if ($ben) {
             $ensure(60);
             $col(self::C_NIGHT); $font(true, 14); $pdf->text($M, $y, 'Deine Vorteile'); $y -= 20;

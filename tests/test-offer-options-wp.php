@@ -2,9 +2,10 @@
 /**
  * AN2 (1.38.817): Häkchen je Option, frei gesetzte Preise, Gliederung „Dein eigener Ticketshop“ (PDF + Online-Ansicht).
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
+ * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  *   wp eval-file …/test-offer-options-wp.php (Teil REST nur auf der Plattform)
  */
-if (!defined('ABSPATH') || !class_exists('TIX_Offer_Plan') || !method_exists('TIX_Platform_Offers', 'mode_of')) { echo "Tixomat ab 1.38.818 nötig\n"; return; }
+if (!defined('ABSPATH') || !class_exists('TIX_Offer_Plan') || !method_exists('TIX_Platform_Offers', 'mode_error')) { echo "Tixomat ab 1.38.819 nötig\n"; return; }
 $f = 0; $n = 0;
 $eq = function ($l, $e, $a) use (&$f, &$n) { $n++; if ($e === $a) { echo "ok    $l\n"; return; } $f++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; };
 $O = 'TIX_Platform_Offers';
@@ -15,10 +16,10 @@ wp_set_current_user($adm);
 // ── Häkchen
 $d = $O::clean_data(['customer' => ['company' => 'Opt'], 'items' => [$it('shop', 'yearly'), $it('app'), $it('hosting', null, ['price' => 50, 'on' => false])]]);
 $t = $O::totals($d);
-$eq('Nicht angehakt: zählt nicht in den Summen, Zeile bleibt (on false)', [790.0 + 149 * 12, 3, false], [$t['yearly']['net'], count($t['lines']), $t['lines'][2]['on']]);
-$eq('Häkchen-Liste: Positionen + evendis_channel', [['Eigener Shop', true], ['Eigene App – Basis', true], ['Hosting', false], ['Zusätzlich über evendis.de verkaufen', false]], array_map(function ($o) { return [$o['label'], $o['on']]; }, $d['options']));
+$eq('Nicht angehakt: zählt nicht in den Summen, Zeile bleibt (on false); Einrichtung inklusive 0 €', [790.0 + 149 * 12, 0.0, 4, false], [$t['yearly']['net'], $t['once']['net'], count($t['lines']), $t['lines'][2]['on']]);
+$eq('Häkchen-Liste: Positionen + Zusatz-Optionen', [['Eigener Shop', true], ['Eigene App – Basis', true], ['Hosting', false], ['Rundum-Einrichtung durch evendis', true], ['Zusätzlich über evendis.de verkaufen', false], ['Einrichtung kostenlos (selbstgehostet)', false]], array_map(function ($o) { return [$o['label'], $o['on']]; }, $d['options']));
 $d2 = $O::clean_data(['options' => ['shop', 'evendis_channel']], $d);
-$eq('options als Schlüssel-Liste: genau diese angehakt', [true, false, false, true], [$d2['items'][0]['on'], $d2['items'][1]['on'], $d2['items'][2]['on'], $d2['extras']['evendis_channel']]);
+$eq('options als Schlüssel-Liste: genau diese angehakt (Einrichtung bleibt beim eigenen Shop immer)', [true, false, false, true, true], [$d2['items'][0]['on'], $d2['items'][1]['on'], $d2['items'][2]['on'], $d2['items'][3]['on'], $d2['extras']['evendis_channel']]);
 $d3 = $O::clean_data(['options' => [['key' => $d['items'][2]['id'], 'on' => true]]], $d);
 $eq('options als Objekte: nur genannte ändern', [true, true, true, false], [$d3['items'][0]['on'], $d3['items'][1]['on'], $d3['items'][2]['on'], $d3['extras']['evendis_channel']]);
 $eq('Ohne options bleiben Häkchen und Zusatz-Optionen erhalten', [false, true], [$O::clean_data(['intro' => 'x'], $d2)['items'][1]['on'], $O::clean_data(['intro' => 'x'], $d2)['extras']['evendis_channel']]);
@@ -62,8 +63,8 @@ $eq('Betriebsart abgeleitet: Shop → own_shop, Lizenz → self_hosted, sonst pl
     [$O::clean_data(['items' => [$it('shop')]])['mode'], $O::clean_data(['items' => [$it('lizenz')]])['mode'], $O::clean_data(['items' => [$it('tickets')]])['mode'],
      $O::clean_data(['intro' => 'x'], $O::clean_data(['items' => [$it('shop')], 'mode' => 'self_hosted']))['mode'], $O::clean_data(['items' => [$it('shop')], 'mode' => 'self_hosted'])['mode_chosen']]);
 $eq('Lizenz-Abgleich: own_shop = managed, self_hosted = selfhosted', ['managed', 'selfhosted', null], [$O::MODE_LICENSE['own_shop'], $O::MODE_LICENSE['self_hosted'], $O::MODE_LICENSE['platform']]);
-$eq('Hinweise: Hosting nur beim eigenen Shop, Lizenz passt nicht zum eigenen Shop', [['tix_offer_hosting_own_shop_only'], ['tix_offer_mode_mismatch']],
-    [array_column($O::mode_hints($O::clean_data(['items' => [$it('lizenz'), $it('hosting')]])), 'code'), array_column($O::mode_hints($O::clean_data(['items' => [$it('lizenz')], 'mode' => 'own_shop'])), 'code')]);
+$eq('Hosting nur beim eigenen Shop (Fehler), Lizenz im eigenen Shop (Hinweis)', ['tix_offer_item_mode', 'items.1', ['tix_offer_mode_mismatch']],
+    [($e1 = $O::mode_error($O::clean_data(['items' => [$it('lizenz'), $it('hosting')]]))) ? $e1->get_error_code() : '', $e1 ? $e1->get_error_data()['field'] : '', array_column($O::mode_hints($O::clean_data(['items' => [$it('lizenz')], 'mode' => 'own_shop'])), 'code')]);
 $ds = $O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app')], 'mode' => 'self_hosted', 'plan' => [], 'price_overrides' => ['server_month' => 30]]);
 $ps = $O::plan_result($ds);
 $eq('Selbstgehostet: Lizenz 699 €/Jahr pauschal, Server 30 × 12 = 360 € (nicht an evendis), Vergleich eigener Shop 790 €', ['self_hosted', 699.0, 360.0, 699.0, 790.0, 0.0],
@@ -76,6 +77,31 @@ $eq('PDF-Texte je Betriebsart: Titel, Server-Zeile als Info, Vergleich eigener S
     [$Bs['title'], (bool) array_filter($Bs['block1']['rows'], function ($r) { return !empty($r['info']) && strpos($r['name'], 'Server') === 0; }), $Bs['other_label']]);
 $eq('Plattform-Angebot → klassische Gliederung', 'classic', $O::layout_of($O::clean_data(['items' => [$it('tickets')], 'plan' => []])));
 
+
+// ── 1.38.819 Regeln je Betriebsart + Summen
+$eins = function ($d) { foreach ($d['items'] as $x) if ($x['catalog_key'] === 'einrichtung') return [$x['on'], $x['price'] !== null ? floatval($x['price']) : $x['list_price'], $x['note']]; return null; };
+$dsh = $O::clean_data(['items' => [$it('lizenz', 'yearly')], 'mode' => 'self_hosted']);
+$eq('Selbstgehostet: Einrichtung automatisch 190 €; Häkchen „Einrichtung kostenlos“ → 0 € „erlassen“; Preis frei bleibt möglich', [[true, 190.0], [true, 0.0, 'erlassen'], 150.0],
+    [array_slice($eins($dsh), 0, 2), $eins($O::clean_data(['extras' => ['setup_free' => true]], $dsh)), $eins($O::clean_data(['price_overrides' => ['items' => ['einrichtung' => 150]]], $dsh))[1]]);
+$eq('Erlassen wieder aus → 190 €, Hinweis weg', [true, 190.0, ''], $eins($O::clean_data(['extras' => ['setup_free' => false]], $O::clean_data(['extras' => ['setup_free' => true]], $dsh))));
+$eq('Wechsel eigener Shop → selbstgehostet: 190 € statt der erzwungenen 0 €', [true, 190.0, ''], $eins($O::clean_data(['mode' => 'self_hosted'], $O::clean_data(['items' => [$it('shop', 'yearly')], 'mode' => 'own_shop']))));
+$eq('Eigener Shop: Einrichtung immer 0 € „inklusive“ (auch mit Preis 500); Plattform ohne Einrichtung', [[true, 0.0, 'inklusive beim eigenen Shop'], null],
+    [$eins($O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 500])], 'mode' => 'own_shop'])), $eins($O::clean_data(['items' => [$it('tickets')]]))]);
+$eq('Nur EIN Einrichtungsposten, auch bei doppelter Eingabe nicht mehr', 1, count(array_filter($O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung')], 'mode' => 'own_shop'])['items'], function ($x) { return $x['catalog_key'] === 'einrichtung'; })));
+$eq('App bei Plattform → Fehler, beim eigenen Shop erlaubt', ['tix_offer_item_mode', null], [($e2 = $O::mode_error($O::clean_data(['items' => [$it('tickets'), $it('app')]]))) ? $e2->get_error_code() : '', $O::mode_error($O::clean_data(['items' => [$it('shop'), $it('app')]]))]);
+$Bsh = $O::own_blocks($O::clean_data(['items' => [$it('lizenz', 'yearly')], 'mode' => 'self_hosted', 'benefits' => []]));
+$eq('Selbstgehostet: Vorteil „Deine Daten liegen allein bei dir“ immer dabei', 'Deine Daten liegen allein bei dir', $Bsh['benefits'][0]['title'] ?? '');
+$dt = $O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app')], 'mode' => 'self_hosted', 'plan' => ['steps' => [1000]]]);
+$tt = $O::plan_result($dt)['totals'][0]['modes'];
+$psp = $O::plan_result($dt)['rows'][0]['psp'];
+$eq('Summen selbstgehostet 1.000 Tickets: an evendis 699 + 1.788 + 190 = 2.677, Hoster 240, bleibt 25.000 + 1.500 − 2.677 − Zahlung − 240', [2677.0, 190.0, 240.0, round(26500 - 2677 - $psp - 240, 2)],
+    [$tt['self_hosted']['to_evendis'], $tt['self_hosted']['to_evendis_once'], $tt['self_hosted']['to_hoster'], $tt['self_hosted']['kept']]);
+$eq('Vergleich eigener Shop: 790 + 1.788, Einrichtung 0, kein Hoster', [2578.0, 0.0, 0.0], [$tt['own_shop']['to_evendis'], $tt['own_shop']['to_evendis_once'], $tt['own_shop']['to_hoster']]);
+$eq('Plattform (du trägst): an evendis 1.000 × (25 × 2,9 % + 0,49)/1,19 = 1.021,01, keine Zahlungskosten, je Ticket und Prozent', [1021.01, 0.0, 23978.99, 23.98, 95.9, 25000.0],
+    [$tt['platform']['to_evendis'], $tt['platform']['to_psp'], $tt['platform']['kept'], $tt['platform']['kept_per_ticket'], $tt['platform']['kept_percent'], $tt['platform']['guests_pay_variant']['kept']]);
+$eq('Selbstgehostet erlassen: einmalig 0 im Vergleich', 0.0, $O::plan_result($O::clean_data(['extras' => ['setup_free' => true]], $dt))['totals'][0]['modes']['self_hosted']['to_evendis_once']);
+$eq('Reihenfolge im Überblick: Angebots-Betriebsart zuerst', ['self_hosted', 'own_shop', 'platform'], $O::own_blocks($dt)['block4']['totals_order']);
+
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);
 $Be = $O::own_blocks($de);
@@ -85,7 +111,8 @@ $eq('Rundum-Einrichtung: Botschaft, Schritte je Betriebsart (eigener Shop: Hosti
 $Bh = $O::own_blocks($O::clean_data(['items' => [$it('lizenz', 'yearly'), $it('app'), $it('einrichtung')], 'mode' => 'self_hosted']));
 $eq('Selbstgehostet mit App: Server beim Hoster einrichten, App-Store-Schritt, Kunde mietet den Server', [true, true, true],
     [(bool) preg_grep('/Hoster/', $Bh['setup']['steps']), (bool) preg_grep('/App-Store/', $Bh['setup']['steps']), (bool) preg_grep('/Server bei deinem Hoster mieten/', $Bh['setup']['customer_tasks'])]);
-$eq('Ohne Häkchen keine Rundum-Einrichtung; Katalog: eine Position „einrichtung“ (nicht doppelt)', [null, 1], [$O::own_blocks($O::clean_data(['options' => ['shop']], $de))['setup'], count(array_filter($O::catalog()['items'], function ($x) { return $x['key'] === 'einrichtung'; }))]);
+$eq('Eigener Shop: Einrichtung immer drin (auch ohne Häkchen), 0 € trotz Preis 990; Katalog: eine Position „einrichtung“', [true, 0.0, 1],
+    [(bool) $O::own_blocks($O::clean_data(['options' => ['shop']], $de))['setup'], $O::totals($de)['once']['net'], count(array_filter($O::catalog()['items'], function ($x) { return $x['key'] === 'einrichtung'; }))]);
 
 // ── Referenzen (Katalog im Test, danach zurück)
 $bak = get_option($O::OPT_CATALOG, null);
@@ -132,7 +159,9 @@ if (TIX_Platform_Offers::multi()) {
         [$st, $r] = $rest('GET', '/platform/offer-references');
         $eq('GET /platform/offer-references: Katalog-Referenzen und Vorschläge mit Betriebsart', [200, true, true], [$st, is_array($r['references'] ?? null), is_array($r['candidates'] ?? null) && (!$r['candidates'] || isset($r['candidates'][0]['mode'], $r['candidates'][0]['live']))]);
         [$st, $r] = $rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'lizenz'], ['catalog_key' => 'hosting']]]);
-        $eq('calc: Betriebsart-Hinweis Hosting', [200, ['tix_offer_hosting_own_shop_only']], [$st, array_column((array) ($r['mode_hints'] ?? []), 'code')]);
+        $eq('calc: Hosting bei selbstgehostet → 400 tix_offer_item_mode', [400, 'tix_offer_item_mode'], [$st, $r['code'] ?? '']);
+        [$st, $r] = $rest('POST', '/platform/offers', ['customer' => ['company' => 'App-Plattform'], 'items' => [['catalog_key' => 'tickets'], ['catalog_key' => 'app']]]);
+        $eq('App bei Plattform → 400 am Feld', [400, 'tix_offer_item_mode', 'items.1'], [$st, $r['code'] ?? '', $r['data']['field'] ?? '']);
         $wpdb->delete(TIX_Platform_Offers::table(), ['id' => $oid]);
     }
 } else echo "skip  REST: /platform/offers nur auf der Plattform\n";

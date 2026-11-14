@@ -1,0 +1,864 @@
+{
+    "plugin_version": "1.38.819",
+    "name": "calc-selbstgehostet",
+    "request": {
+        "route": "POST /platform/offers/calc",
+        "note": "Beispieldaten, keine Kundendaten"
+    },
+    "response": {
+        "ok": true,
+        "data": {
+            "customer": {
+                "company": "Beispiel GmbH",
+                "name": "",
+                "phone": "",
+                "street": "",
+                "zip": "",
+                "city": "",
+                "vat_id": "",
+                "email": "",
+                "country": "DE",
+                "provider": ""
+            },
+            "items": [
+                {
+                    "id": "747bf239",
+                    "catalog_key": "lizenz",
+                    "type": "plan",
+                    "name": "Lizenz",
+                    "description": "Für deinen eigenen Server (deine WordPress-Seite). Installation und Updates per Paket, Support inklusive, 0 € je Ticket.",
+                    "qty": 1,
+                    "interval": "yearly",
+                    "list_price": 699,
+                    "price": null,
+                    "fee_percent": null,
+                    "fee_fixed": null,
+                    "note": "je Website",
+                    "on": true
+                },
+                {
+                    "id": "c0c53b92",
+                    "catalog_key": "app",
+                    "type": "module",
+                    "name": "Eigene App – Basis",
+                    "description": "Deine App unter deinem Namen in App Store und Google Play. Setzt eigenen Shop oder Lizenz voraus.",
+                    "qty": 1,
+                    "interval": "monthly",
+                    "list_price": 149,
+                    "price": null,
+                    "fee_percent": null,
+                    "fee_fixed": null,
+                    "note": "",
+                    "on": true
+                },
+                {
+                    "id": "655cc81f",
+                    "catalog_key": "einrichtung",
+                    "type": "service",
+                    "name": "Rundum-Einrichtung durch evendis",
+                    "description": "Du brauchst kein technisches Wissen – wir richten alles für dich ein: Server, Domain, Zahlungsanbieter, Website, Rechtstexte-Vorlagen, erste Events, Einlass und Kasse, Einweisung.",
+                    "qty": 1,
+                    "interval": "once",
+                    "list_price": 190,
+                    "price": null,
+                    "fee_percent": null,
+                    "fee_fixed": null,
+                    "note": "",
+                    "on": true
+                }
+            ],
+            "discount": {
+                "type": "none",
+                "value": 0,
+                "on": "all",
+                "label": ""
+            },
+            "tax_rate": 19,
+            "term_months": null,
+            "benefits": [
+                {
+                    "key": "designs",
+                    "title": "5 Designs",
+                    "text": "5 Designs für deine Veranstalter-Seite.",
+                    "on": true
+                },
+                {
+                    "key": "dein_link",
+                    "title": "Dein Link mit QR-Code",
+                    "text": "Dein Link mit QR-Code und Story-Bild, für Instagram-Bio, Flyer, Plakate und WhatsApp.",
+                    "on": true
+                },
+                {
+                    "key": "kalender_abo",
+                    "title": "Kalender-Abo",
+                    "text": "Kalender-Abo für deine Gäste.",
+                    "on": true
+                },
+                {
+                    "key": "csv_export",
+                    "title": "Datenexport als CSV",
+                    "text": "Deine Daten jederzeit als CSV.",
+                    "on": true
+                },
+                {
+                    "key": "awareness",
+                    "title": "Awareness-Funktionen",
+                    "text": "Codewort, Awareness-Punkt und „Hilfe vor Ort“ – kostenlos in jedem Paket.",
+                    "on": true
+                },
+                {
+                    "key": "daten_gehoeren_dir",
+                    "title": "Gäste und Bestellungen gehören dir",
+                    "text": "Deine Gäste kaufen direkt bei dir.",
+                    "on": true
+                },
+                {
+                    "key": "null_je_ticket",
+                    "title": "0 € je Ticket",
+                    "text": "Keine Gebühr je Ticket in deinem eigenen Shop.",
+                    "on": true
+                },
+                {
+                    "key": "updates",
+                    "title": "Updates und Support inklusive",
+                    "text": "Neue Funktionen kommen automatisch dazu.",
+                    "on": true
+                },
+                {
+                    "key": "app_stores",
+                    "title": "In App Store und Google Play",
+                    "text": "Unter deinem Namen.",
+                    "on": true
+                },
+                {
+                    "key": "app_module",
+                    "title": "Module nach Wahl",
+                    "text": "Module wie Prämien und Musikwunsch.",
+                    "on": true
+                },
+                {
+                    "key": "app_betreuung",
+                    "title": "Einrichtung und Updates",
+                    "text": "Wir richten die App ein und kümmern uns um Updates.",
+                    "on": true
+                },
+                {
+                    "key": "daten_eigener_server",
+                    "title": "Deine Daten liegen allein bei dir",
+                    "text": "Deine Daten liegen allein bei dir auf deinem eigenen Server.",
+                    "on": true
+                }
+            ],
+            "comparison": null,
+            "valid_until": "2026-12-14",
+            "projection": null,
+            "plan": {
+                "avg_price": 25,
+                "service_fee": 1.5,
+                "tickets_per_order": 2,
+                "mix": {
+                    "paypal": 60,
+                    "card": 40
+                },
+                "steps": [
+                    1000,
+                    3000,
+                    5000,
+                    20000,
+                    50000
+                ],
+                "custom": 3000,
+                "shop_price": null,
+                "channel_share": 10
+            },
+            "options": [
+                {
+                    "key": "747bf239",
+                    "kind": "item",
+                    "item_id": "747bf239",
+                    "catalog_key": "lizenz",
+                    "label": "Lizenz",
+                    "on": true
+                },
+                {
+                    "key": "c0c53b92",
+                    "kind": "item",
+                    "item_id": "c0c53b92",
+                    "catalog_key": "app",
+                    "label": "Eigene App – Basis",
+                    "on": true
+                },
+                {
+                    "key": "655cc81f",
+                    "kind": "item",
+                    "item_id": "655cc81f",
+                    "catalog_key": "einrichtung",
+                    "label": "Rundum-Einrichtung durch evendis",
+                    "on": true
+                },
+                {
+                    "key": "evendis_channel",
+                    "kind": "extra",
+                    "item_id": null,
+                    "catalog_key": null,
+                    "label": "Zusätzlich über evendis.de verkaufen",
+                    "on": true
+                },
+                {
+                    "key": "setup_free",
+                    "kind": "extra",
+                    "item_id": null,
+                    "catalog_key": null,
+                    "label": "Einrichtung kostenlos (selbstgehostet)",
+                    "on": false
+                }
+            ],
+            "extras": {
+                "evendis_channel": true
+            },
+            "price_overrides": {
+                "shop_tiers": null,
+                "self_hosted_tiers": null,
+                "server_month": null,
+                "channel_fee": null
+            },
+            "layout": "auto",
+            "mode": "self_hosted",
+            "mode_chosen": true,
+            "references": [],
+            "intro": "vielen Dank für das gute Gespräch. Wie besprochen schicken wir dir hier unser Angebot. Von Veranstaltern für Veranstalter: Wir stehen selbst seit über 20 Jahren hinter Events.",
+            "conditions": "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters direkt an ihn (z. B. Mollie Karte 1,8 % + 0,25 € je Zahlung).\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
+            "accept_link": true,
+            "internal_note": ""
+        },
+        "totals": {
+            "lines": [
+                {
+                    "id": "747bf239",
+                    "on": true,
+                    "unit": 699,
+                    "net": 699,
+                    "year": 699,
+                    "once": 0,
+                    "overridden": false
+                },
+                {
+                    "id": "c0c53b92",
+                    "on": true,
+                    "unit": 149,
+                    "net": 149,
+                    "year": 1788,
+                    "once": 0,
+                    "overridden": false
+                },
+                {
+                    "id": "655cc81f",
+                    "on": true,
+                    "unit": 190,
+                    "net": 190,
+                    "year": 0,
+                    "once": 190,
+                    "overridden": false
+                }
+            ],
+            "yearly": {
+                "net": 2487,
+                "discount": 0,
+                "net_after": 2487,
+                "tax": 472.53,
+                "gross": 2959.53
+            },
+            "once": {
+                "net": 190,
+                "discount": 0,
+                "net_after": 190,
+                "tax": 36.1,
+                "gross": 226.1
+            },
+            "monthly_net": 207.25,
+            "first_year_net": 2677,
+            "tax_rate": 19,
+            "missing_prices": [],
+            "fees": [],
+            "projection": null
+        },
+        "plan_calc": {
+            "input": {
+                "avg_price": 25,
+                "service_fee": 1.5,
+                "tickets_per_order": 2,
+                "mix": {
+                    "paypal": 60,
+                    "card": 40
+                },
+                "steps": [
+                    1000,
+                    3000,
+                    5000,
+                    20000,
+                    50000
+                ],
+                "custom": 3000,
+                "shop_price": null,
+                "channel_share": 10
+            },
+            "mode": "self_hosted",
+            "server_month": 20,
+            "by_mode": {
+                "own_shop": {
+                    "break_even": {
+                        "with_fee": 4566,
+                        "without_fee": 34666
+                    }
+                },
+                "self_hosted": {
+                    "break_even": {
+                        "with_fee": 4830,
+                        "without_fee": 22098
+                    }
+                }
+            },
+            "totals": [
+                {
+                    "tickets": 1000,
+                    "custom": false,
+                    "modes": {
+                        "own_shop": {
+                            "on_request": false,
+                            "revenue": 25000,
+                            "own_fee": 1500,
+                            "to_evendis": 2680.1,
+                            "to_evendis_once": 0,
+                            "to_psp": 833.21,
+                            "to_hoster": 0,
+                            "kept": 22986.69,
+                            "kept_per_ticket": 22.99,
+                            "kept_percent": 91.9
+                        },
+                        "self_hosted": {
+                            "on_request": false,
+                            "revenue": 25000,
+                            "own_fee": 1500,
+                            "to_evendis": 2779.1,
+                            "to_evendis_once": 190,
+                            "to_psp": 833.21,
+                            "to_hoster": 240,
+                            "kept": 22647.69,
+                            "kept_per_ticket": 22.65,
+                            "kept_percent": 90.6
+                        },
+                        "platform": {
+                            "on_request": false,
+                            "revenue": 25000,
+                            "own_fee": 0,
+                            "to_evendis": 1021.01,
+                            "to_evendis_once": 0,
+                            "to_psp": 0,
+                            "to_hoster": 0,
+                            "kept": 23978.99,
+                            "kept_per_ticket": 23.98,
+                            "kept_percent": 95.9,
+                            "bearer": "organizer",
+                            "guests_pay_variant": {
+                                "guest_fee_total": 1215,
+                                "kept": 25000
+                            }
+                        }
+                    }
+                },
+                {
+                    "tickets": 3000,
+                    "custom": true,
+                    "modes": {
+                        "own_shop": {
+                            "on_request": false,
+                            "revenue": 75000,
+                            "own_fee": 4500,
+                            "to_evendis": 2884.3,
+                            "to_evendis_once": 0,
+                            "to_psp": 2499.63,
+                            "to_hoster": 0,
+                            "kept": 74116.07,
+                            "kept_per_ticket": 24.71,
+                            "kept_percent": 98.8
+                        },
+                        "self_hosted": {
+                            "on_request": false,
+                            "revenue": 75000,
+                            "own_fee": 4500,
+                            "to_evendis": 2983.3,
+                            "to_evendis_once": 190,
+                            "to_psp": 2499.63,
+                            "to_hoster": 240,
+                            "kept": 73777.07,
+                            "kept_per_ticket": 24.59,
+                            "kept_percent": 98.4
+                        },
+                        "platform": {
+                            "on_request": false,
+                            "revenue": 75000,
+                            "own_fee": 0,
+                            "to_evendis": 3063.03,
+                            "to_evendis_once": 0,
+                            "to_psp": 0,
+                            "to_hoster": 0,
+                            "kept": 71936.97,
+                            "kept_per_ticket": 23.98,
+                            "kept_percent": 95.9,
+                            "bearer": "organizer",
+                            "guests_pay_variant": {
+                                "guest_fee_total": 3645,
+                                "kept": 75000
+                            }
+                        }
+                    }
+                },
+                {
+                    "tickets": 5000,
+                    "custom": false,
+                    "modes": {
+                        "own_shop": {
+                            "on_request": false,
+                            "revenue": 125000,
+                            "own_fee": 7500,
+                            "to_evendis": 3088.5,
+                            "to_evendis_once": 0,
+                            "to_psp": 4166.05,
+                            "to_hoster": 0,
+                            "kept": 125245.45,
+                            "kept_per_ticket": 25.05,
+                            "kept_percent": 100.2
+                        },
+                        "self_hosted": {
+                            "on_request": false,
+                            "revenue": 125000,
+                            "own_fee": 7500,
+                            "to_evendis": 3187.5,
+                            "to_evendis_once": 190,
+                            "to_psp": 4166.05,
+                            "to_hoster": 240,
+                            "kept": 124906.45,
+                            "kept_per_ticket": 24.98,
+                            "kept_percent": 99.9
+                        },
+                        "platform": {
+                            "on_request": false,
+                            "revenue": 125000,
+                            "own_fee": 0,
+                            "to_evendis": 5105.04,
+                            "to_evendis_once": 0,
+                            "to_psp": 0,
+                            "to_hoster": 0,
+                            "kept": 119894.96,
+                            "kept_per_ticket": 23.98,
+                            "kept_percent": 95.9,
+                            "bearer": "organizer",
+                            "guests_pay_variant": {
+                                "guest_fee_total": 6075,
+                                "kept": 125000
+                            }
+                        }
+                    }
+                },
+                {
+                    "tickets": 20000,
+                    "custom": false,
+                    "modes": {
+                        "own_shop": {
+                            "on_request": false,
+                            "revenue": 500000,
+                            "own_fee": 30000,
+                            "to_evendis": 5320.02,
+                            "to_evendis_once": 0,
+                            "to_psp": 16664.2,
+                            "to_hoster": 0,
+                            "kept": 508015.78,
+                            "kept_per_ticket": 25.4,
+                            "kept_percent": 101.6
+                        },
+                        "self_hosted": {
+                            "on_request": false,
+                            "revenue": 500000,
+                            "own_fee": 30000,
+                            "to_evendis": 4719.02,
+                            "to_evendis_once": 190,
+                            "to_psp": 16664.2,
+                            "to_hoster": 240,
+                            "kept": 508376.78,
+                            "kept_per_ticket": 25.42,
+                            "kept_percent": 101.7
+                        },
+                        "platform": {
+                            "on_request": false,
+                            "revenue": 500000,
+                            "own_fee": 0,
+                            "to_evendis": 20420.17,
+                            "to_evendis_once": 0,
+                            "to_psp": 0,
+                            "to_hoster": 0,
+                            "kept": 479579.83,
+                            "kept_per_ticket": 23.98,
+                            "kept_percent": 95.9,
+                            "bearer": "organizer",
+                            "guests_pay_variant": {
+                                "guest_fee_total": 24300,
+                                "kept": 500000
+                            }
+                        }
+                    }
+                },
+                {
+                    "tickets": 50000,
+                    "custom": false,
+                    "modes": {
+                        "own_shop": {
+                            "on_request": false,
+                            "revenue": 1250000,
+                            "own_fee": 75000,
+                            "to_evendis": 9383.04,
+                            "to_evendis_once": 0,
+                            "to_psp": 41660.5,
+                            "to_hoster": 0,
+                            "kept": 1273956.46,
+                            "kept_per_ticket": 25.48,
+                            "kept_percent": 101.9
+                        },
+                        "self_hosted": {
+                            "on_request": false,
+                            "revenue": 1250000,
+                            "own_fee": 75000,
+                            "to_evendis": 7782.04,
+                            "to_evendis_once": 190,
+                            "to_psp": 41660.5,
+                            "to_hoster": 240,
+                            "kept": 1275317.46,
+                            "kept_per_ticket": 25.51,
+                            "kept_percent": 102
+                        },
+                        "platform": {
+                            "on_request": false,
+                            "revenue": 1250000,
+                            "own_fee": 0,
+                            "to_evendis": 51050.42,
+                            "to_evendis_once": 0,
+                            "to_psp": 0,
+                            "to_hoster": 0,
+                            "kept": 1198949.58,
+                            "kept_per_ticket": 23.98,
+                            "kept_percent": 95.9,
+                            "bearer": "organizer",
+                            "guests_pay_variant": {
+                                "guest_fee_total": 60750,
+                                "kept": 1250000
+                            }
+                        }
+                    }
+                }
+            ],
+            "totals_note": "Im 1. Jahr inkl. einmaliger Kosten. Ticketumsatz und eigene Gebühr brutto (wie vom Gast bezahlt, inkl. USt); an evendis netto zzgl. USt – die USt bekommst du als Vorsteuer zurück; Plattformgebühr netto (÷ 1,19); Zahlungsgebühren wie vom Anbieter berechnet (ohne USt); Server beim Hoster ca.",
+            "rows": [
+                {
+                    "tickets": 1000,
+                    "custom": false,
+                    "orders": 500,
+                    "revenue": 25000,
+                    "own_fee": 1500,
+                    "psp": 833.21,
+                    "evendis": 699,
+                    "on_request": false,
+                    "options": 1788,
+                    "channel_fee": 102.1,
+                    "evendis_total": 2589.1,
+                    "server": 240,
+                    "kept": 22837.69,
+                    "platform_guests_pay": 25000,
+                    "platform_you_pay": 23978.99,
+                    "advantage": -2162.31,
+                    "kept_without_fee": 21375.4,
+                    "advantage_without_fee": -2603.59,
+                    "compare": {
+                        "own_shop": {
+                            "evendis": 790,
+                            "server": 0,
+                            "kept": 22986.69,
+                            "advantage": -2013.31
+                        },
+                        "self_hosted": {
+                            "evendis": 699,
+                            "server": 240,
+                            "kept": 22837.69,
+                            "advantage": -2162.31
+                        }
+                    }
+                },
+                {
+                    "tickets": 3000,
+                    "custom": true,
+                    "orders": 1500,
+                    "revenue": 75000,
+                    "own_fee": 4500,
+                    "psp": 2499.63,
+                    "evendis": 699,
+                    "on_request": false,
+                    "options": 1788,
+                    "channel_fee": 306.3,
+                    "evendis_total": 2793.3,
+                    "server": 240,
+                    "kept": 73967.07,
+                    "platform_guests_pay": 75000,
+                    "platform_you_pay": 71936.97,
+                    "advantage": -1032.93,
+                    "kept_without_fee": 69580.2,
+                    "advantage_without_fee": -2356.78,
+                    "compare": {
+                        "own_shop": {
+                            "evendis": 790,
+                            "server": 0,
+                            "kept": 74116.07,
+                            "advantage": -883.93
+                        },
+                        "self_hosted": {
+                            "evendis": 699,
+                            "server": 240,
+                            "kept": 73967.07,
+                            "advantage": -1032.93
+                        }
+                    }
+                },
+                {
+                    "tickets": 5000,
+                    "custom": false,
+                    "orders": 2500,
+                    "revenue": 125000,
+                    "own_fee": 7500,
+                    "psp": 4166.05,
+                    "evendis": 699,
+                    "on_request": false,
+                    "options": 1788,
+                    "channel_fee": 510.5,
+                    "evendis_total": 2997.5,
+                    "server": 240,
+                    "kept": 125096.45,
+                    "platform_guests_pay": 125000,
+                    "platform_you_pay": 119894.96,
+                    "advantage": 96.45,
+                    "kept_without_fee": 117785,
+                    "advantage_without_fee": -2109.96,
+                    "compare": {
+                        "own_shop": {
+                            "evendis": 790,
+                            "server": 0,
+                            "kept": 125245.45,
+                            "advantage": 245.45
+                        },
+                        "self_hosted": {
+                            "evendis": 699,
+                            "server": 240,
+                            "kept": 125096.45,
+                            "advantage": 96.45
+                        }
+                    }
+                },
+                {
+                    "tickets": 20000,
+                    "custom": false,
+                    "orders": 10000,
+                    "revenue": 500000,
+                    "own_fee": 30000,
+                    "psp": 16664.2,
+                    "evendis": 699,
+                    "on_request": false,
+                    "options": 1788,
+                    "channel_fee": 2042.02,
+                    "evendis_total": 4529.02,
+                    "server": 240,
+                    "kept": 508566.78,
+                    "platform_guests_pay": 500000,
+                    "platform_you_pay": 479579.83,
+                    "advantage": 8566.78,
+                    "kept_without_fee": 479320.98,
+                    "advantage_without_fee": -258.85,
+                    "compare": {
+                        "own_shop": {
+                            "evendis": 1490,
+                            "server": 0,
+                            "kept": 508015.78,
+                            "advantage": 8015.78
+                        },
+                        "self_hosted": {
+                            "evendis": 699,
+                            "server": 240,
+                            "kept": 508566.78,
+                            "advantage": 8566.78
+                        }
+                    }
+                },
+                {
+                    "tickets": 50000,
+                    "custom": false,
+                    "orders": 25000,
+                    "revenue": 1250000,
+                    "own_fee": 75000,
+                    "psp": 41660.5,
+                    "evendis": 699,
+                    "on_request": false,
+                    "options": 1788,
+                    "channel_fee": 5105.04,
+                    "evendis_total": 7592.04,
+                    "server": 240,
+                    "kept": 1275507.46,
+                    "platform_guests_pay": 1250000,
+                    "platform_you_pay": 1198949.58,
+                    "advantage": 25507.46,
+                    "kept_without_fee": 1202392.96,
+                    "advantage_without_fee": 3443.38,
+                    "compare": {
+                        "own_shop": {
+                            "evendis": 2490,
+                            "server": 0,
+                            "kept": 1273956.46,
+                            "advantage": 23956.46
+                        },
+                        "self_hosted": {
+                            "evendis": 699,
+                            "server": 240,
+                            "kept": 1275507.46,
+                            "advantage": 25507.46
+                        }
+                    }
+                }
+            ],
+            "break_even": {
+                "with_fee": 4830,
+                "without_fee": 22098
+            },
+            "to_evendis": {
+                "tiers": [
+                    {
+                        "max": 10000000,
+                        "price": 699
+                    }
+                ],
+                "fixed_price": null,
+                "base": {
+                    "name": "Lizenz",
+                    "catalog_key": "lizenz",
+                    "interval": "yearly",
+                    "tiered": true
+                },
+                "options": [
+                    {
+                        "name": "Eigene App – Basis",
+                        "year": 1788
+                    }
+                ],
+                "options_year": 1788,
+                "once": 190,
+                "channel": {
+                    "percent": 2.9,
+                    "fixed": 0.49,
+                    "share": 10,
+                    "tax_note": "inkl. MwSt."
+                },
+                "above": "auf Anfrage",
+                "per_ticket": 0,
+                "tax_note": "zzgl. MwSt."
+            },
+            "to_psp": {
+                "methods": [
+                    {
+                        "key": "paypal",
+                        "label": "PayPal",
+                        "provider": "PayPal",
+                        "detail": "PayPal Checkout, Inlandszahlung (direkt bei PayPal; über Mollie zusätzlich 0,10 € je Zahlung)",
+                        "share": 60,
+                        "percent": 2.99,
+                        "fixed": 0.39,
+                        "as_of": "2026-11-04",
+                        "source": "https://www.paypal.com/de/business/paypal-business-fees"
+                    },
+                    {
+                        "key": "card",
+                        "label": "Kreditkarte",
+                        "provider": "Mollie",
+                        "detail": "Verbraucherkarte aus dem EWR (auch Apple Pay)",
+                        "share": 40,
+                        "percent": 1.8,
+                        "fixed": 0.25,
+                        "as_of": "2026-11-05",
+                        "source": "https://www.mollie.com/de/pricing"
+                    }
+                ],
+                "blended_percent": 2.514,
+                "blended_fixed": 0.334,
+                "catalog": [
+                    {
+                        "key": "paypal",
+                        "label": "PayPal",
+                        "provider": "PayPal",
+                        "percent": 2.99,
+                        "fixed": 0.39,
+                        "as_of": "2026-11-04",
+                        "source": "https://www.paypal.com/de/business/paypal-business-fees"
+                    },
+                    {
+                        "key": "card",
+                        "label": "Kreditkarte",
+                        "provider": "Mollie",
+                        "percent": 1.8,
+                        "fixed": 0.25,
+                        "as_of": "2026-11-05",
+                        "source": "https://www.mollie.com/de/pricing"
+                    },
+                    {
+                        "key": "klarna",
+                        "label": "Klarna",
+                        "provider": "Mollie",
+                        "percent": 2.99,
+                        "fixed": 0.35,
+                        "as_of": "2026-11-05",
+                        "source": "https://www.mollie.com/de/pricing"
+                    },
+                    {
+                        "key": "paypal_mollie",
+                        "label": "PayPal über Mollie",
+                        "provider": "Mollie",
+                        "percent": 2.99,
+                        "fixed": 0.49,
+                        "as_of": "2026-11-14",
+                        "source": "https://www.mollie.com/payments/paypal"
+                    },
+                    {
+                        "key": "card_stripe",
+                        "label": "Kreditkarte (Stripe)",
+                        "provider": "Stripe",
+                        "percent": 1.5,
+                        "fixed": 0.25,
+                        "as_of": "2026-11-14",
+                        "source": "https://stripe.com/de/pricing"
+                    }
+                ],
+                "note": "Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.",
+                "providers_note": "Mollie und Stripe stehen gleichwertig nebeneinander – du wählst deinen Anbieter."
+            },
+            "guest": {
+                "ticket_price": 25,
+                "own_fee": 1.5,
+                "pays_own_shop": 26.5,
+                "platform_fee": 1.22,
+                "pays_platform": 26.22,
+                "own_fee_stays_with_you": true
+            },
+            "platform": {
+                "percent": 2.9,
+                "fixed": 0.49,
+                "tax_note": "inkl. MwSt. und Zahlung"
+            },
+            "notes": [
+                "Alle Beträge netto (zzgl. MwSt.), Zahlungsgebühren wie beim Anbieter, ohne Gewähr.",
+                "Annahmen sind jederzeit änderbar."
+            ]
+        },
+        "mode_hints": []
+    }
+}
