@@ -1818,11 +1818,20 @@ class TIX_Platform_Offers {
             // Hochrechnung je Event vergleicht mit dem Provisionsmodell der Plattform → beim eigenen Betrieb nur mit compare_platform
             'projection' => ($t['projection'] && !empty($d['projection']['in_pdf']) && (self::layout_of($d) !== 'own' || !empty($d['compare_platform']))) ? $t['projection'] : null,
             'benefits' => array_values(array_map(function ($b) { return ['title' => $b['title'], 'text' => $b['text']]; }, array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); }))),
-            'conditions' => $d['conditions'], 'contact' => $d['contact'], 'term_months' => $d['term_months'],
+            'conditions' => self::conditions_text($d), 'contact' => $d['contact'], 'term_months' => $d['term_months'],
             'decision' => isset($d['decision']) ? ['status' => $d['decision']['status'], 'name' => $d['decision']['by'] === 'customer' ? $d['decision']['name'] : '', 'at' => $d['decision']['at']] : null,
             'can_decide' => in_array($row->status, ['sent', 'viewed'], true), 'pdf_filename' => self::filename($row),
             // AN2: Gliederung „Dein eigener Ticketshop“ – Kacheln und Blöcke 1–4 (nur bei layout own)
             'layout' => self::layout_of($d), 'own' => self::layout_of($d) === 'own' ? (function ($bl) { if (!$bl) return null; unset($bl['totals']); $bl['plan_calc'] = self::strip_other_mode($bl['compare_platform'] ? $bl['plan'] : self::strip_platform($bl['plan'])); unset($bl['plan']); return $bl; })(self::own_blocks($d)) : null];
+    }
+
+    /** Bedingungen ohne den Plattform-Satz „Tickets über evendis …“, außer evendis_channel bzw. compare_platform ist an (1.38.828) */
+    public static function conditions_text(array $d) {
+        $c = trim((string) ($d['conditions'] ?? ''));
+        if (!empty($d['extras']['evendis_channel']) || !empty($d['compare_platform']) || self::mode_of($d) === 'platform') return $c;
+        $c = preg_replace('/,?\s*„Tickets über evendis“ inkl\. MwSt\. und Zahlung\.?/u', '.', $c);
+        $c = str_replace('MwSt..', 'MwSt.', $c);
+        return trim($c);
     }
 
     /** Planrechnung nur mit der Betriebsart des Angebots (Kundenseite, 1.38.827): ohne Vergleich eigener Shop ↔ selbstgehostet */
@@ -2113,34 +2122,28 @@ class TIX_Platform_Offers {
             return $h;
         };
         $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
-        $out .= '<div class="c"><h2><em>4</em>Planrechnung</h2><h3 style="font-size:15px;margin:4px 0 8px">Ergebnis im Überblick – was insgesamt übrig bleibt</h3><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
-        foreach ($tt as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
-        $out .= '</tr><tr><td>Ticketumsatz gesamt (brutto)</td>' . $cell('own_shop', 'revenue') . '</tr>';
-        foreach ($b4['totals_order'] as $j => $m) {
-            if (count($b4['totals_order']) > 1) $out .= '<tr class="cmp"><td colspan="' . (count($tt) + 1) . '" style="background:#F4F5F8;color:#2C2F3F"><strong>' . $e($labels[$m] . ($j === 0 ? ' – dieses Angebot' : '')) . '</strong></td></tr>';
-            if ($m !== 'platform') $out .= '<tr><td>+ Einnahmen eigene Servicegebühr</td>' . $cell($m, 'own_fee', '+') . '</tr>';
-            $out .= '<tr><td>− an evendis gesamt' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto, inkl. einmalig)') . '</td>' . $cell($m, 'to_evendis', '-') . '</tr>';
-            if ($m !== 'platform') $out .= '<tr><td>− an Zahlungsdienstleister gesamt</td>' . $cell($m, 'to_psp', '-') . '</tr>';
-            if ($m === 'self_hosted') $out .= '<tr><td>− an deinen Hoster (Server, ca.)</td>' . $cell($m, 'to_hoster', '-') . '</tr>';
-            $out .= '<tr class="hl"><td>= bleibt dir insgesamt</td>' . $cell($m, 'kept') . '</tr><tr class="cmp"><td>je Ticket</td>' . $cell($m, 'pt') . '</tr><tr class="cmp"><td>in % vom Ticketumsatz</td>' . $cell($m, 'pc') . '</tr>';
-        }
-        $out .= '</table></div><p class="mu">' . $e($b4['totals_note'] . (!empty($b4['compare']) ? ' Plattform, wenn Gäste die Gebühr zahlen: dir bleibt der volle Ticketumsatz.' : '')) . '</p>'
-            . '<h3 style="font-size:15px;margin:16px 0 8px">Rechnung im Detail (' . $e($B['mode_label']) . ', je Jahr)</h3><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
-        foreach ($rows as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
+        // Eine Tabelle (1.38.828) wie im PDF
+        $tb = $b4['table'];
+        $out .= '<div class="c"><h2><em>4</em>Planrechnung</h2><p class="mu">Was im Jahr insgesamt übrig bleibt – je nach Ticketzahl.</p><div class="sc"><table><tr><td class="mu">Tickets im Jahr</td>';
+        foreach ($tb as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
         $out .= '</tr>';
-        $line = function ($label, $key, $sign = '', $cls = '') use ($rows, $e) {
+        $line = function ($label, $key, $sign = '', $cls = '', $fmt = 'eur') use ($tb, $e) {
             $h = '<tr' . ($cls ? ' class="' . $cls . '"' : '') . '><td>' . $e($label) . '</td>';
-            foreach ($rows as $r) { $x = $r[$key]; $h .= '<td class="r">' . $e($x === null ? 'auf Anfrage' : ($sign === '-' && $x != 0 ? '− ' . self::eur0($x) : ($sign === '+' ? '+ ' . self::eur0($x) : self::eur0($x)))) . '</td>'; }
+            foreach ($tb as $r) { $x = $r[$key] ?? null; $h .= '<td class="r">' . $e($x === null ? 'auf Anfrage' : ($fmt === 'pt' ? self::eur($x) : ($sign === '-' && $x != 0 ? '− ' . self::eur0($x) : ($sign === '+' ? '+ ' . self::eur0($x) : self::eur0($x))))) . '</td>'; }
             return $h . '</tr>';
         };
-        $out .= $line('Ticketumsatz (inkl. MwSt.)', 'revenue') . $line('+ eigene Service-/VVK-Gebühr', 'own_fee', '+') . $line('an deinen Zahlungsdienstleister', 'psp', '-')
-            . $line('an evendis (' . (($ev['base']['name'] ?? '') ?: 'Eigener Shop') . ')', 'evendis', '-') . ($b4['options'] ? $line('an evendis (Optionen)', 'options', '-') : '')
-            . ($b4['channel'] ? $line('evendis.de-Gebühr (netto)', 'channel_fee', '-') : '') . ($b4['server'] ? $line('an deinen Hoster (Server, ca.)', 'server', '-') : '')
-            . $line('Bei dir bleibt (' . $B['mode_label'] . ')', 'kept', '', 'hl')
-            . (!empty($b4['compare']) ? $line('Vergleich Plattform, Gäste zahlen', 'platform_guests_pay', '', 'cmp') . $line('Vergleich Plattform, du trägst', 'platform_you_pay', '', 'cmp') . $line('Vorteil ' . $B['mode_label'] . ' (Gäste zahlen)', 'advantage', '', 'hl') : '');
-        $out .= '</table></div>' . (array_filter(array_column($rows, 'custom')) ? '<p class="mu">* deine eigene Zahl</p>' : '')
-            . ($b4['reading'] ? '<div class="box">' . $e($b4['reading']) . '</div>' : '')
-            . '<p class="mu">' . $e($b4['basis']) . '</p><p class="mu">' . $e($b4['assumptions']) . '</p><p class="mu">' . $e($b4['disclaimer']) . '</p></div>';
+        $out .= $line('Ticketumsatz (brutto)', 'revenue') . $line('+ eigene Servicegebühr', 'own_fee', '+') . $line('− an den Zahlungsanbieter', 'psp', '-')
+            . $line('− an evendis: ' . (($ev['base']['name'] ?? '') ?: 'Grundpaket'), 'evendis', '-') . ($b4['options'] ? $line('− an evendis: gewählte Optionen', 'options', '-') : '')
+            . ($b4['channel'] ? $line('− evendis.de-Gebühr (netto)', 'channel_fee', '-') : '') . (array_filter(array_column($tb, 'once')) ? $line('− an evendis: einmalig (1. Jahr)', 'once', '-') : '')
+            . ($b4['server'] ? $line('− Server beim Hoster (ca.)', 'server', '-') : '')
+            . $line('= bleibt dir', 'kept', '', 'hl') . $line('je Ticket', 'kept_per_ticket', '', 'cmp', 'pt');
+        if (!empty($b4['compare'])) {
+            $pl = function ($label, $key) use ($rows, $e) { $h = '<tr class="cmp"><td>' . $e($label) . '</td>'; foreach ($rows as $r) $h .= '<td class="r">' . $e(isset($r[$key]) ? self::eur0($r[$key]) : 'auf Anfrage') . '</td>'; return $h . '</tr>'; };
+            $out .= $pl('zum Vergleich: Plattform, Gäste zahlen', 'platform_guests_pay') . $pl('zum Vergleich: Plattform, du trägst', 'platform_you_pay');
+        }
+        $out .= '</table></div>' . (array_filter(array_column($tb, 'custom')) ? '<p class="mu">* deine eigene Zahl</p>' : '')
+            . (!empty($b4['compare']) && $b4['reading'] ? '<div class="box">' . $e($b4['reading']) . '</div>' : '')
+            . implode('', array_map(function ($n) use ($e) { return '<p class="mu">' . $e($n) . '</p>'; }, $b4['notes'])) . '</div>';
         if ($B['references']) {
             $out .= '<div class="c"><h2>So sieht es bei anderen aus</h2>';
             foreach ($B['references'] as $r) {
@@ -2552,6 +2555,15 @@ class TIX_Platform_Offers {
                 'compare' => $cmp,
                 'reading' => $cmp && $be['with_fee'] ? 'Mit eigener Gebühr von ' . self::eur($in['service_fee']) . ' lohnt sich ' . ($mode === 'self_hosted' ? 'dein Shop auf deinem Server' : 'der eigene Shop') . ' gegenüber der Ticketplattform ab rund ' . number_format($be['with_fee'], 0, ',', '.') . ' Tickets im Jahr. '
                     . ($be['without_fee'] ? 'Ohne eigene Gebühr ab rund ' . number_format($be['without_fee'], 0, ',', '.') . ' Tickets. ' : '') . 'Darunter ist die Ticketplattform für dich günstiger – dort ist die Zahlung schon enthalten.' : '',
+                // Eine Tabelle (1.38.828, User: „Eigentlich sagen die das Gleiche aus“): je Stufe Jahreszahlen, „bleibt dir“ im 1. Jahr wie der Faktenblock
+                'table' => array_map(function ($r, $tt) use ($mode) { $m = $tt['modes'][$mode] ?? [];
+                    return ['tickets' => $r['tickets'], 'custom' => $r['custom'], 'revenue' => $r['revenue'], 'own_fee' => $r['own_fee'], 'psp' => $r['psp'], 'evendis' => $r['evendis'], 'options' => $r['options'],
+                        'channel_fee' => $r['channel_fee'], 'once' => empty($m['on_request']) ? ($m['to_evendis_once'] ?? 0.0) : null, 'server' => $r['server'],
+                        'kept' => empty($m['on_request']) ? ($m['kept'] ?? null) : null, 'kept_per_ticket' => empty($m['on_request']) ? ($m['kept_per_ticket'] ?? null) : null]; }, $pc['rows'], $pc['totals']),
+                'notes' => [
+                    'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ', eigene Gebühr ' . self::eur($in['service_fee']) . ', ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . '.',
+                    'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.), evendis-Preise netto zzgl. MwSt.; „bleibt dir“ gilt fürs 1. Jahr inkl. einmaliger Kosten' . ($t['has_options'] ? ' und mit den gewählten Optionen' : '') . '.',
+                    'Gebühren der Zahlungsanbieter laut deren Preisseiten, ohne Gewähr.'],
                 'assumptions' => 'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ' inkl. MwSt., ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . ', keine Erstattungen.',
                 'basis' => 'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.); evendis-Preise zzgl. MwSt' . ($cmp ? '; die Plattformgebühr ist ohne MwSt. gerechnet (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . '), weil du die MwSt. als Vorsteuer zurückbekommst.' : '.' . ($t['has_options'] ? ' Gewählte Optionen sind in der Planrechnung enthalten, im Faktenblock oben nur das Grundpaket.' : '')),
                 'disclaimer' => 'Ohne Gewähr: Gebühren der Zahlungsdienstleister laut deren öffentlichen Preisseiten; sie können sich beim Anbieter ändern und hängen von Kartenart und Vertrag ab. Alle evendis-Preise zzgl. MwSt.' . ($ev['once'] > 0 ? ' Einmalige Kosten (' . self::eur0($ev['once']) . ') sind in der Jahresrechnung nicht enthalten.' : '')],
@@ -3089,53 +3101,38 @@ class TIX_Platform_Offers {
                 if ($v === null) return '–'; if ($fmt === 'pt') return number_format($v, 2, ',', '.') . ' ' . self::$euro; if ($fmt === 'pc') return number_format($v, 1, ',', '.') . ' %';
                 return ($sign === '-' && $v != 0 ? '– ' : ($sign === '+' ? '+ ' : '')) . $eu0($v); }, $tt);
         };
-        $col(self::K_INK); $font(true, 11); $tx($M, $y, 'Ergebnis im Überblick'); $y -= 18;
-        $vhead($tt); $P->rehead = function () use ($vhead, $tt) { $vhead($tt); };
-        $vrow('Ticketumsatz gesamt (brutto)', $pick('own_shop', 'revenue'));
-        $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
-        foreach ($b4['totals_order'] as $j => $m) {
-            if (count($b4['totals_order']) > 1) $vrow($labels[$m] . ($j === 0 ? ' – dieses Angebot' : ' – zum Vergleich'), array_fill(0, count($tt), ''), 'grp'); // nur mit Plattform-Vergleich
-            if ($m !== 'platform') $vrow('+ eigene Servicegebühr', $pick($m, 'own_fee', 'eur', '+'));
-            $vrow('– an evendis' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto)'), $pick($m, 'to_evendis', 'eur', '-'));
-            if ($m !== 'platform') $vrow('– an den Zahlungsanbieter', $pick($m, 'to_psp', 'eur', '-'));
-            if ($m === 'self_hosted') $vrow('– an deinen Hoster (Server, ca.)', $pick($m, 'to_hoster', 'eur', '-'));
-            $vrow('= bleibt dir', $pick($m, 'kept'), 'hl');
-            $vrow('je Ticket', $pick($m, 'kept_per_ticket', 'pt'), 'sub');
-        }
-        $para($b4['totals_note'] . (!empty($t['has_options']) ? ' An evendis inkl. der gewählten Optionen.' : '') . ($cmp ? ' Plattform, wenn Gäste die Gebühr zahlen: dir bleibt der volle Ticketumsatz.' : ''), 7.5, self::K_MUTED);
-        $y -= 16;
-        }
-        for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
-        $col(self::K_INK); $font(true, 11); $tx($M, $y, 'Rechnung im Detail (' . $B['mode_label'] . ', je Jahr)'); $y -= 18;
-        $vhead($rows); $P->rehead = function () use ($vhead, $rows) { $vhead($rows); };
-        $prow = function ($label, $key, $sign = '', $style = '') use ($vrow, $rows, $eu0) {
-            $vrow($label, array_map(function ($r) use ($key, $sign, $eu0) { $v = $r[$key] ?? null; return $v === null ? 'auf Anfrage' : ($sign === '-' && $v != 0 ? '– ' . $eu0($v) : ($sign === '+' ? '+ ' . $eu0($v) : $eu0($v))); }, $rows), $style);
+        $tb = $b4['table'];
+        $vhead($tb); $P->rehead = function () use ($vhead, $tb) { $vhead($tb); };
+        $trow = function ($label, $key, $sign = '', $style = '', $fmt = 'eur') use ($vrow, $tb, $eu0) {
+            $vrow($label, array_map(function ($r) use ($key, $sign, $fmt, $eu0) { $v = $r[$key] ?? null; if ($v === null) return 'auf Anfrage';
+                if ($fmt === 'pt') return number_format($v, 2, ',', '.') . ' ' . self::$euro;
+                return $sign === '-' && $v != 0 ? '– ' . $eu0($v) : ($sign === '+' ? '+ ' . $eu0($v) : $eu0($v)); }, $tb), $style);
         };
-        $prow('Ticketumsatz (inkl. MwSt.)', 'revenue');
-        $prow('+ eigene Service-/VVK-Gebühr', 'own_fee', '+');
-        $prow('– an den Zahlungsanbieter', 'psp', '-');
-        $prow('– an evendis (' . (($B['plan']['to_evendis']['base']['name'] ?? '') ?: 'Grundpaket') . ')', 'evendis', '-');
-        if ($b4['options']) $prow('– an evendis (gewählte Optionen)', 'options', '-');
-        if ($b4['channel']) $prow('– evendis.de-Gebühr (netto)', 'channel_fee', '-');
-        if ($b4['server']) $prow('– an deinen Hoster (Server, ca.)', 'server', '-');
-        $prow('= bleibt dir (' . $B['mode_label'] . ')', 'kept', '', 'hl');
+        $trow('Ticketumsatz (brutto)', 'revenue');
+        $trow('+ eigene Servicegebühr', 'own_fee', '+');
+        $trow('– an den Zahlungsanbieter', 'psp', '-');
+        $trow('– an evendis: ' . (($B['plan']['to_evendis']['base']['name'] ?? '') ?: 'Grundpaket'), 'evendis', '-');
+        if ($b4['options']) $trow('– an evendis: gewählte Optionen', 'options', '-');
+        if ($b4['channel']) $trow('– evendis.de-Gebühr (netto)', 'channel_fee', '-');
+        if (array_filter(array_column($tb, 'once'))) $trow('– an evendis: einmalig (1. Jahr)', 'once', '-');
+        if ($b4['server']) $trow('– Server beim Hoster (ca.)', 'server', '-');
+        $trow('= bleibt dir', 'kept', '', 'hl');
+        $trow('je Ticket', 'kept_per_ticket', '', 'sub', 'pt');
         if ($cmp) {
-            $prow('zum Vergleich: Plattform, Gäste zahlen', 'platform_guests_pay', '', 'sub');
-            $prow('zum Vergleich: Plattform, du trägst', 'platform_you_pay', '', 'sub');
-            $prow('Vorteil ' . $B['mode_label'] . ' (Gäste zahlen)', 'advantage', '', 'hl');
+            $prow = function ($label, $key, $style) use ($vrow, $rows, $eu0) { $vrow($label, array_map(function ($r) use ($key, $eu0) { $v = $r[$key] ?? null; return $v === null ? 'auf Anfrage' : $eu0($v); }, $rows), $style); };
+            $prow('zum Vergleich: Plattform, Gäste zahlen', 'platform_guests_pay', 'sub');
+            $prow('zum Vergleich: Plattform, du trägst', 'platform_you_pay', 'sub');
         }
-        if (array_filter(array_column($rows, 'custom'))) $para('* deine eigene Zahl', 7.5, self::K_MUTED);
+        if (array_filter(array_column($tb, 'custom'))) $para('* deine eigene Zahl', 7.5, self::K_MUTED);
         $y -= 2;
-        $para($b4['basis'], 7.5, self::K_MUTED);
-        if ($b4['reading']) {
-            $font(false, 9); $rl2 = $wrap('So liest du die Rechnung: ' . $b4['reading'], $CW - 24);
+        if ($cmp && $b4['reading']) {
+            $font(false, 9); $rl2 = $wrap('So liest du die Rechnung: ' . $b4['reading'], $CW - 32);
             $ensure(13 * count($rl2) + 18); $y -= 4;
             $col(self::K_TINT); $P->rrect($M, $y - 13 * count($rl2) + 2, $CW, 13 * count($rl2) + 16, 12, true);
             $col(self::K_INK); foreach ($rl2 as $ln) { $tx($M + 16, $y, $ln); $y -= 13; }
             $y -= 8;
         }
-        $para($b4['assumptions'], 7.5, self::K_MUTED);
-        $para($b4['disclaimer'], 7.5, self::K_MUTED);
+        foreach ($b4['notes'] as $nt) $para($nt, 7.5, self::K_MUTED);
         }
 
         // ═══ Hochrechnung je Event (vergleicht mit dem Provisionsmodell → nur mit compare_platform)
@@ -3197,7 +3194,7 @@ class TIX_Platform_Offers {
         // ═══ Bedingungen, Annahme, Kontakt
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         $section('Bedingungen');
-        $cond = trim((string) $d['conditions']);
+        $cond = self::conditions_text($d);
         if ($cond !== '') $para($cond, 9, self::K_INK);
         $para('Dieses Angebot gilt bis ' . $valid . '.', 9, self::K_INK);
         $y -= 10;

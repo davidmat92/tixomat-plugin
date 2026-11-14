@@ -138,7 +138,7 @@ $o_cp = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_cp['c
 $pdf_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $x) { $u = @gzuncompress($x); $t .= $u !== false ? $u : $x; } return $t; })((string) TIX_Platform_Offers::render_pdf($o_cp, ['number' => 'T', 'link' => '']));
 po_eq('PDF mit compare_platform: Block „Hochrechnung je Event“ mit beiden Modellen und Hinweis zum Zahlungsdienstleister', [true, true, true, true],
     [strpos($pdf_txt, 'Hochrechnung je Event') !== false, strpos($pdf_txt, 'PROVISIONSMODELL') !== false && strpos($pdf_txt, 'EIGENER SHOP') !== false, // Begriffe 14.11.: Shop-Angebot = eigener Shop, nicht selbstgehostet
-        strpos($pdf_txt, 'Zahlungsdienstleister') !== false, strpos($pdf_txt, 'Tickets im Monat') !== false]);
+        strpos($pdf_txt, 'Zahlungsanbieter') !== false, strpos($pdf_txt, 'Tickets im Monat') !== false]);
 $o_nf = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_nf['projection']['in_pdf'] = false; $o_nf['compare_platform'] = true;
 $pdf_off = (string) TIX_Platform_Offers::render_pdf($o_nf, ['number' => 'T', 'link' => '']);
 $off_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $x) { $u = @gzuncompress($x); $t .= $u !== false ? $u : $x; } return $t; })($pdf_off);

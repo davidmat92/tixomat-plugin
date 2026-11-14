@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.828: eine Planrechnungs-Tabelle, kurze Hinweise, Bedingungen ohne Plattform-Satz.
  * 1.38.827: Rabatt je Position (discount_percent), Guthaben braucht die App (Zubuchung), Shop ohne App; geschenkte Positionen (items[].gift bzw. Modul mit 0 €); kein Vergleich der Betriebsarten, Schrift Geist + Geist Mono, Rundungen und Abstände wie im Studio.
  * 1.38.826: PayPal als eigener Zahlungsanbieter, Verkauf über evendis.de nur mit Häkchen (unter „Optional“).
  * 1.38.825: Staffel 790/1.690 (bis 5.000/10.000, darüber Anfrage), Vertriebler (sales_reps/sales_rep), Blöcke nie über Seitengrenzen.
@@ -185,7 +186,7 @@ $opc = $O::clean_data(['compare_platform' => true], $op);
 $Bc = $O::own_blocks($opc);
 $pdf_c = $ptxt($O::render_pdf($opc, ['number' => 'AN-T-C', 'date' => wp_date('Y-m-d')]));
 $eq('Mit compare_platform: Vergleich in Faktenblock, Schritten und PDF', [true, true, true, true],
-    [strpos($Bc['lead']['note'], 'Ticketplattform') !== false, in_array('Zum Vergleich: die Ticketplattform', array_column($Bc['lead']['steps'], 'title'), true), strpos($pdf_c, 'Plattform evendis.de') !== false, isset($Bc['block3']['pays_platform'])]);
+    [strpos($Bc['lead']['note'], 'Ticketplattform') !== false, in_array('Zum Vergleich: die Ticketplattform', array_column($Bc['lead']['steps'], 'title'), true), strpos($pdf_c, 'zum Vergleich: Plattform') !== false, isset($Bc['block3']['pays_platform'])]);
 $sp = $O::strip_platform($po);
 $eq('Kundenseite ohne Vergleich: plan_calc ohne Plattform (Zeilen, Summen, Faktenblock, Gast)', [false, false, false, false],
     [isset($sp['rows'][0]['platform_you_pay']), isset($sp['totals'][0]['modes']['platform']), isset($sp['lead']['savings_vs_platform']), isset($sp['guest']['pays_platform'])]);
@@ -272,6 +273,15 @@ $eq('Guthaben ohne App → App + Einrichtung als Zubuchung angehakt (nicht im Gr
     [$dw['auto_added'], isset($rw['Eigene App – Basis']), $rw['Eigene App – Basis']['needed_for'] ?? '', array_column($O::mode_hints($dw), 'code'), $Bw['lead']['facts'][0]['value'], $O::totals($dw)['base']['yearly']['net']]);
 $pdf_w = $ptxt($O::render_pdf($dw, ['number' => 'AN-T-W', 'date' => wp_date('Y-m-d')]));
 $eq('PDF: „Dein Shop läuft komplett ohne App“ sichtbar', true, strpos($pdf_w, 'komplett ohne App') !== false);
+
+// ── 1.38.828: eine Planrechnungs-Tabelle, Bedingungen ohne Plattform-Satz
+$d8 = $O::clean_data(['items' => [$it('shop'), $it('app')], 'mode' => 'own_shop', 'plan' => ['lead' => 5000]]);
+$B8 = $O::own_blocks($d8); $p8 = $ptxt($O::render_pdf($d8, ['number' => 'AN-T-8', 'date' => wp_date('Y-m-d')]));
+$i8 = array_search(5000, array_column($B8['block4']['table'], 'tickets'), true);
+$eq('Eine Tabelle: „bleibt dir“ = Ergebnis 1. Jahr, Optionen eigene Zeile, keine zweite Tabelle, 3 kurze Hinweise', [true, 1788.0, false, false, 3],
+    [$B8['block4']['table'][$i8]['kept'] === $B8['block4']['totals'][$i8]['modes']['own_shop']['kept'], $B8['block4']['table'][$i8]['options'], strpos($p8, 'Ergebnis im') !== false, strpos($p8, 'Rechnung im Detail') !== false, count($B8['block4']['notes'])]);
+$eq('Bedingungen: „Tickets über evendis“ nur mit evendis.de-Verkauf bzw. Plattform-Vergleich', [false, true, true],
+    [strpos($O::conditions_text($d8), 'Tickets über evendis') !== false, strpos($O::conditions_text($O::clean_data(['extras' => ['evendis_channel' => true]], $d8)), 'Tickets über evendis') !== false, strpos($O::conditions_text($O::clean_data(['compare_platform' => true], $d8)), 'Tickets über evendis') !== false]);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);
