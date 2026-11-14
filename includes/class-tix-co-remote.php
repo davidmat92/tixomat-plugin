@@ -478,9 +478,9 @@ class TIX_Co_Remote {
             if ($method === 'DELETE' && strpos($m[2], 'guestlist/') !== 0) return $no();
             return true;
         }
-        if (preg_match('#^/(checkin/' . $id . '/(list|offline|guest/[A-Za-z0-9-]+)|pos/events/' . $id . '/categories|studio/events/' . $id . '/seatmap(/best|/block)?)$#', $path)) return $method !== 'DELETE' ? true : $no();
+        if (preg_match('#^/(checkin/' . $id . '/(list|offline|areas|guest/[A-Za-z0-9-]+)|pos/events/' . $id . '/categories|studio/events/' . $id . '/seatmap(/best|/block)?)$#', $path)) return $method !== 'DELETE' ? true : $no();
         // Routen mit event_id
-        $param_routes = ['GET /orders', 'POST /pos/orders', 'POST /pos/quote', 'GET /pos/report', 'GET /pos/transactions', 'GET /music/dj/requests', 'POST /notifications/broadcast', 'GET /organizer/export', 'POST /checkin/scan'];
+        $param_routes = ['GET /orders', 'POST /pos/orders', 'POST /pos/quote', 'GET /pos/report', 'GET /pos/transactions', 'GET /music/dj/requests', 'POST /notifications/broadcast', 'GET /organizer/export', 'POST /checkin/scan', 'GET /checkin/areas']; // Einlassbereiche des Erstellers (1.38.815)
         if (in_array($method . ' ' . $path, $param_routes, true)) {
             $ev = intval($method === 'GET' ? ($q['event_id'] ?? 0) : ($b['event_id'] ?? 0));
             if ($ev !== $sid) return $no('Für Co-Veranstalter nur mit diesem Event (event_id).');

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.814
+ * Version: 1.38.815
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.814');
+define('TIXOMAT_VERSION', '1.38.815');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -821,6 +821,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-forecast.php'; // Verkaufsprogno
 require_once TIXOMAT_PATH . 'includes/class-tix-social-planner.php'; // Social-Planer aus Event-Daten, Stufe 1 Erinnerung (M3, 1.38.811)
 require_once TIXOMAT_PATH . 'includes/class-tix-calendar-feed.php'; // Kalender-Abo (ICS) je Veranstalter/Künstler (R3, 1.38.811)
 require_once TIXOMAT_PATH . 'includes/class-tix-guest-flows.php'; // Gäste-Abläufe: Follower-Alarm, Danke, nächstes Event (M4, 1.38.813)
+require_once TIXOMAT_PATH . 'includes/class-tix-checkin-areas.php'; // Einlassbereiche (ohne Bereiche unverändert, 1.38.815)
 require_once TIXOMAT_PATH . 'includes/class-tix-ad-accounts.php'; // Statistik Stufe 2: Werbekonten (Meta, Google Ads, TikTok) über connect.evendis.de, Werbekosten, Kosten von Hand
 require_once TIXOMAT_PATH . 'includes/class-tix-conversions.php'; // Stufe 3a: Conversion-Verteiler (Meta CAPI, TikTok Events API, GA4 MP) + Tracking-IDs
 require_once TIXOMAT_PATH . 'includes/class-tix-consent-log.php'; // Stufe 3a: Nachweis der Banner-Einwilligung (ohne IP)

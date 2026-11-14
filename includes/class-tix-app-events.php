@@ -263,6 +263,7 @@ class TIX_App_Events {
                     'hidden'     => !empty($c['hidden']),
                     'gift_card'  => !empty($c['gift_card']),
                     'access'     => class_exists('TIX_Access_Categories') ? TIX_Access_Categories::of($c) : '',
+                    'areas'      => array_values(array_map('intval', (array) ($c['areas'] ?? []))), // Einlassbereiche (1.38.815), [] = überall
                     'tax_rate'   => class_exists('TIX_Invoices') ? TIX_Invoices::clean_rate($c['tax_rate'] ?? null) : null,
                     'sold'       => $sold,
                     'stock'      => (isset($c['stock']) && $c['stock'] !== '') ? intval($c['stock']) : -1,
@@ -795,6 +796,12 @@ class TIX_App_Events {
             $cat['qty']    = $qty;
             if (!$has_index || array_key_exists('desc', $in)) $cat['desc'] = mb_substr(sanitize_textarea_field((string) ($in['desc'] ?? '')), 0, 500);
             if (!$has_index || array_key_exists('hidden', $in)) $cat['hidden'] = !empty($in['hidden']) ? 1 : 0;
+            // Einlassbereiche (1.38.815): erlaubte Bereiche; [] = überall (wie bisher) – nur, wenn mitgeschickt
+            if (array_key_exists('areas', $in) && class_exists('TIX_Checkin_Areas')) {
+                $ar = TIX_Checkin_Areas::clean_category_areas($in['areas'], $post_id);
+                if (is_wp_error($ar)) return $ar;
+                if ($ar) $cat['areas'] = $ar; else unset($cat['areas']);
+            }
             // Barrierefreiheit (A4, 1.38.812): wheelchair | companion | '' – nur, wenn mitgeschickt
             if (array_key_exists('access', $in) && class_exists('TIX_Access_Categories')) { $ac = TIX_Access_Categories::clean($in['access']); if ($ac === '') unset($cat['access']); else $cat['access'] = $ac; }
             // Preisphasen nur, wenn die App sie mitschickt (ältere Apps lassen sie unverändert)

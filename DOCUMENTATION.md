@@ -6637,3 +6637,18 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - `on_color($hex, $large = true)`: Weiß ab 3:1 für große Schrift, sonst kontrastreicher.
   - Knopf 19 px, Fußzeile 13 px, QR-/Bild-Alt, Emoji `aria-hidden`.
 - **Test:** `test-a11y-tickets-wp` (11).
+
+## 203. Einlassbereiche (ab 1.38.815)
+- **Vertrag:** `uebergaben/vertrag-einlassbereiche.md`. Ohne Bereiche bzw. ohne `area` exakt wie bisher.
+- **`TIX_Checkin_Areas`:**
+  - Tabellen `tix_checkin_areas` (Bereiche je Veranstalter/Seite) und `tix_checkin_area_log` (Einlass je Ticket/Gast und Bereich).
+  - Kategorie-Feld `areas`.
+  - `from_request()` → null bei fehlendem `area` oder ohne Bereiche.
+  - `scan_ticket()` wird in `TIX_REST_API::validate_and_checkin_ticket` erst nach allen bisherigen Prüfungen aufgerufen, vor dem doppelten Scan.
+  - `after_guest()` für Gäste.
+- **Offline:** `offline_extra()` und `batch_ticket()` (`TIX_Checkin_Offline`).
+- **Datenspiegel:** Bereichs-Einlässe als `checkins` mit `action: area`.
+- **Sonst:**
+  - Durchgriff für Co-Veranstalter: lesen erlaubt.
+  - Custom-DB-Update als `TIX_REST_API::ticket_db_checked_in()`.
+- **Test:** `test-checkin-areas-wp` (26, Teil A = Pflicht-Regression ohne Bereiche).

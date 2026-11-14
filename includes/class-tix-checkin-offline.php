@@ -87,6 +87,7 @@ class TIX_Checkin_Offline {
             $count = isset($g['checked_in_count']) ? intval($g['checked_in_count']) : (!empty($g['checked_in']) ? $total : 0);
             $guests[] = ['id' => (string) $g['id'], 'h' => self::hash($eid, (string) $g['id']), 'name' => (string) ($g['name'] ?? ''), 'total' => $total, 'count' => $count];
         }
+        $area_extra = self::areas_extra($eid, $tickets); // vor dem Zusammenbau (ergänzt $tickets)
         $now = time();
         $end = self::event_end($eid);
         $list_id = wp_generate_uuid4();
@@ -97,7 +98,17 @@ class TIX_Checkin_Offline {
             'expires_at' => min($now + 3 * DAY_IN_SECONDS, max($now + 12 * HOUR_IN_SECONDS, $end + 12 * HOUR_IN_SECONDS)),
             'sig' => self::sign($eid, $list_id, $now),
             'tickets' => $tickets, 'guests' => $guests,
-        ]);
+        ] + $area_extra);
+    }
+
+    /** Einlassbereiche (1.38.815): nur wenn angelegt – areas + je Ticket ar (erlaubt, [] = überall) und ain (schon im Bereich) */
+    private static function areas_extra($eid, array &$tickets) {
+        if (!class_exists('TIX_Checkin_Areas')) return [];
+        $x = TIX_Checkin_Areas::offline_extra($eid, array_column($tickets, 'id'));
+        if (!$x) return [];
+        foreach ($tickets as &$t) { $p = $x['per_ticket'][$t['id']] ?? ['ar' => [], 'ain' => []]; $t['ar'] = $p['ar']; $t['ain'] = $p['ain']; }
+        unset($t);
+        return ['areas' => $x['areas']];
     }
 
     private static function event_end($eid) {
@@ -127,7 +138,9 @@ class TIX_Checkin_Offline {
             $id = $type === 'guest' ? sanitize_text_field((string) ($it['id'] ?? '')) : intval($it['id'] ?? 0);
             $at = sanitize_text_field((string) ($it['at'] ?? ''));
             if ($type === 'ticket') {
-                $results[] = ['type' => 'ticket', 'id' => $id] + self::batch_ticket($eid, $id, $by, $at);
+                // Einlassbereich (1.38.815): nur mit area UND angelegten Bereichen, sonst bisheriger Abgleich
+                $ar = (!empty($it['area']) && class_exists('TIX_Checkin_Areas')) ? TIX_Checkin_Areas::batch_ticket($eid, $id, intval($it['area']), $by, $at) : null;
+                $results[] = ['type' => 'ticket', 'id' => $id] + ($ar ?? self::batch_ticket($eid, $id, $by, $at));
             } else {
                 if ($guests === null) { $guests = get_post_meta($eid, '_tix_guest_list', true); $guests = is_array($guests) ? $guests : []; }
                 $n = max(1, intval($it['n'] ?? 1));

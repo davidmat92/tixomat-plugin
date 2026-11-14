@@ -1225,10 +1225,30 @@ class TIX_REST_API {
             }
 
             // Als Gast-Code verarbeiten
-            return self::validate_and_checkin_guest($gl_event_id, $inner_code, $req);
+            $res = self::validate_and_checkin_guest($gl_event_id, $inner_code, $req);
+            // Einlassbereiche (1.38.815): Gäste haben überall Zutritt, zählen aber im gewählten Bereich mit
+            if (class_exists('TIX_Checkin_Areas') && !is_wp_error($res)) $res = TIX_Checkin_Areas::after_guest($res, $req, $gl_event_id, $inner_code);
+            return $res;
         }
 
         return new WP_Error('invalid_format', 'Ungültiges Code-Format.', ['status' => 400]);
+    }
+
+    /** Custom-Ticket-DB nach dem Check-in aktualisieren (Fehler blockieren den Check-in nie) */
+    public static function ticket_db_checked_in($code) {
+        try {
+            if (class_exists('TIX_Ticket_DB') && class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
+                TIX_Ticket_DB::update_ticket($code, [
+                    'checked_in'      => 1,
+                    'checkin_time'    => current_time('mysql'),
+                    'ticket_status'   => 'used',
+                    'synced_supabase' => 0,
+                    'synced_airtable' => 0,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Custom-DB Fehler darf Check-in nicht blockieren
+        }
     }
 
     /**
@@ -1307,6 +1327,11 @@ class TIX_REST_API {
             ]);
         }
 
+        // Einlassbereiche (1.38.815): nur mit `area` UND angelegten Bereichen – sonst exakt wie bisher
+        $area = class_exists('TIX_Checkin_Areas') ? TIX_Checkin_Areas::from_request($req, $ticket_event_id) : null;
+        if (is_wp_error($area)) return $area;
+        if ($area) return TIX_Checkin_Areas::scan_ticket($ticket, $ticket_event_id, $area, $code, $name);
+
         $checked_in = (bool) get_post_meta($ticket->ID, '_tix_ticket_checked_in', true);
 
         // Doppelter Scan einstellbar (P3, 1.38.799): warn = wie bisher „already“; block = „already“ + block: true (rot); reentry = eigener Status, mitgezählt
@@ -1342,21 +1367,7 @@ class TIX_REST_API {
         // Einchecken
         $by = wp_get_current_user()->user_login;
         TIX_Tickets::checkin_ticket($ticket->ID, $by);
-
-        // Custom DB aktualisieren
-        try {
-            if (class_exists('TIX_Ticket_DB') && class_exists('TIX_Settings') && TIX_Settings::get('ticket_db_enabled')) {
-                TIX_Ticket_DB::update_ticket($code, [
-                    'checked_in'      => 1,
-                    'checkin_time'    => current_time('mysql'),
-                    'ticket_status'   => 'used',
-                    'synced_supabase' => 0,
-                    'synced_airtable' => 0,
-                ]);
-            }
-        } catch (\Throwable $e) {
-            // Custom-DB Fehler darf Check-in nicht blockieren
-        }
+        self::ticket_db_checked_in($code); // Custom DB (unverändert, seit 1.38.815 als Hilfsfunktion)
 
         // Kategorie-Name
         $cat_index = intval(get_post_meta($ticket->ID, '_tix_ticket_cat_index', true));
