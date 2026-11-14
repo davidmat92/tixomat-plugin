@@ -206,6 +206,9 @@ class TIX_Platform_Offers {
             'payment_rates' => self::default_payment_rates(),
             'payment_note' => 'Die Gebühren deines Zahlungsdienstleisters (z. B. PayPal, Mollie für Karte/Klarna) zahlst du direkt an ihn – sie gehen nicht an evendis. Du schließt dein eigenes Konto an, dafür landet das Geld aus dem Ticketverkauf sofort und direkt bei dir.',
             'projection_defaults' => ['paypal_share' => 30, 'klarna_within' => 50, 'tickets_per_order' => 1, 'events_year' => 12],
+            // Planrechnung (AN1, 1.38.816): Staffel eigener Shop je Jahr (F-AN1 B) und Vorgaben der Annahmen (F-AN2, immer änderbar)
+            'shop_tiers' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : [],
+            'plan_defaults' => class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_settings() : [],
             'benefits' => $benefits,
             'items' => $items,
             // Nur als Gesprächshilfe im Studio – nie im PDF und nie auf der Kundenseite (User-Entscheid 06.11.)
@@ -237,6 +240,11 @@ class TIX_Platform_Offers {
                 'percent' => 1.80, 'fixed' => 0.25, 'as_of' => '2026-11-05', 'retrieved' => '2026-11-06', 'source' => 'https://www.mollie.com/de/pricing'],
             'klarna' => ['label' => 'Klarna', 'provider' => 'Mollie', 'detail' => 'Deutschland, Österreich und Schweiz',
                 'percent' => 2.99, 'fixed' => 0.35, 'as_of' => '2026-11-05', 'retrieved' => '2026-11-06', 'source' => 'https://www.mollie.com/de/pricing'],
+            // AN1 (1.38.816): PayPal über Mollie und Stripe – Mollie und Stripe gleichwertig nebeneinander (User 14.11.)
+            'paypal_mollie' => ['label' => 'PayPal über Mollie', 'provider' => 'Mollie', 'detail' => 'PayPal-Gebühr (Checkout, Inland) zzgl. 0,10 € je Zahlung an Mollie',
+                'percent' => 2.99, 'fixed' => 0.49, 'as_of' => '2026-11-14', 'retrieved' => '2026-11-14', 'source' => 'https://www.mollie.com/payments/paypal'],
+            'card_stripe' => ['label' => 'Kreditkarte (Stripe)', 'provider' => 'Stripe', 'detail' => 'EWR-Standardkarten; Premiumkarten 2,8 % + 0,25 € – Satz auf der deutschen Preisseite prüfen',
+                'percent' => 1.50, 'fixed' => 0.25, 'as_of' => '2026-11-14', 'retrieved' => '2026-11-14', 'source' => 'https://stripe.com/de/pricing'],
         ];
     }
 
@@ -244,7 +252,8 @@ class TIX_Platform_Offers {
         $c = get_option(self::OPT_CATALOG, null);
         if (!is_array($c) || empty($c['items'])) return self::default_catalog();
         $def = self::default_catalog();
-        foreach (['payment_rates', 'payment_note', 'projection_defaults'] as $k) if (!array_key_exists($k, $c)) $c[$k] = $def[$k]; // ältere gespeicherte Kataloge
+        foreach (['payment_rates', 'payment_note', 'projection_defaults', 'shop_tiers', 'plan_defaults'] as $k) if (!array_key_exists($k, $c)) $c[$k] = $def[$k]; // ältere gespeicherte Kataloge
+        foreach ($def['payment_rates'] as $k => $r) if (!isset($c['payment_rates'][$k])) $c['payment_rates'][$k] = $r; // neue Zahlarten (1.38.816)
         return $c;
     }
 
@@ -325,6 +334,19 @@ class TIX_Platform_Offers {
                 'source' => esc_url_raw((string) ($r['source'] ?? ''))];
         }
         $out['payment_note'] = self::txt($in['payment_note'] ?? $def['payment_note'], 600);
+        // Staffel eigener Shop (AN1): [{max Tickets/Jahr, price €/Jahr}], aufsteigend, höchstens 10
+        $tiers = [];
+        foreach (array_slice((array) ($in['shop_tiers'] ?? $def['shop_tiers']), 0, 10) as $t) {
+            $mx = intval($t['max'] ?? 0); $pr = self::num($t['price'] ?? null, 0);
+            if ($mx < 1 || $pr === null) return new WP_Error('tix_catalog_invalid', 'Staffel: Tickets und Preis angeben.', ['status' => 400, 'field' => 'shop_tiers']);
+            $tiers[] = ['max' => $mx, 'price' => $pr];
+        }
+        usort($tiers, function ($a, $b) { return $a['max'] <=> $b['max']; });
+        $out['shop_tiers'] = $tiers;
+        // Vorgaben der Planrechnung (AN1) – geprüft wie eine Eingabe
+        $pd = class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::clean((array) ($in['plan_defaults'] ?? $def['plan_defaults']), ['payment_rates' => $out['payment_rates'], 'plan_defaults' => $def['plan_defaults']]) : null;
+        if (is_wp_error($pd)) return new WP_Error('tix_catalog_invalid', $pd->get_error_message(), ['status' => 400, 'field' => 'plan_defaults']);
+        $out['plan_defaults'] = $pd ? array_intersect_key($pd, array_flip(['avg_price', 'service_fee', 'tickets_per_order', 'mix', 'steps'])) : $def['plan_defaults'];
         $fd = (array) ($in['projection_defaults'] ?? []);
         $out['projection_defaults'] = ['paypal_share' => max(0, min(100, intval($fd['paypal_share'] ?? 30))), 'klarna_within' => max(0, min(100, intval($fd['klarna_within'] ?? 50))),
             'tickets_per_order' => max(1, min(20, intval($fd['tickets_per_order'] ?? 1))), 'events_year' => max(1, min(365, intval($fd['events_year'] ?? 12)))];
@@ -424,6 +446,8 @@ class TIX_Platform_Offers {
             'tax_rate' => max(0, min(30, floatval($g('tax_rate', $cat['tax_rate'] ?? 19)))),
             'term_months' => ($tm = intval($g('term_months', 0))) > 0 ? min(60, $tm) : null,
             'benefits' => $benefits, 'comparison' => $comparison, 'valid_until' => $vu, 'projection' => $projection,
+            // Planrechnung (AN1): Eingaben; ungültige verwirft clean_data (die Routen prüfen vorher mit plan_error)
+            'plan' => (function ($pl) { return is_array($pl) ? $pl : null; })(class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::clean($g('plan', null), $cat) : null),
             'intro' => $intro === null ? (string) $cat['intro'] : self::txt($intro, 3000),
             'conditions' => $cond === null ? (string) $cat['conditions'] : self::txt($cond, 3000),
             'contact' => $contact, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
@@ -716,6 +740,7 @@ class TIX_Platform_Offers {
         $s = self::summary($row);
         $s['data'] = $d;
         $s['totals'] = self::totals($d);
+        $s['plan_calc'] = self::plan_result($d); // Planrechnung (AN1); 'plan' bleibt der Tarifname
         $s['decision'] = $d['decision'] ?? null;
         $s['history'] = array_values((array) ($d['history'] ?? []));
         $s['link'] = ($row->token && !empty($d['accept_link'])) ? self::accept_url($row->token) : null;
@@ -743,6 +768,7 @@ class TIX_Platform_Offers {
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create']] + $p,
         ]);
         register_rest_route(self::NS, '/platform/offers/calc', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_calc']] + $p);
+        register_rest_route(self::NS, '/platform/offers/plan', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_plan']] + $p); // Planrechnung (AN1, 1.38.816)
         register_rest_route(self::NS, '/platform/offers/preview', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_preview_draft']] + $p);
         register_rest_route(self::NS, '/platform/offers/intro', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_intro']] + $p);
         register_rest_route(self::NS, "/platform/offers/$id", [
@@ -857,6 +883,7 @@ class TIX_Platform_Offers {
             }
         }
         $b['items'] = $items;
+        if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b);
         // Neues Angebot aus der Kundenakte (§100)
         if (!empty($b['customer_key']) && class_exists('TIX_Platform_Customers')) {
@@ -892,6 +919,7 @@ class TIX_Platform_Offers {
             self::update_data($row->id, $old);
             return self::rest_get($req);
         }
+        if ($e = self::plan_error($b)) return $e;
         $d = self::clean_data($b, $old);
         $d['history'] = $old['history'] ?? [];
         if (isset($old['hosting'])) $d['hosting'] = $old['hosting']; // Verknüpfung „Aus Angebot anlegen“ (§99) bleibt
@@ -911,9 +939,31 @@ class TIX_Platform_Offers {
     }
 
     /** POST {…wie Anlegen} → Summen und vorgeschlagene Vorteile, ohne zu speichern (Live-Summe im Formular). */
+    /** Ungültige Planrechnungs-Eingaben → WP_Error (400 mit Feld plan.*), sonst null */
+    public static function plan_error(array $b) {
+        if (!class_exists('TIX_Offer_Plan') || !array_key_exists('plan', $b)) return null;
+        $r = TIX_Offer_Plan::clean($b['plan'], self::catalog());
+        return is_wp_error($r) ? $r : null;
+    }
+
+    /** Ergebnis der Planrechnung eines Angebots (oder null) */
+    public static function plan_result(array $d) {
+        return (class_exists('TIX_Offer_Plan') && !empty($d['plan']) && is_array($d['plan'])) ? TIX_Offer_Plan::compute($d['plan'], self::catalog()) : null;
+    }
+
     public static function rest_calc(WP_REST_Request $req) {
-        $d = self::clean_data(self::body($req));
-        return rest_ensure_response(['ok' => true, 'data' => $d, 'totals' => self::totals($d), 'benefits_suggested' => self::suggest_benefits($d['items'])]);
+        $b = self::body($req);
+        if ($e = self::plan_error($b)) return $e;
+        $d = self::clean_data($b);
+        return rest_ensure_response(['ok' => true, 'data' => $d, 'totals' => self::totals($d), 'plan_calc' => self::plan_result($d), 'benefits_suggested' => self::suggest_benefits($d['items'])]);
+    }
+
+    /** POST /platform/offers/plan {…Annahmen} → nur die Planrechnung (Studio-Vorschau, Rechner); fehlende Annahmen aus den Vorgaben */
+    public static function rest_plan(WP_REST_Request $req) {
+        $b = self::body($req);
+        $p = TIX_Offer_Plan::clean(isset($b['plan']) && is_array($b['plan']) ? $b['plan'] : $b, self::catalog());
+        if (is_wp_error($p)) return $p;
+        return rest_ensure_response(['ok' => true, 'plan_calc' => TIX_Offer_Plan::compute($p, self::catalog())]);
     }
 
     private static function pdf_response($bytes, $filename) {

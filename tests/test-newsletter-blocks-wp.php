@@ -22,7 +22,7 @@ if ($multi) {
 }
 $mkev = function ($t, $o, $days) use (&$posts) { $id = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => "NB $t", 'meta_input' => ['_tix_organizer_id' => $o, '_tix_date_start' => wp_date('Y-m-d', time() + $days * DAY_IN_SECONDS), '_tix_time_start' => '21:00', '_tix_location' => 'Halle Alt',
     '_tix_tickets_enabled' => '1', '_tix_ticket_categories' => [['name' => 'Regulär', 'price' => 12, 'qty' => 50]], '_tix_info_lineup' => "DJ Eins\nDJ Zwei"]]); $posts[] = $id; return $id; };
-$ev = $mkev("Sommer $sfx", $org, 6); $ev2 = $mkev("Herbst $sfx", $org, 20); $evf = $mkev("Fremd $sfx", $org2, 8);
+$ev = $mkev("Sommer $sfx", $org, 6); $ev2 = $mkev("Herbst $sfx", $org, 0); $evf = $mkev("Fremd $sfx", $org2, 0); // heute: vorn in „kommende“ (Limit 6), unabhängig vom Datenbestand
 $coupons = is_array($before['c']) ? $before['c'] : [];
 $coupons["NB$sfx"] = ['code' => "NB$sfx", 'discount_type' => 'percent', 'value' => 15, 'expires' => wp_date('Y-m-d', time() + 30 * DAY_IN_SECONDS), 'max_uses' => 0, 'used' => 0, 'organizer_id' => $org];
 $coupons["ALTNB$sfx"] = ['code' => "ALTNB$sfx", 'discount_type' => 'percent', 'value' => 5, 'expires' => '2020-01-01', 'max_uses' => 0, 'used' => 0, 'organizer_id' => $org];
@@ -107,6 +107,7 @@ nb_eq('Kein Bild → 400', [400, 'file'], [$st, $bad['data']['field'] ?? '']);
 [$st, $lib] = nb_rest('GET', '/marketing/newsletter/media');
 nb_eq('Mediathek: beide Bilder', [200, true], [$st, count(array_intersect(array_column((array) ($lib['items'] ?? []), 'id'), array_filter($atts))) === 2]);
 set_post_thumbnail($ev, intval($m1['id'] ?? 0));
+update_post_meta($ev, '_tix_date_start', wp_date('Y-m-d', time() + 3650 * DAY_IN_SECONDS)); // Flyer-Quelle zeigt die 60 spätesten Events – Testevent nach vorn, unabhängig vom Datenbestand
 [$st, $fl] = nb_rest('GET', '/marketing/newsletter/media', ['source' => 'flyers']);
 nb_eq('Quelle Flyer: Event-Flyer mit Titel als Alt-Text', [200, true], [$st, in_array($ev, array_column((array) ($fl['items'] ?? []), 'event_id'), true)]);
 [$st] = nb_rest('POST', '/marketing/newsletter/media/' . intval($m2['id'] ?? 0), ['alt' => 'Logo']);

@@ -6652,3 +6652,10 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Durchgriff für Co-Veranstalter: lesen erlaubt.
   - Custom-DB-Update als `TIX_REST_API::ticket_db_checked_in()`.
 - **Test:** `test-checkin-areas-wp` (26, Teil A = Pflicht-Regression ohne Bereiche).
+
+## 204. Planrechnung eigener Shop (AN1, ab 1.38.816)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md`.
+- **`TIX_Offer_Plan`:** `clean()` (Annahmen prüfen, Fehler `plan.*`), `compute()` (Stufen, Break-even, drei Blöcke, Gast-Sicht), `shop_price()` (Staffel, über der letzten Stufe `null` = auf Anfrage). Logik 1:1 wie der Generator `gen_angebot_muster.py`.
+- **`TIX_Platform_Offers`:** Katalog `shop_tiers` und `plan_defaults`, Zahlarten `paypal_mollie` und `card_stripe`; Annahmen `plan` am Angebot (`data.plan`) und in `/platform/offers/calc`, neu `POST /platform/offers/plan`; Ergebnis immer als `plan_calc` (das Feld `plan` bleibt der Tarifname).
+- **Test:** `test-offer-plan-wp` (17 auf der Plattform, 13 auf Einzel-Seiten).
+
