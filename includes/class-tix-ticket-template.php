@@ -920,73 +920,88 @@ class TIX_Ticket_Template {
     // ══════════════════════════════════════════════
 
     /**
-     * Minimale PDF-Datei aus JPEG-Daten erzeugen
-     *
-     * Struktur: Catalog → Pages → Page → Content-Stream → Image-XObject
-     * JPEG wird direkt als DCTDecode-Stream eingebettet.
+     * PDF aus JPEG-Daten – barrierefrei (A3, 1.38.814): getaggtes PDF (MarkInfo, StructTreeRoot), Sprache de-DE, Titel
+     * (DisplayDocTitle), das Ticket-Bild als Abbildung mit Alternativtext und eine unsichtbare Textebene (Render-Modus 3)
+     * mit den Angaben des Tickets – Screenreader lesen sie vor, Suche und Kopieren funktionieren, das Bild bleibt unverändert.
+     * $a11y = ['title' => string, 'alt' => string, 'lines' => string[]] (leer: Titel/Alt „Ticket“, keine Textzeilen).
+     * Schrift: Helvetica (Standardschrift, WinAnsi); Zeichen außerhalb von Windows-1252 werden ersetzt.
      */
-    public static function create_minimal_pdf($jpeg_data, $img_w, $img_h) {
-        // A4-Seitengröße in Points (595.28 x 841.89)
-        // Bild auf Seite skalieren
-        $page_w = 595.28;
-        $page_h = 841.89;
+    public static function create_minimal_pdf($jpeg_data, $img_w, $img_h, array $a11y = []) {
+        $page_w = 595.28; $page_h = 841.89;
+        $scale = min($page_w / $img_w, $page_h / $img_h);
+        $draw_w = $img_w * $scale; $draw_h = $img_h * $scale;
+        $draw_x = ($page_w - $draw_w) / 2; $draw_y = ($page_h - $draw_h) / 2;
+        $title = trim((string) ($a11y['title'] ?? '')) ?: 'Ticket';
+        $alt = trim((string) ($a11y['alt'] ?? '')) ?: $title;
+        $lines = array_values(array_filter(array_map(function ($l) { return trim((string) $l); }, (array) ($a11y['lines'] ?? [])), 'strlen'));
 
-        // Aspect Ratio beibehalten
-        $scale_w = $page_w / $img_w;
-        $scale_h = $page_h / $img_h;
-        $scale   = min($scale_w, $scale_h);
+        // UTF-16BE-Hexstring für Titel/Alt (alle Zeichen), WinAnsi-Literal für die Textebene
+        $hex = function ($str) { return '<FEFF' . strtoupper(bin2hex(mb_convert_encoding((string) $str, 'UTF-16BE', 'UTF-8'))) . '>'; };
+        $lit = function ($str) {
+            $w = @mb_convert_encoding((string) $str, 'Windows-1252', 'UTF-8');
+            return '(' . strtr((string) $w, ['\\' => '\\\\', '(' => '\\(', ')' => '\\)', "\r" => ' ', "\n" => ' ']) . ')';
+        };
 
-        $draw_w = $img_w * $scale;
-        $draw_h = $img_h * $scale;
-        $draw_x = ($page_w - $draw_w) / 2;
-        $draw_y = ($page_h - $draw_h) / 2;
-
-        $img_len = strlen($jpeg_data);
-
-        // Content-Stream: Bild zeichnen
-        $content = sprintf("q %.2f 0 0 %.2f %.2f %.2f cm /Img Do Q", $draw_w, $draw_h, $draw_x, $draw_y);
-        $content_len = strlen($content);
-
-        $offsets = [];
-        $pdf = "%PDF-1.4\n";
-
-        // Obj 1: Catalog
-        $offsets[1] = strlen($pdf);
-        $pdf .= "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
-
-        // Obj 2: Pages
-        $offsets[2] = strlen($pdf);
-        $pdf .= "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
-
-        // Obj 3: Page
-        $offsets[3] = strlen($pdf);
-        $pdf .= sprintf(
-            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Contents 4 0 R /Resources << /XObject << /Img 5 0 R >> >> >>\nendobj\n",
-            $page_w, $page_h
-        );
-
-        // Obj 4: Content-Stream
-        $offsets[4] = strlen($pdf);
-        $pdf .= "4 0 obj\n<< /Length $content_len >>\nstream\n$content\nendstream\nendobj\n";
-
-        // Obj 5: Image XObject (JPEG als DCTDecode)
-        $offsets[5] = strlen($pdf);
-        $pdf .= "5 0 obj\n<< /Type /XObject /Subtype /Image /Width $img_w /Height $img_h /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length $img_len >>\nstream\n";
-        $pdf .= $jpeg_data;
-        $pdf .= "\nendstream\nendobj\n";
-
-        // XRef-Table
-        $xref_offset = strlen($pdf);
-        $pdf .= "xref\n0 6\n";
-        $pdf .= "0000000000 65535 f \n";
-        for ($i = 1; $i <= 5; $i++) {
-            $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+        $content = "/Figure <</MCID 0>> BDC\n" . sprintf("q %.2f 0 0 %.2f %.2f %.2f cm /Img Do Q\n", $draw_w, $draw_h, $draw_x, $draw_y) . "EMC\n";
+        $y = $draw_y + $draw_h - 24;
+        foreach ($lines as $i => $l) {
+            $content .= sprintf("/P <</MCID %d>> BDC BT 3 Tr /F1 9 Tf %.2f %.2f Td %s Tj ET EMC\n", $i + 1, $draw_x + 24, max(12, $y - $i * 12), $lit($l));
         }
 
-        // Trailer
-        $pdf .= "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$xref_offset\n%%EOF";
+        // Objekte: 1 Catalog, 2 Pages, 3 Page, 4 Content, 5 Image, 6 Font, 7 StructTreeRoot, 8 Document, 9 ParentTree,
+        // 10 Figure, 11.. P-Elemente, danach Info
+        $n_p = count($lines);
+        $first_p = 11;
+        $info = $first_p + $n_p;
+        $kids = ['10 0 R']; for ($i = 0; $i < $n_p; $i++) $kids[] = ($first_p + $i) . ' 0 R';
+        $objs = [];
+        $objs[1] = "<< /Type /Catalog /Pages 2 0 R /Lang (de-DE) /MarkInfo << /Marked true >> /StructTreeRoot 7 0 R /ViewerPreferences << /DisplayDocTitle true >> >>";
+        $objs[2] = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+        $objs[3] = sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Contents 4 0 R /Resources << /XObject << /Img 5 0 R >> /Font << /F1 6 0 R >> >> /StructParents 0 /Tabs /S >>", $page_w, $page_h);
+        $objs[4] = "<< /Length " . strlen($content) . " >>\nstream\n" . $content . "endstream";
+        $objs[5] = "<< /Type /XObject /Subtype /Image /Width " . intval($img_w) . " /Height " . intval($img_h) . " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " . strlen($jpeg_data) . " >>\nstream\n" . $jpeg_data . "\nendstream";
+        $objs[6] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+        $objs[7] = "<< /Type /StructTreeRoot /K 8 0 R /ParentTree 9 0 R /ParentTreeNextKey 1 >>";
+        $objs[8] = "<< /Type /StructElem /S /Document /P 7 0 R /K [" . implode(' ', $kids) . "] >>";
+        $objs[9] = "<< /Nums [0 [" . implode(' ', $kids) . "]] >>";
+        $objs[10] = "<< /Type /StructElem /S /Figure /P 8 0 R /Pg 3 0 R /K 0 /Alt " . $hex($alt) . sprintf(" /A << /O /Layout /BBox [%.2f %.2f %.2f %.2f] >> >>", $draw_x, $draw_y, $draw_x + $draw_w, $draw_y + $draw_h);
+        for ($i = 0; $i < $n_p; $i++) $objs[$first_p + $i] = "<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K " . ($i + 1) . " >>";
+        $objs[$info] = "<< /Title " . $hex($title) . " /Producer (evendis) /CreationDate (D:" . gmdate('YmdHis') . "Z) >>";
 
+        $pdf = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
+        $offsets = [];
+        for ($i = 1; $i <= $info; $i++) { $offsets[$i] = strlen($pdf); $pdf .= "$i 0 obj\n" . $objs[$i] . "\nendobj\n"; }
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 " . ($info + 1) . "\n0000000000 65535 f \n";
+        for ($i = 1; $i <= $info; $i++) $pdf .= sprintf("%010d 00000 n \n", $offsets[$i]);
+        $pdf .= "trailer\n<< /Size " . ($info + 1) . " /Root 1 0 R /Info $info 0 R >>\nstartxref\n$xref\n%%EOF";
         return $pdf;
+    }
+
+    /** Barrierefreie Angaben eines Tickets für create_minimal_pdf (Titel, Alternativtext, Textzeilen) */
+    public static function a11y_for($d) {
+        $d = is_array($d) ? $d : [];
+        $g = function ($k) use ($d) { return trim(html_entity_decode((string) ($d[$k] ?? ''), ENT_QUOTES, 'UTF-8')); };
+        $ev = $g('event_name');
+        $code = $g('ticket_code');
+        $when = trim($g('event_date') . ($g('event_time') !== '' ? ', Beginn ' . $g('event_time') : ''));
+        $lines = array_filter([
+            $ev !== '' ? 'Ticket: ' . $ev : 'Ticket',
+            $when !== '' ? 'Datum: ' . $when : '',
+            $g('event_doors') !== '' ? 'Einlass: ' . $g('event_doors') : '',
+            trim($g('event_location') . ($g('event_address') !== '' ? ', ' . $g('event_address') : '')) !== '' ? 'Ort: ' . trim($g('event_location') . ($g('event_address') !== '' ? ', ' . $g('event_address') : ''), ', ') : '',
+            $g('cat_name') !== '' ? 'Ticketart: ' . $g('cat_name') : '',
+            $g('seat') !== '' ? 'Platz: ' . $g('seat') : '',
+            $g('owner_name') !== '' ? 'Name: ' . $g('owner_name') : '',
+            $code !== '' ? 'Ticket-Nr.: ' . $code : '',
+            $g('order_id') !== '' ? 'Bestellung: ' . $g('order_id') : '',
+            'Bitte den QR-Code am Einlass vorzeigen.',
+        ]);
+        return [
+            'title' => trim('Ticket ' . $code . ($ev !== '' ? ' – ' . $ev : '')),
+            'alt' => trim(($ev !== '' ? 'Ticket für ' . $ev : 'Ticket') . ($when !== '' ? ' am ' . $when : '') . ($g('cat_name') !== '' ? ', ' . $g('cat_name') : '') . ($g('seat') !== '' ? ', Platz ' . $g('seat') : '') . ($code !== '' ? ', Ticket-Nr. ' . $code : '') . '. Mit QR-Code zum Einlass.'),
+            'lines' => array_values($lines),
+        ];
     }
 
     // ══════════════════════════════════════════════

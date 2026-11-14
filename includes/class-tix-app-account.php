@@ -705,7 +705,7 @@ class TIX_App_Account {
         imagejpeg($img, null, 92);
         $jpeg = ob_get_clean();
         imagedestroy($img);
-        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h);
+        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h, TIX_Ticket_Template::a11y_for($d)); // barrierefrei (A3)
         return $pdf ?: null;
     }
 

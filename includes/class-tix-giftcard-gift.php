@@ -250,7 +250,9 @@ class TIX_Giftcard_Gift {
         imagejpeg($img, null, 92);
         $jpeg = ob_get_clean();
         imagedestroy($img);
-        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h);
+        // barrierefrei (A3): Titel, Alternativtext und Textebene mit Code
+        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h, ['title' => 'Geschenkgutschein ' . $code, 'alt' => 'Geschenkgutschein, Code ' . $code . '. Mit QR-Code zum Einlösen.',
+            'lines' => ['Geschenkgutschein', 'Code: ' . $code, 'Einlösen in der Kasse bzw. am Einlass mit dem QR-Code.']]);
         return $pdf ?: null;
     }
 

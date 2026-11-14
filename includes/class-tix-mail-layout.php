@@ -65,9 +65,36 @@ class TIX_Mail_Layout {
         return sprintf('#%02X%02X%02X', $rgb[0], $rgb[1], $rgb[2]);
     }
 
-    /** Schriftfarbe auf einer Fläche (weiß bzw. fast schwarz nach Kontrast). */
-    public static function on_color($hex) {
-        return self::lum($hex) > 0.45 ? '#111111' : '#FFFFFF';
+    /** Kontrastverhältnis zweier Farben (WCAG 2.1) */
+    public static function contrast($a, $b) {
+        $x = self::lum($a); $y = self::lum($b);
+        return (max($x, $y) + 0.05) / (min($x, $y) + 0.05);
+    }
+
+    /**
+     * Schriftfarbe auf einer Fläche (A3, 1.38.814; vorher Schwelle Helligkeit 0,45 → bei mittleren Farben nur ~2:1).
+     * Genutzt für große fette Schrift (Knöpfe 19 px fett, Name im Kopf 22 px fett): Weiß, solange es 3:1 erreicht
+     * (WCAG AA für große Schrift), sonst die Farbe mit dem höheren Kontrast. $large = false: Grenze 4,5:1.
+     */
+    public static function on_color($hex, $large = true) {
+        $h = ltrim((string) $hex, '#');
+        if (preg_match('/^[0-9a-f]{3}$/i', $h)) $h = $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+        if (!preg_match('/^[0-9a-f]{6}$/i', $h)) return '#FFFFFF'; // unbekanntes Format (z. B. rgb()): wie bisher
+        $hex = '#' . $h;
+        $w = self::contrast($hex, '#FFFFFF');
+        if ($w >= ($large ? 3.0 : 4.5)) return '#FFFFFF';
+        return $w >= self::contrast($hex, '#111111') ? '#FFFFFF' : '#111111';
+    }
+
+    /** Akzent als Schrift auf Weiß: so weit abdunkeln, bis 4,5:1 erreicht ist (WCAG AA für normale Schrift; A3, 1.38.814) */
+    public static function accent_on_light($hex) {
+        $h = ltrim((string) $hex, '#');
+        if (!preg_match('/^[0-9a-f]{6}$/i', $h)) return '#111827';
+        $rgb = [hexdec(substr($h, 0, 2)), hexdec(substr($h, 2, 2)), hexdec(substr($h, 4, 2))];
+        for ($i = 0; $i < 20 && self::contrast(sprintf('#%02X%02X%02X', $rgb[0], $rgb[1], $rgb[2]), '#FFFFFF') < 4.5; $i++) {
+            $rgb = array_map(function ($v) { return (int) floor($v * 0.88); }, $rgb);
+        }
+        return sprintf('#%02X%02X%02X', $rgb[0], $rgb[1], $rgb[2]);
     }
 
     private static $brand = null;
@@ -142,7 +169,7 @@ class TIX_Mail_Layout {
     private static function colors(array $b) {
         return [
             'bg' => '#F3F4F6', 'card' => '#FFFFFF', 'text' => '#111827', 'muted' => '#6B7280', 'line' => '#E5E7EB', 'soft' => '#F9FAFB',
-            'accent' => $b['accent'], 'on_accent' => $b['on_accent'],
+            'accent' => $b['accent'], 'on_accent' => $b['on_accent'], 'accent_text' => self::accent_on_light($b['accent']),
             'head_bg' => $b['head_bg'] ?? $b['accent'], 'on_head' => $b['on_head'] ?? $b['on_accent'],
         ];
     }
@@ -157,7 +184,7 @@ class TIX_Mail_Layout {
         return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:12px auto 16px;"><tr><td align="center" class="tm-btn-td" bgcolor="' . $c['accent'] . '" style="border-radius:10px;">'
             // Ohne Outlook-Bedingungskommentare (VML): Kampagnen-Inhalt läuft beim Speichern durch wp_kses_post, das die Kommentare
             // zerschneidet – dann stand „<!--“ sichtbar im Knopf. Die Farbe trägt die Zelle (bgcolor), so sieht der Knopf auch in Outlook gut aus.
-            . '<a href="' . $url . '" class="tm-btn" style="display:inline-block;padding:15px 28px;min-width:200px;text-align:center;background:' . $c['accent'] . ';color:' . $c['on_accent'] . ';font-weight:700;font-size:16px;line-height:20px;text-decoration:none;border-radius:10px;">' . $label . '</a>'
+            . '<a href="' . $url . '" class="tm-btn" style="display:inline-block;padding:14px 28px;min-width:200px;text-align:center;background:' . $c['accent'] . ';color:' . $c['on_accent'] . ';font-weight:700;font-size:19px;line-height:23px;text-decoration:none;border-radius:10px;">' . $label . '</a>'
             . '</td></tr></table>';
     }
 
@@ -195,29 +222,29 @@ class TIX_Mail_Layout {
             case 'event':
                 $img = (string) ($b['image'] ?? '');
                 $meta = trim(implode(' · ', array_filter([(string) ($b['date'] ?? ''), (string) ($b['time'] ?? '')])));
-                $inner = ($img !== '' ? '<tr><td style="padding:0;"><img src="' . esc_url($img) . '" width="568" alt="" class="tm-img" style="display:block;width:100%;max-width:568px;height:auto;border:0;border-radius:12px 12px 0 0;"></td></tr>' : '')
+                $inner = ($img !== '' ? '<tr><td style="padding:0;"><img src="' . esc_url($img) . '" width="568" alt="' . esc_attr(trim('Bild zum Event ' . (string) ($b['title'] ?? ''))) . '" class="tm-img" style="display:block;width:100%;max-width:568px;height:auto;border:0;border-radius:12px 12px 0 0;"></td></tr>' : '')
                     . '<tr><td style="padding:14px 16px 16px;">'
                     . '<div style="font-size:18px;line-height:24px;font-weight:700;color:' . $c['text'] . ';">' . self::e($b['title'] ?? '') . '</div>'
-                    . ($meta !== '' ? '<div style="margin-top:6px;font-size:14px;color:' . $c['text'] . ';">📅 ' . self::e($meta) . '</div>' : '')
-                    . (!empty($b['location']) ? '<div class="tm-muted" style="margin-top:2px;font-size:14px;color:' . $c['muted'] . ';">📍 ' . self::e($b['location']) . '</div>' : '')
+                    . ($meta !== '' ? '<div style="margin-top:6px;font-size:14px;color:' . $c['text'] . ';"><span aria-hidden="true">📅 </span>' . self::e($meta) . '</div>' : '')
+                    . (!empty($b['location']) ? '<div class="tm-muted" style="margin-top:2px;font-size:14px;color:' . $c['muted'] . ';"><span aria-hidden="true">📍 </span>' . self::e($b['location']) . '</div>' : '')
                     . '</td></tr>';
                 return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="tm-card2" style="margin:0 0 16px;border:1px solid ' . $c['line'] . ';border-radius:12px;border-collapse:separate;">' . $inner . '</table>';
             case 'ticket':
                 $qr = (string) ($b['qr'] ?? '');
                 return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="tm-card2" style="margin:0 0 12px;border:1px solid ' . $c['line'] . ';border-radius:12px;border-collapse:separate;"><tr>'
-                    . ($qr !== '' ? '<td width="112" style="padding:12px;vertical-align:middle;"><img src="' . esc_url($qr) . '" width="96" height="96" alt="QR-Code" style="display:block;border:0;background:#FFFFFF;border-radius:6px;"></td>' : '')
+                    . ($qr !== '' ? '<td width="112" style="padding:12px;vertical-align:middle;"><img src="' . esc_url($qr) . '" width="96" height="96" alt="' . esc_attr('QR-Code zum Einlass' . (!empty($b['code']) ? ', Ticket ' . $b['code'] : '')) . '" style="display:block;border:0;background:#FFFFFF;border-radius:6px;"></td>' : '')
                     . '<td style="padding:12px 16px 12px ' . ($qr !== '' ? '0' : '16px') . ';vertical-align:middle;">'
-                    . '<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:' . $c['accent'] . ';" class="tm-accent-text">' . self::e($b['label'] ?? 'Ticket') . '</div>'
+                    . '<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:' . $c['accent_text'] . ';" class="tm-accent-text">' . self::e($b['label'] ?? 'Ticket') . '</div>'
                     . '<div style="margin-top:2px;font-size:16px;font-weight:700;color:' . $c['text'] . ';">' . self::e($b['title'] ?? '') . '</div>'
                     . (!empty($b['sub']) ? '<div class="tm-muted" style="margin-top:2px;font-size:13px;color:' . $c['muted'] . ';">' . self::e($b['sub']) . '</div>' : '')
                     . (!empty($b['code']) ? '<div style="margin-top:6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:2px;color:' . $c['text'] . ';">' . self::e($b['code']) . '</div>' : '')
-                    . (!empty($b['link']) && !empty($b['link_label']) ? '<div style="margin-top:8px;font-size:14px;"><a href="' . esc_url($b['link']) . '" class="tm-accent-text" style="color:' . $c['accent'] . ';font-weight:700;text-decoration:none;">' . self::e($b['link_label']) . ' →</a></div>' : '')
+                    . (!empty($b['link']) && !empty($b['link_label']) ? '<div style="margin-top:8px;font-size:14px;"><a href="' . esc_url($b['link']) . '" class="tm-accent-text" style="color:' . $c['accent_text'] . ';font-weight:700;text-decoration:none;">' . self::e($b['link_label']) . ' →</a></div>' : '')
                     . '</td></tr></table>';
             case 'qr':
                 // Großer QR-Code (1.38.496, Geschenkgutschein): {src, value, caption, size}
                 $px = max(120, min(320, intval($b['size'] ?? 240)));
                 return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 16px;"><tr><td align="center" class="tm-soft" style="background:' . $c['soft'] . ';border:1px solid ' . $c['line'] . ';border-radius:12px;padding:20px 12px;">'
-                    . (!empty($b['src']) ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td style="background:#FFFFFF;border-radius:10px;padding:10px;"><img src="' . esc_url($b['src']) . '" width="' . $px . '" height="' . $px . '" alt="QR-Code" style="display:block;border:0;width:' . $px . 'px;height:' . $px . 'px;max-width:100%;"></td></tr></table>' : '')
+                    . (!empty($b['src']) ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td style="background:#FFFFFF;border-radius:10px;padding:10px;"><img src="' . esc_url($b['src']) . '" width="' . $px . '" height="' . $px . '" alt="' . esc_attr('QR-Code' . (!empty($b['value']) ? ' ' . $b['value'] : '') . (!empty($b['caption']) ? ' – ' . $b['caption'] : '')) . '" style="display:block;border:0;width:' . $px . 'px;height:' . $px . 'px;max-width:100%;"></td></tr></table>' : '')
                     . (!empty($b['value']) ? '<div class="tm-code" style="margin-top:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:24px;line-height:30px;letter-spacing:3px;font-weight:700;color:' . $c['text'] . ';">' . self::e($b['value']) . '</div>' : '')
                     . (!empty($b['caption']) ? '<div class="tm-muted" style="margin-top:6px;font-size:13px;color:' . $c['muted'] . ';">' . self::e($b['caption']) . '</div>' : '')
                     . '</td></tr></table>';
@@ -331,7 +358,7 @@ class TIX_Mail_Layout {
             if ($b['ios']) $apps[] = '<a href="' . esc_url($b['ios']) . '" style="color:' . $c['muted'] . ';text-decoration:none;font-weight:600;">App Store</a>';
             if ($b['android']) $apps[] = '<a href="' . esc_url($b['android']) . '" style="color:' . $c['muted'] . ';text-decoration:none;font-weight:600;">Google Play</a>';
         }
-        $foot = '<tr><td class="tm-foot" style="padding:20px 24px 28px;text-align:center;font-size:12px;line-height:19px;color:' . $c['muted'] . ';">'
+        $foot = '<tr><td class="tm-foot" style="padding:20px 24px 28px;text-align:center;font-size:13px;line-height:20px;color:' . $c['muted'] . ';">'
             . (!empty($m['note']) ? '<div style="margin-bottom:10px;">' . wp_kses_post(html_entity_decode((string) $m['note'], ENT_QUOTES, 'UTF-8')) . '</div>' : '')
             . ($soc ? '<div style="margin-bottom:6px;">' . implode(' &nbsp;·&nbsp; ', $soc) . '</div>' : '')
             . ($apps ? '<div style="margin-bottom:6px;">' . self::e('Hol dir die App: ') . implode(' &nbsp;·&nbsp; ', $apps) . '</div>' : '')
@@ -351,7 +378,7 @@ class TIX_Mail_Layout {
             . '<style>'
             . ':root{color-scheme:light dark;supported-color-schemes:light dark;}'
             . 'body{margin:0;padding:0;width:100%!important;-webkit-text-size-adjust:100%;}'
-            . 'a{color:' . $c['accent'] . ';}img{-ms-interpolation-mode:bicubic;}'
+            . 'a{color:' . $c['accent_text'] . ';}img{-ms-interpolation-mode:bicubic;}'
             . 'a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;}'
             . '@media (max-width:620px){.tm-wrap{width:100%!important;}.tm-pad{padding:20px 18px!important;}.tm-outer{padding:0!important;}.tm-card{border-radius:0!important;}.tm-head,.tm-head-accent{border-radius:0!important;}.tm-btn{display:block!important;min-width:0!important;}.tm-title{font-size:24px!important;line-height:30px!important;}.tm-legacy table{max-width:100%!important;}}'
             . '@media (prefers-color-scheme:dark){body,.tm-bg{background:#0B0B0F!important;}.tm-card,.tm-head{background:#16161D!important;}'

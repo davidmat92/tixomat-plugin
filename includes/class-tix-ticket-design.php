@@ -278,7 +278,7 @@ class TIX_Ticket_Design {
         ob_start(); imagejpeg($img, null, $format === 'pdf' ? 92 : 82); $jpeg = ob_get_clean();
         imagedestroy($img);
         $out = ['ok' => true, 'format' => $format, 'width' => $w, 'height' => $h, 'sample' => !$eid, 'wallet' => self::wallet_preview($eid)];
-        if ($format === 'pdf') $out['pdf'] = 'data:application/pdf;base64,' . base64_encode((string) TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h));
+        if ($format === 'pdf') $out['pdf'] = 'data:application/pdf;base64,' . base64_encode((string) TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h, ['title' => 'Ticket-Vorschau', 'alt' => 'Vorschau des Tickets mit Musterdaten']));
         else $out['image'] = 'data:image/jpeg;base64,' . base64_encode($jpeg);
         $r = rest_ensure_response($out);
         $r->header('Cache-Control', 'no-store');

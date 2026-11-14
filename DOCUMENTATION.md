@@ -6625,3 +6625,15 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
   - Kanal: `TIX_Notifications::add_user_item` bzw. `send_broadcast` (alle App-Nutzer, Einzel-Seite). `event_ticket_user_ids` ist jetzt öffentlich.
 - **REST:** `GET|POST /organizer/guest-flows {flows: {key: bool}, reminder_mail?, followup_mail?}` mit Bestand (Erinnerungs-Mail, Erinnerung am Event-Tag, Danke-Mail, Künstler-Alarm, Folgen per Mail).
 - **Test:** `test-guest-flows-wp` (10).
+
+## 202. Barrierefreie Tickets und Mails (A3, ab 1.38.814)
+- **Bericht:** `uebergaben/barrierefreiheit/plugin.md` (A2 Mängel, A3 Stand).
+- **`TIX_Ticket_Template::create_minimal_pdf($jpeg, $w, $h, $a11y = [])`:**
+  - Getaggtes PDF 1.7: Lang, MarkInfo, StructTreeRoot (Document/Figure mit Alt/P), ParentTree, Info-Titel, DisplayDocTitle.
+  - Unsichtbare Textebene (Helvetica, WinAnsi). `a11y_for($ticket_data)` baut Titel, Alt und Zeilen aus `gather_ticket_data`.
+  - Alle Aufrufer übergeben Angaben (Ticket, App-Ersatzticket, Gutschein, Vorschau).
+- **`TIX_Mail_Layout`:**
+  - `contrast()`, `accent_on_light()` (Schrift ≥ 4,5:1, Farbe `accent_text` für Links/Labels).
+  - `on_color($hex, $large = true)`: Weiß ab 3:1 für große Schrift, sonst kontrastreicher.
+  - Knopf 19 px, Fußzeile 13 px, QR-/Bild-Alt, Emoji `aria-hidden`.
+- **Test:** `test-a11y-tickets-wp` (11).

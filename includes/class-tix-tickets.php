@@ -1963,7 +1963,7 @@ class TIX_Tickets {
         ob_start();
         imagejpeg($gd, null, 95);
         $jpeg = ob_get_clean();
-        $pdf  = TIX_Ticket_Template::create_minimal_pdf($jpeg, imagesx($gd), imagesy($gd));
+        $pdf  = TIX_Ticket_Template::create_minimal_pdf($jpeg, imagesx($gd), imagesy($gd), TIX_Ticket_Template::a11y_for(TIX_Ticket_Template::gather_ticket_data($ticket_id))); // barrierefrei (A3)
         imagedestroy($gd);
         return $pdf ?: null;
     }
@@ -1998,7 +1998,7 @@ class TIX_Tickets {
                         ob_start();
                         imagejpeg($gd, null, 95);
                         $jpeg = ob_get_clean();
-                        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, imagesx($gd), imagesy($gd));
+                        $pdf = TIX_Ticket_Template::create_minimal_pdf($jpeg, imagesx($gd), imagesy($gd), TIX_Ticket_Template::a11y_for(TIX_Ticket_Template::gather_ticket_data($ticket_id))); // barrierefrei (A3)
                         header('Content-Type: application/pdf');
                         header('Content-Disposition: inline; filename="ticket-' . $ticket_id . '.pdf"');
                         echo $pdf;
@@ -2064,7 +2064,7 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
         <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($event_name . ' — ' . $code); ?>" />
     </div>
     <div class="tix-w-bar">
-        <a href="<?php echo esc_url($pdf_url); ?>" target="_blank" rel="noopener" class="tix-w-btn">📄 PDF herunterladen</a>
+        <a href="<?php echo esc_url($pdf_url); ?>" target="_blank" rel="noopener" class="tix-w-btn"><span aria-hidden="true">📄 </span>PDF herunterladen<span class="screen-reader-text" style="position:absolute;left:-9999px;"> (öffnet in neuem Fenster)</span></a>
         <?php self::render_bundle_action_button_html($ticket_id, $order_id); ?>
     </div>
 </body>
@@ -2105,8 +2105,8 @@ body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 
         $accent = !empty($s['color_primary']) ? $s['color_primary'] : '#FF5500';
         ?>
-        <a href="<?php echo esc_url($bundle_url); ?>" class="tix-w-btn tix-w-btn-primary" rel="noopener" style="background:<?php echo esc_attr($accent); ?>;color:#fff;">
-            📋 Alle <?php echo intval($cnt); ?> Tickets dieser Bestellung anzeigen
+        <a href="<?php echo esc_url($bundle_url); ?>" class="tix-w-btn tix-w-btn-primary" rel="noopener" style="background:<?php echo esc_attr($accent); ?>;color:<?php echo esc_attr(class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::on_color($accent, false) : '#fff'); ?>;">
+            <span aria-hidden="true">📋 </span>Alle <?php echo intval($cnt); ?> Tickets dieser Bestellung anzeigen
         </a>
         <?php
     }
