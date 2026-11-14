@@ -40,6 +40,7 @@ class TIX_Mirror_Reconcile {
             'organizer_followers' => 'org_follower',
             'artist_follow_proofs' => 'artist_proof',
             'short_links'         => 'short_link',
+            'resale_offers'       => 'resale_offer',
         ];
     }
 
@@ -214,6 +215,11 @@ class TIX_Mirror_Reconcile {
                     $a = get_post_meta((int) $r['artist_id'], '_tix_artist', true);
                     $mb = is_array($a) && is_array($a['managed_by'] ?? null) ? $a['managed_by'] : [];
                     if (($mb['type'] ?? '') === 'organizer' && TIX_Mirror_Map::is_sandbox_org($mb['id'] ?? 0)) $drop[] = (int) $r['id'];
+                }
+                break;
+            case 'resale_offers':
+                foreach ((array) $wpdb->get_results("SELECT id, event_id FROM {$wpdb->prefix}tix_resale_offers WHERE id IN ($in)", ARRAY_A) as $r) {
+                    if (TIX_Mirror_Map::is_sandbox_event((int) $r['event_id'])) $drop[] = (int) $r['id'];
                 }
                 break;
             case 'short_links':
@@ -396,6 +402,13 @@ class TIX_Mirror_Reconcile {
                     }
                     $out[(int) $r['id']] = self::fp([(int) $r['organizer_id'], $r['status'], self::bool(!empty($r['share_email'])), $conf]);
                 }
+                return $out;
+
+            case 'resale_offers': // Zweitmarkt (RS7): Zustand, Preis, neues Ticket, Auszahlung
+                $prev = $wpdb->suppress_errors(true);
+                $rows = $wpdb->get_results($wpdb->prepare("SELECT id, status, price, new_ticket_id, payout_status, payout_amount FROM {$wpdb->prefix}tix_resale_offers WHERE id > %d ORDER BY id LIMIT %d", $after, $limit), ARRAY_A);
+                $wpdb->suppress_errors($prev);
+                foreach ((array) $rows as $r) $out[(int) $r['id']] = self::fp([$r['status'], self::money($r['price']), (int) $r['new_ticket_id'], $r['payout_status'], self::money($r['payout_amount'])]);
                 return $out;
 
             case 'short_links': // Summe der Tageszähler mit drin: neue Klicks ohne Hook (z. B. Fehler beim Senden) fallen auf
