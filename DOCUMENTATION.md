@@ -6709,3 +6709,9 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **`data.compare_platform`** (Standard `false`, nur `true` schaltet ein): ohne den Schalter kein Plattform-Vergleich in Faktenblock, Schritten, Gast-Tabelle, Planrechnung, Kachel, Hochrechnung je Event (eigener Betrieb) und in `public_view.own.plan_calc` (`strip_platform()`).
 - **PDF „Dein eigener Ticketshop“** neu gesetzt (`render_pdf_own`): weißer Kopf mit Wortmarke, Faktenblock mit je-Ticket-Werten, Umbruch nach Textbreite, Kopf auf Folgeseiten, Fuß mit Nummer, Gültigkeit, Kontakt und Seitenzahl, Anbieter-Angaben am Ende. Muster: `uebergaben/angebot-muster-eigener-shop.pdf`, `…-selbstgehostet.pdf`.
 - **Test:** `test-offer-options-wp` (89), `test-platform-offers-wp` (42, Erwartungen auf Staffel umgestellt); Fixtures 1.38.823.
+
+## 212. Angebots-PDF: Original-Logo, roter Kopf, Festpreis-Satz (ab 1.38.824)
+- **Logo:** `assets/img/evendis-logo-hell.png` (Original aus den Vorgaben, helle Variante; dazu `evendis-logo.png`) wird per GD auf das Kopf-Rot gelegt und ist das eine Bild des PDFs (`/Im1`); Kopf auf Seite 1 und schmales rotes Band auf Folgeseiten. Ohne GD Rückfall auf die weiße Wortmarke. Referenzen bleiben ohne Bild.
+- **Kopf Seite 1:** vollflächig #E8445A, Schrift weiß (Titel, „Angebot für …“, Nummer, Datum, Gültigkeit, Betriebsart).
+- **Festpreis:** `own_blocks.fixed_price {title, text, tiers, max, price}` – Stufe der führenden Ticketzahl („Bis 5.000 verkaufte Tickets im Jahr zahlst du nie mehr als 790 € – egal wie viel du verkaufst, keine Gebühr je Ticket an evendis.“ + Staffel), bei frei gesetztem Preis „Du zahlst X € im Jahr …“, über der Staffel `null`. PDF direkt unter dem Faktenblock, online in `page_lead`.
+- **Test:** `test-offer-options-wp` (91).

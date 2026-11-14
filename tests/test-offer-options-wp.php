@@ -150,6 +150,11 @@ $pdf_j = $ptxt($O::render_pdf($j2, ['number' => 'AN-T-J', 'date' => wp_date('Y-m
 $eq('Gleicher Jahreswert überall: Summe, plan_calc (Faktenblock + Zeile 20.000), Kachel/Fakt, PDF; kein 948 im PDF', [1490.0, 1490.0, 1490.0, '1.490 €', true, false],
     [$O::totals($j2)['base']['yearly']['net'], $pj2['lead_base']['base_price'], $pj2['rows'][array_search(20000, array_column($pj2['rows'], 'tickets'), true)]['evendis'], $Bj['lead']['facts'][0]['value'],
      (bool) preg_match('/1\.490,00 .{1,3}\/ Jahr/', $pdf_j), strpos($pdf_j, '948') !== false]);
+$eq('Festpreis (1.38.824): bei 20.000 „nie mehr als 1.490 €“, bei 5.000 „790 €“, mit Staffel; über der Staffel keiner', [true, true, true, null],
+    [strpos($Bj['fixed_price']['text'] ?? '', 'Bis 20.000 verkaufte Tickets im Jahr zahlst du nie mehr als 1.490') === 0, strpos($O::own_blocks($j1)['fixed_price']['text'] ?? '', 'nie mehr als 790') !== false,
+     strpos($Bj['fixed_price']['tiers'] ?? '', 'Staffel je Jahr') === 0, $O::own_blocks($j4)['fixed_price']]);
+$raw_j = (string) $O::render_pdf($j2, ['number' => 'AN-T-L', 'date' => wp_date('Y-m-d')]);
+$eq('PDF: Original-Logo als Bild, Festpreis-Satz sichtbar', [true, true], [strpos($raw_j, '/Subtype /Image') !== false || !function_exists('imagecreatefrompng'), strpos($ptxt($raw_j), 'Festpreis: Bis 20.000') !== false]);
 $jm = $O::clean_data(['items' => [$it('shop_monatlich')], 'mode' => 'own_shop']);
 $eq('Monatspreis nur bei monatlicher Zahlung (Eigener Shop – monatlich kündbar): 99 €/Monat = 1.188 €/Jahr, „bei monatlicher Zahlung“', ['monthly', 1188.0, true],
     [$jm['items'][0]['interval'], $O::totals($jm)['yearly']['net'], strpos($O::own_blocks($jm)['block1']['base_rows'][0]['detail'], 'bei monatlicher Zahlung') === 0]);

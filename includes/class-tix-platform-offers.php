@@ -1854,7 +1854,7 @@ class TIX_Platform_Offers {
         if ($msg) $out .= '<div class="er">' . $e($msg) . '</div>';
         if ($v['decision'] && $v['decision']['status'] === 'accepted') $out .= '<div class="ok">Vielen Dank' . ($v['decision']['name'] ? ', ' . $e($v['decision']['name']) : '') . '! Dein Interesse ist bestätigt. Wir melden uns in Kürze und schicken dir den Vertrag separat.</div>';
         if ($v['decision'] && $v['decision']['status'] === 'rejected') $out .= '<div class="ok">Danke für deine Rückmeldung. Das Angebot ist abgelehnt.</div>';
-        if (!empty($v['own'])) $out .= (!empty($v['own']['lead']) && empty($v['own']['lead']['on_request'])) ? self::page_lead($v['own']['lead']) : self::page_tiles($v['own']);
+        if (!empty($v['own'])) $out .= (!empty($v['own']['lead']) && empty($v['own']['lead']['on_request'])) ? self::page_lead($v['own']['lead'], $v['own']['fixed_price'] ?? null) : self::page_tiles($v['own']);
         if ($v['intro']) $out .= '<div class="c"><p>' . nl2br($e($v['intro'])) . '</p></div>';
         if ($v['benefits'] && empty($v['own'])) {
             $out .= '<div class="c"><h2>Deine Vorteile</h2>';
@@ -1899,11 +1899,12 @@ class TIX_Platform_Offers {
     }
 
     /** Online: Faktenblock der führenden Stufe und Schritt-für-Schritt-Erklärung (1.38.822), mobil lesbar */
-    private static function page_lead(array $L) {
+    private static function page_lead(array $L, $fp = null) {
         $e = 'esc_html';
         $out = '<div class="c" style="background:#FFF5F7;border-left:4px solid #FC2F55"><h2 style="font-size:20px">' . $e($L['headline'] . ' – das zahlst du, das bleibt dir:') . '</h2><div class="tl" style="margin-top:8px">';
         foreach ($L['facts'] as $f) $out .= '<div style="background:#fff"><small>' . $e($f['label']) . '</small><strong style="font-size:' . ($f['strong'] ? '28px;color:#FC2F55' : '22px') . '">' . $e($f['value']) . '</strong>' . (!empty($f['per_ticket']) ? '<span>' . $e($f['per_ticket']) . '</span>' : '') . '</div>';
-        $out .= '</div><p style="margin:12px 0 0">' . $e($L['note']) . '</p></div>';
+        $out .= '</div><p style="margin:12px 0 0">' . $e($L['note']) . '</p>'
+            . ($fp ? '<div class="box" style="background:#fff;border-left:4px solid #E8445A;margin:12px 0 0"><strong>' . $e($fp['title'] . ': ' . $fp['text']) . '</strong><div class="mu" style="margin-top:4px">' . $e($fp['tiers']) . '</div></div>' : '') . '</div>';
         $out .= '<div class="c"><h2>So kommen die Zahlen zustande</h2>';
         foreach ($L['steps'] as $k => $st) {
             $out .= '<div style="margin:0 0 14px"><strong><span class="red">' . ($k + 1) . '</span> ' . $e($st['title']) . '</strong><div>' . $e($st['text']) . '</div>';
@@ -2389,10 +2390,19 @@ class TIX_Platform_Offers {
         $ben = array_values(array_map(function ($b) { return ['title' => $b['title'], 'text' => $b['text']]; }, array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); })));
         if ($mode === 'self_hosted' && !in_array('Deine Daten liegen allein bei dir', array_column($ben, 'title'), true)) array_unshift($ben, ['title' => 'Deine Daten liegen allein bei dir', 'text' => 'Deine Daten liegen allein bei dir auf deinem eigenen Server.']);
         $pcl = $pc; $pcl['lead'] = $pc['lead_base'] ?? $pc['lead']; // Faktenblock mit dem Grundpaket (1.38.823)
+        // Festpreis (1.38.824, User: „Es muss klar sein, dass bis 5000 verkaufte Tickets nicht mehr gezahlt wird“) – Stufe der führenden Ticketzahl
+        $fixed_note = null;
+        $ltk = intval($pcl['lead']['tickets'] ?? 0);
+        if ($ev['fixed_price'] !== null) $fixed_note = ['title' => 'Festpreis', 'text' => 'Du zahlst ' . self::eur0($ev['fixed_price']) . ' im Jahr – egal wie viele Tickets du verkaufst, keine Gebühr je Ticket an evendis.', 'tiers' => 'Preis zzgl. MwSt.'];
+        elseif (empty($pcl['lead']['on_request'])) foreach ($tiers as $x) if ($ltk <= intval($x['max'])) {
+            $fixed_note = ['title' => 'Festpreis', 'text' => 'Bis ' . number_format($x['max'], 0, ',', '.') . ' verkaufte Tickets im Jahr zahlst du nie mehr als ' . self::eur0($x['price']) . ' – egal wie viel du verkaufst, keine Gebühr je Ticket an evendis.',
+                'tiers' => ($tier_line !== '' ? $tier_line . '. ' : '') . 'Preise zzgl. MwSt.', 'max' => intval($x['max']), 'price' => round(floatval($x['price']), 2)];
+            break;
+        }
         $lead = self::lead_texts($pcl, $mode, $cmp);
         $LB = $pcl['lead'];
         return [
-            'plan' => $pc, 'totals' => $t, 'compare_platform' => $cmp, 'mode' => $mode, 'mode_label' => $mt['label'], 'benefits' => $ben, 'lead' => $lead, 'title' => $mt['title'], 'subtitle' => $mt['sub'],
+            'plan' => $pc, 'totals' => $t, 'compare_platform' => $cmp, 'fixed_price' => $fixed_note, 'mode' => $mode, 'mode_label' => $mt['label'], 'benefits' => $ben, 'lead' => $lead, 'title' => $mt['title'], 'subtitle' => $mt['sub'],
             'other_mode' => $other, 'other_label' => self::MODE_TEXTS[$other]['label'], 'setup' => $setup, 'references' => $refs,
             'tiles' => [
                 ['title' => 'An evendis', 'value' => $tile1, 'note' => $tile1n],
@@ -2557,14 +2567,31 @@ class TIX_Platform_Offers {
 
         // ── Seiten: Folgeseiten mit schmalem Kopf
         $y = 0;
-        $newpage = function ($first = false) use (&$y, $pdf, $col, $font, $tx, $rt, $M, $W, $H, $xR, $nr, $who) {
+        // Original-Logo (1.38.824, User: „das Logo ist nicht original“): helle Variante, auf das Kopf-Rot gelegt (das PDF trägt ein Bild je Datei)
+        $logo = false;
+        $lp = (defined('TIXOMAT_PATH') ? TIXOMAT_PATH : dirname(__DIR__) . '/') . 'assets/img/evendis-logo-hell.png';
+        if (function_exists('imagecreatefrompng') && is_readable($lp) && ($src = @imagecreatefrompng($lp))) {
+            $lw0 = imagesx($src); $lh0 = imagesy($src);
+            $bgi = imagecreatetruecolor($lw0, $lh0);
+            imagefill($bgi, 0, 0, imagecolorallocate($bgi, (int) round(self::K_RED[0] * 255), (int) round(self::K_RED[1] * 255), (int) round(self::K_RED[2] * 255)));
+            imagealphablending($bgi, true); imagecopy($bgi, $src, 0, 0, 0, 0, $lw0, $lh0);
+            $tmp = tempnam(function_exists('get_temp_dir') ? get_temp_dir() : sys_get_temp_dir(), 'evl');
+            if ($tmp && @imagejpeg($bgi, $tmp, 95)) $logo = (bool) $pdf->load_logo($tmp);
+            if ($tmp) @unlink($tmp);
+            imagedestroy($src); imagedestroy($bgi);
+            if ($logo) $logo = $lh0 / max(1, $lw0); // Seitenverhältnis
+        }
+        $mark = function ($x, $y, $h) use ($pdf, $logo, $col, $font, $tx) { // Logo, Grundlinie unten bei $y
+            if ($logo) { $w = $h / $logo; $pdf->draw_logo($x, $y, $w, $h); return $w; }
+            $col([1, 1, 1]); $font(true, $h * 0.9); $tx($x, $y + $h * 0.15, 'evendis'); return 0;
+        };
+        $newpage = function ($first = false) use (&$y, $pdf, $col, $font, $tx, $rt, $mark, $M, $W, $H, $xR, $nr, $who) {
             $pdf->add_page();
-            $col(self::K_RED); $pdf->rect(0, $H - 4, $W, 4, true);
-            if ($first) { $y = $H - 40; return; }
-            $col(self::K_INK); $font(true, 12); $tx($M, $H - 38, 'evendis');
-            $col(self::K_MUTED); $font(false, 8); $rt($xR, $H - 38, trim(($nr !== '' ? 'Angebot ' . $nr : 'Angebot') . ($who !== '' ? ' · ' . $who : '')));
-            $col(self::K_LINE); $pdf->rect($M, $H - 48, $W - 2 * $M, 0.6, true);
-            $y = $H - 76;
+            if ($first) { $y = $H; return; }
+            $col(self::K_RED); $pdf->rect(0, $H - 46, $W, 46, true);
+            $mark($M, $H - 31, 17);
+            $col([1, 1, 1]); $font(false, 8); $rt($xR, $H - 26, trim(($nr !== '' ? 'Angebot ' . $nr : 'Angebot') . ($who !== '' ? ' · ' . $who : '')));
+            $y = $H - 78;
         };
         $ensure = function ($need) use (&$y, $newpage, $BOTTOM) { if ($y - $need < $BOTTOM) $newpage(); };
         $para = function ($text, $size = 9.5, $color = null, $x = null, $maxw = null, $lh = null) use (&$y, $col, $font, $tx, $wrap, $ensure, $M, $CW) {
@@ -2588,26 +2615,28 @@ class TIX_Platform_Offers {
             $y -= 24;
         };
 
-        // ═══ Seite 1: Kopf
+        // ═══ Seite 1: Kopf auf evendis-Rot (1.38.824, User: „es soll mehr rot sein … oben auf der ersten Seite“)
         $newpage(true);
-        $col(self::K_INK); $font(true, 26); $tx($M, $y - 18, 'evendis');
-        $ww = $wd('evendis', 26, true);
-        $col(self::K_RED); $pdf->rect($M + $ww + 2, $y - 18, 5, 5, true);
-        $col(self::K_MUTED); $font(true, 7.5); $rt($xR, $y - 4, 'ANGEBOT');
-        $col(self::K_INK); $font(true, 10.5); if ($nr !== '') $rt($xR, $y - 18, 'Nr. ' . $nr);
-        $col(self::K_MUTED); $font(false, 8.5); $rt($xR, $y - ($nr !== '' ? 31 : 18), 'vom ' . $date . ' · gültig bis ' . $valid);
-        $y -= 74;
-        $col(self::K_INK); $font(true, 25);
-        foreach ($wrap($B['title'], $CW) as $ln) { $tx($M, $y, $ln); $y -= 30; }
-        $y += 8;
-        if ($who !== '') { $col(self::K_MUTED); $font(false, 12); foreach ($wrap('Angebot für ' . $who, $CW) as $ln) { $tx($M, $y, $ln); $y -= 16; } }
-        $y -= 6;
-        // Betriebsart als ruhige Zeile mit Etikett
+        $WHITE = [1, 1, 1]; $SOFTW = [1, 0.87, 0.89]; $DEEP = [0.80, 0.21, 0.30];
+        $font(true, 26); $tl = $wrap($B['title'], $CW);
+        $font(false, 13); $wl = $who !== '' ? $wrap('Angebot für ' . $who, $CW) : [];
         $font(true, 7.5); $lab = mb_strtoupper($B['mode_label']); $lw = $wd($lab) + 14;
-        $col(self::K_TINT); $pdf->rect($M, $y - 5, $lw, 16, true);
-        $col(self::K_RED); $tx($M + 7, $y, $lab);
-        $col(self::K_MUTED); $font(false, 9); foreach (array_slice($wrap($B['subtitle'], $CW - $lw - 10), 0, 2) as $k => $ln) $tx($M + $lw + 10, $y - 12 * $k, $ln);
-        $y -= 34;
+        $font(false, 9); $sl = array_slice($wrap($B['subtitle'], $CW - $lw - 10), 0, 2);
+        $hh = 128 + 31 * count($tl) + 17 * count($wl) + 12 * count($sl) + 22;
+        $col(self::K_RED); $pdf->rect(0, $H - $hh, $W, $hh, true);
+        $mark($M, $H - 70, 30);
+        $col($SOFTW); $font(true, 7.5); $rt($xR, $H - 46, 'ANGEBOT');
+        $col($WHITE); $font(true, 11); if ($nr !== '') $rt($xR, $H - 60, 'Nr. ' . $nr);
+        $col($SOFTW); $font(false, 8.5); $rt($xR, $H - ($nr !== '' ? 73 : 60), 'vom ' . $date . ' · gültig bis ' . $valid);
+        $y = $H - 128;
+        $col($WHITE); $font(true, 26); foreach ($tl as $ln) { $tx($M, $y, $ln); $y -= 31; }
+        $y += 9;
+        $col($WHITE); $font(false, 13); foreach ($wl as $ln) { $tx($M, $y, $ln); $y -= 17; }
+        $y -= 10;
+        $col($DEEP); $pdf->rect($M, $y - 5, $lw, 16, true);
+        $col($WHITE); $font(true, 7.5); $tx($M + 7, $y, $lab);
+        $col($SOFTW); $font(false, 9); foreach ($sl as $k => $ln) $tx($M + $lw + 10, $y - 12 * $k, $ln);
+        $y = $H - $hh - 34;
         // Für / Dein Kontakt
         $rl = array_values(array_filter([$cust['company'], $cust['company'] !== '' ? $cust['name'] : '', $cust['company'] === '' ? $cust['name'] : '', $cust['street'], trim($cust['zip'] . ' ' . $cust['city']), $cust['country'] !== 'DE' ? $cust['country'] : '', $cust['vat_id'] ? 'USt-IdNr. ' . $cust['vat_id'] : '']));
         $rl = array_values(array_unique($rl));
@@ -2633,7 +2662,7 @@ class TIX_Platform_Offers {
             $font(true, 7); $ll_max = max(array_map(function ($f) use ($wrap, $fw) { return count($wrap(mb_strtoupper($f['label']), $fw - 14)); }, $LD['facts']));
             $lx = 9 * max(0, $ll_max - 1); // zweizeilige Etiketten schieben die Werte nach unten
             $bh = 112 + $lx + 12 * count($notes);
-            $ensure($bh + 10);
+            $ensure($bh + (!empty($B['fixed_price']) ? 80 : 10));
             $top = $y + 6;
             $col(self::K_SOFT); $pdf->rect($M, $top - $bh, $CW, $bh, true);
             $col(self::K_RED); $pdf->rect($M, $top - $bh, 3, $bh, true);
@@ -2650,7 +2679,21 @@ class TIX_Platform_Offers {
             }
             $col(self::K_INK); $font(false, 9);
             $yn = $top - 108 - $lx; foreach ($notes as $ln) { $tx($M + $pad, $yn, $ln); $yn -= 12; }
-            $y = $top - $bh - 22;
+            $y = $top - $bh;
+            // Festpreis direkt unter dem Faktenblock (1.38.824)
+            if (!empty($B['fixed_price'])) {
+                $fp = $B['fixed_price'];
+                $font(true, 10.5); $fl = $wrap($fp['title'] . ': ' . $fp['text'], $CW - 2 * $pad);
+                $font(false, 8.5); $fs2 = $wrap($fp['tiers'], $CW - 2 * $pad);
+                $fh = 22 + 14 * count($fl) + 11.5 * count($fs2);
+                $col(self::K_TINT); $pdf->rect($M, $y - $fh, $CW, $fh, true);
+                $col(self::K_RED); $pdf->rect($M, $y - $fh, 3, $fh, true);
+                $yf = $y - 18;
+                $col(self::K_INK); $font(true, 10.5); foreach ($fl as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 14; }
+                $col(self::K_MUTED); $font(false, 8.5); foreach ($fs2 as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 11.5; }
+                $y -= $fh;
+            }
+            $y -= 22;
         } elseif ($LD && !empty($LD['on_request'])) {
             $ensure(60);
             $col(self::K_SOFT); $pdf->rect($M, $y - 34, $CW, 46, true);
