@@ -25,6 +25,8 @@ class TIX_PDFA {
     private $files = [];       // [['name','mime','data','desc','rel']]
     private $meta = ['title' => '', 'author' => '', 'subject' => '', 'xmp_extra' => '', 'xmp_schemas' => ''];
     private static $fonts = [];
+    /** Schriftsatz dieser Datei (1.38.827): null = Manrope wie bisher; sonst [Schlüssel => [Datei relativ zu assets/fonts, PDF-Name]] */
+    private $fmap = null;
 
     const FONT_FILES = ['F1' => 'Manrope-400.ttf', 'F2' => 'Manrope-700.ttf'];
     const FONT_NAMES = ['F1' => 'Manrope-Regular', 'F2' => 'Manrope-Bold'];
@@ -39,7 +41,40 @@ class TIX_PDFA {
     }
 
     private static function font_path($file) {
-        return (defined('TIXOMAT_PATH') ? TIXOMAT_PATH : dirname(__DIR__) . '/') . 'assets/fonts/manrope/' . $file;
+        return (defined('TIXOMAT_PATH') ? TIXOMAT_PATH : dirname(__DIR__) . '/') . 'assets/fonts/' . (strpos($file, '/') === false ? 'manrope/' : '') . $file;
+    }
+
+    /** Schriftsätze (1.38.827): Geist + Geist Mono wie im Studio („Technisch und klar, mit Geist Mono für Codes“), OFL */
+    const FAMILIES = [
+        'geist' => ['F1' => ['geist/Geist-400.ttf', 'Geist-Regular'], 'F2' => ['geist/Geist-600.ttf', 'Geist-SemiBold'], 'F3' => ['geist/GeistMono-400.ttf', 'GeistMono-Regular']],
+    ];
+
+    /** Anderen Schriftsatz verwenden (vor dem ersten Text); fehlt eine Datei, bleibt Manrope → bool */
+    public function use_fonts($family) {
+        $m = self::FAMILIES[$family] ?? null;
+        if (!$m) return false;
+        foreach ($m as $f) if (!is_readable(self::font_path($f[0]))) return false;
+        $this->fmap = $m;
+        return true;
+    }
+
+    private function fmap() {
+        if ($this->fmap) return $this->fmap;
+        $o = [];
+        foreach (self::FONT_FILES as $k => $f) $o[$k] = [$f, self::FONT_NAMES[$k]];
+        return $o;
+    }
+
+    /** Schriftname (Helvetica, Helvetica-Bold, …-Mono) → Schlüssel F1/F2/F3 */
+    private function key_of($name) {
+        $name = (string) $name;
+        if (stripos($name, 'mono') !== false && isset($this->fmap()['F3'])) return 'F3';
+        return stripos($name, 'bold') !== false ? 'F2' : 'F1';
+    }
+
+    private function fnt($key) {
+        $m = $this->fmap();
+        return self::font($key, $m[$key][0] ?? $m['F1'][0]);
     }
 
     // ═══════════════ Schrift (TrueType einlesen) ═══════════════
@@ -54,9 +89,10 @@ class TIX_PDFA {
     }
 
     /** Schrift laden: Datei, Breiten (1000er Einheiten) für 32–255, Kennzahlen. */
-    private static function font($key) {
-        if (isset(self::$fonts[$key])) return self::$fonts[$key];
-        $data = (string) @file_get_contents(self::font_path(self::FONT_FILES[$key]));
+    private static function font($key, $file = null) {
+        $file = $file ?? self::FONT_FILES[$key];
+        if (isset(self::$fonts[$file])) return self::$fonts[$file];
+        $data = (string) @file_get_contents(self::font_path($file));
         $tables = [];
         $num = unpack('n', substr($data, 4, 2))[1];
         for ($i = 0; $i < $num; $i++) {
@@ -113,7 +149,7 @@ class TIX_PDFA {
             if ($u16($os2) >= 2 && $tables['OS/2'][1] >= 90) $cap = $s16($os2 + 88);
         }
         $sc = function ($v) use ($upem) { return (int) round($v * 1000 / $upem); };
-        return self::$fonts[$key] = ['data' => $data, 'widths' => $widths, 'has' => $has, 'bbox' => array_map($sc, $bbox),
+        return self::$fonts[$file] = ['data' => $data, 'widths' => $widths, 'has' => $has, 'bbox' => array_map($sc, $bbox),
             'ascent' => $sc($asc), 'descent' => $sc($desc), 'cap' => $sc($cap), 'stemv' => $key === 'F2' ? 140 : 80];
     }
 
@@ -123,7 +159,7 @@ class TIX_PDFA {
         if (class_exists('TIX_Emoji')) $s = TIX_Emoji::strip($s); // sonst „?“ (1.38.609)
         $c = function_exists('iconv') ? @iconv('UTF-8', 'CP1252//TRANSLIT//IGNORE', $s) : false;
         if ($c === false) $c = function_exists('mb_convert_encoding') ? (string) @mb_convert_encoding($s, 'CP1252', 'UTF-8') : $s;
-        $f = self::font($this->font);
+        $f = $this->fnt($this->font);
         $out = '';
         $len = strlen($c);
         for ($i = 0; $i < $len; $i++) { $o = ord($c[$i]); if ($o >= 32 && !empty($f['has'][$o])) $out .= $c[$i]; }
@@ -132,11 +168,11 @@ class TIX_PDFA {
 
     /** Breite eines Textes in pt bei aktueller Schrift (bzw. $font_name/$size). */
     public function width($str, $size = null, $font_name = null) {
-        $key = $font_name !== null ? (stripos($font_name, 'bold') !== false ? 'F2' : 'F1') : $this->font;
+        $key = $font_name !== null ? $this->key_of($font_name) : $this->font;
         $prev = $this->font; $this->font = $key;
         $s = $this->enc($str);
         $this->font = $prev;
-        $f = self::font($key);
+        $f = $this->fnt($key);
         $w = 0;
         for ($i = 0, $n = strlen($s); $i < $n; $i++) $w += $f['widths'][ord($s[$i])] ?? 0;
         return $w * ($size ?? $this->size) / 1000;
@@ -150,7 +186,7 @@ class TIX_PDFA {
     }
 
     public function set_font($name, $size) {
-        $this->font = stripos((string) $name, 'bold') !== false ? 'F2' : 'F1';
+        $this->font = $this->key_of($name);
         $this->size = $size;
     }
 
@@ -170,6 +206,19 @@ class TIX_PDFA {
 
     public function rect($x, $y, $w, $h, $fill = false) {
         $this->cur .= sprintf("q %s %s %.2F %.2F %.2F %.2F re %s Q\n", $this->rgb, $fill ? 'rg' : 'RG', $x, $y, $w, $h, $fill ? 'f' : 'S');
+    }
+
+    /** Rechteck mit runden Ecken (1.38.827, Studio-Look); $r wird auf die halbe Kante begrenzt */
+    public function rrect($x, $y, $w, $h, $r, $fill = true) {
+        $r = max(0, min($r, $w / 2, $h / 2));
+        if ($r <= 0.01) { $this->rect($x, $y, $w, $h, $fill); return; }
+        $k = 0.5523 * $r;
+        $p = sprintf('%.2F %.2F m ', $x + $r, $y)
+            . sprintf('%.2F %.2F l %.2F %.2F %.2F %.2F %.2F %.2F c ', $x + $w - $r, $y, $x + $w - $r + $k, $y, $x + $w, $y + $r - $k, $x + $w, $y + $r)
+            . sprintf('%.2F %.2F l %.2F %.2F %.2F %.2F %.2F %.2F c ', $x + $w, $y + $h - $r, $x + $w, $y + $h - $r + $k, $x + $w - $r + $k, $y + $h, $x + $w - $r, $y + $h)
+            . sprintf('%.2F %.2F l %.2F %.2F %.2F %.2F %.2F %.2F c ', $x + $r, $y + $h, $x + $r - $k, $y + $h, $x, $y + $h - $r + $k, $x, $y + $h - $r)
+            . sprintf('%.2F %.2F l %.2F %.2F %.2F %.2F %.2F %.2F c h ', $x, $y + $r, $x, $y + $r - $k, $x + $r - $k, $y, $x + $r, $y);
+        $this->cur .= sprintf("q %s %s %s%s Q\n", $this->rgb, $fill ? 'rg' : 'RG', $fill ? '' : '0.6 w ', $p . ($fill ? 'f' : 'S'));
     }
 
     public function set_footer($text) { $this->footer = (string) $text; }
@@ -290,21 +339,22 @@ class TIX_PDFA {
         $add(''); $add('');
         // Schriften
         $font_ref = [];
-        foreach (array_keys(self::FONT_FILES) as $k) {
-            $f = self::font($k);
+        $fm = $this->fmap();
+        foreach ($fm as $k => [$ffile, $fname]) {
+            $f = self::font($k, $ffile);
             $ff = $add($stream('<</Length1 ' . strlen($f['data']) . '>>', $f['data']));
             $fd = $add(sprintf('<</Type /FontDescriptor /FontName /%s /Flags 32 /FontBBox [%d %d %d %d] /ItalicAngle 0 /Ascent %d /Descent %d /CapHeight %d /StemV %d /FontFile2 %d 0 R>>',
-                self::FONT_NAMES[$k], $f['bbox'][0], $f['bbox'][1], $f['bbox'][2], $f['bbox'][3], $f['ascent'], $f['descent'], $f['cap'], $f['stemv'], $ff));
+                $fname, $f['bbox'][0], $f['bbox'][1], $f['bbox'][2], $f['bbox'][3], $f['ascent'], $f['descent'], $f['cap'], $f['stemv'], $ff));
             $w = [];
             for ($c = 32; $c <= 255; $c++) $w[] = $f['widths'][$c];
             $font_ref[$k] = $add(sprintf('<</Type /Font /Subtype /TrueType /BaseFont /%s /FirstChar 32 /LastChar 255 /Widths [%s] /Encoding /WinAnsiEncoding /FontDescriptor %d 0 R>>',
-                self::FONT_NAMES[$k], implode(' ', $w), $fd));
+                $fname, implode(' ', $w), $fd));
         }
         $img = 0;
         if ($this->logo && $this->logo_used) {
             $img = $add($stream(sprintf('<</Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode>>', $this->logo['w'], $this->logo['h']), $this->logo['data'], false));
         }
-        $res = sprintf('<</Font <</F1 %d 0 R /F2 %d 0 R>>%s>>', $font_ref['F1'], $font_ref['F2'], $img ? ' /XObject <</Im1 ' . $img . ' 0 R>>' : '');
+        $res = '<</Font <<' . implode(' ', array_map(function ($k) use ($font_ref) { return '/' . $k . ' ' . $font_ref[$k] . ' 0 R'; }, array_keys($font_ref))) . '>>' . ($img ? ' /XObject <</Im1 ' . $img . ' 0 R>>' : '') . '>>';
         $res_id = $add($res);
         $kids = [];
         $n = count($this->pages);

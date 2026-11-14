@@ -199,7 +199,7 @@ class TIX_Platform_Offers {
             $i(['key' => 'hosting', 'type' => 'service', 'name' => 'Hosting', 'description' => 'Betrieb deiner Website auf unseren Servern in Deutschland, mit Updates und Sicherung (nur beim eigenen Shop).', 'modes' => ['own_shop']]),
             $i(['key' => 'api', 'name' => 'API-Modul', 'description' => 'Schnittstelle für deine eigene Website, Kasse oder Warenwirtschaft.']),
             $i(['key' => 'seating', 'name' => 'Modul Saalplan & Tische', 'description' => 'Sitzplätze, Tische und Bereiche im Saalplan buchbar.']),
-            $i(['key' => 'wallet', 'name' => 'Modul Guthaben', 'description' => 'Guthaben aufladen und vor Ort bezahlen.']),
+            $i(['key' => 'wallet', 'name' => 'Modul Guthaben', 'description' => 'Guthaben aufladen und vor Ort bezahlen. Setzt die eigene App voraus.', 'needs' => 'app']), // needs: Regel in clean_data (NEEDS)
             $i(['key' => 'giftcards', 'name' => 'Modul Geschenkgutscheine', 'description' => 'Gutscheine verkaufen, verschenken und einlösen.']),
             $i(['key' => 'loyalty', 'name' => 'Modul Prämien', 'description' => 'Punkte sammeln und Prämien einlösen.']),
             $i(['key' => 'music', 'name' => 'Modul Musikwunsch', 'description' => 'Gäste wünschen sich Songs, das DJ-Pult sieht die Liste.']),
@@ -534,7 +534,7 @@ class TIX_Platform_Offers {
         $iv = in_array($interval, self::INTERVALS, true) ? $interval : $c['default_interval'];
         return ['id' => self::short_id(), 'catalog_key' => $c['key'], 'type' => $c['type'], 'name' => $c['name'], 'description' => $c['description'], 'qty' => 1,
             'interval' => $iv, 'list_price' => array_key_exists($iv, (array) $c['prices']) ? floatval($c['prices'][$iv]) : null, 'price' => null,
-            'fee_percent' => $c['fee_percent'], 'fee_fixed' => $c['fee_fixed'], 'note' => $c['price_note']];
+            'fee_percent' => $c['fee_percent'], 'fee_fixed' => $c['fee_fixed'], 'note' => $c['price_note'], 'gift' => false, 'base' => false, 'discount_percent' => null];
     }
 
     /** Eingaben bereinigen; Listenpreise kommen bei Katalog-Positionen immer aus dem Katalog. */
@@ -566,7 +566,10 @@ class TIX_Platform_Offers {
                 'fee_percent' => $iv === 'per_ticket' ? (self::num($it['fee_percent'] ?? null, 0) ?? ($c['fee_percent'] ?? null)) : null,
                 'fee_fixed' => $iv === 'per_ticket' ? (self::num($it['fee_fixed'] ?? null, 0) ?? ($c['fee_fixed'] ?? null)) : null,
                 'note' => array_key_exists('note', $it) ? self::txt($it['note'], 160, false) : (string) ($c['price_note'] ?? ''),
-                'on' => !array_key_exists('on', $it) || !empty($it['on'])]; // AN2: Häkchen – nur angehakte Positionen zählen (Angebot, Summen, Planrechnung, PDF)
+                'on' => !array_key_exists('on', $it) || !empty($it['on']),
+                'gift' => !empty($it['gift']),
+                'base' => !empty($it['base']), // fest im Grundpaket (nicht optional), z. B. App-Paket (1.38.827)
+                'discount_percent' => ($dp = self::num($it['discount_percent'] ?? null, 0)) !== null && $dp > 0 ? min(100.0, round($dp, 2)) : null]; // 1.38.827: „geschenkt“ (0 €, Listenpreis durchgestrichen) – AN2: Häkchen – nur angehakte Positionen zählen (Angebot, Summen, Planrechnung, PDF)
         }
         // Preise frei (AN2): Staffel, Kanal-Gebühr und Positions-Preise; Häkchen über options[] (beides nur aus der Eingabe, nie aus alten Daten nachgespielt)
         $po = self::clean_price_overrides(array_key_exists('price_overrides', $in) ? $in['price_overrides'] : ($old['price_overrides'] ?? null));
@@ -574,6 +577,8 @@ class TIX_Platform_Offers {
         foreach ((array) ($po['items'] ?? []) as $ref => $price) foreach ($items as &$x) if ($x['id'] === $ref || $x['catalog_key'] === $ref) $x['price'] = $price;
         unset($x);
         unset($po['items']);
+        foreach ($items as &$x) if (!empty($x['gift'])) $x['price'] = 0.0; // geschenkt = 0 € (1.38.827)
+        unset($x);
         $tiers = $po['shop_tiers'] ?: ((array) ($cat['shop_tiers'] ?? []) ?: (class_exists('TIX_Offer_Plan') ? TIX_Offer_Plan::default_tiers() : []));
         usort($tiers, function ($a, $b) { return $a['max'] <=> $b['max']; });
         $sht = $po['self_hosted_tiers'] ?: ((array) ($cat['self_hosted_tiers'] ?? []) ?: $tiers);
@@ -600,6 +605,21 @@ class TIX_Platform_Offers {
             foreach (self::EXTRAS as $k => $label) if (array_key_exists($k, $set)) $extras[$k] = $set[$k]; elseif ($strings) $extras[$k] = false;
         }
         if (array_key_exists('extras', $in) && is_array($in['extras'])) foreach (self::EXTRAS as $k => $label) if (array_key_exists($k, $in['extras'])) $extras[$k] = !empty($in['extras'][$k]);
+        // Voraussetzungen (1.38.827, User: „Guthaben geht eigentlich nur, wenn das App-Paket dazu gebucht wurde“): fehlt die App, wird sie mit Einrichtung als Zubuchung angehakt
+        // – nie ins Grundpaket („der eigene Shop läuft auch ohne App“), Kennzeichen „für Guthaben nötig“, Hinweis über mode_hints
+        $auto_added = [];
+        $has_on = function ($k) use (&$items) { foreach ($items as $x) if ($x['catalog_key'] === $k && !empty($x['on'])) return true; return false; };
+        foreach (self::NEEDS as $k => $need) {
+            if (!$has_on($k) || $has_on($need)) continue;
+            foreach (array_merge([$need], (array) (self::catalog_item($need)['adds'] ?? [])) as $nk) {
+                if ($has_on($nk)) continue;
+                $hit = false;
+                foreach ($items as &$x) if ($x['catalog_key'] === $nk) { $x['on'] = true; $hit = true; break; }
+                unset($x);
+                if (!$hit && ($n = self::item_from_catalog($nk))) { $n['on'] = true; $n['base'] = false; $n['gift'] = false; $n['discount_percent'] = null; $items[] = $n; }
+                $auto_added[] = $nk;
+            }
+        }
         // Betriebsart (Pflichtwahl im Studio; ohne Wahl aus den Positionen abgeleitet): platform | own_shop | self_hosted
         $mode_in = array_key_exists('mode', $in) ? (string) $in['mode'] : (!empty($old['mode_chosen']) ? (string) ($old['mode'] ?? '') : '');
         $mode_chosen = in_array($mode_in, self::MODES, true);
@@ -639,6 +659,9 @@ class TIX_Platform_Offers {
             $x['interval'] = 'yearly';
             if ($tl) $x['list_price'] = $lt === null ? floatval($tl[0]['price']) : TIX_Offer_Plan::shop_price($lt, $tl);
         }
+        unset($x);
+        // Rabatt je Position (1.38.827): Preis = Listenpreis − x %; ein geschenktes Modul bleibt 0 €
+        foreach ($items as &$x) if (!empty($x['discount_percent']) && empty($x['gift']) && $x['list_price'] !== null) $x['price'] = round(floatval($x['list_price']) * (1 - $x['discount_percent'] / 100), 2);
         unset($x);
         $layout = (string) $g('layout', 'auto');
         if (!in_array($layout, ['auto', 'own', 'classic'], true)) $layout = 'auto';
@@ -712,7 +735,7 @@ class TIX_Platform_Offers {
             'mode' => $mode, 'mode_chosen' => $mode_chosen, 'references' => array_slice($refs, 0, 6),
             'intro' => $intro === null ? (string) $cat['intro'] : self::txt($intro, 3000),
             'conditions' => $cond === null ? (string) $cat['conditions'] : self::txt($cond, 3000),
-            'contact' => $contact, 'sales_rep' => $rep ? $rep['key'] : null, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
+            'contact' => $contact, 'sales_rep' => $rep ? $rep['key'] : null, 'auto_added' => $auto_added, 'accept_link' => (bool) $g('accept_link', true), 'internal_note' => self::txt($g('internal_note', ''), 2000),
         ];
     }
 
@@ -721,6 +744,8 @@ class TIX_Platform_Offers {
     const TIERED_KEYS = ['shop', 'lizenz'];
     /** Einrichtung des Grundpakets – zählt zum Grundpaket, nicht zu den Optionen (wie FULL_SETUP_KEYS im Studio) */
     const FULL_SETUP_KEYS = ['einrichtung', 'rundum_einrichtung'];
+    /** Voraussetzungen: Modul → nötige Position (1.38.827) */
+    const NEEDS = ['wallet' => 'app'];
 
     /** Tickets im Jahr, nach denen der Jahrespreis gilt: führende Stufe der Planrechnung (mit Vorgaben, wenn keine gespeichert ist) */
     public static function tier_tickets($plan, $projection, array $cat) {
@@ -732,7 +757,27 @@ class TIX_Platform_Offers {
     }
 
     /** Optional = Module und Zusatzleistungen (nicht die Einrichtung des Grundpakets); Grundpaket = Tarif, Einrichtung, eigene Positionen */
+    /** Geschenkt (1.38.827, User: „alles andere an Modulen, das schenken wir ihr“): Häkchen gift oder Modul/Leistung mit Preis 0 € */
+    public static function is_gift(array $it) {
+        if (!empty($it['gift'])) return true;
+        $type = (string) ($it['type'] ?? '');
+        return in_array($type, ['module', 'service'], true) && !in_array((string) ($it['catalog_key'] ?? ''), self::FULL_SETUP_KEYS, true)
+            && ($it['price'] ?? null) !== null && abs(floatval($it['price'])) < 0.005;
+    }
+
+    /** Kennzeichen „für Guthaben nötig“: Position wird von einem angehakten Modul vorausgesetzt (NEEDS, inkl. deren Einrichtung) → Text | '' */
+    public static function needed_for(array $d, array $it) {
+        $k = (string) ($it['catalog_key'] ?? '');
+        $act = array_column(self::active_items($d), 'catalog_key');
+        foreach (self::NEEDS as $mod => $need) {
+            if (!in_array($mod, $act, true)) continue;
+            if ($k === $need || in_array($k, (array) (self::catalog_item($need)['adds'] ?? []), true)) return 'für ' . (self::catalog_item($mod)['name'] ?? $mod) . ' nötig';
+        }
+        return '';
+    }
+
     public static function is_optional(array $it) {
+        if (self::is_gift($it) || !empty($it['base'])) return false; // geschenkt bzw. fest im Grundpaket = nicht optional
         $type = (string) ($it['type'] ?? '');
         return $type === 'module' || ($type === 'service' && !in_array((string) ($it['catalog_key'] ?? ''), self::FULL_SETUP_KEYS, true));
     }
@@ -857,6 +902,7 @@ class TIX_Platform_Offers {
         if ($m === 'own_shop' && in_array('lizenz', $keys, true)) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Die Lizenz gehört zu „Selbstgehostet“, nicht zum eigenen Shop.'];
         if ($m === 'self_hosted' && array_intersect($keys, ['shop', 'shop_monatlich'])) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Der eigene Shop läuft auf unseren Servern – bei „Selbstgehostet“ gehört die Lizenz ins Angebot.'];
         if ($m === 'platform' && array_intersect($keys, ['shop', 'shop_monatlich', 'lizenz'])) $h[] = ['code' => 'tix_offer_mode_mismatch', 'message' => 'Im Angebot steht ein eigener Betrieb – Betriebsart prüfen.'];
+        if (in_array('app', (array) ($d['auto_added'] ?? []), true)) $h[] = ['code' => 'tix_offer_needs_app', 'message' => 'Guthaben (Bezahlen vor Ort) nutzt die App – App-Paket dazubuchen. Die App ist als Zubuchung angehakt.'];
         return $h;
     }
 
@@ -1351,7 +1397,7 @@ class TIX_Platform_Offers {
             if (!empty($it['catalog_key']) && empty($it['name'])) {
                 $base = self::item_from_catalog($it['catalog_key'], $it['interval'] ?? null);
                 if (!$base) return new WP_Error('tix_offer_unknown_item', 'Diese Position gibt es im Katalog nicht.', ['status' => 400, 'field' => 'items']);
-                $it = array_merge($base, array_intersect_key($it, array_flip(['qty', 'price', 'note', 'description', 'id', 'on'])));
+                $it = array_merge($base, array_intersect_key($it, array_flip(['qty', 'price', 'note', 'description', 'id', 'on', 'gift', 'base', 'discount_percent'])));
             }
             $items[] = $it;
         }
@@ -1776,7 +1822,18 @@ class TIX_Platform_Offers {
             'decision' => isset($d['decision']) ? ['status' => $d['decision']['status'], 'name' => $d['decision']['by'] === 'customer' ? $d['decision']['name'] : '', 'at' => $d['decision']['at']] : null,
             'can_decide' => in_array($row->status, ['sent', 'viewed'], true), 'pdf_filename' => self::filename($row),
             // AN2: Gliederung „Dein eigener Ticketshop“ – Kacheln und Blöcke 1–4 (nur bei layout own)
-            'layout' => self::layout_of($d), 'own' => self::layout_of($d) === 'own' ? (function ($bl) { if (!$bl) return null; unset($bl['totals']); $bl['plan_calc'] = $bl['compare_platform'] ? $bl['plan'] : self::strip_platform($bl['plan']); unset($bl['plan']); return $bl; })(self::own_blocks($d)) : null];
+            'layout' => self::layout_of($d), 'own' => self::layout_of($d) === 'own' ? (function ($bl) { if (!$bl) return null; unset($bl['totals']); $bl['plan_calc'] = self::strip_other_mode($bl['compare_platform'] ? $bl['plan'] : self::strip_platform($bl['plan'])); unset($bl['plan']); return $bl; })(self::own_blocks($d)) : null];
+    }
+
+    /** Planrechnung nur mit der Betriebsart des Angebots (Kundenseite, 1.38.827): ohne Vergleich eigener Shop ↔ selbstgehostet */
+    public static function strip_other_mode($pc) {
+        if (!is_array($pc)) return $pc;
+        $m = (string) ($pc['mode'] ?? 'own_shop');
+        foreach ((array) ($pc['rows'] ?? []) as $i => $r) unset($pc['rows'][$i]['compare']);
+        foreach ((array) ($pc['totals'] ?? []) as $i => $r) foreach (['own_shop', 'self_hosted'] as $o) if ($o !== $m) unset($pc['totals'][$i]['modes'][$o]);
+        foreach (['lead', 'lead_base'] as $k) if (is_array($pc[$k] ?? null)) unset($pc[$k]['other_mode'], $pc[$k]['other_kept']);
+        if (isset($pc['by_mode'])) $pc['by_mode'] = array_intersect_key($pc['by_mode'], [$m => 1]);
+        return $pc;
     }
 
     /** Planrechnung ohne Plattform-Vergleich (Kundenseite, compare_platform aus, 1.38.823) */
@@ -1998,7 +2055,7 @@ class TIX_Platform_Offers {
         $trs = function (array $list) use ($e, $B) {
             $h = '';
             foreach ($list as $r) {
-                $h .= '<tr' . (!empty($r['info']) ? ' class="cmp"' : '') . '><td><strong>' . $e($r['name']) . '</strong>' . (!empty($r['optional']) ? ' <span class="opt">optional</span>' : '') . ($r['detail'] !== '' ? '<div class="mu">' . $e($r['detail']) . '</div>' : '')
+                $h .= '<tr' . (!empty($r['info']) ? ' class="cmp"' : '') . '><td><strong>' . $e($r['name']) . '</strong>' . (!empty($r['optional']) ? ' <span class="opt">optional</span>' : '') . (!empty($r['needed_for']) ? ' <span class="opt">' . $e(str_replace('Modul ', '', $r['needed_for'])) . '</span>' : '') . (!empty($r['discount_label']) ? ' <span class="opt" style="color:#E8445A;border-color:#F5B5BF">' . $e($r['discount_label']) . '</span>' : '') . ($r['detail'] !== '' ? '<div class="mu">' . $e($r['detail']) . '</div>' : '')
                     . ($r['tiered'] && $B['block1']['tier_line'] ? '<div class="mu red">' . $e($B['block1']['tier_line']) . '</div>' : '') . '</td><td class="r">' . $e($r['price'])
                     . ($r['list_price'] ? '<div class="mu"><s>' . $e($r['list_price']) . '</s></div>' : '') . '</td></tr>';
             }
@@ -2017,7 +2074,7 @@ class TIX_Platform_Offers {
             return $h;
         };
         $has_opt = !empty($t['has_options']) && $B['block1']['option_rows'];
-        $out .= '<div class="c"><h2><em>1</em>Grundpaket – das zahlst du an evendis</h2><table>' . $trs($B['block1']['base_rows']) . $sums($t['base'] ?? $t, 'Grundpaket') . '</table>';
+        $out .= '<div class="c"><h2><em>1</em>Grundpaket – das zahlst du an evendis</h2><p class="mu" style="margin:0 0 8px">' . $e($B['no_app_note']) . '</p><table>' . $trs($B['block1']['base_rows']) . $sums($t['base'] ?? $t, 'Grundpaket') . '</table>';
         if ($has_opt) {
             $out .= '<h3 style="font-size:15px;margin:20px 0 4px">Optional dazubuchbar</h3><p class="mu" style="margin:0 0 8px">Nicht im Grundpaket enthalten – nur, wenn du es dazunimmst.</p><table>'
                 . $trs($B['block1']['option_rows']) . $sums($t['with_options'] ?? $t, 'Mit gewählten Optionen') . '</table>';
@@ -2060,7 +2117,7 @@ class TIX_Platform_Offers {
         foreach ($tt as $r) $out .= '<td class="r mu">' . $e(number_format($r['tickets'], 0, ',', '.') . ($r['custom'] ? '*' : '')) . '</td>';
         $out .= '</tr><tr><td>Ticketumsatz gesamt (brutto)</td>' . $cell('own_shop', 'revenue') . '</tr>';
         foreach ($b4['totals_order'] as $j => $m) {
-            $out .= '<tr class="cmp"><td colspan="' . (count($tt) + 1) . '" style="background:#F4F5F8;color:#2C2F3F"><strong>' . $e($labels[$m] . ($j === 0 ? ' – dieses Angebot' : '')) . '</strong></td></tr>';
+            if (count($b4['totals_order']) > 1) $out .= '<tr class="cmp"><td colspan="' . (count($tt) + 1) . '" style="background:#F4F5F8;color:#2C2F3F"><strong>' . $e($labels[$m] . ($j === 0 ? ' – dieses Angebot' : '')) . '</strong></td></tr>';
             if ($m !== 'platform') $out .= '<tr><td>+ Einnahmen eigene Servicegebühr</td>' . $cell($m, 'own_fee', '+') . '</tr>';
             $out .= '<tr><td>− an evendis gesamt' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto, inkl. einmalig)') . '</td>' . $cell($m, 'to_evendis', '-') . '</tr>';
             if ($m !== 'platform') $out .= '<tr><td>− an Zahlungsdienstleister gesamt</td>' . $cell($m, 'to_psp', '-') . '</tr>';
@@ -2079,7 +2136,7 @@ class TIX_Platform_Offers {
         $out .= $line('Ticketumsatz (inkl. MwSt.)', 'revenue') . $line('+ eigene Service-/VVK-Gebühr', 'own_fee', '+') . $line('an deinen Zahlungsdienstleister', 'psp', '-')
             . $line('an evendis (' . (($ev['base']['name'] ?? '') ?: 'Eigener Shop') . ')', 'evendis', '-') . ($b4['options'] ? $line('an evendis (Optionen)', 'options', '-') : '')
             . ($b4['channel'] ? $line('evendis.de-Gebühr (netto)', 'channel_fee', '-') : '') . ($b4['server'] ? $line('an deinen Hoster (Server, ca.)', 'server', '-') : '')
-            . $line('Bei dir bleibt (' . $B['mode_label'] . ')', 'kept', '', 'hl') . $line('Vergleich ' . $B['other_label'], 'other_kept', '', 'cmp')
+            . $line('Bei dir bleibt (' . $B['mode_label'] . ')', 'kept', '', 'hl')
             . (!empty($b4['compare']) ? $line('Vergleich Plattform, Gäste zahlen', 'platform_guests_pay', '', 'cmp') . $line('Vergleich Plattform, du trägst', 'platform_you_pay', '', 'cmp') . $line('Vorteil ' . $B['mode_label'] . ' (Gäste zahlen)', 'advantage', '', 'hl') : '');
         $out .= '</table></div>' . (array_filter(array_column($rows, 'custom')) ? '<p class="mu">* deine eigene Zahl</p>' : '')
             . ($b4['reading'] ? '<div class="box">' . $e($b4['reading']) . '</div>' : '')
@@ -2401,6 +2458,7 @@ class TIX_Platform_Offers {
             $tiered_row = in_array($it['catalog_key'] ?? '', self::TIERED_KEYS, true);
             if ($it['interval'] === 'per_ticket') { $price = self::fee_label($it['fee_percent'], $it['fee_fixed']); }
             elseif ($ln['unit'] === null) { $price = 'auf Anfrage'; }
+            elseif (self::is_gift($it)) { $price = self::eur(0) . ' – geschenkt'; }
             elseif ($ln['unit'] == 0) { $price = ($it['catalog_key'] ?? '') !== 'einrichtung' ? 'kostenlos' : (($it['note'] ?? '') === 'erlassen' ? self::eur(0) : 'inklusive'); }
             else { $price = self::eur($ln['net']) . ' ' . ['monthly' => '/ Monat', 'yearly' => '/ Jahr', 'once' => 'einmalig', 'per_event' => 'je Event'][$it['interval']]; }
             $det = [(string) $it['note']];
@@ -2408,8 +2466,9 @@ class TIX_Platform_Offers {
             elseif ($it['interval'] !== 'once' || ($it['note'] ?? '') === '') $det[] = $iv[$it['interval']] ?? '';
             if (($it['catalog_key'] ?? '') === 'shop_monatlich') $det = ['bei monatlicher Zahlung', 'monatlich kündbar']; // Monatspreis nur hier (1.38.823)
             if ($it['interval'] === 'monthly' && $ln['net'] !== null && $ln['net'] > 0) $det[] = '= ' . self::eur($ln['net'] * 12) . ' im Jahr';
+            if (self::is_gift($it)) $det = ['geschenkt – im Angebot enthalten'];
             $r = ['name' => ($it['qty'] > 1 ? $it['qty'] . ' × ' : '') . $it['name'], 'detail' => trim(implode(' · ', array_values(array_unique(array_filter($det))))),
-                'price' => $price, 'list_price' => $ln['overridden'] && $it['list_price'] !== null ? self::eur($it['list_price'] * $it['qty']) : null,
+                'price' => $price, 'gift' => self::is_gift($it), 'needed_for' => self::needed_for($d, $it), 'discount_label' => !empty($it['discount_percent']) && !self::is_gift($it) ? self::pct($it['discount_percent']) . ' % Rabatt' : '', 'list_price' => $ln['overridden'] && $it['list_price'] !== null && floatval($it['list_price']) > 0 ? self::eur($it['list_price'] * $it['qty']) . (['monthly' => ' / Monat', 'yearly' => ' / Jahr'][$it['interval']] ?? '') : null,
                 'tiered' => $base && !empty($base['tiered']) && ($it['catalog_key'] ?? '') === $base['catalog_key'], 'optional' => self::is_optional($it)];
             if ($r['optional']) $opt_rows[] = $r; else $rows[] = $r;
         }
@@ -2436,7 +2495,7 @@ class TIX_Platform_Offers {
         $be = $pc['break_even'];
         $in = $pc['input'];
         $other = $mode === 'self_hosted' ? 'own_shop' : 'self_hosted';
-        $prow = array_map(function ($r) use ($other, $cmp) { $r['other_kept'] = $r['compare'][$other]['kept'] ?? null;
+        $prow = array_map(function ($r) use ($cmp) { unset($r['compare']); // keine andere Betriebsart (1.38.827)
             return $cmp ? $r : array_diff_key($r, array_flip(['platform_guests_pay', 'platform_you_pay', 'advantage', 'advantage_without_fee'])); }, $pc['rows']);
         // Rundum-Einrichtung (Position „einrichtung“ angehakt)
         $setup = null;
@@ -2468,6 +2527,8 @@ class TIX_Platform_Offers {
         $lead = self::lead_texts($pcl, $mode, $cmp);
         $LB = $pcl['lead'];
         return [
+            // Grundregel (User 14.11.: „es muss immer sichtbar sein, dass der eigene Shop auch ohne App läuft“)
+            'no_app_note' => 'Dein Shop läuft komplett ohne App – die App kannst du jederzeit optional dazubuchen.',
             'plan' => $pc, 'totals' => $t, 'compare_platform' => $cmp, 'fixed_price' => $fixed_note, 'mode' => $mode, 'mode_label' => $mt['label'], 'benefits' => $ben, 'lead' => $lead, 'title' => $mt['title'], 'subtitle' => $mt['sub'],
             'other_mode' => $other, 'other_label' => self::MODE_TEXTS[$other]['label'], 'setup' => $setup, 'references' => $refs,
             'tiles' => [
@@ -2486,7 +2547,8 @@ class TIX_Platform_Offers {
             'block3' => ($cmp ? $pc['guest'] : array_diff_key($pc['guest'], array_flip(['platform_fee', 'pays_platform']))) + ['compare' => $cmp],
             'block4' => ['rows' => $prow, 'options' => $ev['options_year'] > 0, 'channel' => (bool) $ch, 'server' => $mode === 'self_hosted',
                 // Ergebnis im Überblick (User 14.11.): je Stufe und Betriebsart, Angebots-Betriebsart zuerst
-                'totals' => $pc['totals'], 'totals_order' => $cmp ? [$mode, $other, 'platform'] : [$mode, $other], 'totals_note' => $cmp ? $pc['totals_note'] : str_replace('; Plattformgebühr netto (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . ')', '', $pc['totals_note']),
+                'totals' => $pc['totals'], 'totals_order' => $cmp ? [$mode, 'platform'] : [$mode], /* keine andere Betriebsart im Angebot (1.38.827, User: „Der Vergleich zum selbstgehosteten muss auch raus“) */
+                'totals_note' => $cmp ? $pc['totals_note'] : str_replace('; Plattformgebühr netto (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . ')', '', $pc['totals_note']),
                 'compare' => $cmp,
                 'reading' => $cmp && $be['with_fee'] ? 'Mit eigener Gebühr von ' . self::eur($in['service_fee']) . ' lohnt sich ' . ($mode === 'self_hosted' ? 'dein Shop auf deinem Server' : 'der eigene Shop') . ' gegenüber der Ticketplattform ab rund ' . number_format($be['with_fee'], 0, ',', '.') . ' Tickets im Jahr. '
                     . ($be['without_fee'] ? 'Ohne eigene Gebühr ab rund ' . number_format($be['without_fee'], 0, ',', '.') . ' Tickets. ' : '') . 'Darunter ist die Ticketplattform für dich günstiger – dort ist die Zahlung schon enthalten.' : '',
@@ -2522,7 +2584,7 @@ class TIX_Platform_Offers {
         // Vergleich mit der Plattform nur auf Wunsch (1.38.823, compare_platform)
         $note = implode(' · ', array_filter(['Gerechnet mit dem Grundpaket im ersten Jahr',
             $compare ? ($sv >= 0 ? $e0($sv) . ' mehr als auf der Ticketplattform (wenn du dort die Gebühr trägst)' : 'auf der Ticketplattform blieben dir ' . $e0(-$sv) . ' mehr (wenn du dort die Gebühr trägst)') : '',
-            $L['to_evendis_once'] > 0 ? 'an evendis inkl. ' . $e0($L['to_evendis_once']) . ' einmalig' : '']));
+            $L['to_evendis_once'] > 0 ? 'an evendis inkl. ' . $e0($L['to_evendis_once']) . ' einmalig' : ''])) . "\nDein Shop läuft komplett ohne App – die App kannst du jederzeit optional dazubuchen.";
         $steps = [];
         $steps[] = ['title' => 'Deine Ticketeinnahmen', 'text' => $n($t) . ' Tickets × ' . $e2($in['avg_price']) . ' Ø Ticketpreis = ' . $e0($L['revenue']) . '. So viel zahlen deine Gäste für die Tickets (inklusive Mehrwertsteuer).', 'lines' => []];
         $steps[] = $in['service_fee'] > 0
@@ -2581,10 +2643,16 @@ class TIX_Platform_Offers {
         if (!$B) return null;
         $pdf = $pdfa ? new TIX_PDFA($W, $H, $M, 40) : new TIX_Simple_PDF($W, $H, $M, 40);
         // Hülle: Probelauf (dry) misst Blöcke ohne zu zeichnen; Blöcke wandern als Ganzes auf die nächste Seite (1.38.825)
+        // Schrift wie im Studio: Geist, Geist Mono für Nummern und Links (1.38.827, User: „Kombination aus Geist und dem, was dazugehört“)
+        $mono_ok = $pdfa && method_exists($pdf, 'use_fonts') && $pdf->use_fonts('geist');
         $P = new class($pdf) {
             public $pdf; public $dry = false; public $inblock = false; public $rehead = null; public $y0 = 0;
             public function __construct($p) { $this->pdf = $p; }
-            public function __call($m, $a) { if ($this->dry && in_array($m, ['text', 'rect', 'draw_logo', 'add_page'], true)) return null; return call_user_func_array([$this->pdf, $m], $a); }
+            public function __call($m, $a) {
+                if ($this->dry && in_array($m, ['text', 'rect', 'rrect', 'draw_logo', 'add_page'], true)) return null;
+                if ($m === 'rrect' && !method_exists($this->pdf, 'rrect')) return $this->pdf->rect($a[0], $a[1], $a[2], $a[3], $a[5] ?? true); // einfacher PDF-Schreiber: eckig
+                return call_user_func_array([$this->pdf, $m], $a);
+            }
         };
         $brand = 'evendis'; // Angebote verschickt immer evendis (nie „Tixomat“)
         $nr = trim((string) ($meta['number'] ?? ''));
@@ -2611,6 +2679,11 @@ class TIX_Platform_Offers {
         };
         $tx = function ($x, $y, $s) use ($P, $fix) { $P->text(round($x, 2), round($y, 2), $fix($s)); };
         $rt = function ($x, $y, $s) use ($tx, $wd) { $tx($x - $wd($s), $y, $s); };
+        // Geist Mono für Codes (Angebotsnummer, Link); ohne Geist normale Schrift
+        $txm = function ($x, $y, $s, $size, $right = false) use ($P, $tx, $font, $mono_ok, $fix) {
+            if (!$mono_ok) { $font(false, $size); if ($right) $x -= $P->width($fix($s), $size, 'Helvetica'); $tx($x, $y, $s); return; }
+            $P->set_font('Mono', $size); if ($right) $x -= $P->width($fix($s), $size, 'Mono'); $tx($x, $y, $s);
+        };
         // Umbruch nach Breite (aktuelle Schrift); überlange Wörter werden hart geteilt, nie abgeschnitten
         $wrap = function ($text, $maxw) use ($wd) {
             $out = [];
@@ -2689,16 +2762,16 @@ class TIX_Platform_Offers {
             $y -= 20;
             if (!$P->inblock) $ensure($keep); // Überschrift nie allein am Seitenende (im Block entscheidet der Block)
             $col(self::K_INK); $font(true, 15); $tx($M, $y, $title);
-            $col(self::K_RED); $P->rect($M, $y - 8, 26, 2.2, true);
-            $y -= 26;
-            if ($sub !== '') { $para($sub, 9, self::K_MUTED); $y -= 4; }
+            $col(self::K_RED); $P->rrect($M, $y - 13, 28, 2.6, 1.3, true); // roter Strich mit Abstand (1.38.827)
+            $y -= 34;
+            if ($sub !== '') { $para($sub, 9, self::K_MUTED); $y -= 8; }
         };
         $hair = function ($x1 = null, $x2 = null, $c = null) use (&$y, $P, $col, $M, $xR) { $x1 = $x1 ?? $M; $x2 = $x2 ?? $xR; $col($c ?? self::K_LINE); $P->rect($x1, $y, $x2 - $x1, 0.5, true); };
         $thead = function (array $cols) use (&$y, $P, $col, $font, $tx, $rt, $M, $CW) {
-            $col(self::K_SOFT); $P->rect($M, $y - 7, $CW, 20, true);
+            $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);
             $col(self::K_MUTED); $font(true, 7);
             foreach ($cols as [$x, $txt, $right]) { if ($right) $rt($x, $y, mb_strtoupper($txt)); else $tx($x, $y, mb_strtoupper($txt)); }
-            $y -= 24;
+            $y -= 30;
         };
 
         // ═══ Seite 1: Kopf auf evendis-Rot (1.38.824, User: „es soll mehr rot sein … oben auf der ersten Seite“)
@@ -2712,14 +2785,14 @@ class TIX_Platform_Offers {
         $col(self::K_RED); $P->rect(0, $H - $hh, $W, $hh, true);
         $mark($M, $H - 70, 30);
         $col($SOFTW); $font(true, 7.5); $rt($xR, $H - 46, 'ANGEBOT');
-        $col($WHITE); $font(true, 11); if ($nr !== '') $rt($xR, $H - 60, 'Nr. ' . $nr);
+        $col($WHITE); if ($nr !== '') $txm($xR, $H - 60, 'Nr. ' . $nr, 11, true);
         $col($SOFTW); $font(false, 8.5); $rt($xR, $H - ($nr !== '' ? 73 : 60), 'vom ' . $date . ' · gültig bis ' . $valid);
         $y = $H - 128;
         $col($WHITE); $font(true, 26); foreach ($tl as $ln) { $tx($M, $y, $ln); $y -= 31; }
         $y += 9;
         $col($WHITE); $font(false, 13); foreach ($wl as $ln) { $tx($M, $y, $ln); $y -= 17; }
         $y -= 10;
-        $col($DEEP); $P->rect($M, $y - 5, $lw, 16, true);
+        $col($DEEP); $P->rrect($M, $y - 5, $lw, 16, 8, true);
         $col($WHITE); $font(true, 7.5); $tx($M + 7, $y, $lab);
         $col($SOFTW); $font(false, 9); foreach ($sl as $k => $ln) $tx($M + $lw + 10, $y - 12 * $k, $ln);
         $y = $H - $hh - 34;
@@ -2742,18 +2815,17 @@ class TIX_Platform_Offers {
         $LD = $B['lead'];
         if ($LD && empty($LD['on_request'])) {
             $nf = count($LD['facts']);
-            $pad = 18;
+            $pad = 22;
             $fw = ($CW - 2 * $pad) / max(1, $nf);
             $font(false, 9); $notes = $wrap($LD['note'], $CW - 2 * $pad);
             $font(true, 7); $ll_max = max(array_map(function ($f) use ($wrap, $fw) { return count($wrap(mb_strtoupper($f['label']), $fw - 14)); }, $LD['facts']));
             $lx = 9 * max(0, $ll_max - 1); // zweizeilige Etiketten schieben die Werte nach unten
-            $bh = 112 + $lx + 12 * count($notes);
+            $bh = 122 + $lx + 12 * count($notes);
             $ensure($bh + (!empty($B['fixed_price']) ? 80 : 10));
             $top = $y + 6;
-            $col(self::K_SOFT); $P->rect($M, $top - $bh, $CW, $bh, true);
-            $col(self::K_RED); $P->rect($M, $top - $bh, 3, $bh, true);
-            $col(self::K_INK); $font(true, 14); $tx($M + $pad, $top - 26, $LD['headline'] . ' – das zahlst du, das bleibt dir');
-            $yv = $top - 52;
+            $col(self::K_SOFT); $P->rrect($M, $top - $bh, $CW, $bh, 14, true);
+            $col(self::K_INK); $font(true, 14); $tx($M + $pad, $top - 30, $LD['headline'] . ' – das zahlst du, das bleibt dir');
+            $yv = $top - 58;
             foreach ($LD['facts'] as $i => $f) {
                 $x = $M + $pad + $i * $fw;
                 if ($i > 0) { $col(self::K_LINE); $P->rect($x - 10, $yv - 34 - $lx, 0.6, 46 + $lx, true); }
@@ -2764,26 +2836,24 @@ class TIX_Platform_Offers {
                 if (!empty($f['per_ticket'])) { $col(self::K_MUTED); $font(false, 8); $tx($x, $yv - 36 - $lx, $f['per_ticket']); }
             }
             $col(self::K_INK); $font(false, 9);
-            $yn = $top - 108 - $lx; foreach ($notes as $ln) { $tx($M + $pad, $yn, $ln); $yn -= 12; }
-            $y = $top - $bh;
+            $yn = $top - 114 - $lx; foreach ($notes as $ln) { $tx($M + $pad, $yn, $ln); $yn -= 12; }
+            $y = $top - $bh - 10;
             // Festpreis direkt unter dem Faktenblock (1.38.824)
             if (!empty($B['fixed_price'])) {
                 $fp = $B['fixed_price'];
                 $font(true, 10.5); $fl = $wrap($fp['title'] . ': ' . $fp['text'], $CW - 2 * $pad);
                 $font(false, 8.5); $fs2 = $wrap($fp['tiers'], $CW - 2 * $pad);
-                $fh = 22 + 14 * count($fl) + 11.5 * count($fs2);
-                $col(self::K_TINT); $P->rect($M, $y - $fh, $CW, $fh, true);
-                $col(self::K_RED); $P->rect($M, $y - $fh, 3, $fh, true);
-                $yf = $y - 18;
+                $fh = 30 + 14 * count($fl) + 11.5 * count($fs2);
+                $col(self::K_TINT); $P->rrect($M, $y - $fh, $CW, $fh, 14, true);
+                $yf = $y - 22;
                 $col(self::K_INK); $font(true, 10.5); foreach ($fl as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 14; }
                 $col(self::K_MUTED); $font(false, 8.5); foreach ($fs2 as $ln) { $tx($M + $pad, $yf, $ln); $yf -= 11.5; }
                 $y -= $fh;
             }
-            $y -= 22;
+            $y -= 32;
         } elseif ($LD && !empty($LD['on_request'])) {
             $ensure(60);
-            $col(self::K_SOFT); $P->rect($M, $y - 34, $CW, 46, true);
-            $col(self::K_RED); $P->rect($M, $y - 34, 3, 46, true);
+            $col(self::K_SOFT); $P->rrect($M, $y - 34, $CW, 46, 14, true);
             $col(self::K_INK); $font(true, 13); $tx($M + 18, $y - 6, $LD['headline']);
             $col(self::K_MUTED); $font(false, 9.5); $tx($M + 18, $y - 22, $LD['note']);
             $y -= 60;
@@ -2792,7 +2862,7 @@ class TIX_Platform_Offers {
             $ensure(90);
             foreach ($B['tiles'] as $i => $tl) {
                 $x = $M + $i * ($tw + 10);
-                $col(self::K_SOFT); $P->rect($x, $y - 66, $tw, 74, true);
+                $col(self::K_SOFT); $P->rrect($x, $y - 66, $tw, 74, 12, true);
                 $col(self::K_MUTED); $font(true, 7); $tx($x + 10, $y - 6, mb_strtoupper($tl['title']));
                 $col($i === 2 ? self::K_RED : self::K_INK); $font(true, $fit($tl['value'], true, 13, $tw - 20)); $tx($x + 10, $y - 26, $tl['value']);
                 $col(self::K_MUTED); $font(false, 7.5); $yy = $y - 40; foreach (array_slice($wrap($tl['note'], $tw - 20), 0, 3) as $ln) { $tx($x + 10, $yy, $ln); $yy -= 9; }
@@ -2814,12 +2884,12 @@ class TIX_Platform_Offers {
             $drawstep = function ($k, $st) use (&$y, $P, $col, $font, $tx, $wd, $wrap, $ensure, $M, $CW) {
                 $font(false, 9.5); $tl = $wrap($st['text'], $CW - 28);
                 $font(false, 9); $bl = []; foreach ($st['lines'] as $l) $bl[] = $wrap($l, $CW - 40);
-                $col(self::K_TINT); $P->rect($M, $y - 4, 16, 16, true);
-                $col(self::K_RED); $font(true, 9); $s = (string) ($k + 1); $tx($M + 8 - $wd($s) / 2, $y, $s);
+                $col(self::K_TINT); $P->rrect($M, $y - 4.5, 17, 17, 8.5, true);
+                $col(self::K_RED); $font(true, 9); $s = (string) ($k + 1); $tx($M + 8.5 - $wd($s) / 2, $y, $s);
                 $col(self::K_INK); $font(true, 10.5); $tx($M + 28, $y, $st['title']); $y -= 15;
                 $font(false, 9.5); foreach ($tl as $ln) { $tx($M + 28, $y, $ln); $y -= 13; }
                 foreach ($bl as $lines) foreach ($lines as $j => $ln) {
-                    if ($j === 0) { $col(self::K_RED); $P->rect($M + 30, $y + 2.5, 3, 3, true); }
+                    if ($j === 0) { $col(self::K_RED); $P->rrect($M + 30, $y + 2.5, 3, 3, 1.5, true); }
                     $col(self::K_INK); $font(false, 9); $tx($M + 40, $y, $ln); $y -= 12;
                 }
                 $y -= 8;
@@ -2836,7 +2906,10 @@ class TIX_Platform_Offers {
         $xP = $xR - 8; $nameW = $CW - 170;
         $item_rows = function (array $rows) use (&$y, $P, $col, $font, $tx, $rt, $wd, $wrap, $ensure, $hair, $B, $M, $xP, $nameW) {
             foreach ($rows as $r) {
-                $font(true, 10); $nl = $wrap($r['name'], $nameW - (!empty($r['optional']) ? 52 : 0));
+                $pills = array_values(array_filter([!empty($r['optional']) ? ['OPTIONAL', self::K_SOFT, self::K_MUTED] : null, !empty($r['needed_for']) ? [mb_strtoupper(str_replace('Modul ', '', $r['needed_for'])), self::K_SOFT, self::K_INK] : null,
+                    !empty($r['discount_label']) ? [mb_strtoupper($r['discount_label']), self::K_TINT, self::K_RED] : null]));
+                $font(true, 6.5); $pw_all = 0; foreach ($pills as $pl) $pw_all += $wd($pl[0]) + 18;
+                $font(true, 10); $nl = $wrap($r['name'], $nameW - $pw_all);
                 $font(false, 8.5); $det = $r['detail'] !== '' ? $wrap($r['detail'], $nameW) : [];
                 $tier = ($r['tiered'] && $B['block1']['tier_line']) ? $wrap($B['block1']['tier_line'], $nameW) : [];
                 $ensure(14 * count($nl) + 11 * (count($det) + count($tier)) + 14);
@@ -2844,25 +2917,28 @@ class TIX_Platform_Offers {
                 $y0 = $y;
                 foreach ($nl as $k => $ln) {
                     $col($info ? self::K_MUTED : self::K_INK); $font(!$info, 10); $tx($M + 8, $y, $ln);
-                    if ($k === count($nl) - 1 && !empty($r['optional'])) {
-                        $x = $M + 8 + $wd($ln, 10, !$info) + 8; $font(true, 6.5); $lb = 'OPTIONAL'; $pw = $wd($lb) + 10;
-                        $col(self::K_MUTED); $P->rect($x, $y - 2.5, $pw, 11, false); $tx($x + 5, $y + 0.5, $lb);
+                    if ($k === count($nl) - 1 && $pills) {
+                        $x = $M + 8 + $wd($ln, 10, !$info) + 8;
+                        foreach ($pills as [$lb, $bg, $fg]) { $font(true, 6.5); $pw = $wd($lb) + 10; $col($bg); $P->rrect($x, $y - 3, $pw, 12, 6, true); $col($fg); $tx($x + 5, $y + 0.5, $lb); $x += $pw + 6; }
                     }
                     $y -= 14;
                 }
                 $col($info ? self::K_MUTED : self::K_INK); $font(!$info, 10); $rt($xP, $y0, $r['price']);
-                if ($r['list_price']) { $col(self::K_MUTED); $font(false, 8); $rt($xP, $y0 - 12, 'statt ' . $r['list_price']); }
+                if ($r['list_price']) { // Listenpreis durchgestrichen (1.38.827)
+                    $col(self::K_MUTED); $font(false, 8.5); $lw2 = $wd($r['list_price']); $rt($xP, $y0 - 12, $r['list_price']);
+                    $P->rect($xP - $lw2, $y0 - 12 + 2.8, $lw2, 0.7, true);
+                }
                 $col(self::K_MUTED); $font(false, 8.5); foreach ($det as $dl) { $tx($M + 8, $y + 2, $dl); $y -= 11; }
                 $col(self::K_RED); $font(false, 8); foreach ($tier as $tl2) { $tx($M + 8, $y + 2, $tl2); $y -= 11; }
                 if ($r['list_price'] && $y > $y0 - 26) $y = $y0 - 26;
-                $y -= 2; $hair(); $y -= 14;
+                $y -= 4; $hair(); $y -= 17;
             }
         };
         $rate = rtrim(rtrim(number_format($t['tax_rate'], 1, ',', ''), '0'), ',');
         $xL = $M + $CW * 0.45;
         $sumline = function ($label, $amount, $style = '') use (&$y, $P, $col, $font, $tx, $rt, $ensure, $xL, $xR, $xP) {
             $ensure(18);
-            if ($style === 'total') { $col(self::K_TINT); $P->rect($xL - 8, $y - 6, $xR - $xL + 8, 20, true); }
+            if ($style === 'total') { $y -= 5; $col(self::K_TINT); $P->rrect($xL - 10, $y - 7, $xR - $xL + 10, 22, 8, true); }
             $col($style === 'muted' ? self::K_MUTED : ($style === 'total' ? self::K_INK : self::K_INK)); $font($style === 'total', $style === 'total' ? 10.5 : 9.5);
             $tx($xL, $y, $label); $rt($xP, $y, $amount);
             $y -= $style === 'total' ? 22 : 15;
@@ -2884,7 +2960,7 @@ class TIX_Platform_Offers {
 
         // ═══ Grundpaket
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
-        $section('Grundpaket', 'Das zahlst du an evendis – 0 € je verkauftem Ticket. Alle Preise zzgl. MwSt.');
+        $section('Grundpaket', 'Das zahlst du an evendis – 0 € je verkauftem Ticket. Alle Preise zzgl. MwSt. ' . $B['no_app_note']);
         $cols = [[$M + 8, 'Leistung', false], [$xP, 'Preis', true]];
         $thead($cols); $P->rehead = function () use ($thead, $cols) { $thead($cols); };
         $item_rows($B['block1']['base_rows']);
@@ -2918,9 +2994,9 @@ class TIX_Platform_Offers {
             if ($su['headline'] !== '') {
                 $font(true, 10.5); $hl = $wrap($su['headline'], $CW - 28);
                 $ensure(14 * count($hl) + 20);
-                $col(self::K_TINT); $P->rect($M, $y - 14 * count($hl) + 4, $CW, 14 * count($hl) + 12, true);
-                $col(self::K_INK); foreach ($hl as $ln) { $tx($M + 14, $y, $ln); $y -= 14; }
-                $y -= 14;
+                $col(self::K_TINT); $P->rrect($M, $y - 14 * count($hl) + 2, $CW, 14 * count($hl) + 16, 12, true);
+                $col(self::K_INK); foreach ($hl as $ln) { $tx($M + 16, $y, $ln); $y -= 14; }
+                $y -= 18;
             }
             $ensure(min($need, 400));
             $y0 = $y; $ylow = [];
@@ -2928,7 +3004,7 @@ class TIX_Platform_Offers {
                 $x = $M + $j * ($cw2 + 24); $yy = $y0;
                 $col(self::K_MUTED); $font(true, 7.5); $tx($x, $yy, $ttl); $yy -= 15;
                 foreach ($w as $lines) {
-                    $col($j === 0 ? self::K_RED : self::K_MUTED); $P->rect($x, $yy + 2.5, 4, 4, true);
+                    $col($j === 0 ? self::K_RED : self::K_MUTED); $P->rrect($x, $yy + 2.5, 4, 4, 2.0, true);
                     $col(self::K_INK); $font(false, 9); foreach ($lines as $wl) { $tx($x + 12, $yy, $wl); $yy -= 11.5; }
                     $yy -= 3;
                 }
@@ -2989,19 +3065,19 @@ class TIX_Platform_Offers {
             . (!empty($t['has_options']) ? '; hier sind die gewählten Optionen mit eingerechnet.' : '.'));
         $y -= 6;
         $vhead = function ($list) use (&$y, $P, $col, $font, $tx, $rt, $cx, $M, $CW, $num, $lead_t, $cwv, $lw) {
-            $col(self::K_SOFT); $P->rect($M, $y - 7, $CW, 20, true);
-            foreach ($list as $k => $r) if ($r['tickets'] === $lead_t) { $col(self::K_TINT); $P->rect($M + $lw + $k * $cwv, $y - 7, $cwv, 20, true); }
+            $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);
+            foreach ($list as $k => $r) if ($r['tickets'] === $lead_t) { $col(self::K_TINT); $P->rrect($M + $lw + $k * $cwv + 4, $y - 8, $cwv - 4, 22, 8, true); }
             $col(self::K_MUTED); $font(true, 7); $tx($M + 8, $y, 'TICKETS IM JAHR');
             foreach ($list as $k => $r) { $col($r['tickets'] === $lead_t ? self::K_RED : self::K_MUTED); $rt($cx($k), $y, $num($r['tickets']) . ($r['custom'] ? '*' : '')); }
-            $y -= 22;
+            $y -= 28;
         };
         $vrow = function ($label, array $vals, $style = '') use (&$y, $P, $col, $font, $tx, $rt, $cx, $M, $CW, $fs, $ensure, $hair, $wrap) {
             $font(in_array($style, ['hl', 'grp'], true), $style === 'sub' ? $fs - 0.5 : $fs + 0.5);
             $ll = $wrap($label, 186);
             $ensure(10 + 11 * count($ll) + 6);
             $h = 11 * (count($ll) - 1);
-            if ($style === 'hl') { $col(self::K_TINT); $P->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
-            if ($style === 'grp') { $col(self::K_SOFT); $P->rect($M, $y - 6 - $h, $CW, 17 + $h, true); }
+            if ($style === 'hl') { $col(self::K_TINT); $P->rrect($M, $y - 7 - $h, $CW, 19 + $h, 7, true); }
+            if ($style === 'grp') { $col(self::K_SOFT); $P->rrect($M, $y - 7 - $h, $CW, 19 + $h, 7, true); }
             $col($style === 'sub' ? self::K_MUTED : self::K_INK);
             foreach ($ll as $k => $ln) { $font(in_array($style, ['hl', 'grp'], true), $style === 'sub' ? $fs - 0.5 : $fs + 0.5); $tx($M + 8, $y - 11 * $k, $ln); }
             $font($style === 'hl', $style === 'sub' ? $fs - 0.5 : $fs);
@@ -3018,7 +3094,7 @@ class TIX_Platform_Offers {
         $vrow('Ticketumsatz gesamt (brutto)', $pick('own_shop', 'revenue'));
         $labels = ['own_shop' => self::MODE_TEXTS['own_shop']['label'], 'self_hosted' => self::MODE_TEXTS['self_hosted']['label'], 'platform' => 'Plattform evendis.de (du trägst die Gebühr)'];
         foreach ($b4['totals_order'] as $j => $m) {
-            $vrow($labels[$m] . ($j === 0 ? ' – dieses Angebot' : ' – zum Vergleich'), array_fill(0, count($tt), ''), 'grp');
+            if (count($b4['totals_order']) > 1) $vrow($labels[$m] . ($j === 0 ? ' – dieses Angebot' : ' – zum Vergleich'), array_fill(0, count($tt), ''), 'grp'); // nur mit Plattform-Vergleich
             if ($m !== 'platform') $vrow('+ eigene Servicegebühr', $pick($m, 'own_fee', 'eur', '+'));
             $vrow('– an evendis' . ($m === 'platform' ? ' (Plattformgebühr, netto)' : ' (netto)'), $pick($m, 'to_evendis', 'eur', '-'));
             if ($m !== 'platform') $vrow('– an den Zahlungsanbieter', $pick($m, 'to_psp', 'eur', '-'));
@@ -3043,7 +3119,6 @@ class TIX_Platform_Offers {
         if ($b4['channel']) $prow('– evendis.de-Gebühr (netto)', 'channel_fee', '-');
         if ($b4['server']) $prow('– an deinen Hoster (Server, ca.)', 'server', '-');
         $prow('= bleibt dir (' . $B['mode_label'] . ')', 'kept', '', 'hl');
-        $prow('zum Vergleich: ' . $B['other_label'], 'other_kept', '', 'sub');
         if ($cmp) {
             $prow('zum Vergleich: Plattform, Gäste zahlen', 'platform_guests_pay', '', 'sub');
             $prow('zum Vergleich: Plattform, du trägst', 'platform_you_pay', '', 'sub');
@@ -3055,8 +3130,8 @@ class TIX_Platform_Offers {
         if ($b4['reading']) {
             $font(false, 9); $rl2 = $wrap('So liest du die Rechnung: ' . $b4['reading'], $CW - 24);
             $ensure(13 * count($rl2) + 18); $y -= 4;
-            $col(self::K_TINT); $P->rect($M, $y - 13 * count($rl2) + 6, $CW, 13 * count($rl2) + 10, true);
-            $col(self::K_INK); foreach ($rl2 as $ln) { $tx($M + 12, $y, $ln); $y -= 13; }
+            $col(self::K_TINT); $P->rrect($M, $y - 13 * count($rl2) + 2, $CW, 13 * count($rl2) + 16, 12, true);
+            $col(self::K_INK); foreach ($rl2 as $ln) { $tx($M + 16, $y, $ln); $y -= 13; }
             $y -= 8;
         }
         $para($b4['assumptions'], 7.5, self::K_MUTED);
@@ -3091,7 +3166,7 @@ class TIX_Platform_Offers {
                 $links = array_filter([$r['url'] ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', $r['app_store_url'] ? 'App Store' : '', $r['play_store_url'] ? 'Google Play' : '']);
                 $font(false, 9); $rt2 = $r['text'] !== '' ? $wrap($r['text'], $CW - 14) : [];
                 $ensure(30 + 12 * count($rt2));
-                $col(self::K_RED); $P->rect($M, $y + 2.5, 4, 4, true);
+                $col(self::K_RED); $P->rrect($M, $y + 2.5, 4, 4, 2.0, true);
                 $col(self::K_INK); $font(true, 10); $tx($M + 14, $y, $r['name']);
                 $col(self::K_MUTED); $font(false, 8); $rt($xR, $y, $r['mode_label']); $y -= 13;
                 $col(self::K_INK); $font(false, 9); foreach ($rt2 as $ln) { $tx($M + 14, $y, $ln); $y -= 12; }
@@ -3112,7 +3187,7 @@ class TIX_Platform_Offers {
                 $ensure($hgt + 8);
                 foreach ($pair as $j => $b) {
                     $x = $M + $j * ($colw + 24);
-                    $col(self::K_RED); $P->rect($x, $y + 2.5, 4, 4, true);
+                    $col(self::K_RED); $P->rrect($x, $y + 2.5, 4, 4, 2.0, true);
                     $col(self::K_INK); $font(true, 9.5); foreach ($wl[$j] as $k => $ln) $tx($x + 14, $y - 12 * $k, $ln);
                 }
                 $y -= $hgt + 6;
@@ -3130,13 +3205,12 @@ class TIX_Platform_Offers {
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
         if (!empty($meta['link'])) {
             $font(false, 8); $ll = $wrap($meta['link'], $CW - 28);
-            $bh = 44 + 11 * count($ll);
+            $bh = 54 + 11 * count($ll);
             $ensure($bh + 10);
-            $col(self::K_TINT); $P->rect($M, $y - $bh + 14, $CW, $bh, true);
-            $col(self::K_RED); $P->rect($M, $y - $bh + 14, 3, $bh, true);
-            $col(self::K_INK); $font(true, 11); $tx($M + 14, $y - 2, 'Interesse bestätigen – unverbindlich');
-            $col(self::K_MUTED); $font(false, 9); $tx($M + 14, $y - 17, 'Mit einem Klick unter diesem Link. Den Vertrag schicken wir dir danach separat.');
-            $col(self::K_RED); $font(false, 8); foreach ($ll as $k => $ln) $tx($M + 14, $y - 31 - 11 * $k, $ln);
+            $col(self::K_TINT); $P->rrect($M, $y - $bh + 16, $CW, $bh, 14, true);
+            $col(self::K_INK); $font(true, 11); $tx($M + 18, $y - 4, 'Interesse bestätigen – unverbindlich');
+            $col(self::K_MUTED); $font(false, 9); $tx($M + 18, $y - 19, 'Mit einem Klick unter diesem Link. Den Vertrag schicken wir dir danach separat.');
+            $col(self::K_RED); foreach ($ll as $k => $ln) $txm($M + 18, $y - 34 - 11 * $k, $ln, 7.5);
             $y -= $bh + 8;
         } else {
             $para('Interesse? Antworte einfach an ' . ($ct['email'] ?: 'uns') . ' – den Vertrag schicken wir dir danach separat.', 9.5);

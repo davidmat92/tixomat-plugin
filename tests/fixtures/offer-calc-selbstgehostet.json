@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.826",
+    "plugin_version": "1.38.827",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",
@@ -34,7 +34,10 @@
                     "fee_percent": null,
                     "fee_fixed": null,
                     "note": "je Website",
-                    "on": true
+                    "on": true,
+                    "gift": false,
+                    "base": false,
+                    "discount_percent": null
                 },
                 {
                     "id": "60335f77",
@@ -49,7 +52,10 @@
                     "fee_percent": null,
                     "fee_fixed": null,
                     "note": "",
-                    "on": true
+                    "on": true,
+                    "gift": false,
+                    "base": false,
+                    "discount_percent": null
                 },
                 {
                     "id": "7567abb1",
@@ -64,7 +70,10 @@
                     "fee_percent": null,
                     "fee_fixed": null,
                     "note": "",
-                    "on": true
+                    "on": true,
+                    "gift": false,
+                    "base": false,
+                    "discount_percent": null
                 }
             ],
             "discount": {
@@ -237,6 +246,7 @@
             "intro": "vielen Dank für das gute Gespräch. Wie besprochen schicken wir dir hier unser Angebot. Von Veranstaltern für Veranstalter: Wir stehen selbst seit über 20 Jahren hinter Events.",
             "conditions": "Alle Preise zzgl. MwSt., „Tickets über evendis“ inkl. MwSt. und Zahlung.\nBeim eigenen Shop zahlst du die Gebühr deines Zahlungsanbieters direkt an ihn (z. B. Mollie Karte 1,8 % + 0,25 € je Zahlung).\nDie eigene App setzt den eigenen Shop oder die Lizenz voraus.",
             "sales_rep": "david",
+            "auto_added": [],
             "accept_link": true,
             "internal_note": ""
         },

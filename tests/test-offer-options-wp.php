@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.827: Rabatt je Position (discount_percent), Guthaben braucht die App (Zubuchung), Shop ohne App; geschenkte Positionen (items[].gift bzw. Modul mit 0 €); kein Vergleich der Betriebsarten, Schrift Geist + Geist Mono, Rundungen und Abstände wie im Studio.
  * 1.38.826: PayPal als eigener Zahlungsanbieter, Verkauf über evendis.de nur mit Häkchen (unter „Optional“).
  * 1.38.825: Staffel 790/1.690 (bis 5.000/10.000, darüber Anfrage), Vertriebler (sales_reps/sales_rep), Blöcke nie über Seitengrenzen.
  * 1.38.823: Jahresvertrag nach Staffel (nie 12 × Monat), „Optional dazubuchbar“ (totals.base/with_options), Plattform-Vergleich nur mit compare_platform.
@@ -105,7 +106,7 @@ $eq('Vergleich eigener Shop: 790 + 1.788, Einrichtung 0, kein Hoster', [2578.0, 
 $eq('Plattform (du trägst): an evendis 1.000 × (25 × 2,9 % + 0,49)/1,19 = 1.021,01, keine Zahlungskosten, je Ticket und Prozent', [1021.01, 0.0, 23978.99, 23.98, 95.9, 25000.0],
     [$tt['platform']['to_evendis'], $tt['platform']['to_psp'], $tt['platform']['kept'], $tt['platform']['kept_per_ticket'], $tt['platform']['kept_percent'], $tt['platform']['guests_pay_variant']['kept']]);
 $eq('Selbstgehostet erlassen: einmalig 0 im Vergleich', 0.0, $O::plan_result($O::clean_data(['extras' => ['setup_free' => true]], $dt))['totals'][0]['modes']['self_hosted']['to_evendis_once']);
-$eq('Reihenfolge im Überblick: Angebots-Betriebsart zuerst; Plattform nur mit compare_platform (1.38.823)', [['self_hosted', 'own_shop'], ['self_hosted', 'own_shop', 'platform']],
+$eq('Überblick nur mit der Betriebsart des Angebots (kein Vergleich eigener Shop ↔ selbstgehostet, 1.38.827); Plattform nur mit compare_platform', [['self_hosted'], ['self_hosted', 'platform']],
     [$O::own_blocks($dt)['block4']['totals_order'], $O::own_blocks($O::clean_data(['compare_platform' => true], $dt))['block4']['totals_order']]);
 
 
@@ -237,6 +238,40 @@ $eq('evendis.de-Verkauf: Standard aus, kein Vorteil „Zusätzlich auf evendis.d
      in_array('Zusätzlich über evendis.de verkaufen', array_column($Bk1['block1']['option_rows'], 'name'), true), in_array('Zusätzlich über evendis.de verkaufen', array_column($Bk1['block1']['base_rows'], 'name'), true),
      $O::totals($k1)['has_options'], floatval($O::plan_for_offer($k1)['lead_base']['channel_fee'])]);
 $eq('Häkchen wieder aus → Vorteil wieder aus', false, in_array('evendis_kanal', array_column(array_filter($O::clean_data(['extras' => ['evendis_channel' => false]], $k1)['benefits'], function ($b) { return $b['on']; }), 'key'), true));
+
+// ── 1.38.827: kein Vergleich der Betriebsarten, Geist-Schrift, Rundungen
+$Bo7 = $O::own_blocks($O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop']));
+$pdf7raw = (string) $O::render_pdf($O::clean_data(['items' => [$it('shop')], 'mode' => 'own_shop']), ['number' => 'AN-T-7', 'date' => wp_date('Y-m-d')]);
+$pdf7 = $ptxt($pdf7raw);
+$eq('Eigener Shop: kein „Selbstgehostet“ in Überblick, Zeilen und PDF', [['own_shop'], false, false, false],
+    [$Bo7['block4']['totals_order'], isset($Bo7['block4']['rows'][0]['compare']), strpos($pdf7, 'Selbstgehostet') !== false, strpos($pdf7, 'zum Vergleich') !== false]);
+$sp7 = $O::strip_other_mode($O::plan_for_offer($O::clean_data(['items' => [$it('lizenz')], 'mode' => 'self_hosted'])));
+$eq('Kundenseite selbstgehostet: plan_calc ohne eigenen Shop', [false, false, true], [isset($sp7['totals'][0]['modes']['own_shop']), isset($sp7['rows'][0]['compare']), isset($sp7['totals'][0]['modes']['self_hosted'])]);
+$eq('PDF: Geist und Geist Mono eingebettet, runde Ecken (Bézier)', [true, true, true], [strpos($pdf7raw, '/BaseFont /Geist-Regular') !== false || !TIX_PDFA::available(), strpos($pdf7raw, '/BaseFont /GeistMono-Regular') !== false || !TIX_PDFA::available(), strpos($pdf7, ' c ') !== false]);
+$inv = new TIX_PDFA(595, 842, 48, 40); $inv->add_page(); $inv->set_font('Helvetica', 10); $inv->text(50, 800, 'Rechnung');
+$eq('Andere PDFs (Rechnungen) bleiben bei Manrope', [true, false], [strpos($inv->output(), 'Manrope-Regular') !== false, strpos((string) $inv->output(), 'Geist') !== false]);
+
+// ── 1.38.827: geschenkte Module
+$gi = [$it('shop'), $it('app', null, ['price' => 149]), $it('seating', null, ['gift' => true]), $it('app_modul', null, ['gift' => true]), $it('music', null, ['price' => 0])];
+$dg = $O::clean_data(['items' => $gi, 'mode' => 'own_shop', 'plan' => ['lead' => 2000]]);
+$tg = $O::totals($dg); $Bg = $O::own_blocks($dg);
+$rows_g = array_column($Bg['block1']['base_rows'], null, 'name');
+$eq('Geschenkt: gift bzw. Modul mit 0 € → 0 € – geschenkt im Grundpaket, Listenpreis durchgestrichen, nicht optional, Summe ohne, Faktenblock 790', [0.0, '0,00 € – geschenkt', '29,00 € / Monat', true, false, ['Eigene App – Basis'], 790.0, 790.0 + 1788.0, '790 €'],
+    [$dg['items'][3]['price'], $rows_g['App-Modul']['price'] ?? '', $rows_g['App-Modul']['list_price'] ?? '', !empty($rows_g['Modul Musikwunsch']['gift']), $O::is_optional($dg['items'][2]),
+     array_column($Bg['block1']['option_rows'], 'name'), $tg['base']['yearly']['net'], $tg['with_options']['yearly']['net'], $Bg['lead']['facts'][0]['value']]);
+$eq('PDF: „geschenkt“ sichtbar', true, strpos($ptxt($O::render_pdf($dg, ['number' => 'AN-T-G', 'date' => wp_date('Y-m-d')])), 'geschenkt') !== false);
+
+// ── 1.38.827: Rabatt je Position, Guthaben braucht die App (als Zubuchung), Shop läuft ohne App
+$dd = $O::clean_data(['items' => [$it('shop'), $it('app'), $it('app_einrichtung', null, ['discount_percent' => 50])], 'mode' => 'own_shop', 'plan' => ['lead' => 2000]]);
+$Bd = $O::own_blocks($dd); $rd = array_column($Bd['block1']['option_rows'], null, 'name');
+$eq('Rabatt 50 % auf App-Einrichtung: 745 statt 1.490 (durchgestrichen), Etikett, einmalig 745; App bleibt optional; Faktenblock 790', [745.0, '1.490,00 €', '50 % Rabatt', 745.0, true, '790 €'],
+    [$dd['items'][2]['price'], $rd['App-Einrichtung']['list_price'] ?? '', $rd['App-Einrichtung']['discount_label'] ?? '', $O::totals($dd)['once']['net'], isset($rd['Eigene App – Basis']), $Bd['lead']['facts'][0]['value']]);
+$dw = $O::clean_data(['items' => [$it('shop'), $it('wallet', null, ['gift' => true])], 'mode' => 'own_shop']);
+$Bw = $O::own_blocks($dw); $rw = array_column($Bw['block1']['option_rows'], null, 'name');
+$eq('Guthaben ohne App → App + Einrichtung als Zubuchung angehakt (nicht im Grundpaket), Kennzeichen, Hinweis; Faktenblock ohne App', [['app', 'app_einrichtung'], true, 'für Modul Guthaben nötig', ['tix_offer_needs_app'], '790 €', 790.0],
+    [$dw['auto_added'], isset($rw['Eigene App – Basis']), $rw['Eigene App – Basis']['needed_for'] ?? '', array_column($O::mode_hints($dw), 'code'), $Bw['lead']['facts'][0]['value'], $O::totals($dw)['base']['yearly']['net']]);
+$pdf_w = $ptxt($O::render_pdf($dw, ['number' => 'AN-T-W', 'date' => wp_date('Y-m-d')]));
+$eq('PDF: „Dein Shop läuft komplett ohne App“ sichtbar', true, strpos($pdf_w, 'komplett ohne App') !== false);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

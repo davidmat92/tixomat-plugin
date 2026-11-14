@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.826",
+    "plugin_version": "1.38.827",
     "name": "plan-defaults",
     "request": {
         "route": "POST /platform/offers/plan",
