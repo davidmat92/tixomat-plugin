@@ -22,6 +22,8 @@ class TIX_PDFA {
     private $footer = '';
     private $logo = null;      // ['data' => jpeg, 'w' => px, 'h' => px]
     private $logo_used = false;
+    /** Weitere Bilder (1.38.834): [Name => ['data' => jpeg, 'w', 'h', 'used']], Namen Im2, Im3 … (Im1 bleibt das Logo) */
+    private $images = [];
     private $files = [];       // [['name','mime','data','desc','rel']]
     private $meta = ['title' => '', 'author' => '', 'subject' => '', 'xmp_extra' => '', 'xmp_schemas' => ''];
     private static $fonts = [];
@@ -260,6 +262,46 @@ class TIX_PDFA {
         $this->logo_used = true;
     }
 
+    /**
+     * Zusätzliches Bild laden (1.38.834): Datei-Pfad oder Bytes (PNG/JPEG/WebP), verkleinert auf höchstens $max_w × $max_h Pixel,
+     * Transparenz auf $bg (RGB 0–1) gelegt, als JPEG gespeichert → Name (Im2 …) oder false. Rechnungen nutzen das nicht.
+     */
+    public function add_image($src, $max_w = 600, $max_h = 900, array $bg = [1, 1, 1]) {
+        if (!function_exists('imagecreatefromstring')) return false;
+        $bytes = is_string($src) && strlen($src) < 1024 && @is_readable($src) ? @file_get_contents($src) : $src;
+        if (!$bytes || !is_string($bytes)) return false;
+        $im = @imagecreatefromstring($bytes);
+        if (!$im) return false;
+        $w = imagesx($im); $h = imagesy($im);
+        $k = min(1, $max_w / max(1, $w), $max_h / max(1, $h));
+        $nw = max(1, (int) round($w * $k)); $nh = max(1, (int) round($h * $k));
+        $out = imagecreatetruecolor($nw, $nh);
+        imagefill($out, 0, 0, imagecolorallocate($out, (int) round($bg[0] * 255), (int) round($bg[1] * 255), (int) round($bg[2] * 255)));
+        imagealphablending($out, true);
+        imagecopyresampled($out, $im, 0, 0, 0, 0, $nw, $nh, $w, $h);
+        ob_start(); imagejpeg($out, null, 85); $jpg = ob_get_clean();
+        imagedestroy($im); imagedestroy($out);
+        if (!$jpg) return false;
+        $name = 'Im' . (count($this->images) + 2);
+        $this->images[$name] = ['data' => $jpg, 'w' => $nw, 'h' => $nh, 'used' => false];
+        return $name;
+    }
+
+    /** Seitenverhältnis Höhe/Breite eines geladenen Bildes */
+    public function image_ratio($name) {
+        return isset($this->images[$name]) ? $this->images[$name]['h'] / max(1, $this->images[$name]['w']) : 1.0;
+    }
+
+    /** Bild in ein Feld zeichnen (unten links $x, $y), Seitenverhältnis bleibt, mittig im Feld */
+    public function draw_image($name, $x, $y, $box_w, $box_h) {
+        if (!isset($this->images[$name])) return;
+        $r = $this->image_ratio($name);
+        $w = $box_w; $h = $w * $r;
+        if ($h > $box_h) { $h = $box_h; $w = $h / $r; }
+        $this->cur .= sprintf("q %.2F 0 0 %.2F %.2F %.2F cm /%s Do Q\n", $w, $h, $x + ($box_w - $w) / 2, $y + ($box_h - $h) / 2, $name);
+        $this->images[$name]['used'] = true;
+    }
+
     // ═══════════════ Anhänge, Metadaten ═══════════════
 
     /** Datei als Associated File anhängen ($rel: Alternative | Data | Source | Supplement). */
@@ -354,7 +396,9 @@ class TIX_PDFA {
         if ($this->logo && $this->logo_used) {
             $img = $add($stream(sprintf('<</Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode>>', $this->logo['w'], $this->logo['h']), $this->logo['data'], false));
         }
-        $res = '<</Font <<' . implode(' ', array_map(function ($k) use ($font_ref) { return '/' . $k . ' ' . $font_ref[$k] . ' 0 R'; }, array_keys($font_ref))) . '>>' . ($img ? ' /XObject <</Im1 ' . $img . ' 0 R>>' : '') . '>>';
+        $xo = $img ? ['/Im1 ' . $img . ' 0 R'] : [];
+        foreach ($this->images as $nm => $im) if ($im['used']) $xo[] = '/' . $nm . ' ' . $add($stream(sprintf('<</Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode>>', $im['w'], $im['h']), $im['data'], false)) . ' 0 R';
+        $res = '<</Font <<' . implode(' ', array_map(function ($k) use ($font_ref) { return '/' . $k . ' ' . $font_ref[$k] . ' 0 R'; }, array_keys($font_ref))) . '>>' . ($xo ? ' /XObject <<' . implode(' ', $xo) . '>>' : '') . '>>';
         $res_id = $add($res);
         $kids = [];
         $n = count($this->pages);

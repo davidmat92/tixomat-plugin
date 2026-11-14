@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.834: Referenz-Bilder (mehrere Bilder je PDF), Etikett Mehrere Events/Einzelevent.
  * 1.38.833: „So kommen die Zahlen zustande“ auf eigener Seite.
  * 1.38.832: Referenzen im Kurzangebot.
  * 1.38.831: kein Vorsteuer-Satz, Kurzangebot (length short, ≤ 2 Seiten).
@@ -354,6 +355,23 @@ $ix = null; foreach ($pg33 as $i => $c) if (strpos($c, 'So kommen die Zahlen zus
 $eq('Erklärung auf eigener Seite: beginnt nach Seite 1 (Anschreiben), alle Schritte und Fußnote auf derselben Seite, ohne Faktenblock/Anrede', [true, true, true, false, false],
     [$ix !== null && $ix > 0, $ix !== null && strpos($pg33[$ix], 'Was dir bleibt') !== false && strpos($pg33[$ix], 'Deine Ticketeinnahmen') !== false, $ix !== null && strpos($pg33[$ix], 'Netto = ohne') !== false,
      $ix !== null && strpos($pg33[$ix], 'Hallo') !== false, $ix !== null && strpos($pg33[$ix], 'das zahlst du, das bleibt dir') !== false]);
+
+// ── 1.38.834: Referenz-Bilder, mehrere Bilder je PDF, Etikett
+$pa = new TIX_PDFA(595, 842, 48, 40); $pa->add_page(); $pa->set_font('Helvetica', 10); $pa->text(50, 800, 'Rechnung'); $plain = $pa->output();
+$pb = new TIX_PDFA(595, 842, 48, 40); $pb->add_page(); $n1 = $pb->add_image(file_get_contents(TIXOMAT_PATH . 'assets/img/references/kitchenklub.png'), 600, 900); $n2 = $pb->add_image(file_get_contents(TIXOMAT_PATH . 'assets/img/references/mallorca-festival-xxl.png'), 600, 900);
+$pb->draw_image($n1, 50, 500, 80, 150); $pb->draw_image($n2, 150, 500, 80, 150); $two = $pb->output();
+$eq('PDF-Klasse: ohne Bilder kein XObject (Rechnungen unverändert), mit zwei Bildern Im2 und Im3 (JPEG, ≤ 600 px)', [false, true, true, true],
+    [strpos($plain, '/XObject') !== false, strpos($two, '/Im2 ') !== false && strpos($two, '/Im3 ') !== false, substr_count($two, '/Subtype /Image') === 2, (bool) preg_match('/\/Width (\d+)/', $two, $mw) && intval($mw[1]) <= 600]);
+$bak34 = get_option($O::OPT_CATALOG, null);
+$c34 = $O::catalog(); $c34['references'] = $O::clean_references([['key' => 'kitchenklub', 'name' => 'KitchenKlub', 'text' => 'Club in Wuppertal – viele Events im Jahr', 'tag' => 'Mehrere Events', 'url' => 'https://kitchenklub.de', 'mode' => 'own_shop', 'approved' => true],
+    ['key' => 'mallorca-festival-xxl', 'name' => 'Mallorca Festival XXL', 'text' => 'Open-Air-Festival – ein großes Einzelevent im Jahr', 'tag' => 'Einzelevent', 'url' => 'https://mallorca-festival-xxl.de', 'mode' => 'own_shop', 'approved' => true]]);
+update_option($O::OPT_CATALOG, $c34, false);
+$d34 = $O::clean_data(['customer' => ['company' => 'Bild'], 'items' => [$it('shop'), $it('app'), $it('wallet', null, ['gift' => true])], 'mode' => 'own_shop', 'references' => ['kitchenklub', 'mallorca-festival-xxl']]);
+$l34 = (string) $O::render_pdf($d34, ['number' => 'AN-T-34', 'date' => wp_date('Y-m-d')]);
+$s34 = (string) $O::render_pdf($d34, ['number' => 'AN-T-34', 'date' => wp_date('Y-m-d'), 'length' => 'short', 'link' => 'https://evendis.de/?tix_offer=x']);
+$eq('Referenzen mit eingebautem Bild (lang und kurz), Etiketten „Mehrere Events“/„Einzelevent“, kurz ≤ 2 Seiten', [true, true, true, true, true],
+    [substr_count($l34, '/Subtype /Image') >= 3, substr_count($s34, '/Subtype /Image') >= 3, strpos($ptxt($l34), 'MEHRERE EVENTS') !== false, strpos($ptxt($s34), 'EINZELEVENT') !== false, substr_count($s34, '/Type /Page /Parent') <= 2]);
+if ($bak34 === null) delete_option($O::OPT_CATALOG); else update_option($O::OPT_CATALOG, $bak34, false);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

@@ -385,6 +385,7 @@ class TIX_Platform_Offers {
             $url = function ($k) use ($r) { $u = esc_url_raw(trim((string) ($r[$k] ?? ''))); return preg_match('#^https://#', $u) ? $u : ''; };
             $out[] = ['key' => $key, 'customer_key' => sanitize_key((string) ($r['customer_key'] ?? '')) ?: null, 'name' => $name, 'url' => $url('url'), 'logo_url' => $url('logo_url'), 'image_url' => $url('image_url'),
                 'app_store_url' => $url('app_store_url'), 'play_store_url' => $url('play_store_url'), 'text' => self::txt($r['text'] ?? '', 160, false),
+                'tag' => self::txt($r['tag'] ?? '', 40, false), // z. B. „Mehrere Events“ bzw. „Einzelevent“ (1.38.834)
                 'mode' => in_array($r['mode'] ?? '', ['own_shop', 'self_hosted'], true) ? $r['mode'] : 'own_shop', 'approved' => !empty($r['approved'])];
         }
         return $out;
@@ -1868,6 +1869,23 @@ class TIX_Platform_Offers {
             'layout' => self::layout_of($d), 'own' => self::layout_of($d) === 'own' ? (function ($bl) { if (!$bl) return null; unset($bl['totals']); $bl['plan_calc'] = self::strip_other_mode($bl['compare_platform'] ? $bl['plan'] : self::strip_platform($bl['plan'])); unset($bl['plan']); return $bl; })(self::own_blocks($d)) : null];
     }
 
+    /** Bild einer Referenz (1.38.834): image_url (Plugin-, Upload- oder https-Adresse) bzw. eingebautes Bild assets/img/references/<key>.png → Bytes | null */
+    public static function reference_image_bytes(array $r) {
+        $base = defined('TIXOMAT_PATH') ? TIXOMAT_PATH : dirname(__DIR__) . '/';
+        $u = (string) ($r['image_url'] ?? '') ?: (string) ($r['logo_url'] ?? '');
+        if ($u !== '') {
+            if (defined('TIXOMAT_URL') && strpos($u, TIXOMAT_URL) === 0) { $p = $base . substr($u, strlen(TIXOMAT_URL)); return is_readable($p) ? (string) file_get_contents($p) : null; }
+            $up = function_exists('wp_get_upload_dir') ? wp_get_upload_dir() : null;
+            if ($up && strpos($u, $up['baseurl']) === 0) { $p = str_replace($up['baseurl'], $up['basedir'], $u); return is_readable($p) ? (string) file_get_contents($p) : null; }
+            if (preg_match('#^https://#', $u) && function_exists('wp_remote_get')) {
+                $res = wp_remote_get($u, ['timeout' => 5]);
+                if (!is_wp_error($res) && intval(wp_remote_retrieve_response_code($res)) === 200) return (string) wp_remote_retrieve_body($res);
+            }
+        }
+        $p = $base . 'assets/img/references/' . sanitize_key((string) ($r['key'] ?? '')) . '.png';
+        return is_readable($p) ? (string) file_get_contents($p) : null;
+    }
+
     /** Bedingungen ohne den Plattform-Satz „Tickets über evendis …“, außer evendis_channel bzw. compare_platform ist an (1.38.828) */
     public static function conditions_text(array $d) {
         $c = trim((string) ($d['conditions'] ?? ''));
@@ -2190,11 +2208,11 @@ class TIX_Platform_Offers {
         if ($B['references']) {
             $out .= '<div class="c"><h2>So sieht es bei anderen aus</h2>';
             foreach ($B['references'] as $r) {
-                $img = $r['image_url'] ?: $r['logo_url'];
+                $img = $r['image_url'] ?: ($r['logo_url'] ?: ((defined('TIXOMAT_PATH') && is_readable(TIXOMAT_PATH . 'assets/img/references/' . $r['key'] . '.png')) ? TIXOMAT_URL . 'assets/img/references/' . $r['key'] . '.png' : ''));
                 $links = array_filter([!empty($r['url']) ? '<a href="' . esc_url($r['url']) . '" rel="noopener">' . $e(preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/'))) . '</a>' : '',
                     !empty($r['app_store_url']) ? '<a href="' . esc_url($r['app_store_url']) . '" rel="noopener">App Store</a>' : '', !empty($r['play_store_url']) ? '<a href="' . esc_url($r['play_store_url']) . '" rel="noopener">Google Play</a>' : '']);
-                $out .= '<div class="b" style="align-items:center">' . ($img ? '<img src="' . esc_url($img) . '" alt="' . esc_attr($r['name']) . '" style="width:72px;height:72px;object-fit:cover;border-radius:12px;flex:0 0 72px">' : '<i></i>')
-                    . '<div><strong>' . $e($r['name']) . '</strong> <span class="mu">· ' . $e($r['mode_label']) . '</span>' . ($r['text'] !== '' ? '<div>' . $e($r['text']) . '</div>' : '') . ($links ? '<div class="mu">' . implode(' · ', $links) . '</div>' : '') . '</div></div>';
+                $out .= '<div class="b" style="align-items:center">' . ($img ? '<img src="' . esc_url($img) . '" alt="' . esc_attr($r['name']) . '" style="width:72px;height:96px;object-fit:contain;background:#F6F7F9;border-radius:12px;flex:0 0 72px">' : '<i></i>')
+                    . '<div><strong>' . $e($r['name']) . '</strong> <span class="mu">· ' . $e($r['mode_label']) . '</span>' . (($r['tag'] ?? '') !== '' ? ' <span class="opt" style="color:#FC2F55;border-color:#F5B5BF">' . $e($r['tag']) . '</span>' : '') . ($r['text'] !== '' ? '<div>' . $e($r['text']) . '</div>' : '') . ($links ? '<div class="mu">' . implode(' · ', $links) . '</div>' : '') . '</div></div>';
             }
             $out .= '</div>';
         }
@@ -2718,7 +2736,8 @@ class TIX_Platform_Offers {
             public $pdf; public $dry = false; public $inblock = false; public $rehead = null; public $y0 = 0;
             public function __construct($p) { $this->pdf = $p; }
             public function __call($m, $a) {
-                if ($this->dry && in_array($m, ['text', 'rect', 'rrect', 'draw_logo', 'add_page'], true)) return null;
+                if ($this->dry && in_array($m, ['text', 'rect', 'rrect', 'draw_logo', 'draw_image', 'add_page'], true)) return null;
+                if (!method_exists($this->pdf, $m) && in_array($m, ['draw_image', 'add_image'], true)) return null; // einfacher PDF-Schreiber: ohne Bilder
                 if ($m === 'rrect' && !method_exists($this->pdf, 'rrect')) return $this->pdf->rect($a[0], $a[1], $a[2], $a[3], $a[5] ?? true); // einfacher PDF-Schreiber: eckig
                 return call_user_func_array([$this->pdf, $m], $a);
             }
@@ -2801,6 +2820,9 @@ class TIX_Platform_Offers {
             if ($logo) { $w = $h / $logo; $P->draw_logo($x, $y, $w, $h); return $w; }
             $col([1, 1, 1]); $font(true, $h * 0.9); $tx($x, $y + $h * 0.15, 'evendis'); return 0;
         };
+        // Referenz-Bilder (1.38.834): je Referenz ein Bild (Im2 …), auf die Kachelfarbe gelegt, höchstens 600 px
+        $ref_img = [];
+        foreach ((array) $B['references'] as $r) { $bytes = method_exists($pdf, 'add_image') ? self::reference_image_bytes($r) : null; $ref_img[$r['key']] = $bytes ? $pdf->add_image($bytes, 600, 900, self::K_SOFT) : false; }
         $newpage = function ($first = false) use (&$y, $P, $col, $font, $tx, $rt, $mark, $M, $W, $H, $xR, $nr, $who) {
             $P->add_page();
             if ($first) { $y = $H; return; }
@@ -2944,25 +2966,27 @@ class TIX_Platform_Offers {
         // ═══ Kurzangebot (1.38.831, User: „ein bisschen komprimiert … ob lang oder kurz“): höchstens 2 Seiten, gleiches Design
         if ($short) {
             $xPs = $xR - 8;
-            // Referenzen kompakt (1.38.832): bis zu 2 kleine Kacheln nebeneinander – direkt unter dem Faktenblock (passt meist noch auf Seite 1)
+            // Referenzen kompakt (1.38.832, mit Bild 1.38.834): bis zu 2 kleine Bildkacheln nebeneinander direkt unter dem Faktenblock
             if ($B['references']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
                 $y -= 12;
                 $col(self::K_INK); $font(true, 10.5); $tx($M, $y, 'So sieht es bei anderen aus'); $y -= 12;
                 foreach (array_chunk($B['references'], 2) as $pair) {
                     $tw2 = ($CW - 12) / 2; $tiles = []; $hmax = 0;
                     foreach ($pair as $r) {
-                        $font(false, 8); $tl = $wrap($r['text'], $tw2 - 24);
+                        $im = $ref_img[$r['key']] ?? false; $iw = $im ? 40 : 0;
+                        $font(false, 7.5); $tl = $wrap($r['text'], $tw2 - $iw - 30);
                         $links = implode(' · ', array_filter([!empty($r['url']) ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', !empty($r['app_store_url']) ? 'App Store' : '', !empty($r['play_store_url']) ? 'Google Play' : '']));
-                        $tiles[] = [$r, $tl, $links]; $hmax = max($hmax, 34 + 10 * count($tl) + ($links !== '' ? 11 : 0));
+                        $tiles[] = [$r, $tl, $links, $im, $iw]; $hmax = max($hmax, $im ? 84 : 0, 34 + (($r['tag'] ?? '') !== '' ? 14 : 0) + 9 * count($tl) + ($links !== '' ? 11 : 0));
                     }
-                    $ensure($hmax + 8);
-                    foreach ($tiles as $j => [$r, $tl, $links]) {
+                    foreach ($tiles as $j => [$r, $tl, $links, $im, $iw]) {
                         $x = $M + $j * ($tw2 + 12);
                         $col(self::K_SOFT); $P->rrect($x, $y - $hmax + 8, $tw2, $hmax, 12, true);
-                        $yy = $y - 10;
-                        $col(self::K_INK); $font(true, 9.5); $tx($x + 12, $yy, $r['name']); $yy -= 12;
-                        $col(self::K_MUTED); $font(false, 8); foreach ($tl as $ln) { $tx($x + 12, $yy, $ln); $yy -= 10; }
-                        if ($links !== '') { $col(self::K_RED); $font(false, 8); $tx($x + 12, $yy, $links); }
+                        if ($im) $P->draw_image($im, $x + 8, $y - $hmax + 14, $iw, $hmax - 12);
+                        $tx0 = $x + 14 + $iw; $yy = $y - 10;
+                        $col(self::K_INK); $font(true, 9.5); $tx($tx0, $yy, $r['name']); $yy -= 13;
+                        if (($r['tag'] ?? '') !== '') { $font(true, 6); $lb = mb_strtoupper($r['tag']); $pw = $wd($lb) + 10; $col(self::K_TINT); $P->rrect($tx0, $yy - 3, $pw, 11, 5.5, true); $col(self::K_RED); $tx($tx0 + 5, $yy, $lb); $yy -= 14; }
+                        $col(self::K_MUTED); $font(false, 7.5); foreach ($tl as $ln) { $tx($tx0, $yy, $ln); $yy -= 9; }
+                        if ($links !== '') { $yy -= 2; $col(self::K_RED); $font(false, 7.5); $tx($tx0, $yy, $links); }
                     }
                     $y -= $hmax + 6;
                 }
@@ -3320,19 +3344,29 @@ class TIX_Platform_Offers {
             $para(trim($fc['payment_note'] . ' ' . $fc['rates_note'] . ' ' . $fc['basis_note']), 7.5, self::K_MUTED);
         }
 
-        // ═══ Referenzen
+        // ═══ Referenzen (1.38.834: Karten mit Bild, Etikett „Mehrere Events“/„Einzelevent“)
         if ($B['references']) for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
             $section('So sieht es bei anderen aus');
-            foreach ($B['references'] as $r) {
-                $links = array_filter([!empty($r['url']) ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', !empty($r['app_store_url']) ? 'App Store' : '', !empty($r['play_store_url']) ? 'Google Play' : '']);
-                $font(false, 9); $rt2 = $r['text'] !== '' ? $wrap($r['text'], $CW - 14) : [];
-                $ensure(30 + 12 * count($rt2));
-                $col(self::K_RED); $P->rrect($M, $y + 2.5, 4, 4, 2.0, true);
-                $col(self::K_INK); $font(true, 10); $tx($M + 14, $y, $r['name']);
-                $col(self::K_MUTED); $font(false, 8); $rt($xR, $y, $r['mode_label']); $y -= 13;
-                $col(self::K_INK); $font(false, 9); foreach ($rt2 as $ln) { $tx($M + 14, $y, $ln); $y -= 12; }
-                if ($links) { $col(self::K_RED); $font(false, 8.5); $tx($M + 14, $y, implode(' · ', $links)); $y -= 12; }
-                $y -= 8;
+            foreach (array_chunk($B['references'], 2) as $pair) {
+                $cw2 = ($CW - 14) / 2; $ch = 0; $cards = [];
+                foreach ($pair as $r) {
+                    $im = $ref_img[$r['key']] ?? false; $iw = $im ? 64 : 0;
+                    $font(false, 8.5); $tl = $wrap($r['text'], $cw2 - $iw - 40);
+                    $cards[] = [$r, $im, $iw, $tl]; $ch = max($ch, $im ? 136 : 0, 52 + 11 * count($tl) + 12);
+                }
+                $ensure($ch + 10);
+                foreach ($cards as $j => [$r, $im, $iw, $tl]) {
+                    $x = $M + $j * ($cw2 + 14);
+                    $col(self::K_SOFT); $P->rrect($x, $y - $ch + 8, $cw2, $ch, 14, true);
+                    if ($im) $P->draw_image($im, $x + 10, $y - $ch + 18, $iw, $ch - 20);
+                    $tx0 = $x + 16 + $iw; $yy = $y - 12;
+                    $col(self::K_INK); $font(true, 10.5); $tx($tx0, $yy, $r['name']); $yy -= 15;
+                    if (($r['tag'] ?? '') !== '') { $font(true, 6.5); $lb = mb_strtoupper($r['tag']); $pw = $wd($lb) + 10; $col(self::K_TINT); $P->rrect($tx0, $yy - 3, $pw, 12, 6, true); $col(self::K_RED); $tx($tx0 + 5, $yy + 0.5, $lb); $yy -= 16; }
+                    $col(self::K_INK); $font(false, 8.5); foreach ($tl as $ln) { $tx($tx0, $yy, $ln); $yy -= 11; }
+                    $links = array_filter([!empty($r['url']) ? preg_replace('#^https://(www\.)?#', '', rtrim($r['url'], '/')) : '', !empty($r['app_store_url']) ? 'App Store' : '', !empty($r['play_store_url']) ? 'Google Play' : '']);
+                    if ($links) { $yy -= 3; $col(self::K_RED); $font(false, 8); foreach ($wrap(implode(' · ', $links), $cw2 - $iw - 40) as $ln) { $tx($tx0, $yy, $ln); $yy -= 10; } }
+                }
+                $y -= $ch + 8;
             }
         }
 

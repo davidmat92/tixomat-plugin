@@ -6770,3 +6770,9 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 ## 221. Angebots-PDF: „So kommen die Zahlen zustande“ auf eigener Seite (ab 1.38.833)
 - Langfassung: Der Abschnitt (Überschrift, alle Schritte, Begriffe) beginnt immer auf einer neuen Seite und bleibt zusammen; Seite 1 endet nach Faktenblock, Festpreis und Anschreiben. Kurzfassung unverändert.
 - **Test:** `test-offer-options-wp` (126); Fixtures 1.38.833.
+
+## 222. Angebote: Referenzen mit Bild und Etikett, mehrere Bilder je PDF (ab 1.38.834)
+- **PDF-Klasse:** `TIX_PDFA::add_image($bytes|$pfad, $max_w = 600, $max_h = 900, $bg)` (PNG/JPEG/WebP über GD, verkleinert, Transparenz auf die Kachelfarbe, als JPEG) → `Im2`, `Im3` …; `draw_image($name, $x, $y, $box_w, $box_h)`, `image_ratio()`. `Im1` bleibt das Logo. Ohne Bilder ist die Ausgabe wie bisher (Rechnungen, Abrechnungen unverändert).
+- **Referenzen:** Feld `tag` (z. B. „Mehrere Events“, „Einzelevent“); Bild aus `image_url` (Plugin-, Upload- oder https-Adresse) bzw. eingebaut `assets/img/references/<key>.png` (KitchenKlub: App-Startseite, Mallorca Festival XXL: App-Startseite). Lang: Karten mit Bild, Name, Etikett, Satz und Links, zwei nebeneinander; kurz: zwei kleine Bildkacheln unter dem Faktenblock (≤ 2 Seiten); online mit Bild und Etikett.
+- Skript `uebergaben/referenzen-setzen.php` setzt Texte („viele Events im Jahr (wöchentliche Partys)“ bzw. „ein großes Einzelevent im Jahr“), Etikett und Bild-Adresse.
+- **Test:** `test-offer-options-wp` (128); Fixtures 1.38.834.
