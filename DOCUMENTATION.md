@@ -6701,3 +6701,11 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - `TIX_Platform_Offers::lead_texts()` (Faktenblock, Schritte, Begriffe), PDF Seite 1 oben, online `page_lead()`; über der Staffel die Kacheln wie bisher.
 - **Test:** `test-offer-options-wp` (73 Plattform, 57 Einzel-Seiten); Fixtures 1.38.822.
 
+
+## 211. Angebote: Jahresvertrag nach Staffel, „Optional dazubuchbar“, Plattform-Vergleich nur auf Wunsch, PDF neu (ab 1.38.823)
+- **Vertrag:** `uebergaben/vertrag-angebote-planrechnung.md` (Abschnitt 1.38.823).
+- **Fehler „12 × 79“:** Katalog-Position `shop` hatte nur einen Monatspreis (79 €, Vorgabe-Intervall monatlich) → 948 €/Jahr. Jetzt sind `shop` und `lizenz` in `clean_data` immer `yearly`; Listenpreis = Staffel bei der führenden Ticketzahl (`tier_tickets()` = `TIX_Offer_Plan::lead_of()`: `plan.lead` → `plan.custom` → Hochrechnung → 5.000), über der höchsten Stufe kein Listenpreis (fehlender Preis, „auf Anfrage“). Katalog `shop` ohne Monatspreis. Monatspreis nur bei „Eigener Shop – monatlich kündbar“ (Text „bei monatlicher Zahlung“). Rückfall der Hochrechnung je Event: 1. Staffel-Stufe statt 12 × 79.
+- **Optional:** `is_optional()` = Modul oder Zusatzleistung außer Einrichtung (wie `isOptionalItem` im Studio). `totals` liefert `lines[].optional`, `base`, `with_options`, `options`, `has_options`; `plan_calc.lead_base` = Faktenblock nur mit dem Grundpaket. PDF und online: Block „Grundpaket“ und „Optional dazubuchbar“ (Kennzeichen „optional“) mit getrennten Summen.
+- **`data.compare_platform`** (Standard `false`, nur `true` schaltet ein): ohne den Schalter kein Plattform-Vergleich in Faktenblock, Schritten, Gast-Tabelle, Planrechnung, Kachel, Hochrechnung je Event (eigener Betrieb) und in `public_view.own.plan_calc` (`strip_platform()`).
+- **PDF „Dein eigener Ticketshop“** neu gesetzt (`render_pdf_own`): weißer Kopf mit Wortmarke, Faktenblock mit je-Ticket-Werten, Umbruch nach Textbreite, Kopf auf Folgeseiten, Fuß mit Nummer, Gültigkeit, Kontakt und Seitenzahl, Anbieter-Angaben am Ende. Muster: `uebergaben/angebot-muster-eigener-shop.pdf`, `…-selbstgehostet.pdf`.
+- **Test:** `test-offer-options-wp` (89), `test-platform-offers-wp` (42, Erwartungen auf Staffel umgestellt); Fixtures 1.38.823.

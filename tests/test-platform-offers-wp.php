@@ -40,9 +40,9 @@ po_eq('Rechte: Gast 401, Veranstalter 403, Vertrieb 200, Admin 200; Katalog änd
 wp_set_current_user($s1);
 [$st, $d] = po_rest('GET', '/platform/offer-catalog');
 $it = array_column((array) ($d['catalog']['items'] ?? []), null, 'key');
-po_eq('Katalog: Preise der Preisseite (Plattform 2,9 % + 0,49 €, Shop 79 bzw. 99 monatlich kündbar, Lizenz 699, App 149 + 1.490, kein Startangebot)',
-    [200, false, false, 2.9, 0.49, 79.0, 99.0, 699.0, 149.0, ['app_einrichtung'], 1490.0, 249.0, true, false, false],
-    [$st, $d['custom'] ?? null, $d['can_edit'] ?? null, floatval($it['tickets']['fee_percent'] ?? 0), floatval($it['tickets']['fee_fixed'] ?? 0), floatval($it['shop']['prices']['monthly'] ?? 0),
+po_eq('Katalog: Preise der Preisseite (Plattform 2,9 % + 0,49 €, Shop Jahresvertrag nach Staffel ohne Monatspreis (1.38.823) bzw. 99 monatlich kündbar, Lizenz 699, App 149 + 1.490, kein Startangebot)',
+    [200, false, false, 2.9, 0.49, 'yearly', 99.0, 699.0, 149.0, ['app_einrichtung'], 1490.0, 249.0, true, false, false],
+    [$st, $d['custom'] ?? null, $d['can_edit'] ?? null, floatval($it['tickets']['fee_percent'] ?? 0), floatval($it['tickets']['fee_fixed'] ?? 0), isset($it['shop']['prices']['monthly']) ? 'monthly' : ($it['shop']['default_interval'] ?? ''),
         floatval($it['shop_monatlich']['prices']['monthly'] ?? 0), floatval($it['lizenz']['prices']['yearly'] ?? 0), floatval($it['app']['prices']['monthly'] ?? 0), $it['app']['adds'] ?? null,
         floatval($it['app_einrichtung']['prices']['once'] ?? 0), floatval($it['app_alle_module']['prices']['monthly'] ?? 0), count((array) ($d['catalog']['competitors'] ?? [])) >= 10,
         strpos(wp_json_encode($d['catalog'] ?? [], JSON_UNESCAPED_UNICODE), '31.01.2027') !== false, isset($it['jahresvertrag'])]);
@@ -57,8 +57,8 @@ $keys = array_column((array) ($o1['data']['items'] ?? []), 'catalog_key');
 po_eq('Anlegen: 201, Nummer AN-JJJJ-NNNN, Entwurf, App-Einrichtung automatisch dazu (ab 819 auch „Einrichtung inklusive“ beim eigenen Shop)', [201, 1, 'draft', ['shop', 'app', 'datenumzug', 'app_einrichtung', 'einrichtung']],
     [$st, preg_match("/^AN-$y-\\d{4}$/", (string) ($o1['number'] ?? '')), $o1['status'] ?? '', $keys]);
 $t = $o1['totals'] ?? [];
-po_eq('Summen: Jahr 12 × 79 + 12 × 149 = 2.736, −10 % = 2.462,40 netto, 2.930,26 brutto; einmalig 250 + 1.490 = 1.740 netto, 2.070,60 brutto; 205,20 im Monat',
-    [2736.0, 273.6, 2462.4, 467.86, 2930.26, 1740.0, 0.0, 2070.6, 205.2, []],
+po_eq('Summen: Jahr 790 (Staffel, nicht 12 × 79) + 12 × 149 = 2.578, −10 % = 2.320,20 netto, 2.761,04 brutto; einmalig 250 + 1.490 = 1.740 netto, 2.070,60 brutto; 193,35 im Monat',
+    [2578.0, 257.8, 2320.2, 440.84, 2761.04, 1740.0, 0.0, 2070.6, 193.35, []],
     [floatval($t['yearly']['net'] ?? 0), floatval($t['yearly']['discount'] ?? 0), floatval($t['yearly']['net_after'] ?? 0), floatval($t['yearly']['tax'] ?? 0), floatval($t['yearly']['gross'] ?? 0),
         floatval($t['once']['net'] ?? 0), floatval($t['once']['discount'] ?? 0), floatval($t['once']['gross'] ?? 0), floatval($t['monthly_net'] ?? 0), $t['missing_prices'] ?? null]);
 $bk = array_column((array) ($o1['data']['benefits'] ?? []), 'key');
@@ -75,10 +75,10 @@ po_eq('Nummernkreis fortlaufend; Ticketplattform als Gebühr je Ticket, keine Su
 $items = $o1['data']['items']; $items[0]['price'] = 69;
 [$st, $d] = po_rest('PATCH', '/platform/offers/' . $o1['id'], ['items' => $items, 'benefits' => array_merge($o1['data']['benefits'], [['title' => 'Eigener Punkt', 'text' => 'Persönliche Betreuung']])]);
 $ln = $d['offer']['totals']['lines'][0] ?? [];
-po_eq('Preis überschreiben: Listenpreis bleibt 79, Preis 69, markiert; eigener Vorteil', [200, 79.0, 69.0, true, 'Eigener Punkt'],
+po_eq('Preis überschreiben: Listenpreis bleibt 790 (Staffel), Preis 69, markiert; eigener Vorteil', [200, 790.0, 69.0, true, 'Eigener Punkt'],
     [$st, floatval($d['offer']['data']['items'][0]['list_price'] ?? 0), floatval($ln['unit'] ?? 0), $ln['overridden'] ?? null, end($d['offer']['data']['benefits'])['title'] ?? '']);
 [$st, $d] = po_rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'datenumzug', 'name' => 'Datenumzug'], ['catalog_key' => 'shop', 'name' => 'Eigener Shop', 'interval' => 'monthly']]]);
-po_eq('Live-Summe: fehlender Preis (Datenumzug auf Anfrage) wird gemeldet, monatlich 79 × 12', [200, 1, 948.0, true],
+po_eq('Live-Summe: fehlender Preis (Datenumzug auf Anfrage) wird gemeldet; Shop „monatlich“ wird Jahresvertrag 790 statt 12 × 79 (1.38.823)', [200, 1, 790.0, true],
     [$st, count((array) ($d['totals']['missing_prices'] ?? [])), floatval($d['totals']['yearly']['net'] ?? 0), count((array) ($d['benefits_suggested'] ?? [])) >= 5]);
 
 // ═══ 4b. Hochrechnung je Event (Feldnamen und Rechnung wie projectionCalc im Studio) ═══
@@ -90,22 +90,22 @@ po_eq('Prognose am Angebot gespeichert, Modell aus dem Tarif (Shop → selfhoste
 [$st, $d] = po_rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'shop'], ['catalog_key' => 'app']], 'projection' => $pj]);
 $fc = $d['totals']['projection'] ?? [];
 $m = array_column((array) ($fc['selfhosted']['methods'] ?? []), null, 'key');
-po_eq('Stadthalle: Provisionsmodell 533,70 € je Event (450 × 1,186 €, 2,9 % + 0,49 €), Selbstgehostet 514,30 € (162,79 an evendis = 3.255,84 € inkl. MwSt. ÷ 20, 351,51 an den Zahlungsdienstleister)',
-    [200, 533.7, 0.0, 162.79, 351.51, 514.3, 3255.84, 'offer'],
+po_eq('Stadthalle: Provisionsmodell 533,70 € je Event (450 × 1,186 €, 2,9 % + 0,49 €), Selbstgehostet 546,55 € (195,04 an evendis = (1.490 Staffel bei 9.000 Tickets + 12 × 149) × 1,19 = 3.900,82 € ÷ 20, 351,51 an den Zahlungsdienstleister)',
+    [200, 533.7, 0.0, 195.04, 351.51, 546.55, 3900.82, 'offer'],
     [$st, floatval($fc['commission']['total_event'] ?? 0), floatval($fc['commission']['to_psp_event'] ?? -1), floatval($fc['selfhosted']['to_evendis_event'] ?? 0),
         floatval($fc['selfhosted']['to_psp_event'] ?? 0), floatval($fc['selfhosted']['total_event'] ?? 0), floatval($fc['selfhosted']['package_year'] ?? 0), $fc['selfhosted']['package_source'] ?? '']);
 po_eq('Zahlarten: PayPal 30 %, Karte und Klarna je 35 % (je zur Hälfte), Fixbetrag je Zahlung (2 Tickets je Bestellung)', [[30.0, 35.0, 35.0], 123.2, 87.73, 140.58],
     [[floatval($m['paypal']['share'] ?? 0), floatval($m['card']['share'] ?? 0), floatval($m['klarna']['share'] ?? 0)], floatval($m['paypal']['cost_event'] ?? 0), floatval($m['card']['cost_event'] ?? 0), floatval($m['klarna']['cost_event'] ?? 0)]);
-po_eq('Vergleich (Satz 2,9 % + 0,49 €): Selbstgehostet um 19,40 € je Event günstiger (388 € im Jahr), lohnt sich ab 671 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
-    ['selfhosted', 19.4, 388.0, 671, '2026-11-04', true, true, true],
+po_eq('Vergleich (Satz 2,9 % + 0,49 €): Provisionsmodell um 12,85 € je Event günstiger (257 € im Jahr), Selbstgehostet lohnt sich ab 803 Tickets im Monat; Sätze mit Stand und Quelle, Pflicht-Hinweis',
+    ['commission', 12.85, 257.0, 803, '2026-11-04', true, true, true],
     [$fc['comparison']['cheaper'] ?? '', floatval($fc['comparison']['difference_event'] ?? 0), floatval($fc['comparison']['difference_year'] ?? 0), intval($fc['comparison']['break_even_tickets_month'] ?? 0),
         $m['paypal']['as_of'] ?? '', strpos((string) ($m['card']['source'] ?? ''), 'mollie.com') !== false, strpos((string) ($fc['payment_note'] ?? ''), 'nicht an evendis') !== false,
         strpos((string) ($fc['rates_note'] ?? ''), 'Stand 04.11.2026') !== false]);
 [$st, $d] = po_rest('POST', '/platform/offers/calc', ['items' => ['tickets'], 'projection' => ['model' => 'commission', 'tickets' => 100, 'avg_price' => 0, 'payment' => 'paypal', 'bearer' => 'split']]);
 $fc2 = $d['totals']['projection'] ?? [];
 $m2 = array_column((array) ($fc2['selfhosted']['methods'] ?? []), null, 'key');
-po_eq('Freitickets: Provision 0 €; ohne Shop im Angebot rechnet Selbstgehostet mit dem Katalog-Shop (79 × 12 inkl. MwSt. = 1.128,12 €); nur PayPal (100 Zahlungen × 0,39 €); Gebühr geteilt',
-    [200, 'commission', 0.0, 'catalog', 1128.12, ['paypal'], 39.0, 'split'],
+po_eq('Freitickets: Provision 0 €; ohne Shop im Angebot rechnet Selbstgehostet mit dem Katalog-Shop (Jahresvertrag 790 inkl. MwSt. = 940,10 €); nur PayPal (100 Zahlungen × 0,39 €); Gebühr geteilt',
+    [200, 'commission', 0.0, 'catalog', 940.1, ['paypal'], 39.0, 'split'],
     [$st, $fc2['input']['model'] ?? '', floatval($fc2['commission']['total_event'] ?? -1), $fc2['selfhosted']['package_source'] ?? '', floatval($fc2['selfhosted']['package_year'] ?? 0),
         array_keys($m2), floatval($m2['paypal']['cost_event'] ?? 0), $fc2['commission']['bearer'] ?? '']);
 [, $d] = po_rest('POST', '/platform/offers/calc', ['items' => ['tickets']]);
@@ -133,10 +133,13 @@ po_eq('PDF: %PDF, Dateiname mit Nummer und Kunde', [200, '%PDF', true, true], [$
 $pdf_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $x) { $u = @gzuncompress($x); $t .= $u !== false ? $u : $x; } return $t; })($pdf);
 po_eq('PDF lesbar („Bedingungen“, „Interesse bestätigen“), ohne Wettbewerbsvergleich und ohne Startangebot', [true, true, false, false, false],
     [stripos($pdf_txt, 'Bedingungen') !== false, stripos($pdf_txt, 'Interesse') !== false, stripos($pdf_txt, 'Im Vergleich') !== false, stripos($pdf_txt, 'EVENTIM') !== false, strpos($pdf_txt, '31.01.2027') !== false]);
-po_eq('PDF: Block „Hochrechnung je Event“ mit beiden Modellen und Hinweis zum Zahlungsdienstleister', [true, true, true, true],
+po_eq('PDF ohne compare_platform: keine „Hochrechnung je Event“ (Plattform-Vergleich nur auf Wunsch, 1.38.823)', false, strpos($pdf_txt, 'Hochrechnung je Event') !== false);
+$o_cp = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_cp['compare_platform'] = true;
+$pdf_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $x) { $u = @gzuncompress($x); $t .= $u !== false ? $u : $x; } return $t; })((string) TIX_Platform_Offers::render_pdf($o_cp, ['number' => 'T', 'link' => '']));
+po_eq('PDF mit compare_platform: Block „Hochrechnung je Event“ mit beiden Modellen und Hinweis zum Zahlungsdienstleister', [true, true, true, true],
     [strpos($pdf_txt, 'Hochrechnung je Event') !== false, strpos($pdf_txt, 'PROVISIONSMODELL') !== false && strpos($pdf_txt, 'EIGENER SHOP') !== false, // Begriffe 14.11.: Shop-Angebot = eigener Shop, nicht selbstgehostet
         strpos($pdf_txt, 'Zahlungsdienstleister') !== false, strpos($pdf_txt, 'Tickets im Monat') !== false]);
-$o_nf = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_nf['projection']['in_pdf'] = false;
+$o_nf = TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id'])); $o_nf['projection']['in_pdf'] = false; $o_nf['compare_platform'] = true;
 $pdf_off = (string) TIX_Platform_Offers::render_pdf($o_nf, ['number' => 'T', 'link' => '']);
 $off_txt = (function ($b) { $t = ''; if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $b, $m)) foreach ($m[1] as $x) { $u = @gzuncompress($x); $t .= $u !== false ? $u : $x; } return $t; })($pdf_off);
 po_eq('PDF-Block abschaltbar (in_pdf: false)', [true, false], [strpos($off_txt, 'Bedingungen') !== false, strpos($off_txt, 'Hochrechnung je Event') !== false]);
@@ -218,19 +221,19 @@ po_eq('Entwurf löschen', [200, null], [$st, TIX_Platform_Offers::get($o3['id'])
 // ═══ 10. Online-Seite ═══
 po_eq('Annahme-Seite: eigenständiges HTML mit Formular bzw. Hinweis', [true, true],
     [strpos(TIX_Platform_Offers::accept_url('abc'), 'tix_offer=abc') !== false, (function () use ($o1) { $r = new ReflectionMethod('TIX_Platform_Offers', 'page_html'); $r->setAccessible(true);
-        $h = $r->invoke(null, TIX_Platform_Offers::get($o1['id']), 'x', ''); return strpos($h, 'Interesse ist bestätigt') !== false && strpos($h, 'Vertrag') !== false && strpos($h, 'Deine Vorteile') !== false && strpos($h, 'Jährlich') !== false && stripos($h, 'verbindlich an') === false; })()]);
+        $h = $r->invoke(null, TIX_Platform_Offers::get($o1['id']), 'x', ''); return strpos($h, 'Interesse ist bestätigt') !== false && strpos($h, 'Vertrag') !== false && strpos($h, 'Deine Vorteile') !== false && strpos($h, 'Grundpaket im Jahr') !== false && strpos($h, 'Optional dazubuchbar') !== false && stripos($h, 'verbindlich an') === false; })()]);
 
 // ═══ 11. Katalog pflegen, KI-Einleitung ═══
 wp_set_current_user($admin);
 [$st, , $c] = po_rest('POST', '/platform/offer-catalog', ['catalog' => ['items' => []]]);
 $cat = TIX_Platform_Offers::default_catalog();
-foreach ($cat['items'] as &$ci) if ($ci['key'] === 'shop') $ci['prices']['monthly'] = 75; unset($ci);
+$cat['shop_tiers'] = [['max' => 5000, 'price' => 750], ['max' => 20000, 'price' => 1490], ['max' => 50000, 'price' => 2490]]; // Jahresvertrag nach Staffel (1.38.823)
 $cat['items'][] = ['key' => 'shop', 'name' => 'Doppelt'];
 [$st2, , $c2] = po_rest('POST', '/platform/offer-catalog', ['catalog' => $cat]);
 array_pop($cat['items']);
 [$st3, $d3] = po_rest('POST', '/platform/offer-catalog', ['catalog' => $cat]);
 $n = po_rest('POST', '/platform/offers', ['customer' => $cust, 'items' => [['catalog_key' => 'shop']]])[1]['offer']; $ids[] = intval($n['id']);
-po_eq('Katalog: leer 400, doppelter Schlüssel 400, Preis geändert gilt für neue Angebote, altes behält seinen', [400, 400, 'tix_catalog_invalid', 200, true, 75.0, 79.0],
+po_eq('Katalog: leer 400, doppelter Schlüssel 400, Staffel geändert gilt für neue Angebote, altes behält seinen', [400, 400, 'tix_catalog_invalid', 200, true, 750.0, 1490.0],
     [$st, $st2, $c2, $st3, $d3['custom'] ?? null, floatval($n['data']['items'][0]['list_price'] ?? 0), floatval(TIX_Platform_Offers::data(TIX_Platform_Offers::get($o1['id']))['items'][0]['list_price'] ?? 0)]);
 $cat2 = TIX_Platform_Offers::default_catalog();
 $cat2['payment_rates']['klarna']['percent'] = null; $cat2['payment_rates']['klarna']['fixed'] = null;

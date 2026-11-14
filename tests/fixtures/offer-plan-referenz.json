@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.822",
+    "plugin_version": "1.38.823",
     "name": "plan-referenz",
     "request": {
         "route": "POST /platform/offers/plan",

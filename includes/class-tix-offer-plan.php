@@ -90,6 +90,16 @@ class TIX_Offer_Plan {
         return $out;
     }
 
+    /** Führende Stufe: gewählt → eigene Zahl → Hinweis aus dem Angebot (Hochrechnung) → 5.000 (bzw. mittlere Stufe). Auch Grundlage des Jahrespreises (1.38.823). */
+    public static function lead_of(array $p, $hint = null) {
+        $lead = $p['lead'] ?? null;
+        if ($lead === null) $lead = $p['custom'] ?? null;
+        if ($lead === null && !empty($hint)) $lead = max(1, min(self::MAX_T, intval($hint)));
+        $steps = (array) ($p['steps'] ?? []);
+        if ($lead === null) $lead = in_array(5000, $steps, true) || !$steps ? 5000 : $steps[intdiv(count($steps), 2)];
+        return intval($lead);
+    }
+
     /** Jahrespreis eigener Shop für t Tickets (null = auf Anfrage) */
     public static function shop_price($t, array $tiers, $fixed = null) {
         if ($fixed !== null) return floatval($fixed);
@@ -167,10 +177,7 @@ class TIX_Offer_Plan {
         $b = self::blend($p['mix'], $rates);
         $r2 = function ($v) { return $v === null ? null : round($v, 2); };
         // Führende Stufe: gewählt → eigene Zahl → Hinweis aus dem Angebot (Hochrechnung) → 5.000 (bzw. mittlere Stufe); fehlt sie in den Stufen, kommt sie dazu
-        $lead = $p['lead'] ?? null;
-        if ($lead === null) $lead = $p['custom'] ?? null;
-        if ($lead === null && !empty($ctx['lead_hint'])) $lead = max(1, min(self::MAX_T, intval($ctx['lead_hint'])));
-        if ($lead === null) $lead = in_array(5000, $p['steps'], true) ? 5000 : $p['steps'][intdiv(count($p['steps']), 2)];
+        $lead = self::lead_of($p, $ctx['lead_hint'] ?? null);
         if (!in_array($lead, $p['steps'], true)) { $p['steps'][] = $lead; sort($p['steps']); }
         $p['lead'] = $lead;
         $rows = [];
