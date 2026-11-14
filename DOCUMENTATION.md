@@ -6751,3 +6751,7 @@ Vertrag `uebergaben/vertrag-mail-protokoll-konten.md` (mit User-Entscheiden und 
 - **Ticketpreis als Annahme:** `price_assumption()` – „Annahme: Ø 25,00 € je Ticket. Bei anderen Ticketpreisen bleibt der evendis-Preis gleich – es ändern sich nur Umsatz, Zahlungsgebühren und was dir bleibt.“ im Faktenblock und in der Planrechnung (`own.block4.price_note`, `notes[0]`).
 - **Angebotsnummern** (User: „fortlaufend, aber nicht darauf schließen lässt, wie viele Angebote wir wirklich verschickt haben“): `AN-JJMM-NNNN`, NNNN läuft über alle Monate, Start 4.000, je Angebot zufällig +7 bis +41 (`random_int`), unter Sperre, nie unter der höchsten vorhandenen Nummer; Versionen weiter `-2`, `-3`. Bestehende Nummern bleiben. `TIX_Platform_Offers::renumber($id)` gibt einem nie gesendeten Entwurf (Version 1) eine neue Nummer (sonst 409 `tix_offer_locked`).
 - **Test:** `test-offer-options-wp` (119), `test-platform-offers-wp` (42); Fixtures 1.38.829.
+
+## 218. Angebote: App-Vorteile mit Etikett „mit App-Paket“ (ab 1.38.830)
+- User-Entscheid: Vorteile der Gruppe `app` im Katalog („In App Store und Google Play“, „Module nach Wahl“, „Einrichtung und Updates“) bleiben unter „Deine Vorteile“, stehen am Ende und tragen `own.benefits[].tag = "mit App-Paket"` (PDF als Pille, online als Etikett).
+- **Test:** `test-offer-options-wp` (120).

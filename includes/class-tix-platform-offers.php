@@ -2020,7 +2020,7 @@ class TIX_Platform_Offers {
             $out .= self::page_own($v, $token);
             if ($v['own']['benefits']) {
                 $out .= '<div class="c"><h2>Deine Vorteile</h2>';
-                foreach ($v['own']['benefits'] as $b) $out .= '<div class="b"><i></i><div><strong>' . $e($b['title']) . '</strong>' . ($b['text'] ? '<div class="mu">' . $e($b['text']) . '</div>' : '') . '</div></div>';
+                foreach ($v['own']['benefits'] as $b) $out .= '<div class="b"><i></i><div><strong>' . $e($b['title']) . '</strong>' . (!empty($b['tag']) ? ' <span class="opt">' . $e($b['tag']) . '</span>' : '') . ($b['text'] ? '<div class="mu">' . $e($b['text']) . '</div>' : '') . '</div></div>';
                 $out .= '</div>';
             }
         } else {
@@ -2547,7 +2547,10 @@ class TIX_Platform_Offers {
         $refs = [];
         foreach ((array) ($d['references'] ?? []) as $rk) if (($r = self::reference($rk)) && $r['approved']) $refs[] = array_diff_key($r, ['approved' => 1, 'customer_key' => 1]) + ['mode_label' => self::MODE_TEXTS[$r['mode']]['label']];
         // Vorteile: angehakte; selbstgehostet immer mit „Deine Daten liegen allein bei dir …“ (User 14.11.)
-        $ben = array_values(array_map(function ($b) { return ['title' => $b['title'], 'text' => $b['text']]; }, array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); })));
+        // App-Vorteile bleiben, sind aber als optional gekennzeichnet (1.38.830, User-Entscheid: Etikett „mit App-Paket“), stehen am Ende
+        $app_keys = array_column(array_filter((array) (self::catalog()['benefits'] ?? []), function ($b) { return ($b['group'] ?? '') === 'app'; }), 'key');
+        $ben = array_values(array_map(function ($b) use ($app_keys) { return ['title' => $b['title'], 'text' => $b['text'], 'tag' => in_array($b['key'] ?? '', $app_keys, true) ? 'mit App-Paket' : '']; }, array_filter((array) $d['benefits'], function ($b) { return !empty($b['on']); })));
+        usort($ben, function ($a, $b) { return ($a['tag'] !== '') <=> ($b['tag'] !== ''); });
         if ($mode === 'self_hosted' && !in_array('Deine Daten liegen allein bei dir', array_column($ben, 'title'), true)) array_unshift($ben, ['title' => 'Deine Daten liegen allein bei dir', 'text' => 'Deine Daten liegen allein bei dir auf deinem eigenen Server.']);
         $pcl = $pc; $pcl['lead'] = $pc['lead_base'] ?? $pc['lead']; // Faktenblock mit dem Grundpaket (1.38.823)
         // Festpreis (1.38.824, User: „Es muss klar sein, dass bis 5000 verkaufte Tickets nicht mehr gezahlt wird“) – Stufe der führenden Ticketzahl
@@ -3215,12 +3218,14 @@ class TIX_Platform_Offers {
             for ($i = 0; $i < count($ben); $i += 2) {
                 $pair = array_slice($ben, $i, 2);
                 $font(true, 9.5); $wl = array_map(function ($b) use ($wrap, $colw) { return $wrap($b['title'], $colw - 14); }, $pair);
-                $hgt = 12 * max(array_map('count', $wl));
+                $hgt = 12 * max(array_map('count', $wl)) + (array_filter(array_column($pair, 'tag')) ? 14 : 0);
                 $ensure($hgt + 8);
                 foreach ($pair as $j => $b) {
                     $x = $M + $j * ($colw + 24);
                     $col(self::K_RED); $P->rrect($x, $y + 2.5, 4, 4, 2.0, true);
                     $col(self::K_INK); $font(true, 9.5); foreach ($wl[$j] as $k => $ln) $tx($x + 14, $y - 12 * $k, $ln);
+                    if (!empty($b['tag'])) { $yt = $y - 12 * count($wl[$j]) - 1; $font(true, 6.5); $lb = mb_strtoupper($b['tag']); $pw = $wd($lb) + 10;
+                        $col(self::K_SOFT); $P->rrect($x + 14, $yt - 3, $pw, 12, 6, true); $col(self::K_MUTED); $tx($x + 19, $yt + 0.5, $lb); }
                 }
                 $y -= $hgt + 6;
             }

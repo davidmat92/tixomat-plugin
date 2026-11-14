@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.830: App-Vorteile mit Etikett „mit App-Paket“.
  * 1.38.829: Markenrot, Planrechnung nur Grundpaket, App-Gruppe („nur mit App“), Ticketpreis als Annahme, Angebotsnummern AN-JJMM-NNNN.
  * 1.38.828: eine Planrechnungs-Tabelle, kurze Hinweise, Bedingungen ohne Plattform-Satz.
  * 1.38.827: Rabatt je Position (discount_percent), Guthaben braucht die App (Zubuchung), Shop ohne App; geschenkte Positionen (items[].gift bzw. Modul mit 0 €); kein Vergleich der Betriebsarten, Schrift Geist + Geist Mono, Rundungen und Abstände wie im Studio.
@@ -308,6 +309,13 @@ if ($O::multi()) {
         [is_string($new) && $O::get($rid)->number === $new && $O::get($rid)->base_number === $new, (function () use ($O, $rid, $wpdb) { $wpdb->update($O::table(), ['status' => 'sent'], ['id' => $rid]); $e = $O::renumber($rid); return is_wp_error($e) ? $e->get_error_code() : ''; })()]);
     $wpdb->delete($O::table(), ['id' => $rid]);
 }
+
+// ── 1.38.830: App-Vorteile als optional gekennzeichnet
+$d30 = $O::clean_data(['items' => [$it('shop'), $it('app')], 'mode' => 'own_shop']);
+$b30 = $O::own_blocks($d30)['benefits'];
+$tags30 = array_column($b30, 'tag', 'title');
+$eq('App-Vorteile bleiben, Etikett „mit App-Paket“, am Ende; Shop-Vorteile ohne Etikett; im PDF sichtbar', ['mit App-Paket', '', 'mit App-Paket', true],
+    [$tags30['In App Store und Google Play'] ?? null, $tags30['Shop unter deiner Domain'] ?? null, end($b30)['tag'], strpos($ptxt($O::render_pdf($d30, ['number' => 'AN-T-30', 'date' => wp_date('Y-m-d')])), 'MIT APP-PAKET') !== false]);
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);
