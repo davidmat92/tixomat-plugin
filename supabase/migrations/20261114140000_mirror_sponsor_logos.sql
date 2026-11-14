@@ -6,7 +6,7 @@
 --    Das Plugin speichert keine IP, keine Cookies und keine Geräte-IDs – hier gibt es nur Summen je Tag.
 --  * Einstellungen (Schalter, Ausspielorte) werden nicht gespiegelt.
 --  * v_sponsor_clicks / v_sponsor_report: Grundlage für Sponsor-Berichte (je Tag bzw. gesamt/30 Tage, je Quelle).
--- Views mit security_invoker, nur service_role. Wiederholbar.
+-- Views mit security_invoker, nur service_role. Wiederholbar. Nach 20261114130000 (Zweitmarkt), deren Zweig ist mit drin.
 -- ════════════════════════════════════════════════════════════════════════
 
 create table if not exists public.sponsor_logos (
@@ -114,6 +114,11 @@ begin
         select jsonb_object_agg(l.id::text, md5(concat_ws('|', coalesce(l.organizer_id, 0)::text, l.code, case when l.archived then '1' else '0' end,
                    (select coalesce(sum(c.n), 0) from short_link_clicks c where c.site = l.site and c.link_id = l.id)::text)))
           into r from short_links l where l.site = p_site and l.id > p_from and l.id <= p_to;
+    elsif p_table = 'resale_offers' then
+        -- Zweitmarkt (20261114130000): hier mitgeführt, damit diese Migration den Zweig nicht wieder entfernt
+        select jsonb_object_agg(o.id::text, md5(concat_ws('|', o.status, coalesce(o.price, 0)::numeric(10,2)::text, coalesce(o.new_ticket_id, 0)::text,
+                   o.payout_status, coalesce(o.payout_amount, 0)::numeric(10,2)::text)))
+          into r from resale_offers o where o.site = p_site and o.id > p_from and o.id <= p_to;
     elsif p_table = 'sponsor_logos' then
         select jsonb_object_agg(s.id::text, md5(concat_ws('|', s.scope, s.owner_id::text, s.tier, s.name, case when s.active then '1' else '0' end,
                    (select coalesce(sum(c.n), 0) from sponsor_clicks c where c.site = s.site and c.sponsor_id = s.id)::text)))
