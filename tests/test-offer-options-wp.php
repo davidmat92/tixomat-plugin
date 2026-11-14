@@ -4,6 +4,7 @@
  * 1.38.818: Betriebsart (platform | own_shop | self_hosted), Rundum-Einrichtung, Referenzen.
  * 1.38.819: App nur beim eigenen Betrieb, ein Einrichtungsposten je Betriebsart, Summen-Zusammenfassung plan_calc.totals.
  * 1.38.821: schnell anlegen, Prüfung nur beim Versenden. 1.38.822: führende Stufe (plan.lead) mit Faktenblock und Erklärung.
+ * 1.38.829: Markenrot, Planrechnung nur Grundpaket, App-Gruppe („nur mit App“), Ticketpreis als Annahme, Angebotsnummern AN-JJMM-NNNN.
  * 1.38.828: eine Planrechnungs-Tabelle, kurze Hinweise, Bedingungen ohne Plattform-Satz.
  * 1.38.827: Rabatt je Position (discount_percent), Guthaben braucht die App (Zubuchung), Shop ohne App; geschenkte Positionen (items[].gift bzw. Modul mit 0 €); kein Vergleich der Betriebsarten, Schrift Geist + Geist Mono, Rundungen und Abstände wie im Studio.
  * 1.38.826: PayPal als eigener Zahlungsanbieter, Verkauf über evendis.de nur mit Häkchen (unter „Optional“).
@@ -59,7 +60,7 @@ $eq('Shop nicht angehakt, ohne Planrechnung → classic', 'classic', $O::layout_
 $B = $O::own_blocks($d7);
 $eq('Kacheln + Blöcke: 790 €/Jahr, Mischsatz, ohne Plattform-Vergleich „Dir bleiben je Ticket“ (1.38.823); Block 1 ohne Hosting, mit evendis.de-Zeile', ['790 € / Jahr', '2,51 % + 0,33 €', 'Dir bleiben je Ticket', true, true],
     [$B['tiles'][0]['value'], $B['tiles'][1]['value'], $B['tiles'][2]['title'], in_array('Zusätzlich über evendis.de verkaufen', array_column($B['block1']['rows'], 'name'), true), (bool) array_filter(array_column($B['block1']['rows'], 'tiered'))]);
-$eq('Mit compare_platform: Kachel „lohnt sich ab 4.970“', '4.970 Tickets/Jahr', $O::own_blocks($O::clean_data(['compare_platform' => true], $d7))['tiles'][2]['value']);
+$eq('Mit compare_platform: Kachel „lohnt sich ab“ – Planrechnung nur mit dem Grundpaket (ab 1.38.829: 1.185 statt 4.970 mit Optionen)', '1.185 Tickets/Jahr', $O::own_blocks($O::clean_data(['compare_platform' => true], $d7))['tiles'][2]['value']);
 $pdf = $O::render_pdf($d7, ['number' => 'AN-T-1', 'date' => wp_date('Y-m-d')]);
 $cls = $O::render_pdf($O::clean_data(['layout' => 'classic'], $d7), ['number' => 'AN-T-1', 'date' => wp_date('Y-m-d')]);
 $eq('PDF neu und klassisch erzeugt (unterschiedlich)', [true, true, true], [strpos((string) $pdf, '%PDF') === 0, strpos((string) $cls, '%PDF') === 0, $pdf !== $cls]);
@@ -257,8 +258,9 @@ $gi = [$it('shop'), $it('app', null, ['price' => 149]), $it('seating', null, ['g
 $dg = $O::clean_data(['items' => $gi, 'mode' => 'own_shop', 'plan' => ['lead' => 2000]]);
 $tg = $O::totals($dg); $Bg = $O::own_blocks($dg);
 $rows_g = array_column($Bg['block1']['base_rows'], null, 'name');
-$eq('Geschenkt: gift bzw. Modul mit 0 € → 0 € – geschenkt im Grundpaket, Listenpreis durchgestrichen, nicht optional, Summe ohne, Faktenblock 790', [0.0, '0,00 € – geschenkt', '29,00 € / Monat', true, false, ['Eigene App – Basis'], 790.0, 790.0 + 1788.0, '790 €'],
-    [$dg['items'][3]['price'], $rows_g['App-Modul']['price'] ?? '', $rows_g['App-Modul']['list_price'] ?? '', !empty($rows_g['Modul Musikwunsch']['gift']), $O::is_optional($dg['items'][2]),
+$rows_go = array_column($Bg['block1']['option_rows'], null, 'name');
+$eq('Geschenkt: 0 € – geschenkt, Listenpreis durchgestrichen; Module ohne App-Bezug im Grundpaket, App-Module (nur mit App) bei der App unter „Optional“; Summe ohne, Faktenblock 790', [0.0, '0,00 € – geschenkt', '29,00 € / Monat', true, false, ['Eigene App – Basis', 'App-Modul'], 790.0, 790.0 + 1788.0, '790 €'],
+    [$dg['items'][3]['price'], $rows_go['App-Modul']['price'] ?? '', $rows_go['App-Modul']['list_price'] ?? '', !empty($rows_g['Modul Musikwunsch']['gift']), $O::is_optional($dg['items'][2]),
      array_column($Bg['block1']['option_rows'], 'name'), $tg['base']['yearly']['net'], $tg['with_options']['yearly']['net'], $Bg['lead']['facts'][0]['value']]);
 $eq('PDF: „geschenkt“ sichtbar', true, strpos($ptxt($O::render_pdf($dg, ['number' => 'AN-T-G', 'date' => wp_date('Y-m-d')])), 'geschenkt') !== false);
 
@@ -278,10 +280,34 @@ $eq('PDF: „Dein Shop läuft komplett ohne App“ sichtbar', true, strpos($pdf_
 $d8 = $O::clean_data(['items' => [$it('shop'), $it('app')], 'mode' => 'own_shop', 'plan' => ['lead' => 5000]]);
 $B8 = $O::own_blocks($d8); $p8 = $ptxt($O::render_pdf($d8, ['number' => 'AN-T-8', 'date' => wp_date('Y-m-d')]));
 $i8 = array_search(5000, array_column($B8['block4']['table'], 'tickets'), true);
-$eq('Eine Tabelle: „bleibt dir“ = Ergebnis 1. Jahr, Optionen eigene Zeile, keine zweite Tabelle, 3 kurze Hinweise', [true, 1788.0, false, false, 3],
+$eq('Eine Tabelle: „bleibt dir“ = Ergebnis 1. Jahr, nur Grundpaket (Optionen 0, 1.38.829), keine zweite Tabelle, 4 kurze Hinweise', [true, 0.0, false, false, 4],
     [$B8['block4']['table'][$i8]['kept'] === $B8['block4']['totals'][$i8]['modes']['own_shop']['kept'], $B8['block4']['table'][$i8]['options'], strpos($p8, 'Ergebnis im') !== false, strpos($p8, 'Rechnung im Detail') !== false, count($B8['block4']['notes'])]);
 $eq('Bedingungen: „Tickets über evendis“ nur mit evendis.de-Verkauf bzw. Plattform-Vergleich', [false, true, true],
     [strpos($O::conditions_text($d8), 'Tickets über evendis') !== false, strpos($O::conditions_text($O::clean_data(['extras' => ['evendis_channel' => true]], $d8)), 'Tickets über evendis') !== false, strpos($O::conditions_text($O::clean_data(['compare_platform' => true], $d8)), 'Tickets über evendis') !== false]);
+
+// ── 1.38.829: Markenrot, Planrechnung nur Grundpaket, App-Gruppe, Ticketpreis als Annahme, Nummern
+$d9 = $O::clean_data(['items' => [$it('shop'), $it('app'), $it('app_einrichtung', null, ['discount_percent' => 50]), $it('wallet', null, ['gift' => true]), $it('seating', null, ['gift' => true])], 'mode' => 'own_shop', 'plan' => ['lead' => 2000]]);
+$B9 = $O::own_blocks($d9);
+$eq('Planrechnung nur Grundpaket: keine Optionen, keine einmaligen Optionskosten; Hinweis', [0.0, 0.0, true],
+    [array_sum(array_column($B9['block4']['table'], 'options')), array_sum(array_map('floatval', array_column($B9['block4']['table'], 'once'))), (bool) preg_grep('/Optionale Zubuchungen sind hier nicht eingerechnet/', $B9['block4']['notes'])]);
+$eq('Guthaben (auch geschenkt) bei der App unter „Optional“, Kennzeichen „nur mit App“, Hinweis; Saalplan geschenkt im Grundpaket', [['Eigene App – Basis', 'App-Einrichtung', 'Modul Guthaben'], 'nur mit App', true, true],
+    [array_column($B9['block1']['option_rows'], 'name'), array_column($B9['block1']['option_rows'], 'needed_for', 'name')['Modul Guthaben'] ?? '', strpos(array_column($B9['block1']['option_rows'], 'detail', 'name')['Modul Guthaben'] ?? '', 'nur zusammen mit dem App-Paket') !== false,
+     in_array('Modul Saalplan & Tische', array_column($B9['block1']['base_rows'], 'name'), true)]);
+$p9raw = (string) $O::render_pdf($d9, ['number' => 'AN-T-9', 'date' => wp_date('Y-m-d')]); $p9 = $ptxt($p9raw);
+$eq('Ticketpreis als Annahme im Faktenblock und in der Planrechnung; Markenrot #FC2F55', [true, true, true],
+    [strpos($B9['lead']['note'], 'Bei anderen Ticketpreisen bleibt der evendis-Preis gleich') !== false, (bool) preg_grep('/^Annahme: Ø 25,00/', $B9['block4']['notes']), strpos($p9, '0.988 0.184 0.333 rg') !== false]);
+if ($O::multi()) {
+    global $wpdb;
+    $nums = []; $ids9 = [];
+    for ($i = 0; $i < 4; $i++) { $nr = $O::next_number(); $nums[] = intval(substr($nr, strrpos($nr, '-') + 1)); }
+    $diffs = array_map(function ($a, $b) { return $b - $a; }, array_slice($nums, 0, -1), array_slice($nums, 1));
+    $eq('Nummern AN-JJMM-NNNN: streng aufsteigend, Schritt 7–41, ab 4.000', [true, true, 1], [min($diffs) >= 7 && max($diffs) <= 41, $nums[0] > 4000, preg_match('/^AN-\d{4}-\d{4,}$/', $O::next_number())]);
+    $rid = $O::insert($O::clean_data(['customer' => ['company' => 'Nummer']]), ['base_number' => 'AN-2026-0002']);
+    $new = $O::renumber($rid);
+    $eq('Entwurf aus altem Schema bekommt neue Nummer; gesendet → 409', [true, 'tix_offer_locked'],
+        [is_string($new) && $O::get($rid)->number === $new && $O::get($rid)->base_number === $new, (function () use ($O, $rid, $wpdb) { $wpdb->update($O::table(), ['status' => 'sent'], ['id' => $rid]); $e = $O::renumber($rid); return is_wp_error($e) ? $e->get_error_code() : ''; })()]);
+    $wpdb->delete($O::table(), ['id' => $rid]);
+}
 
 // ── Rundum-Einrichtung
 $de = $O::clean_data(['items' => [$it('shop', 'yearly'), $it('einrichtung', null, ['price' => 990])], 'mode' => 'own_shop']);

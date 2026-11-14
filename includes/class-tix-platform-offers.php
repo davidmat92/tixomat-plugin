@@ -183,8 +183,8 @@ class TIX_Platform_Offers {
                 'prices' => ['monthly' => 149], 'adds' => ['app_einrichtung'], 'benefits' => ['app_stores', 'app_module', 'app_betreuung'], 'modes' => self::OWN_MODES]),
             $i(['key' => 'app_einrichtung', 'type' => 'service', 'name' => 'App-Einrichtung', 'description' => 'Einmalig für die Einrichtung der App.',
                 'prices' => ['once' => 1490], 'default_interval' => 'once', 'modes' => self::OWN_MODES]),
-            $i(['key' => 'app_modul', 'name' => 'App-Modul', 'description' => 'Je Modul, z. B. Prämien oder Musikwunsch.', 'prices' => ['monthly' => 29], 'modes' => self::OWN_MODES]),
-            $i(['key' => 'app_alle_module', 'name' => 'Alle App-Module', 'description' => 'Alle Module der App zusammen.', 'prices' => ['monthly' => 249], 'modes' => self::OWN_MODES]),
+            $i(['needs' => 'app', 'key' => 'app_modul', 'name' => 'App-Modul', 'description' => 'Je Modul, z. B. Prämien oder Musikwunsch.', 'prices' => ['monthly' => 29], 'modes' => self::OWN_MODES]),
+            $i(['needs' => 'app', 'key' => 'app_alle_module', 'name' => 'Alle App-Module', 'description' => 'Alle Module der App zusammen.', 'prices' => ['monthly' => 249], 'modes' => self::OWN_MODES]),
             $i(['key' => 'lizenz', 'type' => 'plan', 'name' => 'Lizenz', 'short' => 'Selbstgehostet',
                 'description' => 'Für deinen eigenen Server (deine WordPress-Seite). Installation und Updates per Paket, Support inklusive, 0 € je Ticket.',
                 'prices' => ['yearly' => 699], 'default_interval' => 'yearly', 'price_note' => 'je Website', 'term' => '12 Monate je Website', 'benefits' => ['daten_eigener_server', 'null_je_ticket', 'daten_gehoeren_dir', 'updates']]),
@@ -745,7 +745,9 @@ class TIX_Platform_Offers {
     /** Einrichtung des Grundpakets – zählt zum Grundpaket, nicht zu den Optionen (wie FULL_SETUP_KEYS im Studio) */
     const FULL_SETUP_KEYS = ['einrichtung', 'rundum_einrichtung'];
     /** Voraussetzungen: Modul → nötige Position (1.38.827) */
-    const NEEDS = ['wallet' => 'app'];
+    const NEEDS = ['wallet' => 'app', 'app_modul' => 'app', 'app_alle_module' => 'app'];
+    /** Module, die nur mit der App laufen, samt App und App-Einrichtung: immer unter „Optional dazubuchbar“, auch geschenkt (1.38.829) */
+    const APP_GROUP = ['app', 'app_einrichtung', 'wallet', 'app_modul', 'app_alle_module'];
 
     /** Tickets im Jahr, nach denen der Jahrespreis gilt: führende Stufe der Planrechnung (mit Vorgaben, wenn keine gespeichert ist) */
     public static function tier_tickets($plan, $projection, array $cat) {
@@ -768,6 +770,7 @@ class TIX_Platform_Offers {
     /** Kennzeichen „für Guthaben nötig“: Position wird von einem angehakten Modul vorausgesetzt (NEEDS, inkl. deren Einrichtung) → Text | '' */
     public static function needed_for(array $d, array $it) {
         $k = (string) ($it['catalog_key'] ?? '');
+        if (isset(self::NEEDS[$k]) && self::NEEDS[$k] === 'app') return 'nur mit App';
         $act = array_column(self::active_items($d), 'catalog_key');
         foreach (self::NEEDS as $mod => $need) {
             if (!in_array($mod, $act, true)) continue;
@@ -777,6 +780,7 @@ class TIX_Platform_Offers {
     }
 
     public static function is_optional(array $it) {
+        if (in_array((string) ($it['catalog_key'] ?? ''), self::APP_GROUP, true)) return true; // App-Paket und was nur mit App läuft (1.38.829): immer Zubuchung, auch geschenkt
         if (self::is_gift($it) || !empty($it['base'])) return false; // geschenkt bzw. fest im Grundpaket = nicht optional
         $type = (string) ($it['type'] ?? '');
         return $type === 'module' || ($type === 'service' && !in_array((string) ($it['catalog_key'] ?? ''), self::FULL_SETUP_KEYS, true));
@@ -1176,22 +1180,41 @@ class TIX_Platform_Offers {
     }
 
     /** Nächste Nummer AN-JJJJ-NNNN (je Jahr fortlaufend, unter Sperre). */
+    /**
+     * Angebotsnummer (1.38.829, User: „fortlaufend, aber nicht darauf schließen lässt, wie viele Angebote wir wirklich verschickt haben“):
+     * AN-JJMM-NNNN – NNNN läuft über alle Monate weiter, Start 4.000, je Angebot zufällig +7 bis +41; streng aufsteigend und eindeutig
+     * (Sperre GET_LOCK, nie unter der höchsten vorhandenen Nummer). Bestehende Nummern bleiben.
+     */
+    const SEQ_START = 4000;
+    const SEQ_STEP = [7, 41];
+
     public static function next_number() {
         global $wpdb;
         $lock = 'tix_offer_seq_' . $wpdb->prefix;
         $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock));
         wp_cache_delete(self::OPT_SEQ, 'options');
         $seq = (array) get_option(self::OPT_SEQ, []);
-        $y = wp_date('Y');
-        $n = intval($seq[$y] ?? 0) + 1;
-        // Nie hinter vorhandene Nummern zurückfallen (z. B. nach Zurücksetzen der Option)
         $prefix = (string) (self::catalog()['number_prefix'] ?? 'AN');
-        $max = $wpdb->get_var($wpdb->prepare('SELECT MAX(CAST(SUBSTRING_INDEX(base_number, \'-\', -1) AS UNSIGNED)) FROM ' . self::table() . ' WHERE base_number LIKE %s', $wpdb->esc_like("$prefix-$y-") . '%'));
-        $n = max($n, intval($max) + 1);
-        $seq[$y] = $n;
+        $last = max(self::SEQ_START, intval($seq['g'] ?? 0));
+        // Nie hinter vorhandene Nummern zurückfallen (auch nach Zurücksetzen der Option): höchste laufende Nummer im neuen Schema (JJMM = 4 Ziffern)
+        $max = intval($wpdb->get_var($wpdb->prepare('SELECT MAX(CAST(SUBSTRING_INDEX(base_number, \'-\', -1) AS UNSIGNED)) FROM ' . self::table() . ' WHERE base_number REGEXP %s', '^' . preg_quote($prefix, '/') . '-[0-9]{4}-[0-9]+$')));
+        if ($max >= self::SEQ_START) $last = max($last, $max);
+        $n = $last + random_int(self::SEQ_STEP[0], self::SEQ_STEP[1]);
+        $seq['g'] = $n;
         update_option(self::OPT_SEQ, $seq, false);
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
-        return sprintf('%s-%s-%04d', $prefix, $y, $n);
+        return sprintf('%s-%s-%04d', $prefix, wp_date('ym'), $n);
+    }
+
+    /** Neue Nummer für einen Entwurf (nie gesendet) – z. B. für ein Angebot aus dem alten Schema (1.38.829) → neue Nummer | WP_Error */
+    public static function renumber($id) {
+        global $wpdb;
+        $row = self::get($id);
+        if (!$row) return new WP_Error('tix_offer_not_found', 'Angebot nicht gefunden.', ['status' => 404]);
+        if ($row->status !== 'draft' || !empty($row->sent_at) || intval($row->version) > 1) return new WP_Error('tix_offer_locked', 'Nur ein nie gesendeter Entwurf (Version 1) bekommt eine neue Nummer.', ['status' => 409]);
+        $nr = self::next_number();
+        $wpdb->update(self::table(), ['number' => $nr, 'base_number' => $nr, 'updated_at' => current_time('mysql')], ['id' => intval($row->id)]);
+        return $nr;
     }
 
     private static function columns(array $d) {
@@ -2439,13 +2462,19 @@ class TIX_Platform_Offers {
         return is_array($p) ? self::with_base_lead(TIX_Offer_Plan::compute($p, self::catalog(), self::plan_context($d)), $d) : null;
     }
 
+    /** Ticketpreis ist eine Annahme (1.38.829, User: „dass sich bei anderen Ticketpreisen nicht die Gebühren von evendis verändern“) */
+    public static function price_assumption($avg) {
+        return 'Annahme: Ø ' . self::eur($avg) . ' je Ticket. Bei anderen Ticketpreisen bleibt der evendis-Preis gleich – es ändern sich nur Umsatz, Zahlungsgebühren und was dir bleibt.';
+    }
+
     public static function pct($v) { return rtrim(rtrim(number_format(floatval($v), 2, ',', '.'), '0'), ','); }
 
     public static function eur0($v) { $v = round(floatval($v)); return ($v < 0 ? '−' : '') . number_format(abs($v), 0, ',', '.') . ' ' . self::$euro; }
 
     /** Inhalte der drei Kacheln und der Blöcke 1–4 (gemeinsam für PDF und Online-Ansicht) */
     public static function own_blocks(array $d) {
-        $pc = self::plan_for_offer($d);
+        // Planrechnung nur mit dem Grundpaket (1.38.829, User: „nicht davon ausgehen, dass die optionalen Dinge mit dazu gebucht werden“)
+        $pc = self::plan_for_offer(self::has_options($d) ? self::base_data($d) : $d);
         if (!$pc) return null;
         $t = self::totals($d);
         $cmp = !empty($d['compare_platform']);
@@ -2473,8 +2502,11 @@ class TIX_Platform_Offers {
             $r = ['name' => ($it['qty'] > 1 ? $it['qty'] . ' × ' : '') . $it['name'], 'detail' => trim(implode(' · ', array_values(array_unique(array_filter($det))))),
                 'price' => $price, 'gift' => self::is_gift($it), 'needed_for' => self::needed_for($d, $it), 'discount_label' => !empty($it['discount_percent']) && !self::is_gift($it) ? self::pct($it['discount_percent']) . ' % Rabatt' : '', 'list_price' => $ln['overridden'] && $it['list_price'] !== null && floatval($it['list_price']) > 0 ? self::eur($it['list_price'] * $it['qty']) . (['monthly' => ' / Monat', 'yearly' => ' / Jahr'][$it['interval']] ?? '') : null,
                 'tiered' => $base && !empty($base['tiered']) && ($it['catalog_key'] ?? '') === $base['catalog_key'], 'optional' => self::is_optional($it)];
+            $r['app_group'] = in_array($it['catalog_key'] ?? '', self::APP_GROUP, true) ? array_search($it['catalog_key'], self::APP_GROUP, true) : 99;
+            if (($it['catalog_key'] ?? '') === 'wallet') $r['detail'] = trim($r['detail'] . ' · Guthaben funktioniert nur zusammen mit dem App-Paket', ' ·');
             if ($r['optional']) $opt_rows[] = $r; else $rows[] = $r;
         }
+        usort($opt_rows, function ($a, $b) { return $a['app_group'] <=> $b['app_group']; }); // App-Paket mit allem, was nur mit App läuft, zusammen
         $tier_txt = [];
         foreach ($tiers as $x) $tier_txt[] = 'bis ' . number_format($x['max'], 0, ',', '.') . ' Tickets ' . self::eur0($x['price']);
         $tier_line = $tier_txt ? 'Staffel je Jahr: ' . implode(' · ', $tier_txt) . ', darüber auf Anfrage' : '';
@@ -2484,7 +2516,7 @@ class TIX_Platform_Offers {
         $mt = self::MODE_TEXTS[$mode];
         if ($mode === 'self_hosted') $rows[] = ['name' => 'Server bei deinem Hoster (nicht an evendis)', 'detail' => 'Server-Miete und Verantwortung bei dir; Installation und Updates per Paket – nicht in der Summe',
             'price' => 'ca. ' . self::eur($pc['server_month']) . ' / Monat', 'list_price' => null, 'tiered' => false, 'info' => true, 'optional' => false];
-        $ch = $ev['channel'];
+        $ch = !empty($d['extras']['evendis_channel']) ? self::channel_fee($d) : null; // Option – die Planrechnung (nur Grundpaket) rechnet ohne
         if ($ch) $opt_rows[] = ['name' => 'Zusätzlich über evendis.de verkaufen', 'detail' => 'je Ticket, trägst du, zzgl. Zahlungskosten deines Anbieters', 'price' => self::fee_label($ch['percent'], $ch['fixed']) . ' inkl. MwSt.', 'list_price' => null, 'tiered' => false, 'optional' => true]; // nur mit Häkchen, unter „Optional“ (1.38.826)
         $base_rows = $rows;
         $rows = array_merge($rows, $opt_rows);
@@ -2560,9 +2592,11 @@ class TIX_Platform_Offers {
                     return ['tickets' => $r['tickets'], 'custom' => $r['custom'], 'revenue' => $r['revenue'], 'own_fee' => $r['own_fee'], 'psp' => $r['psp'], 'evendis' => $r['evendis'], 'options' => $r['options'],
                         'channel_fee' => $r['channel_fee'], 'once' => empty($m['on_request']) ? ($m['to_evendis_once'] ?? 0.0) : null, 'server' => $r['server'],
                         'kept' => empty($m['on_request']) ? ($m['kept'] ?? null) : null, 'kept_per_ticket' => empty($m['on_request']) ? ($m['kept_per_ticket'] ?? null) : null]; }, $pc['rows'], $pc['totals']),
+                'price_note' => self::price_assumption($in['avg_price']),
                 'notes' => [
-                    'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ', eigene Gebühr ' . self::eur($in['service_fee']) . ', ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . '.',
-                    'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.), evendis-Preise netto zzgl. MwSt.; „bleibt dir“ gilt fürs 1. Jahr inkl. einmaliger Kosten' . ($t['has_options'] ? ' und mit den gewählten Optionen' : '') . '.',
+                    self::price_assumption($in['avg_price']),
+                    'Weitere Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ', eigene Gebühr ' . self::eur($in['service_fee']) . ', ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . '.',
+                    'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.), evendis-Preise netto zzgl. MwSt.; „bleibt dir“ gilt fürs 1. Jahr mit dem Grundpaket inkl. einmaliger Kosten.' . ($t['has_options'] ? ' Optionale Zubuchungen sind hier nicht eingerechnet.' : ''),
                     'Gebühren der Zahlungsanbieter laut deren Preisseiten, ohne Gewähr.'],
                 'assumptions' => 'Annahmen: Ø Ticketpreis ' . self::eur($in['avg_price']) . ' inkl. MwSt., ' . self::pct($in['tickets_per_order']) . ' Tickets je Bestellung, Zahlarten ' . implode(', ', $mix) . ($ch && $in['channel_share'] > 0 ? ', ' . self::pct($in['channel_share']) . ' % der Tickets über evendis.de' : '') . ($mode === 'self_hosted' ? ', Server beim Hoster ca. ' . self::eur($pc['server_month']) . ' im Monat' : '') . ', keine Erstattungen.',
                 'basis' => 'Ticketumsatz und eigene Gebühr wie vom Gast bezahlt (inkl. MwSt.); evendis-Preise zzgl. MwSt' . ($cmp ? '; die Plattformgebühr ist ohne MwSt. gerechnet (÷ ' . number_format(1 + $t['tax_rate'] / 100, 2, ',', '') . '), weil du die MwSt. als Vorsteuer zurückbekommst.' : '.' . ($t['has_options'] ? ' Gewählte Optionen sind in der Planrechnung enthalten, im Faktenblock oben nur das Grundpaket.' : '')),
@@ -2596,7 +2630,7 @@ class TIX_Platform_Offers {
         // Vergleich mit der Plattform nur auf Wunsch (1.38.823, compare_platform)
         $note = implode(' · ', array_filter(['Gerechnet mit dem Grundpaket im ersten Jahr',
             $compare ? ($sv >= 0 ? $e0($sv) . ' mehr als auf der Ticketplattform (wenn du dort die Gebühr trägst)' : 'auf der Ticketplattform blieben dir ' . $e0(-$sv) . ' mehr (wenn du dort die Gebühr trägst)') : '',
-            $L['to_evendis_once'] > 0 ? 'an evendis inkl. ' . $e0($L['to_evendis_once']) . ' einmalig' : ''])) . "\nDein Shop läuft komplett ohne App – die App kannst du jederzeit optional dazubuchen.";
+            $L['to_evendis_once'] > 0 ? 'an evendis inkl. ' . $e0($L['to_evendis_once']) . ' einmalig' : ''])) . "\nDein Shop läuft komplett ohne App – die App kannst du jederzeit optional dazubuchen.\n" . self::price_assumption($in['avg_price']);
         $steps = [];
         $steps[] = ['title' => 'Deine Ticketeinnahmen', 'text' => $n($t) . ' Tickets × ' . $e2($in['avg_price']) . ' Ø Ticketpreis = ' . $e0($L['revenue']) . '. So viel zahlen deine Gäste für die Tickets (inklusive Mehrwertsteuer).', 'lines' => []];
         $steps[] = $in['service_fee'] > 0
@@ -2637,7 +2671,7 @@ class TIX_Platform_Offers {
     const K_MUTED = [0.420, 0.439, 0.502];  // #6B7080
     const K_LINE = [0.894, 0.902, 0.922];   // #E4E6EB
     const K_SOFT = [0.965, 0.969, 0.976];   // #F6F7F9
-    const K_RED = [0.910, 0.267, 0.353];    // #E8445A
+    const K_RED = [0.988, 0.184, 0.333];    // #FC2F55 – evendis-Markenrot (EvBrand.red, Logo und App-Icon; 1.38.829)
     const K_TINT = [0.992, 0.945, 0.953];   // #FDF1F3
 
     /**
@@ -2724,7 +2758,8 @@ class TIX_Platform_Offers {
 
         // ── Seiten: Folgeseiten mit schmalem Kopf
         $y = 0;
-        // Original-Logo (1.38.824, User: „das Logo ist nicht original“): helle Variante, auf das Kopf-Rot gelegt (das PDF trägt ein Bild je Datei)
+        // Original-Logo für farbige Hintergründe (logo_on_dark der evendis-App = ev-org-logo-hell): auf dem Markenrot #FC2F55 geht die rote Kachel
+        // im Hintergrund auf, es bleiben die weiße Bildmarke und die weiße Wortmarke wie in der App (EvMark). Ein Bild je PDF.
         $logo = false;
         $lp = (defined('TIXOMAT_PATH') ? TIXOMAT_PATH : dirname(__DIR__) . '/') . 'assets/img/evendis-logo-hell.png';
         if (function_exists('imagecreatefrompng') && is_readable($lp) && ($src = @imagecreatefrompng($lp))) {
@@ -3073,8 +3108,8 @@ class TIX_Platform_Offers {
         $cx = function ($k) use ($M, $lw, $cwv) { return $M + $lw + ($k + 1) * $cwv - 6; };
         $lead_t = intval($B['plan']['lead']['tickets'] ?? 0);
         for ($pass = $bs(); $pass < 2; $pass = $bn($pass)) {
-        $section('Planrechnung', 'Was im Jahr insgesamt übrig bleibt – je nach Ticketzahl. Die markierte Spalte (' . $num($lead_t) . ' Tickets) gehört zum Faktenblock'
-            . (!empty($t['has_options']) ? '; hier sind die gewählten Optionen mit eingerechnet.' : '.'));
+        $section('Planrechnung', 'Was im Jahr mit dem Grundpaket übrig bleibt – je nach Ticketzahl. Die markierte Spalte (' . $num($lead_t) . ' Tickets) gehört zum Faktenblock.'
+            . (!empty($t['has_options']) ? ' Optionale Zubuchungen sind hier nicht eingerechnet.' : ''));
         $y -= 6;
         $vhead = function ($list) use (&$y, $P, $col, $font, $tx, $rt, $cx, $M, $CW, $num, $lead_t, $cwv, $lw) {
             $col(self::K_SOFT); $P->rrect($M, $y - 8, $CW, 22, 8, true);

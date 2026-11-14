@@ -1,5 +1,5 @@
 {
-    "plugin_version": "1.38.828",
+    "plugin_version": "1.38.829",
     "name": "calc-selbstgehostet",
     "request": {
         "route": "POST /platform/offers/calc",

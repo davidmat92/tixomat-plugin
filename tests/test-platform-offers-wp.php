@@ -54,8 +54,8 @@ $cust = ['company' => "Club Nord $sfx", 'name' => 'Lena Berg', 'email' => "po_ku
 $o1 = $d['offer'] ?? []; $ids[] = intval($o1['id'] ?? 0);
 $y = wp_date('Y');
 $keys = array_column((array) ($o1['data']['items'] ?? []), 'catalog_key');
-po_eq('Anlegen: 201, Nummer AN-JJJJ-NNNN, Entwurf, App-Einrichtung automatisch dazu (ab 819 auch „Einrichtung inklusive“ beim eigenen Shop)', [201, 1, 'draft', ['shop', 'app', 'datenumzug', 'app_einrichtung', 'einrichtung']],
-    [$st, preg_match("/^AN-$y-\\d{4}$/", (string) ($o1['number'] ?? '')), $o1['status'] ?? '', $keys]);
+po_eq('Anlegen: 201, Nummer AN-JJMM-NNNN (ab 1.38.829, NNNN ab 4.000), Entwurf, App-Einrichtung automatisch dazu (ab 819 auch „Einrichtung inklusive“ beim eigenen Shop)', [201, 1, 'draft', ['shop', 'app', 'datenumzug', 'app_einrichtung', 'einrichtung']],
+    [$st, preg_match('/^AN-' . wp_date('ym') . '-\\d{4,}$/', (string) ($o1['number'] ?? '')), $o1['status'] ?? '', $keys]);
 $t = $o1['totals'] ?? [];
 po_eq('Summen: Jahr 790 (Staffel, nicht 12 × 79) + 12 × 149 = 2.578, −10 % = 2.320,20 netto, 2.761,04 brutto; einmalig 250 + 1.490 = 1.740 netto, 2.070,60 brutto; 193,35 im Monat',
     [2578.0, 257.8, 2320.2, 440.84, 2761.04, 1740.0, 0.0, 2070.6, 193.35, []],
@@ -68,8 +68,8 @@ po_eq('Vorteile automatisch je Tarif/Modul + „In jedem Konto“; Vergleich nur
 [$st, $d] = po_rest('POST', '/platform/offers', ['customer' => ['company' => "Theater Süd $sfx", 'email' => "po_t_$sfx@example.test"], 'mode' => 'platform', 'items' => ['tickets']]);
 $o2 = $d['offer'] ?? []; $ids[] = intval($o2['id'] ?? 0);
 $n1 = intval(substr((string) $o1['number'], -4)); $n2 = intval(substr((string) ($o2['number'] ?? ''), -4));
-po_eq('Nummernkreis fortlaufend; Ticketplattform als Gebühr je Ticket, keine Summe', [$n1 + 1, 0.0, 1, true],
-    [$n2, floatval($o2['totals']['yearly']['gross'] ?? -1), count((array) ($o2['totals']['fees'] ?? [])), in_array('eigene_seite', array_column((array) ($o2['data']['benefits'] ?? []), 'key'), true)]);
+po_eq('Nummernkreis aufsteigend mit zufälliger Schrittweite 7–41 (lässt keinen Schluss auf die Anzahl zu), ab 4.000; Ticketplattform als Gebühr je Ticket, keine Summe', [true, true, 0.0, 1, true],
+    [$n2 - $n1 >= 7 && $n2 - $n1 <= 41, $n1 > 4000, floatval($o2['totals']['yearly']['gross'] ?? -1), count((array) ($o2['totals']['fees'] ?? [])), in_array('eigene_seite', array_column((array) ($o2['data']['benefits'] ?? []), 'key'), true)]);
 
 // ═══ 4. Ändern, Preis überschreiben, Live-Summe ═══
 $items = $o1['data']['items']; $items[0]['price'] = 69;
@@ -198,7 +198,7 @@ po_eq('Neue Version: gleiche Grundnummer -2, Entwurf; alte ersetzt, alter Link 4
     [$st, $v2['number'] ?? '', $v2['status'] ?? '', TIX_Platform_Offers::get($o2['id'])->status, $pst, $pc]);
 [$st, $d] = po_rest('POST', '/platform/offers/' . $o1['id'] . '/duplicate');
 $du = $d['offer'] ?? []; $ids[] = intval($du['id'] ?? 0);
-po_eq('Duplizieren: neue Nummer, Entwurf, ohne Entscheidung', [201, 'draft', true, null], [$st, $du['status'] ?? '', ($du['number'] ?? '') !== $o1['number'] && strpos((string) $du['number'], '-' . $y . '-') !== false, $du['decision'] ?? null]);
+po_eq('Duplizieren: neue Nummer, Entwurf, ohne Entscheidung', [201, 'draft', true, null], [$st, $du['status'] ?? '', ($du['number'] ?? '') !== $o1['number'] && strpos((string) $du['number'], '-' . wp_date('ym') . '-') !== false, $du['decision'] ?? null]);
 [, $l] = po_rest('GET', '/platform/offers');
 po_eq('Liste ohne ersetzte Fassungen, Zähler je Status', [false, 1], [in_array($o2['id'], array_column((array) $l['offers'], 'id'), true), intval($l['counts']['accepted'] ?? 0)]);
 // Ablauf
