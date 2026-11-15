@@ -577,7 +577,7 @@ class TIX_Native_Checkout {
      * Warenkorb-Zeile für Sitzplätze (eine Sektion) bauen und die Plätze für den Halter sichern.
      * $holder leer = Web-Warenkorb. Liefert die Zeile oder eine Fehlermeldung.
      */
-    public static function seat_line($event_id, array $seats, $holder = '') {
+    public static function seat_line($event_id, array $seats, $holder = '', $pos = false) {
         $sm   = TIX_Seatmap::event_seatmap($event_id);
         $data = $sm ? TIX_Seatmap::event_data($event_id) : null;
         if (!$data) return 'Für dieses Event gibt es keinen Saalplan.';
@@ -590,8 +590,12 @@ class TIX_Native_Checkout {
             if ($sec && $s2['id'] !== $sec['id']) return 'Bitte Plätze je Bereich einzeln in den Warenkorb legen.';
             $sec = $s2;
         }
-        if (!$sec || floatval($sec['price'] ?? 0) < 0) return 'Für diesen Bereich gibt es keine Online-Tickets.'; // Preis 0 = Freiplatz mit Platzwahl (User 13.11., 1.38.798)
-        $r = TIX_Seatmap::hold($event_id, $sm, $seats, $holder !== '' ? $holder : self::session_key());
+        if (!$sec || floatval($sec['price'] ?? 0) < 0) return 'Für diesen Bereich gibt es keine Online-Tickets.';
+        // Audit 15.11. (M2): 0 € nur als Freiplatz (Kategorie mit Preis 0 oder Plan-Schalter free); Kasse vor Ort ($pos) wie bisher
+        $price = $pos ? floatval($sec['price'] ?? 0) : TIX_Seatmap::online_price($event_id, $sec);
+        if ($price === null) return 'Für diesen Bereich gibt es keine Online-Tickets.';
+        // Kasse vor Ort (M5): keine Online-Grenzen (Plätze je Halter/Anschluss, Anteil des Events)
+        $r = TIX_Seatmap::hold($event_id, $sm, $seats, $holder !== '' ? $holder : self::session_key(), null, !$pos);
         if ($r['failed']) {
             if (!empty($r['message'])) return $r['message'];
             return 'Diese Plätze sind leider nicht mehr frei: ' . implode(', ', array_map(function ($s) use ($data) { return TIX_Seatmap::seat_label($s, $data); }, $r['failed'])) . '.';
@@ -604,7 +608,7 @@ class TIX_Native_Checkout {
             'cat_index'   => $cat_index,
             'name'        => sanitize_text_field(!empty($sec['category_name']) ? $sec['category_name'] : ($sec['label'] ?: 'Sitzplatz')),
             'event_title' => get_the_title($event_id),
-            'price'       => floatval($sec['price']),
+            'price'       => floatval($price),
             'qty'         => count($seats),
             'meta'        => ['seats' => $seats, 'seatmap_id' => $sm, 'section' => $sec['id']],
         ];
@@ -1174,6 +1178,30 @@ class TIX_Native_Checkout {
     /**
      * Rendert den nativen Checkout — volle Feature-Parität mit WC-Checkout
      */
+    /**
+     * Audit 15.11. (M8): Kassen-Einstellungen (Studio „Kasse & Einlass“, TIX_Sale_Settings) auch in der Web-Kasse, gleiche Regeln wie
+     * die App-Kasse. Mehrere Events im Warenkorb: das Strengste gilt (Adresse/Telefon Pflicht, Firma an, sobald ein Event es will;
+     * „Konto anlegen“ nur, wenn alle es erlauben). E-Rechnung an → Adresse immer Pflicht. null = keine Einstellungen verfügbar.
+     * Telefon „aus“ blendet das Feld in der Web-Kasse nicht aus (dort war es immer optional) – nur „Pflicht“ wirkt.
+     */
+    public static function web_sale_settings(array $cart) {
+        if (!class_exists('TIX_Sale_Settings')) return null;
+        $eids = array_values(array_unique(array_filter(array_map(function ($it) { return intval($it['event_id'] ?? 0); }, (array) ($cart['items'] ?? [])))));
+        if (!$eids) $eids = [0];
+        $rank = ['off' => 0, 'optional' => 1, 'required' => 2];
+        $out = ['address_required' => false, 'phone_field' => 'off', 'account_offer' => true, 'company_field' => false];
+        foreach ($eids as $eid) {
+            $c = $eid ? TIX_Sale_Settings::for_event($eid)['checkout'] : TIX_Sale_Settings::get(0)['checkout'];
+            if (!empty($c['address_required'])) $out['address_required'] = true;
+            $ph = (string) ($c['phone_field'] ?? 'off');
+            if (($rank[$ph] ?? 0) > $rank[$out['phone_field']]) $out['phone_field'] = $ph;
+            if (empty($c['account_offer'])) $out['account_offer'] = false;
+            if (!empty($c['company_field'])) $out['company_field'] = true;
+        }
+        if (TIX_Sale_Settings::address_forced()) $out['address_required'] = true;
+        return $out;
+    }
+
     public static function render_checkout() {
         self::require_assets();
         wp_enqueue_style('tix-checkout', TIXOMAT_URL . 'assets/css/checkout.css', ['tix-google-fonts'], TIXOMAT_VERSION);
@@ -1273,6 +1301,14 @@ class TIX_Native_Checkout {
         $use_countdown = !empty($s['checkout_countdown']);
         $countdown_min = intval($s['checkout_countdown_minutes'] ?? 10);
         $show_company  = !empty($s['show_company_field']);
+        // Kassen-Einstellungen wie in der App (M8)
+        $ws            = self::web_sale_settings($cart);
+        if ($ws) $show_company = $ws['company_field'];
+        $addr_req      = $ws ? $ws['address_required'] : true;
+        $phone_req     = $ws && $ws['phone_field'] === 'required';
+        $offer_account = $ws ? $ws['account_offer'] : true;
+        $req_attr      = function ($on) { return $on ? ' required' : ''; };
+        $req_mark      = function ($on) { return $on ? ' <abbr class="tix-co-req">*</abbr>' : ''; };
         $vat_text      = $s['vat_text_checkout'] ?? 'inkl. MwSt.';
         $btn_text      = $s['btn_text_checkout'] ?? 'Jetzt bestellen';
         $terms_url     = $s['terms_url'] ?? '';
@@ -1530,16 +1566,16 @@ class TIX_Native_Checkout {
                             </div>
                             <?php endif; ?>
                             <div class="tix-co-field tix-co-field-full">
-                                <label class="tix-co-label">Straße / Hausnummer <abbr class="tix-co-req">*</abbr></label>
-                                <input type="text" class="tix-co-input" name="billing_address_1" required autocomplete="address-line1">
+                                <label class="tix-co-label">Straße / Hausnummer<?php echo $req_mark($addr_req); ?></label>
+                                <input type="text" class="tix-co-input" name="billing_address_1"<?php echo $req_attr($addr_req); ?> autocomplete="address-line1">
                             </div>
                             <div class="tix-co-field tix-co-field-third">
-                                <label class="tix-co-label">PLZ <abbr class="tix-co-req">*</abbr></label>
-                                <input type="text" class="tix-co-input" name="billing_postcode" required autocomplete="postal-code">
+                                <label class="tix-co-label">PLZ<?php echo $req_mark($addr_req); ?></label>
+                                <input type="text" class="tix-co-input" name="billing_postcode"<?php echo $req_attr($addr_req); ?> autocomplete="postal-code">
                             </div>
                             <div class="tix-co-field tix-co-field-twothirds">
-                                <label class="tix-co-label">Ort <abbr class="tix-co-req">*</abbr></label>
-                                <input type="text" class="tix-co-input" name="billing_city" required autocomplete="address-level2">
+                                <label class="tix-co-label">Ort<?php echo $req_mark($addr_req); ?></label>
+                                <input type="text" class="tix-co-input" name="billing_city"<?php echo $req_attr($addr_req); ?> autocomplete="address-level2">
                             </div>
                             <div class="tix-co-field tix-co-field-full">
                                 <label class="tix-co-label">Land <abbr class="tix-co-req">*</abbr></label>
@@ -1564,12 +1600,12 @@ class TIX_Native_Checkout {
                                 <input type="email" class="tix-co-input" name="billing_email" required autocomplete="email" value="<?php echo esc_attr($prefill_email); ?>">
                             </div>
                             <div class="tix-co-field tix-co-field-full">
-                                <label class="tix-co-label">Telefon</label>
-                                <input type="tel" class="tix-co-input" name="billing_phone" autocomplete="tel" value="<?php echo esc_attr($prefill_phone); ?>">
+                                <label class="tix-co-label">Telefon<?php echo $req_mark($phone_req); ?></label>
+                                <input type="tel" class="tix-co-input" name="billing_phone"<?php echo $req_attr($phone_req); ?> autocomplete="tel" value="<?php echo esc_attr($prefill_phone); ?>">
                             </div>
                         </div>
 
-                        <?php if (!$is_logged): ?>
+                        <?php if (!$is_logged && $offer_account): ?>
                         <div class="tix-co-create-account">
                             <label class="tix-co-check-label">
                                 <input type="checkbox" name="createaccount" class="tix-co-check" value="1">
@@ -1780,9 +1816,21 @@ class TIX_Native_Checkout {
         if (!$email || !is_email($email)) {
             wp_send_json_error(['message' => 'Bitte eine gültige E-Mail-Adresse angeben.']);
         }
+        // Kassen-Einstellungen wie in der App-Kasse (Audit 15.11., M8): Adresse/Telefon Pflicht, „Konto anlegen“ abschaltbar
+        $ws = self::web_sale_settings($cart);
+        if ($ws) {
+            if ($ws['address_required']) {
+                foreach (['billing_address_1' => 'Straße und Hausnummer', 'billing_postcode' => 'PLZ', 'billing_city' => 'Ort'] as $fk => $fl) {
+                    if (trim(sanitize_text_field(wp_unslash((string) ($_POST[$fk] ?? '')))) === '') wp_send_json_error(['message' => 'Bitte ' . $fl . ' angeben.', 'field' => $fk]);
+                }
+            }
+            if ($ws['phone_field'] === 'required' && trim(sanitize_text_field(wp_unslash((string) ($_POST['billing_phone'] ?? '')))) === '') {
+                wp_send_json_error(['message' => 'Bitte Telefonnummer angeben.', 'field' => 'billing_phone']);
+            }
+        }
 
         // Account creation for guests — Checkbox „Konto anlegen"
-        $create_account     = !is_user_logged_in() && !empty($_POST['createaccount']);
+        $create_account     = !is_user_logged_in() && !empty($_POST['createaccount']) && (!$ws || $ws['account_offer']);
         $created_user_id    = 0; // speichern für spätere Activation-Mail
         $existing_user_id   = 0; // falls User schon existiert (Rolle evtl. anpassen)
         if ($create_account && $email) {

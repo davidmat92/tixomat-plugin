@@ -543,6 +543,26 @@ class TIX_Seatmap {
         return $out;
     }
 
+    /**
+     * Audit 15.11. (M2): Online-Preis eines Bereichs (mit Kategorie-Überlagerung aus event_data) oder null = nicht online buchbar.
+     * Preis > 0 gilt; 0 € nur, wenn der Bereich einer Kategorie mit Preis 0 zugeordnet ist oder ausdrücklich Freiplatz ist
+     * (`free: true` im Plan). Ein Bereich ohne Preis und ohne Zuordnung ist kein Freiplatz.
+     */
+    public static function online_price($event_id, array $sec) {
+        $price = floatval($sec['price'] ?? 0);
+        if ($price < 0) return null;
+        if ($price > 0) return $price;
+        if (!empty($sec['free'])) return 0.0;
+        $sid = (string) ($sec['id'] ?? '');
+        $map = self::section_categories($event_id);
+        if ($sid !== '' && isset($map[$sid])) {
+            $cp = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::category_price($event_id, $map[$sid]) : null;
+            if ($cp === null) { $cats = (array) get_post_meta(intval($event_id), '_tix_ticket_categories', true); $cp = isset($cats[$map[$sid]]['price']) ? floatval($cats[$map[$sid]]['price']) : null; }
+            if ($cp !== null && abs(floatval($cp)) < 0.005) return 0.0;
+        }
+        return null;
+    }
+
     /** Namensvergleich für Kategorien: klein, ohne Akzente und Zeichen */
     public static function name_key($s) {
         return preg_replace('/[^a-z0-9]+/', '', strtolower(remove_accents(html_entity_decode(trim((string) $s), ENT_QUOTES, 'UTF-8'))));
@@ -786,6 +806,7 @@ class TIX_Seatmap {
                 'rows'          => [],
             ];
             if (isset($section['category_index']) && is_numeric($section['category_index'])) $s['category_index'] = intval($section['category_index']);
+            if (!empty($section['free'])) $s['free'] = true; // ausdrücklicher Freiplatz: online für 0 € (Audit 15.11., M2)
             if (!empty($section['block']) && is_array($section['block'])) {
                 $s['block'] = TIX_Seatmap_Geometry::clean_block($section['block']);
             } else {
@@ -1042,7 +1063,7 @@ class TIX_Seatmap {
         return class_exists('TIX_Seating') ? TIX_Seating::hold_minutes_for_event(intval($event_id)) : self::RESERVE_MIN;
     }
 
-    public static function hold($event_id, $seatmap_id, array $seat_ids, $holder, $minutes = null) {
+    public static function hold($event_id, $seatmap_id, array $seat_ids, $holder, $minutes = null, $limits = true) {
         global $wpdb;
         if ($minutes === null) $minutes = self::reserve_min($event_id);
         self::maybe_upgrade();
@@ -1061,7 +1082,7 @@ class TIX_Seatmap {
         $wpdb->query($wpdb->prepare("DELETE FROM $table WHERE event_id = %d AND status = 'reserved' AND expires_at <= UTC_TIMESTAMP()", $event_id));
         $own = array_flip(self::held_by($event_id, $holder));
         $new = array_values(array_filter($seat_ids, function ($s) use ($own) { return !isset($own[$s]); }));
-        if ($new) {
+        if ($new && $limits) { // Kasse vor Ort (Audit 15.11., M5): keine Online-Grenzen gegen Blockade
             if (count($own) + count($new) > $lim['holder']) {
                 $error = 'limit_holder';
                 $message = sprintf('Du kannst höchstens %d Plätze gleichzeitig reservieren.', $lim['holder']);
@@ -1167,6 +1188,10 @@ class TIX_Seatmap {
             if (!$seats || !$sm) continue;
             $event_id = intval($it['event_id']);
             if (!self::module_on($event_id)) return 'Die Platzwahl ist für dieses Event nicht verfügbar.';
+            if (empty($it['meta']['pos'])) { // M2: auch ältere Warenkörbe – Bereich ohne Preis nur als Freiplatz bzw. 0-€-Kategorie
+                $data = self::event_data($event_id);
+                foreach ($seats as $sid) { $sec = $data ? self::section_of($data, (string) $sid) : null; if (!$sec || self::online_price($event_id, $sec) === null) return 'Für diesen Bereich gibt es keine Online-Tickets.'; }
+            }
             $r = self::hold($event_id, $sm, $seats, $holder, self::CHECKOUT_MIN);
             if ($r['failed']) {
                 $data = self::event_data($event_id);
@@ -1387,8 +1412,11 @@ class TIX_Seatmap {
                 $tok = (string) ($it['hold_token'] ?? '');
                 $h = $tok !== '' ? self::app_holder($tok) : $holder;
                 if ($h === '') $h = $holder;
-                $line = TIX_Native_Checkout::seat_line($event_id, array_map('strval', $it['seats']), $h);
-                if (is_string($line)) return new WP_Error('tix_seat_taken', $line, ['status' => 409, 'seats' => array_values($it['seats'])]);
+                $line = TIX_Native_Checkout::seat_line($event_id, array_map('strval', $it['seats']), $h, true);
+                if (is_string($line)) {
+                    self::pos_release($lines); // M5: schon gehaltene Plätze dieses Verkaufs wieder frei
+                    return new WP_Error('tix_seat_taken', $line, ['status' => 409, 'seats' => array_values($it['seats'])]);
+                }
                 $line['meta']['pos'] = 1;
                 $line['meta']['holder'] = $h;
                 if ($free) $line['price'] = 0.0;
@@ -1397,11 +1425,27 @@ class TIX_Seatmap {
             }
             $idx = intval($it['index'] ?? $it['product_id'] ?? -1);
             if ($idx >= 0 && intval($it['qty'] ?? $it['quantity'] ?? 0) > 0 && self::needs_seat($event_id, $idx)) {
+                self::pos_release($lines);
                 return new WP_Error('tix_seat_required', 'Diese Kategorie gehört zu einem Sitzbereich – bitte im Saalplan Plätze wählen.', ['status' => 409, 'index' => $idx]);
             }
             $rest[] = $it;
         }
         return [$lines, $holder, $rest];
+    }
+
+    /** Kasse: Haltungen, die die Kasse selbst angelegt hat (Halter pos_<Konto>), wieder freigeben – Verkauf gescheitert (M5) */
+    public static function pos_release(array $lines) {
+        foreach ($lines as $l) {
+            $h = (string) ($l['meta']['holder'] ?? '');
+            if ($h === '' || strpos($h, 'pos_') !== 0 || empty($l['meta']['seats'])) continue; // App-Haltung (hold_token) bleibt der App
+            self::release(intval($l['event_id'] ?? 0), array_map('strval', (array) $l['meta']['seats']), $h);
+        }
+    }
+
+    /** Darf das angemeldete Konto an der Kasse für dieses Event verkaufen? (dann keine Online-Grenzen beim Halten, M5) */
+    public static function pos_staff($event_id) {
+        if (!$event_id || !is_user_logged_in() || !class_exists('TIX_REST_API')) return false;
+        return TIX_REST_API::check_pos(new WP_REST_Request('GET', '/tixomat/v1/pos/config')) === true && TIX_REST_API::can_access_event(intval($event_id));
     }
 
     /** Kasse: Haltungen der Sitzzeilen an die Bestellung binden (danach verkauft der Statuswechsel) */
@@ -1494,11 +1538,11 @@ class TIX_Seatmap {
     }
 
     /** Halter aus dem Token; neues Token höchstens 10 je IP und 10 Minuten */
-    private static function rest_holder(WP_REST_Request $req) {
+    private static function rest_holder(WP_REST_Request $req, $pos = false) {
         $token  = (string) $req->get_param('hold_token');
         $holder = self::app_holder($token);
         if ($holder === '') {
-            if (self::rest_limit('seat_token', 10, 600)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+            if (!$pos && self::rest_limit('seat_token', 10, 600)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
             $token  = wp_generate_password(32, false);
             $holder = self::app_holder($token);
         }
@@ -1652,17 +1696,18 @@ class TIX_Seatmap {
 
     public static function rest_hold(WP_REST_Request $req) {
         // Audit 15.11. (M9): Ratenbegrenzung vor dem Durchgriff zum Ersteller (sonst unbegrenzt über Spiegel/Kopien)
-        if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+        $pos = self::pos_staff(intval($req->get_param('event_id'))); // Kasse vor Ort (M5): keine Online-Grenzen
+        if (!$pos && self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         if ($fw = self::maybe_forward($req, 'hold')) return $fw;
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;
-        $seats = array_slice(array_map('sanitize_text_field', (array) $req->get_param('seat_ids')), 0, 50);
+        $seats = array_slice(array_map('sanitize_text_field', (array) $req->get_param('seat_ids')), 0, $pos ? 500 : 50);
         if (!$seats) return new WP_Error('tix_seats', 'Bitte Plätze wählen.', ['status' => 400]);
-        $h = self::rest_holder($req);
+        $h = self::rest_holder($req, $pos);
         if (is_wp_error($h)) return $h;
         list($token, $holder) = $h;
-        return self::hold_response($token, self::hold($event_id, $sm, $seats, $holder), $event_id);
+        return self::hold_response($token, self::hold($event_id, $sm, $seats, $holder, null, !$pos), $event_id);
     }
 
     /** POST /customer/seats/release {event_id, seat_ids[], hold_token} */
@@ -1681,16 +1726,17 @@ class TIX_Seatmap {
      * → beste Plätze finden und halten (preview: nur zeigen). attempt = „anderer Vorschlag“, replace = eigene Haltung vorher freigeben.
      */
     public static function rest_best(WP_REST_Request $req) {
-        if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]); // M9: vor dem Durchgriff
+        $pos = self::pos_staff(intval($req->get_param('event_id'))); // Kasse vor Ort (M5): keine Online-Grenzen
+        if (!$pos && self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]); // M9: vor dem Durchgriff
         if ($fw = self::maybe_forward($req, 'best')) return $fw;
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;
         // Auch im Modus pick erlaubt (ältere Apps nutzen „Beste Plätze“ als Hilfe beim Wählen)
-        $h = self::rest_holder($req);
+        $h = self::rest_holder($req, $pos);
         if (is_wp_error($h)) return $h;
         list($token, $holder) = $h;
-        $qty = min(self::limits($event_id)['holder'], max(1, intval($req->get_param('qty'))));
+        $qty = min($pos ? 500 : self::limits($event_id)['holder'], max(1, intval($req->get_param('qty'))));
         $preview = filter_var($req->get_param('preview'), FILTER_VALIDATE_BOOLEAN);
         $replace = filter_var($req->get_param('replace'), FILTER_VALIDATE_BOOLEAN);
         if ($replace && !$preview) self::release($event_id, self::held_by($event_id, $holder), $holder);
@@ -1701,7 +1747,7 @@ class TIX_Seatmap {
             return new WP_Error($info['reason'] === 'no_more' ? 'tix_no_more' : 'tix_no_seats', $info['message'] ?: 'Nicht genügend freie Plätze verfügbar.', ['status' => 409, 'hold_token' => $token] + $pub);
         }
         if ($preview) return rest_ensure_response(['ok' => true, 'preview' => true, 'hold_token' => $token] + $pub);
-        $r = self::hold_response($token, self::hold($event_id, $sm, $info['seats'], $holder), $event_id);
+        $r = self::hold_response($token, self::hold($event_id, $sm, $info['seats'], $holder, null, !$pos), $event_id);
         if (is_wp_error($r)) return $r;
         $r->set_data($r->get_data() + $pub);
         return $r;

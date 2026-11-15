@@ -81,11 +81,16 @@ class TIX_Cart_Pricing {
             return floatval(TIX_Specials::get_effective_price($sid, $event_id));
         }
 
-        // Sitzplatz: Preis des Saalplan-Bereichs
+        // Sitzplatz: Preis des Saalplan-Bereichs – wie beim Anlegen der Zeile (seat_line) mit Kategorie-Preis (Audit 15.11., M2:
+        // vorher roher Plan-Preis, ein Bereich ohne eigenen Preis wurde so beim Bezahlen 0 €)
         if (!empty($meta['seats']) && !empty($meta['section']) && class_exists('TIX_Seatmap')) {
-            $data = TIX_Seatmap::data(intval($meta['seatmap_id'] ?? 0));
+            $smid = intval($meta['seatmap_id'] ?? 0);
+            $data = ($smid && $smid === TIX_Seatmap::event_seatmap($event_id)) ? TIX_Seatmap::event_data($event_id) : TIX_Seatmap::data($smid);
             foreach ((array) ($data['sections'] ?? []) as $sec) {
-                if (($sec['id'] ?? '') === $meta['section']) return floatval($sec['price'] ?? 0);
+                if (($sec['id'] ?? '') !== $meta['section']) continue;
+                if (!empty($meta['pos']) || !method_exists('TIX_Seatmap', 'online_price')) return max(0.0, floatval($sec['price'] ?? 0));
+                $p = TIX_Seatmap::online_price($event_id, $sec);
+                return $p === null ? max(0.0, floatval($sec['price'] ?? 0)) : $p; // nicht buchbar: secure_cart lehnt ab
             }
             return null;
         }

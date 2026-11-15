@@ -150,6 +150,17 @@ class TIX_Checkin_Areas {
         }
     }
 
+    /** Sperre je Event und Bereich (MySQL GET_LOCK), damit Prüfen der Kapazität und Eintragen zusammen laufen (Audit 15.11.) */
+    private static function lock($eid, $area_id) {
+        global $wpdb;
+        return intval($wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', 'tix_area_' . intval($eid) . '_' . intval($area_id)))) === 1;
+    }
+
+    private static function unlock($eid, $area_id) {
+        global $wpdb;
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', 'tix_area_' . intval($eid) . '_' . intval($area_id)));
+    }
+
     private static function info(array $area, $eid) {
         $cap = intval($area['capacity']);
         $cnt = self::count_in($eid, $area['id']);
@@ -185,14 +196,25 @@ class TIX_Checkin_Areas {
                 'area' => self::info($area, $eid), 'message' => 'Bereits in „' . $area['name'] . '“ eingelassen.']);
         }
         $cap = intval($area['capacity']);
-        if ($cap > 0 && self::count_in($eid, $area['id']) >= $cap) {
-            return rest_ensure_response($base + ['status' => 'invalid', 'area_full' => true, 'error' => 'tix_area_full', 'area' => self::info($area, $eid), 'message' => '„' . $area['name'] . '“ ist voll.']);
+        // Kapazität atomar (Audit 15.11.): zwei Scanner gleichzeitig dürfen den letzten Platz nicht beide vergeben
+        $locked = $cap > 0 && self::lock($eid, $area['id']);
+        if ($cap > 0 && !$locked) return rest_ensure_response($base + ['status' => 'invalid', 'error' => 'tix_busy', 'area' => self::info($area, $eid), 'message' => 'Gerade viel los – bitte noch einmal scannen.']);
+        try {
+            if ($cap > 0 && self::entry($eid, $area['id'], 'ticket', $tid)) { // inzwischen von einem anderen Gerät eingelassen
+                return rest_ensure_response($base + ['status' => 'already', 'block' => false, 'time' => (string) self::entry($eid, $area['id'], 'ticket', $tid)['first_at'], 'checked_in_count' => 1, 'total_expected' => 1,
+                    'area' => self::info($area, $eid), 'message' => 'Bereits in „' . $area['name'] . '“ eingelassen.']);
+            }
+            if ($cap > 0 && self::count_in($eid, $area['id']) >= $cap) {
+                return rest_ensure_response($base + ['status' => 'invalid', 'area_full' => true, 'error' => 'tix_area_full', 'area' => self::info($area, $eid), 'message' => '„' . $area['name'] . '“ ist voll.']);
+            }
+            if (!get_post_meta($tid, '_tix_ticket_checked_in', true)) {
+                TIX_Tickets::checkin_ticket($tid, $by);
+                TIX_REST_API::ticket_db_checked_in($code);
+            }
+            self::add_entry($eid, $area['id'], 'ticket', $tid, $by);
+        } finally {
+            if ($locked) self::unlock($eid, $area['id']);
         }
-        if (!get_post_meta($tid, '_tix_ticket_checked_in', true)) {
-            TIX_Tickets::checkin_ticket($tid, $by);
-            TIX_REST_API::ticket_db_checked_in($code);
-        }
-        self::add_entry($eid, $area['id'], 'ticket', $tid, $by);
         return rest_ensure_response($base + ['status' => 'ok', 'checked_in_count' => 1, 'total_expected' => 1, 'area' => self::info($area, $eid), 'message' => 'Willkommen!']);
     }
 
@@ -240,12 +262,19 @@ class TIX_Checkin_Areas {
             return ['status' => 'conflict', 'area' => intval($area_id), 'checked_at' => (string) $prev['first_at'], 'by' => (string) $prev['by_user']];
         }
         $cap = intval($area['capacity']);
-        if ($cap > 0 && self::count_in($eid, $area_id) >= $cap) return ['status' => 'full', 'error' => 'tix_area_full', 'area' => intval($area_id)];
-        if (!get_post_meta($tid, '_tix_ticket_checked_in', true)) {
-            TIX_Tickets::checkin_ticket($tid, $by);
-            if ($at !== '') update_post_meta($tid, '_tix_ticket_checkin_offline_at', $at);
+        $locked = $cap > 0 && self::lock($eid, $area_id); // atomar wie beim Scan (Audit 15.11.)
+        if ($cap > 0 && !$locked) return ['status' => 'invalid', 'error' => 'tix_busy', 'area' => intval($area_id)];
+        try {
+            if ($cap > 0 && ($again = self::entry($eid, $area_id, 'ticket', $tid))) return ['status' => 'conflict', 'area' => intval($area_id), 'checked_at' => (string) $again['first_at'], 'by' => (string) $again['by_user']];
+            if ($cap > 0 && self::count_in($eid, $area_id) >= $cap) return ['status' => 'full', 'error' => 'tix_area_full', 'area' => intval($area_id)];
+            if (!get_post_meta($tid, '_tix_ticket_checked_in', true)) {
+                TIX_Tickets::checkin_ticket($tid, $by);
+                if ($at !== '') update_post_meta($tid, '_tix_ticket_checkin_offline_at', $at);
+            }
+            self::add_entry($eid, $area_id, 'ticket', $tid, $by);
+        } finally {
+            if ($locked) self::unlock($eid, $area_id);
         }
-        self::add_entry($eid, $area_id, 'ticket', $tid, $by);
         return ['status' => 'ok', 'area' => intval($area_id), 'checked_at' => (string) get_post_meta($tid, '_tix_ticket_checkin_time', true)];
     }
 

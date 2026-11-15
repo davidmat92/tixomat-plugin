@@ -2216,7 +2216,7 @@ class TIX_REST_API {
     public static function pos_create_order(WP_REST_Request $req) {
         $body = $req->get_json_params();
         $idem = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ((is_array($body) ? ($body['idempotency_key'] ?? '') : '') ?: $req->get_header('idempotency_key')));
-        if (strlen($idem) < 8 || strlen($idem) > 64) return self::pos_create_order_run($req);
+        if (strlen($idem) < 8 || strlen($idem) > 64) return self::pos_create_order_guarded($req);
         $ik = 'tix_pos_idem_' . md5(get_current_user_id() . '|' . $idem);
         $prev = get_transient($ik);
         if (is_array($prev)) return rest_ensure_response($prev + ['replayed' => true]);
@@ -2227,7 +2227,7 @@ class TIX_REST_API {
             update_option($ik . '_lock', time(), false);
         }
         try {
-            $res = self::pos_create_order_run($req);
+            $res = self::pos_create_order_guarded($req);
             if (!is_wp_error($res)) {
                 $data = $res instanceof WP_REST_Response ? $res->get_data() : $res;
                 if (is_array($data)) set_transient($ik, $data, DAY_IN_SECONDS);
@@ -2235,6 +2235,21 @@ class TIX_REST_API {
             return $res;
         } finally {
             delete_option($ik . '_lock');
+        }
+    }
+
+    /** Sitzzeilen des laufenden Kassenverkaufs (für die Freigabe bei Fehlern, Audit 15.11., M5) */
+    private static $pos_seat_lines = [];
+
+    /** Kassenverkauf; scheitert er nach dem Halten der Plätze, gibt die Kasse ihre eigenen Haltungen sofort wieder frei (M5) */
+    private static function pos_create_order_guarded(WP_REST_Request $req) {
+        self::$pos_seat_lines = [];
+        try {
+            $res = self::pos_create_order_run($req);
+            if (is_wp_error($res) && self::$pos_seat_lines && class_exists('TIX_Seatmap') && method_exists('TIX_Seatmap', 'pos_release')) TIX_Seatmap::pos_release(self::$pos_seat_lines);
+            return $res;
+        } finally {
+            self::$pos_seat_lines = [];
         }
     }
 
@@ -2287,6 +2302,7 @@ class TIX_REST_API {
             $pl = TIX_Seatmap::pos_lines($event_id, $items, $payment === 'free');
             if (is_wp_error($pl)) return $pl;
             list($seat_lines, , $items) = $pl;
+            self::$pos_seat_lines = $seat_lines;
         }
         // Positionen bündeln (Kennung = Kategorie-Index, wie in pos_categories)
         $merged = [];
@@ -2379,6 +2395,7 @@ class TIX_REST_API {
         }
         update_option('_tix_order_source_' . $order_id, 'pos', false);
         if ($seat_lines) TIX_Seatmap::pos_attach($seat_lines, $order_id); // gehaltene Plätze → diese Bestellung (verkauft beim Abschluss)
+        self::$pos_seat_lines = []; // ab hier gehören die Plätze der Bestellung
         if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
         if ($receipt) do_action('tix_pos_signed', $order_id, $receipt);
         self::pos_meta($order_id, array_filter([

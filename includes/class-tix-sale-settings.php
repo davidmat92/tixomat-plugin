@@ -92,7 +92,8 @@ class TIX_Sale_Settings {
         $out = [];
         foreach (self::FIELDS as $area => $fields) foreach ($fields as $k => $def) {
             $v = $def[1];
-            if ($def[2] !== null && array_key_exists($def[2], $s)) { [$ok, $cv] = self::clean_value($def, $def[0] === 'bool' ? !empty($s[$def[2]]) : $s[$def[2]]); if ($ok) $v = $cv; }
+            // Audit 15.11. (M4): die alten Schalter der Web-Kasse vor Ort (pos_*) gelten nur dort; die App-Kasse liest nur eigene Werte
+            if ($def[2] !== null && $area !== 'pos' && array_key_exists($def[2], $s)) { [$ok, $cv] = self::clean_value($def, $def[0] === 'bool' ? !empty($s[$def[2]]) : $s[$def[2]]); if ($ok) $v = $cv; }
             if (isset($own[$area][$k])) { [$ok, $cv] = self::clean_value($def, $own[$area][$k]); if ($ok) $v = $cv; }
             $out[$area][$k] = $v;
         }

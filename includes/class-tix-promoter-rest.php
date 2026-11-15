@@ -496,7 +496,7 @@ class TIX_Promoter_REST {
             if ($wait) return self::bad('period', 'Provision wird erst nach dem Event auszahlbar.', 'tix_payout_waiting', 409);
             return self::bad('period', 'Im Zeitraum gibt es keine offene Provision.', 'tix_payout_empty', 409);
         }
-        if (class_exists('TIX_Promoter_Partner') && TIX_Promoter_Partner::is_partner($p)) { $doc = TIX_Promoter_Partner::issue($id); if (is_wp_error($doc)) error_log('TIX Partner-Gutschrift #' . $id . ': ' . $doc->get_error_message()); }
+        // Partner-Gutschrift: Nummer erst bei der Auszahlung (Audit 15.11., M11; TIX_Promoter_Partner hängt an tix_promoter_payout_paid)
         return new WP_REST_Response(['ok' => true, 'payout' => self::payout_item(TIX_Promoter_DB::get_payout($id))], 201);
     }
 

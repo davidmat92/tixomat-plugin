@@ -33,6 +33,20 @@ class TIX_Promoter_Partner {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        // Audit 15.11. (M11): Gutschrift-Nummer erst bei der Auszahlung (vor der Mitteilung an den Partner, Priorität 5)
+        add_action('tix_promoter_payout_paid', function ($id) {
+            $po = class_exists('TIX_Promoter_DB') ? TIX_Promoter_DB::get_payout(intval($id)) : null;
+            $p = $po ? TIX_Promoter_DB::get_promoter(intval($po->promoter_id)) : null;
+            if (!self::is_partner($p)) return;
+            $d = self::issue(intval($id));
+            if (is_wp_error($d)) error_log('TIX Partner-Gutschrift #' . intval($id) . ': ' . $d->get_error_message());
+        }, 5);
+    }
+
+    /** Reverse Charge (§ 13b UStG): steuerpflichtiger Partner mit USt-IdNr. außerhalb Deutschlands → keine USt auf der Gutschrift */
+    public static function reverse_charge($p) {
+        $v = strtoupper(preg_replace('/\s+/', '', (string) ($p->vat_id ?? '')));
+        return intval($p->vat_liable ?? 1) === 1 && $v !== '' && strpos($v, 'DE') !== 0;
     }
 
     public static function vat_rate() { return floatval(apply_filters('tix_partner_vat_rate', 19.0)); }
@@ -127,23 +141,13 @@ class TIX_Promoter_Partner {
         return class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'platform' : 'site';
     }
 
-    /** Nummer aus dem Zählerspeicher der Rechnungen (Reihe GS je Aussteller und Jahr) */
-    private static function next_number($key, $code) {
-        global $wpdb;
-        $c = TIX_Invoices::counters_table();
-        $y = intval(current_time('Y'));
-        $wpdb->query('START TRANSACTION');
-        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES (%s, 'GS', %d, 0)", $key, $y));
-        $last = $wpdb->get_var($wpdb->prepare("SELECT last FROM $c WHERE issuer_key = %s AND series = 'GS' AND year = %d FOR UPDATE", $key, $y));
-        if ($last === null) { $wpdb->query('ROLLBACK'); return null; }
-        $seq = intval($last) + 1;
-        $wpdb->query($wpdb->prepare("UPDATE $c SET last = %d WHERE issuer_key = %s AND series = 'GS' AND year = %d", $seq, $key, $y));
-        $wpdb->query('COMMIT');
-        return 'GS-' . ($code !== '' ? $code . '-' : '') . $y . '-' . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
-    }
-
-    /** Gutschrift zur Auszahlung festschreiben (einmal) → doc_data oder WP_Error */
-    public static function issue($payout_id) {
+    /**
+     * Gutschrift festschreiben (einmal) → doc_data oder WP_Error. Audit 15.11. (M11): Nummer erst bei der Auszahlung
+     * (Hook tix_promoter_payout_paid) und in EINER Transaktion mit dem Beleg – Auszahlungszeile und Zähler gesperrt (FOR UPDATE),
+     * zwei gleichzeitige Aufrufe vergeben keine zweite Nummer, eine Nummer ohne Beleg (Lücke) entsteht nicht.
+     * $draft = true: nur Vorschau ohne Nummer, nichts gespeichert (offene Auszahlung).
+     */
+    public static function issue($payout_id, $draft = false) {
         global $wpdb;
         self::ensure_columns();
         $po = TIX_Promoter_DB::get_payout(intval($payout_id));
@@ -163,15 +167,36 @@ class TIX_Promoter_Partner {
         $lines = array_values(array_map(function ($l) { $l['revenue'] = round($l['revenue'], 2); $l['net'] = round($l['net'], 2); return $l; }, $by));
         $net = round(array_sum(array_column($lines, 'net')), 2);
         $liable = intval($p->vat_liable ?? 1) === 1;
-        $rate = $liable ? self::vat_rate() : 0.0;
+        $rc = self::reverse_charge($p);
+        $rate = ($liable && !$rc) ? self::vat_rate() : 0.0;
         $vat = round($net * $rate / 100, 2);
-        $no = self::next_number($key, (string) ($iss['code'] ?? ''));
-        if (!$no) return new WP_Error('tix_counter', 'Nummernkreis nicht verfügbar.', ['status' => 500]);
-        $doc = ['number' => $no, 'date' => current_time('Y-m-d'), 'period' => ['from' => (string) $po->period_from, 'to' => (string) $po->period_to],
+        $doc = ['number' => '', 'date' => current_time('Y-m-d'), 'period' => ['from' => (string) $po->period_from, 'to' => (string) $po->period_to],
             'issuer' => ['name' => (string) $iss['name'], 'lines' => array_values((array) $iss['address_lines']), 'vat_id' => (string) $iss['vat_id'], 'tax_id' => (string) $iss['tax_id'], 'key' => $key],
             'partner' => ['company' => (string) $p->company, 'contact' => (string) $p->display_name, 'address' => (string) $p->address, 'vat_id' => (string) $p->vat_id, 'vat_liable' => $liable, 'code' => (string) $p->promoter_code],
-            'lines' => $lines, 'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2)];
-        $wpdb->update(TIX_Promoter_DB::table_payouts(), ['doc_no' => $no, 'doc_data' => wp_json_encode($doc)], ['id' => intval($po->id)]);
+            'lines' => $lines, 'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2), 'reverse_charge' => $rc];
+        if ($draft) return $doc + ['draft' => true];
+
+        $code = (string) ($iss['code'] ?? '');
+        $c = TIX_Invoices::counters_table();
+        $tp = TIX_Promoter_DB::table_payouts();
+        $y = intval(current_time('Y'));
+        $wpdb->query('START TRANSACTION');
+        $row = $wpdb->get_row($wpdb->prepare("SELECT doc_no, doc_data FROM $tp WHERE id = %d FOR UPDATE", intval($po->id)));
+        if (!$row) { $wpdb->query('ROLLBACK'); return new WP_Error('not_found', 'Auszahlung nicht gefunden.', ['status' => 404]); }
+        if ((string) $row->doc_no !== '') { // gleichzeitig schon vergeben → diesen Beleg nehmen
+            $wpdb->query('COMMIT');
+            $d = json_decode((string) $row->doc_data, true);
+            return is_array($d) ? $d : new WP_Error('tix_counter', 'Gutschrift unvollständig.', ['status' => 500]);
+        }
+        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES (%s, 'GS', %d, 0)", $key, $y));
+        $last = $wpdb->get_var($wpdb->prepare("SELECT last FROM $c WHERE issuer_key = %s AND series = 'GS' AND year = %d FOR UPDATE", $key, $y));
+        if ($last === null) { $wpdb->query('ROLLBACK'); return new WP_Error('tix_counter', 'Nummernkreis nicht verfügbar.', ['status' => 500]); }
+        $seq = intval($last) + 1;
+        $doc['number'] = 'GS-' . ($code !== '' ? $code . '-' : '') . $y . '-' . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+        $ok1 = $wpdb->query($wpdb->prepare("UPDATE $c SET last = %d WHERE issuer_key = %s AND series = 'GS' AND year = %d", $seq, $key, $y));
+        $ok2 = $wpdb->query($wpdb->prepare("UPDATE $tp SET doc_no = %s, doc_data = %s WHERE id = %d AND doc_no = ''", $doc['number'], wp_json_encode($doc), intval($po->id)));
+        if ($ok1 === false || !$ok2) { $wpdb->query('ROLLBACK'); return new WP_Error('tix_counter', 'Gutschrift konnte nicht festgeschrieben werden.', ['status' => 500]); }
+        $wpdb->query('COMMIT');
         return $doc;
     }
 
@@ -193,7 +218,8 @@ class TIX_Promoter_Partner {
         foreach (array_filter(array_merge([$d['partner']['company'], $d['partner']['contact'] !== $d['partner']['company'] ? $d['partner']['contact'] : ''], preg_split('/\r\n|\r|\n/', (string) $d['partner']['address']))) as $l) { $pdf->text($M, $y, $l); $y -= 13; }
         if ($d['partner']['vat_id'] !== '') { $pdf->text($M, $y, 'USt-IdNr.: ' . $d['partner']['vat_id']); $y -= 13; }
         $y -= 20;
-        $pdf->set_font('Helvetica-Bold', 16); $pdf->text($M, $y, 'Gutschrift ' . $d['number'] . ($cancelled ? ' – STORNIERT' : '')); $y -= 20;
+        $draft = !empty($d['draft']) || (string) $d['number'] === '';
+        $pdf->set_font('Helvetica-Bold', 16); $pdf->text($M, $y, $draft ? 'Gutschrift – ENTWURF (Nummer bei Auszahlung)' : 'Gutschrift ' . $d['number'] . ($cancelled ? ' – STORNIERT' : '')); $y -= 20;
         $pdf->set_font('Helvetica', 10);
         $pdf->text($M, $y, 'Datum: ' . wp_date('d.m.Y', strtotime($d['date'] . ' 12:00:00')) . '   ·   Leistungszeitraum: ' . wp_date('d.m.Y', strtotime($d['period']['from'] . ' 12:00:00')) . ' – ' . wp_date('d.m.Y', strtotime($d['period']['to'] . ' 12:00:00'))); $y -= 14;
         $pdf->text($M, $y, 'Partner-Code: ' . $d['partner']['code']); $y -= 24;
@@ -208,11 +234,13 @@ class TIX_Promoter_Partner {
         $y -= 8;
         $pdf->set_font('Helvetica', 10);
         $pdf->text(330, $y, 'Summe netto'); $rt($W - $M, $y, self::eur($d['net']), 10); $y -= 14;
-        if ($d['partner']['vat_liable']) { $pdf->text(330, $y, 'zzgl. USt ' . rtrim(rtrim(number_format($d['vat_rate'], 1, ',', ''), '0'), ',') . ' %'); $rt($W - $M, $y, self::eur($d['vat']), 10); $y -= 14; }
+        if ($d['partner']['vat_liable'] && empty($d['reverse_charge'])) { $pdf->text(330, $y, 'zzgl. USt ' . rtrim(rtrim(number_format($d['vat_rate'], 1, ',', ''), '0'), ',') . ' %'); $rt($W - $M, $y, self::eur($d['vat']), 10); $y -= 14; }
         $pdf->set_font('Helvetica-Bold', 11); $pdf->text(330, $y, 'Auszahlungsbetrag'); $rt($W - $M, $y, self::eur($d['gross']), 11); $y -= 30;
         $pdf->set_font('Helvetica', 9);
         $notes = ['Gutschrift im Sinne des § 14 Abs. 2 Satz 2 UStG über die Vermittlungsprovision für Ticketverkäufe im genannten Zeitraum. Widerspricht der Partner, verliert die Gutschrift ihre Wirkung als Rechnung.'];
         if (!$d['partner']['vat_liable']) $notes[] = 'Der Partner ist Kleinunternehmer; gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen.';
+        elseif (!empty($d['reverse_charge'])) $notes[] = 'Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge, § 13b UStG): Die Umsatzsteuer schuldet der Aussteller als Leistungsempfänger. USt-IdNr. des Partners: ' . $d['partner']['vat_id'] . '.';
+        if ($draft) $notes[] = 'Entwurf: Die Gutschrift-Nummer wird erst bei der Auszahlung vergeben.';
         $notes[] = 'Aussteller: ' . $d['issuer']['name'] . ($d['issuer']['vat_id'] !== '' ? ' · USt-IdNr. ' . $d['issuer']['vat_id'] : ($d['issuer']['tax_id'] !== '' ? ' · St.-Nr. ' . $d['issuer']['tax_id'] : ''));
         foreach ($notes as $n) foreach (explode("\n", wordwrap($n, 105, "\n", true)) as $l) { $pdf->text($M, $y, $l); $y -= 12; }
         return $pdf->output();
@@ -226,10 +254,15 @@ class TIX_Promoter_Partner {
     }
 
     private static function deliver($po) {
-        $d = self::issue(intval($po->id));
+        $st = (string) $po->status;
+        // M11: Nummer erst bei der Auszahlung; offene Auszahlung → Entwurf ohne Nummer, nichts vergeben
+        if (empty($po->doc_no) && $st === 'cancelled') return new WP_Error('tix_credit_note_none', 'Zu dieser zurückgenommenen Auszahlung gibt es keine Gutschrift.', ['status' => 409]);
+        $d = self::issue(intval($po->id), empty($po->doc_no) && $st !== 'paid');
         if (is_wp_error($d)) return $d;
-        $bytes = self::pdf($d, (string) $po->status === 'cancelled');
-        return rest_ensure_response(['ok' => true, 'number' => $d['number'], 'filename' => 'Gutschrift-' . $d['number'] . '.pdf', 'mime' => 'application/pdf', 'net' => $d['net'], 'vat' => $d['vat'], 'gross' => $d['gross'], 'data' => base64_encode($bytes)]);
+        $bytes = self::pdf($d, $st === 'cancelled');
+        $draft = !empty($d['draft']);
+        return rest_ensure_response(['ok' => true, 'number' => $draft ? null : $d['number'], 'draft' => $draft, 'reverse_charge' => !empty($d['reverse_charge']),
+            'filename' => 'Gutschrift-' . ($draft ? 'Entwurf-' . intval($po->id) : $d['number']) . '.pdf', 'mime' => 'application/pdf', 'net' => $d['net'], 'vat' => $d['vat'], 'gross' => $d['gross'], 'data' => base64_encode($bytes)]);
     }
 
     public static function rest_org(WP_REST_Request $req) {

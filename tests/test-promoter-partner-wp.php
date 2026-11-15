@@ -50,8 +50,13 @@ try {
     $wpdb->query($wpdb->prepare("UPDATE " . TIX_Promoter_DB::table_commissions() . " SET created_at = %s WHERE promoter_id = %d", $past . ' 12:00:00', $pid));
     [$st, $d] = $rest('POST', '/organizer/promoter-payouts', ['promoter_id' => $pid, 'from' => wp_date('Y-m-d', time() - 30 * DAY_IN_SECONDS), 'to' => current_time('Y-m-d')]);
     $po = intval($d['payout']['id'] ?? 0);
+    // M11 (Audit 15.11.): offene Auszahlung → noch keine Nummer, Abruf liefert einen Entwurf ohne Nummer
+    $eq('M11: offene Auszahlung ohne Gutschrift-Nummer', [201, null], [$st, $d['payout']['credit_note'] ?? null]);
+    [$st, $dd] = $rest('GET', "/organizer/promoter-payouts/$po/credit-note");
+    $eq('M11: Abruf vor der Auszahlung = Entwurf, keine Nummer vergeben', [200, true, null, 20.23, ''], [$st, $dd['draft'] ?? null, array_key_exists('number', (array) $dd) ? $dd['number'] : 'x', $dd['gross'] ?? null, (string) TIX_Promoter_DB::get_payout($po)->doc_no]);
+    [$st, $d] = $rest('POST', "/organizer/promoter-payouts/$po/paid", ['note' => 'Test']);
     $cn = $d['payout']['credit_note'] ?? [];
-    $eq('Auszahlung an Partner → Gutschrift: netto 17, USt 3,23, brutto 20,23, Nummer GS-…', [201, 17.0, 3.23, 20.23, true], [$st, $cn['net'] ?? null, $cn['vat'] ?? null, $cn['gross'] ?? null, strpos((string) ($cn['number'] ?? ''), 'GS-') === 0]);
+    $eq('Auszahlung an Partner → Gutschrift: netto 17, USt 3,23, brutto 20,23, Nummer GS-…', [200, 17.0, 3.23, 20.23, true], [$st, $cn['net'] ?? null, $cn['vat'] ?? null, $cn['gross'] ?? null, strpos((string) ($cn['number'] ?? ''), 'GS-') === 0]);
     [$st, $d] = $rest('GET', "/organizer/promoter-payouts/$po/credit-note");
     $pdf = base64_decode((string) ($d['data'] ?? ''));
     $eq('Gutschrift als PDF, gleiche Nummer', [200, true, $cn['number'] ?? 'x', 'application/pdf'], [$st, strpos($pdf, '%PDF') === 0, $d['number'] ?? '', $d['mime'] ?? '']);
@@ -62,6 +67,17 @@ try {
     $wpdb->update(TIX_Promoter_DB::table_payouts(), ['doc_no' => '', 'doc_data' => null], ['id' => $po]);
     $doc = TIX_Promoter_Partner::issue($po);
     $eq('§ 19 UStG: keine USt, neue Nummer höher', [0.0, 17.0, true], [$doc['vat'], $doc['gross'], strcmp($doc['number'], (string) $cn['number']) > 0]);
+    $eq('M11: erneutes Festschreiben vergibt keine zweite Nummer', $doc['number'], TIX_Promoter_Partner::issue($po)['number'] ?? '');
+    // Reverse Charge: steuerpflichtig mit ausländischer USt-IdNr.
+    $rest('POST', "/organizer/promoters/$pid", ['vat_liable' => true, 'vat_id' => 'ATU12345678']);
+    $wpdb->update(TIX_Promoter_DB::table_payouts(), ['doc_no' => '', 'doc_data' => null], ['id' => $po]);
+    $doc = TIX_Promoter_Partner::issue($po);
+    $pdf_rc = TIX_Promoter_Partner::pdf($doc);
+    $eq('M11: Reverse Charge (AT-USt-IdNr.): keine USt, PDF entsteht', [0.0, 17.0, true, true], [$doc['vat'], $doc['gross'], !empty($doc['reverse_charge']), strpos($pdf_rc, '%PDF') === 0]);
+    $rest('POST', "/organizer/promoters/$pid", ['vat_id' => 'DE123456789']);
+    $wpdb->update(TIX_Promoter_DB::table_payouts(), ['doc_no' => '', 'doc_data' => null], ['id' => $po]);
+    $doc = TIX_Promoter_Partner::issue($po);
+    $eq('M11: deutsche USt-IdNr.: 19 % wie bisher', [3.23, false], [$doc['vat'], !empty($doc['reverse_charge'])]);
     // Promoter (Person) → keine Gutschrift
     TIX_Promoter_DB::insert_commission(['promoter_id' => $pp, 'event_id' => $ev, 'order_id' => 990003, 'attribution' => 'referral', 'tickets_qty' => 1, 'order_total' => 20, 'commission_amount' => 1]);
     $wpdb->query($wpdb->prepare("UPDATE " . TIX_Promoter_DB::table_commissions() . " SET created_at = %s WHERE promoter_id = %d", $past . ' 12:00:00', $pp));
