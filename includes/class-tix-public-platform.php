@@ -230,8 +230,21 @@ class TIX_Public_Platform {
 
     /** Kommende Events eines Veranstalters: eigene und solche, bei denen er Co-Veranstalter ist (1.38.726, `organizer_role` own|co). */
     private static function upcoming_for_organizer($oid, $events = null) {
-        $events = $events ?? self::upcoming_payloads();
         $oid = intval($oid);
+        // Demo Club / Vorschau (Sandbox): fehlt in allen Listen (1.38.508) – auf seiner EIGENEN Veranstalterseite zeigen
+        // wir seine Events trotzdem (Demo-Fall „Veranstalterseite auf evendis.de“, User 15.11.). Andere Listen bleiben ohne.
+        if (class_exists('TIX_Sales') && TIX_Sales::sandbox($oid)) {
+            $out = [];
+            $now = current_time('Y-m-d');
+            foreach (get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => 200, 'fields' => 'ids',
+                'meta_key' => '_tix_date_start', 'orderby' => 'meta_value', 'order' => 'ASC',
+                'meta_query' => [['key' => '_tix_organizer_id', 'value' => (string) $oid], ['key' => '_tix_date_start', 'value' => $now, 'compare' => '>=']]]) as $id) {
+                $p = TIX_Public_Events::payload($id, false);
+                if ($p && empty($p['is_past'])) $out[] = $p + ['organizer_role' => 'own'];
+            }
+            return $out;
+        }
+        $events = $events ?? self::upcoming_payloads();
         $out = [];
         foreach ($events as $e) {
             if (intval($e['organizer_info']['id'] ?? 0) === $oid) { $out[] = $e + ['organizer_role' => 'own']; continue; }
