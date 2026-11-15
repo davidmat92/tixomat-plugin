@@ -312,7 +312,7 @@ class TIX_Demo_Content {
 
     const OPT_KI = 'tix_demo_ki_images';
     /** KI-generierte Beispiel-Eventbilder (assets/demo-ki, Herkunft in HERKUNFT.txt) – nur diese auf den Demo-Instanzen (User 15.11.) */
-    const KI_IMAGES = ['band', 'techno', 'hiphop', 'cocktail'];
+    const KI_IMAGES = ['band', 'techno', 'hiphop', 'cocktail', 'neon', 'schlager'];
 
     /**
      * Medien-ID eines KI-Beispielbilds (legt es beim ersten Mal an, Option tix_demo_ki_images, Medien mit _tix_demo_image und
@@ -339,9 +339,10 @@ class TIX_Demo_Content {
 
     /** KI-Bild je Club-Abend: Live-Musik → band, Clubnächte/Techno → techno, Hip-Hop/Partyhits → hiphop, Bar/Wein/Brunch → cocktail */
     public static function club_image($key) {
-        $m = ['live' => 'band', 'w2' => 'band', 'm1' => 'band', 'wk7' => 'band', 'karaoke' => 'band', 'comedy' => 'band',
-            'keller' => 'techno', 'w1' => 'techno', 'wk8' => 'techno', 'wk5' => 'techno', 'past' => 'techno',
-            'classix' => 'hiphop', 'u16' => 'hiphop', 'retro' => 'hiphop', 'wk6' => 'hiphop', 'badtaste' => 'hiphop', 'singles' => 'hiphop', 'wk9' => 'hiphop',
+        $m = ['live' => 'band', 'm1' => 'schlager', 'wk7' => 'band', 'karaoke' => 'band', 'comedy' => 'band',
+            'keller' => 'techno', 'w1' => 'neon', 'wk8' => 'neon', 'wk5' => 'techno', 'past' => 'techno',
+            'w2' => 'schlager', 'singles' => 'schlager', 'badtaste' => 'schlager',
+            'classix' => 'hiphop', 'u16' => 'hiphop', 'retro' => 'hiphop', 'wk6' => 'hiphop', 'wk9' => 'hiphop',
             'vino' => 'cocktail', 'afterwork' => 'cocktail', 'brunch' => 'cocktail'];
         return $m[$key] ?? 'hiphop';
     }

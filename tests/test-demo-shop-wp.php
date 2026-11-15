@@ -353,7 +353,7 @@ if ($phase === 'on') {
     // Club wie ein echter Club (1.38.847): KI-Bild je Abend, 20+ Events, Ü16, freier Eintritt, zwei Gewinnspiele, Kacheln, Tipps, Mitteilungen
     $cids = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']);
     $thumbs = array_filter(array_map('get_post_thumbnail_id', $cids));
-    t_eq('club: mindestens 20 Events, jedes mit KI-Bild, alle vier Motive genutzt', [true, true, 4], [count($cids) >= 20, count($thumbs) === count($cids) && !array_filter($thumbs, function ($a) { return !get_post_meta($a, '_tix_demo_ki', true); }), count(array_unique($thumbs))]);
+    t_eq('club: mindestens 20 Events, jedes mit KI-Bild, alle sechs Motive genutzt', [true, true, 6], [count($cids) >= 20, count($thumbs) === count($cids) && !array_filter($thumbs, function ($a) { return !get_post_meta($a, '_tix_demo_ki', true); }), count(array_unique($thumbs))]);
     t_eq('club: Ü16-Party, Afterwork mit freiem Eintritt, zwei Gewinnspiele', [true, true, 2],
         [in_array('16', array_map(function ($id) { return (string) get_post_meta($id, '_tix_info_age_limit', true); }, $cids), true), (bool) array_filter($cids, function ($id) { return get_post_meta($id, '_tix_free_entry', true) === '1' && get_post_meta($id, '_tix_tickets_enabled', true) === '0'; }), $rc['seeded']['raffles'] ?? 0]);
     t_eq('club: Tipps 3, Mitteilungen 3, 10 Kacheln, Hashtag, Seiten faq/u16/musikwunsch/kontakt', [3, 3, 10, '#ostkainacht', ['faq', 'u16', 'musikwunsch', 'kontakt']],

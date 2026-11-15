@@ -7,3 +7,6 @@ namen, Web-Adressen oder echte Orte:
   hiphop.jpg    = Gemini_Generated_Image_xbovtdxbovtdxbov (Event „Old but Gold Ü30 Hip Hop Party“)
   cocktail.jpg  = Gemini_Generated_Image_julyojulyojulyoj (Event „Cocktail-Workshop: Die großen Klassiker“)
 Die Adobe-Stock-Fotos in assets/demo sind hier bewusst NICHT verwendet (nur für die App lizenziert).
+Neu am 15.11. (Weave / Nano Banana 2.1, im Auftrag des Users erzeugt, ohne Schrift/Marken/echte Orte):
+  neon.jpg      = Clubtanzfläche mit Neonröhren (Neon Night, Clubnächte)
+  schlager.jpg  = Partymenge mit Konfetti (Schlagerabend, Sommerfest, Singleparty, Bad Taste)
