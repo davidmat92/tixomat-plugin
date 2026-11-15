@@ -4,7 +4,8 @@
  * NIE auf einer Live-Seite. tests/run-demo-remote.sh sichert die DBs, richtet Schlüssel/Schalter ein, startet die Instanz als
  * HTTP-Server (php -S) und ruft die Phasen auf:
  *   inst – Instanz (zh-kk, tix_demo_instance + tix_demo_remote_enabled): signierte Routen direkt (rest_do_request)
- *   plat – Plattform (zh-plat): echte Signatur-Kette über HTTP zur Instanz (Option tix_demo_shop_url)
+ *   plat – Plattform (zh-plat): echte Signatur-Kette über HTTP zu beiden Instanzen (shop: tix_demo_shop_url → zh-kk:8080,
+ *          club: tix_demo_club_url → zh-kk:8081 = zweite WordPress-Installation im selben Container, Tabellen-Präfix club_; 1.38.844)
  *   none – Plattform ohne Verbindung / ohne Fälle: verhält sich wie bisher
  *
  *   TIX_T_PHASE=inst wp eval-file wp-content/plugins/tixomat/tests/test-demo-remote-wp.php
@@ -181,7 +182,9 @@ if ($phase === 'inst') {
 // ═══════════════════════════════ Plattform mit echter Kette ═══════════════════════════════
 if ($phase === 'plat') {
     t_eq('Plattform (Mehr-Veranstalter)', true, TIX_Demo_Access::multi());
-    t_eq('Verbindung eingerichtet', true, TIX_Demo_Remote::platform_ready());
+    t_eq('Verbindung eingerichtet (shop + club)', [true, true], [TIX_Demo_Remote::platform_ready('shop'), TIX_Demo_Remote::platform_ready('club')]);
+    t_eq('zwei verschiedene Instanzen mit eigenem Schlüssel', [true, true], [TIX_Demo_Remote::base_url('shop') !== TIX_Demo_Remote::base_url('club'), TIX_Demo_Remote::fingerprint('shop') !== TIX_Demo_Remote::fingerprint('club')]);
+    t_eq('unbekanntes Ziel nie bereit', false, TIX_Demo_Remote::platform_ready('quatsch'));
     delete_transient('tix_demo_shop_reset_rl'); delete_transient('tix_demo_reset_rl');
     if (!TIX_Sales::demo_id()) TIX_Demo::ensure_organizer();
     $sent_http = [];
@@ -361,9 +364,90 @@ if ($phase === 'plat') {
     list($st, $d) = t_rest('DELETE', "/demo-access/$pw");
     t_eq('Shop-Teil fehlt schon → Plattform löscht trotzdem', [200, false], [$st, get_userdata($pw) instanceof WP_User]);
 
+    // ═══════ Drei Fälle (1.38.844): platform + shop + club ═══════
+    TIX_Demo_Remote::forget();
+    list($st, $d) = t_rest('GET', '/demo-access', ['cases' => 'all']);
+    t_eq('GET ?cases=all → Blöcke shop UND club verfügbar', [200, true, true], [$st, (bool) ($d['shop']['available'] ?? false), (bool) ($d['club']['available'] ?? false)]);
+    t_eq('club-Block: studio/home/vorlage club/summary', [true, 'club'], [!empty($d['club']['studio']) && !empty($d['club']['home']) && isset($d['club']['summary']['active']), $d['club']['vorlage'] ?? '']);
+    t_eq('Blöcke zeigen auf verschiedene Instanzen', true, ($d['shop']['home'] ?? '') !== '' && ($d['shop']['home'] ?? '') !== ($d['club']['home'] ?? ''));
+    $GLOBALS['t_mails'] = [];
+    list($st, $d) = t_rest('POST', '/demo-access', ['cases' => ['platform', 'shop', 'club'], 'kind' => 'prospect', 'profile' => 'club', 'name' => "Dora Drei $sfx", 'email' => "dora$sfx@beispiel.test"]);
+    t_eq('alle drei Fälle anlegen → 201', 201, $st);
+    $p3 = intval($d['access']['id'] ?? 0); $cleanup[] = $p3;
+    t_eq('Zeile: cases platform+shop+club, shop und club aktiv', [['platform', 'shop', 'club'], 'active', 'active'], [$d['access']['cases'] ?? null, $d['access']['shop']['status'] ?? '', $d['access']['club']['status'] ?? '']);
+    t_eq('genau EINE Mail an den Interessenten', 1, count(array_filter($GLOBALS['t_mails'], function ($m) use ($sfx) { return in_array("dora$sfx@beispiel.test", (array) $m['to'], true); })));
+    $msg = (string) (t_mail_to("dora$sfx@beispiel.test")['message'] ?? '');
+    t_eq('Mail: Plattform + Shop + Club + demo.evendis.de', [true, true, true, true], [strpos($msg, 'Plattform ansehen') !== false, strpos($msg, 'Eigenen Shop ansehen') !== false, strpos($msg, 'Club-Website ansehen') !== false, strpos($msg, 'demo.evendis.de') !== false]);
+    preg_match_all('~(https?://[^"\s<]+/anmelden/link/\?t=([A-Za-z0-9%]+))~', $msg, $mm);
+    t_eq('drei Anmelde-Links in der Mail', 3, count(array_unique($mm[1] ?? [])));
+    t_eq('Schlüssel (shop und club) nicht in der Mail', [false, false], [strpos($msg, (string) get_option('tix_demo_shop_key')) !== false, strpos($msg, (string) get_option('tix_demo_club_key')) !== false]);
+    // Club-Link meldet auf der Club-Instanz an, nicht auf der Shop-Instanz
+    $confirm_at = function ($base, $tok) {
+        $r = wp_remote_post($base . '/public/demo-access/confirm', ['headers' => ['Content-Type' => 'application/json'], 'body' => wp_json_encode(['token' => $tok]), 'timeout' => 15]);
+        return is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
+    };
+    $s_club = TIX_Demo_Remote::state(true, 'club'); $s_shop = TIX_Demo_Remote::state(true, 'shop');
+    t_eq('beide Instanzen kennen den Zugang (gleiches Ende)', [true, true, true], [isset($s_club['accesses'][$p3]), isset($s_shop['accesses'][$p3]),
+        abs(strtotime((string) ($s_club['accesses'][$p3]['expires_at'] ?? '')) - TIX_Demo_Access::expires($p3)) < 2]);
+    $ctok = '';
+    foreach ($mm[1] ?? [] as $i => $url) if (strpos($msg, 'Club-Website ansehen') !== false && strpos($url, TIX_Demo_Access::studio_url('/')) !== 0) $ctoks[] = rawurldecode($mm[2][$i]);
+    // Reihenfolge in der Mail: Plattform, Shop, Club → der letzte Instanz-Link ist der Club-Link
+    $ctok = !empty($ctoks) ? end($ctoks) : '';
+    t_eq('Club-Link gilt NICHT auf der Shop-Instanz', 404, $confirm_at(TIX_Demo_Remote::base_url('shop'), $ctok));
+    t_eq('Club-Link meldet auf der Club-Instanz an', 200, $confirm_at(TIX_Demo_Remote::base_url('club'), $ctok));
+    // Nur Club
+    $GLOBALS['t_mails'] = [];
+    list($st, $d) = t_rest('POST', '/demo-access', ['cases' => ['club'], 'kind' => 'prospect', 'name' => "Carl Club $sfx", 'email' => "carl$sfx@beispiel.test"]);
+    $pc = intval($d['access']['id'] ?? 0); $cleanup[] = $pc;
+    $msg = (string) (t_mail_to("carl$sfx@beispiel.test")['message'] ?? '');
+    t_eq('nur Club: 201, cases [club], shop null, Mail nur mit Club-Knopf', [201, ['club'], null, [false, false, true]], [$st, $d['access']['cases'] ?? null, array_key_exists('shop', (array) ($d['access'] ?? [])) ? $d['access']['shop'] : 'fehlt',
+        [strpos($msg, 'Plattform ansehen') !== false, strpos($msg, 'Eigenen Shop ansehen') !== false, strpos($msg, 'Club-Website ansehen') !== false]]);
+    t_eq('nur Club: Testkauf-Adresse = Club-Homepage', true, ($d['access']['home'] ?? '') !== '' && ($d['access']['home'] ?? '') === (string) (TIX_Demo_Remote::state(true, 'club')['shop']['home'] ?? '-'));
+    t_eq('nur Club: kein Demo-Studio-Zugang', 0, TIX_Demo_Access::gate($pc));
+    t_eq('unbekannter Fall wird ignoriert, ohne gültigen → 400', 400, t_rest('POST', '/demo-access', ['cases' => ['quatsch'], 'kind' => 'prospect', 'name' => 'Q', 'email' => "q$sfx@beispiel.test"])[0]);
+
+    // Kein halber Zugang: Club fällt aus → Shop-Teil wird zurückgerollt
+    $curl = get_option('tix_demo_club_url');
+    update_option('tix_demo_club_url', 'http://zh-kk:9/?rest_route=/tixomat/v1');
+    TIX_Demo_Remote::forget();
+    $before_shop = count((array) (TIX_Demo_Remote::state(true, 'shop')['accesses'] ?? []));
+    $GLOBALS['t_mails'] = [];
+    list($st, $d) = t_rest('POST', '/demo-access', ['cases' => ['platform', 'shop', 'club'], 'kind' => 'prospect', 'profile' => 'club', 'name' => "Rolf Rück $sfx", 'email' => "rolf$sfx@beispiel.test"]);
+    t_eq('Club weg → 502 tix_demo_shop_unreachable (target club)', [502, 'tix_demo_shop_unreachable', 'club'], [$st, t_code($d), (string) ($d['data']['target'] ?? '')]);
+    t_eq('… Shop-Teil zurückgerollt, kein Plattform-Zugang, keine Mail', [$before_shop, false, 0], [count((array) (TIX_Demo_Remote::state(true, 'shop')['accesses'] ?? [])), (bool) get_user_by('email', "rolf$sfx@beispiel.test"), count($GLOBALS['t_mails'])]);
+    list($st, $d) = t_rest('PATCH', "/demo-access/$p3", ['blocked' => true]);
+    $s_shop = TIX_Demo_Remote::state(true, 'shop');
+    t_eq('sperren bei Club-Ausfall → 502, Shop wieder entsperrt, Plattform unverändert', [502, 'active', true], [$st, (string) ($s_shop['accesses'][$p3]['status'] ?? ''), in_array(TIX_Demo_Access::status($p3), ['active', 'expiring'], true)]);
+    list($st, $d) = t_rest('POST', "/demo-access/$p3/link");
+    t_eq('Link neu senden bei Club-Ausfall → 502, keine Mail', [502, 0], [$st, count($GLOBALS['t_mails'])]);
+    list($st, $d) = t_rest('GET', '/demo-access', ['cases' => 'all']);
+    t_eq('Liste bei Club-Ausfall: club available false, shop true', [false, true], [(bool) ($d['club']['available'] ?? true), (bool) ($d['shop']['available'] ?? false)]);
+    list($st, $d) = t_rest('DELETE', "/demo-access/$p3");
+    t_eq('löschen bei Club-Ausfall → 502, Zugang bleibt – auch der Shop-Teil (vorher geprüft, nichts halb gelöscht)', [502, true, true], [$st, get_userdata($p3) instanceof WP_User, isset(TIX_Demo_Remote::state(true, 'shop')['accesses'][$p3])]);
+    update_option('tix_demo_club_url', $curl);
+    TIX_Demo_Remote::forget();
+
+    // Verlängern auf allen drei Seiten
+    list($st, $d) = t_rest('PATCH', "/demo-access/$p3", ['extend' => true]);
+    $s_club = TIX_Demo_Remote::state(true, 'club'); $s_shop = TIX_Demo_Remote::state(true, 'shop');
+    t_eq('verlängern → Plattform, Shop und Club dasselbe Ende', [200, true, true], [$st, abs(strtotime((string) ($s_shop['accesses'][$p3]['expires_at'] ?? '')) - TIX_Demo_Access::expires($p3)) < 2, abs(strtotime((string) ($s_club['accesses'][$p3]['expires_at'] ?? '')) - TIX_Demo_Access::expires($p3)) < 2]);
+    $GLOBALS['t_mails'] = [];
+    list($st, $d) = t_rest('POST', "/demo-access/$p3/link");
+    preg_match_all('~/anmelden/link/\?t=~', (string) (t_mail_to("dora$sfx@beispiel.test")['message'] ?? ''), $mm);
+    t_eq('Link neu senden → eine Mail mit drei Links', [200, 1, 3], [$st, count($GLOBALS['t_mails']), count($mm[0])]);
+    // Club zurücksetzen
+    list($st, $d) = t_rest('POST', '/demo-access/reset', ['target' => 'club']);
+    t_eq('Club zurücksetzen → 200 target club, Vorlage club, scan_event heute', [200, 'club', 'club', wp_date('Y-m-d')], [$st, $d['target'] ?? '', $d['vorlage'] ?? '', (string) ($d['seeded']['scan_event_date'] ?? '')]);
+    // Löschen: alle drei Seiten
+    list($st, $d) = t_rest('DELETE', "/demo-access/$p3");
+    $s_club = TIX_Demo_Remote::state(true, 'club'); $s_shop = TIX_Demo_Remote::state(true, 'shop');
+    t_eq('löschen → Plattform, Shop und Club weg', [200, false, false, false], [$st, get_userdata($p3) instanceof WP_User, isset($s_shop['accesses'][$p3]), isset($s_club['accesses'][$p3])]);
+    list($st, $d) = t_rest('DELETE', "/demo-access/$pc");
+    t_eq('nur-Club-Zugang löschen', [200, false], [$st, isset(TIX_Demo_Remote::state(true, 'club')['accesses'][$pc])]);
+
     // ── demo_links in /studio/config ──
     list($st, $d) = t_rest('GET', '/studio/config');
-    t_eq('/studio/config demo_links {hub, platform, shop}', ['https://demo.evendis.de/', 'https://demo-studio.evendis.de/', 'https://studio.demo-shop.evendis.de/'], [$d['demo_links']['hub'] ?? '', $d['demo_links']['platform'] ?? '', $d['demo_links']['shop'] ?? '']);
+    t_eq('/studio/config demo_links {hub, platform, shop, club}', ['https://demo.evendis.de/', 'https://demo-studio.evendis.de/', 'https://studio.demo-shop.evendis.de/', 'https://studio.demo-club.evendis.de/'], [$d['demo_links']['hub'] ?? '', $d['demo_links']['platform'] ?? '', $d['demo_links']['shop'] ?? '', $d['demo_links']['club'] ?? '']);
     update_option('tix_demo_links', ['hub' => 'https://demo.example.test/', 'shop' => 'http://unsicher.example/']);
     list($st, $d) = t_rest('GET', '/studio/config');
     t_eq('demo_links: Option überschreibt, nur https', ['https://demo.example.test/', 'https://studio.demo-shop.evendis.de/'], [$d['demo_links']['hub'] ?? '', $d['demo_links']['shop'] ?? '']);
@@ -376,8 +460,9 @@ if ($phase === 'plat') {
 // ═══════════════════════════════ Plattform ohne Verbindung / ohne Fälle ═══════════════════════════════
 if ($phase === 'none') {
     delete_option('tix_demo_shop_url');
+    delete_option('tix_demo_club_url');
     TIX_Demo_Remote::forget();
-    t_eq('ohne URL: nicht verbunden', false, TIX_Demo_Remote::platform_ready());
+    t_eq('ohne URL: nicht verbunden (shop, club)', [false, false], [TIX_Demo_Remote::platform_ready('shop'), TIX_Demo_Remote::platform_ready('club')]);
     $cleanup = [];
     wp_set_current_user($admin);
     list($st, $d) = t_rest('POST', '/demo-access', ['kind' => 'sales', 'name' => "Nora $sfx", 'email' => "nora$sfx@example.org"]);
@@ -385,6 +470,11 @@ if ($phase === 'none') {
     wp_set_current_user($s1);
     list($st, $d) = t_rest('GET', '/demo-access', ['cases' => 'all']);
     t_eq('cases=all ohne Verbindung: available false + Meldung', [200, false, true], [$st, $d['shop']['available'] ?? null, ($d['shop']['message'] ?? '') !== '']);
+    t_eq('… auch der club-Block (Meldung nennt den Demo-Club)', [false, true], [$d['club']['available'] ?? null, strpos((string) ($d['club']['message'] ?? ''), 'Demo-Club') !== false]);
+    list($st, $d) = t_rest('POST', '/demo-access', ['cases' => ['club'], 'kind' => 'prospect', 'name' => "Kein Club $sfx", 'email' => "keinclub$sfx@beispiel.test"]);
+    t_eq('Fall club ohne Verbindung → 502 target club', [502, 'club'], [$st, (string) ($d['data']['target'] ?? '')]);
+    list($st, $d) = t_rest('POST', '/demo-access/reset', ['target' => 'club']);
+    t_eq('Club zurücksetzen ohne Verbindung → 502', 502, $st);
     $before = count(get_users(['role' => 'tix_demo', 'fields' => 'ids']));
     list($st, $d) = t_rest('POST', '/demo-access', ['cases' => ['shop'], 'kind' => 'prospect', 'name' => "Kein Shop $sfx", 'email' => "keinshop$sfx@beispiel.test"]);
     t_eq('Fall shop ohne Verbindung → 502, nichts angelegt', [502, $before], [$st, count(get_users(['role' => 'tix_demo', 'fields' => 'ids']))]);

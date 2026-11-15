@@ -975,6 +975,8 @@ class TIX_REST_API {
         }
 
         $posts  = get_posts($args);
+        // Demo-Instanz (1.38.844): das scannbare Demo-Event zählt zu „heute“ (Einlass-Test vor dem Festival-Termin); sonst unverändert
+        if (class_exists('TIX_Demo_Shop') && $view !== 'archived') $posts = TIX_Demo_Shop::with_scan_event($posts, $filter, $search);
         $events = [];
         // Verkaufszahlen aller Events auf einmal (TIX_Sales_Figures, 1.38.606)
         if (class_exists('TIX_Sales_Figures')) TIX_Sales_Figures::prime(wp_list_pluck($posts, 'ID'));

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.843
+ * Version: 1.38.844
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.843');
+define('TIXOMAT_VERSION', '1.38.844');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -610,7 +610,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-sales.php'; // Live-Demo Vertrie
 require_once TIXOMAT_PATH . 'includes/class-tix-demo-content.php'; // Seed-Vorlagen Club Ostkai / Festival Seewiese (1.38.669)
 require_once TIXOMAT_PATH . 'includes/class-tix-demo.php'; // Demo Club: Reset/Seed, /public/demo, /public/demo-ticket (1.38.508)
 require_once TIXOMAT_PATH . 'includes/class-tix-demo-access.php'; // Demo-Studio: Zugänge (Interessenten/Vertrieb), Anmelde-Link, Demo-Zahlung, Verkürzen fremder Testkäufe (1.38.664)
-require_once TIXOMAT_PATH . 'includes/class-tix-demo-remote.php'; // Ein Demo-Zugang mit Fällen: Plattform ↔ Demo-Instanz signiert (HMAC, ±300 s, einmalig), /demo-access/remote, demo_links, wp tixomat demo-shop remote-key (1.38.843)
+require_once TIXOMAT_PATH . 'includes/class-tix-demo-remote.php'; // Ein Demo-Zugang mit Fällen: Plattform ↔ Demo-Instanz signiert (HMAC, ±300 s, einmalig), /demo-access/remote, demo_links, wp tixomat demo-shop remote-key (1.38.843; drei Fälle shop/club 1.38.844)
 require_once TIXOMAT_PATH . 'includes/class-tix-sales-previews.php'; // Vorschauen des Vertriebs: /sales/previews, /public/previews, Übernahme per claim_token (1.38.510)
 require_once TIXOMAT_PATH . 'includes/class-tix-website.php'; // Marken-Websites: /studio/website, /public/website, site-config.website (1.38.515)
 require_once TIXOMAT_PATH . 'includes/class-tix-web-stats.php'; // Besucher → Kauf ohne Cookies: /public/stats/hit, /studio/stats/funnel

@@ -253,11 +253,43 @@ if ($phase === 'on') {
     t_eq('Reset openair ok', true, !empty($r['ok']));
     $titles = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']);
     $titles = array_map('get_the_title', $titles);
-    t_eq('Festival + Warm-up angelegt', [true, true], [in_array('Seewiese Festival (Beispiel)', $titles, true), in_array('Warm-up am See (Beispiel)', $titles, true)]);
-    $today = intval($r['seeded']['today_event'] ?? 0);
-    t_eq('Event „heute Abend“ für den Scan', wp_date('Y-m-d'), (string) get_post_meta($today, '_tix_date_start', true));
+    // Demo A (1.38.844): genau EIN Event – Festival Fr–So im Sommer 2027
+    t_eq('openair: genau ein Event, das Festival', [1, [TIX_Demo_Content::OPENAIR_TITLE]], [count($titles), array_values($titles)]);
+    t_eq('seeded.events = 1, kein today_event mehr', [1, false], [$r['seeded']['events'] ?? 0, array_key_exists('today_event', (array) $r['seeded'])]);
+    $fe = intval($r['seeded']['scan_event'] ?? 0);
+    t_eq('scan_event = das Festival', [true, TIX_Demo_Content::OPENAIR_TITLE], [$fe > 0, get_the_title($fe)]);
+    t_eq('Termin Fr 9. bis So 11.07.2027 (mehrtägig mit Ende)', ['2027-07-09', '2027-07-11', '5', '2027-07-09'], [(string) get_post_meta($fe, '_tix_date_start', true), (string) get_post_meta($fe, '_tix_date_end', true), wp_date('w', strtotime('2027-07-09 12:00')), $r['seeded']['scan_event_date'] ?? '']);
+    t_eq('Termin-Regel: nach dem Wochenende → dasselbe Wochenende 2028', ['2028-07-14', '2028-07-16'], TIX_Demo_Content::openair_dates(strtotime('2027-07-12 12:00:00')));
+    $tt = (array) get_post_meta($fe, '_tix_timetable', true);
+    $slots = array_merge(...array_values(array_map('array_values', $tt)));
+    $stg = array_values(array_unique(array_map('intval', array_column($slots, 'stage')))); sort($stg);
+    t_eq('Programm: drei Tage, zwei Bühnen, 11 Acts mit Zeiten', [['2027-07-09', '2027-07-10', '2027-07-11'], [0, 1], 11, true],
+        [array_keys($tt), $stg, count($slots), !array_filter($slots, function ($x) { return empty($x['time']) || empty($x['end']); })]);
+    t_eq('zwei Bühnen angelegt', 2, count((array) get_post_meta($fe, '_tix_stages', true)));
+    $heads = (array) get_post_meta($fe, '_tix_lineup_headliners', true);
+    t_eq('drei Headliner (Stern), Line-up-Text mit Headlinern zuerst', [3, 0], [count($heads), strpos(trim(wp_strip_all_tags((string) get_post_meta($fe, '_tix_info_lineup', true))), 'Nordlicht Kollektiv')]);
+    if (class_exists('TIX_Artists')) {
+        $roles = array_count_values(array_column((array) get_post_meta($fe, TIX_Artists::EV_META, true), 'role'));
+        t_eq('Künstler: 3 Headliner, 8 weitere', [3, 8], [$roles['headliner'] ?? 0, $roles['support'] ?? 0]);
+    }
+    $cn = array_column((array) get_post_meta($fe, '_tix_ticket_categories', true), 'name');
+    t_eq('Kategorien: Wochenende, Tagestickets Fr/Sa/So, VIP', ['Wochenend-Ticket', 'Tagesticket Freitag', 'Tagesticket Samstag', 'Tagesticket Sonntag', 'VIP Wochenende'], $cn);
+    t_eq('Festival-Guide: Anreise/Camping, Einlass-Regeln, FAQ, Galerie', [true, true, true, true], [strpos((string) get_post_meta($fe, '_tix_info_extra_info', true), 'Camping') !== false, (string) get_post_meta($fe, '_tix_info_entry_rules', true) !== '', count((array) get_post_meta($fe, '_tix_faq', true)) >= 5, count((array) get_post_meta($fe, '_tix_gallery', true)) >= 3]);
+    t_eq('Gästeliste', 10, count((array) get_post_meta($fe, '_tix_guest_list', true)));
     t_eq('rund 50 Bestellungen', true, ($r['seeded']['orders'] ?? 0) >= 40 && ($r['seeded']['orders'] ?? 0) <= 60);
-    t_eq('Tickets teils eingecheckt', true, ($r['seeded']['checked_in'] ?? 0) > 0);
+    t_eq('alle Seed-Adressen @demo.invalid', 0, intval($wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders WHERE billing_email NOT LIKE '%@demo.invalid'")));
+    // Einlass-Ausnahme: das Festival (2027) steht auf der Instanz in „heute“ und ist scannbar
+    wp_set_current_user($admin);
+    list($st, $d) = t_rest('GET', '/events', ['filter' => 'today']);
+    t_eq('/events?filter=today enthält das scannbare Festival', true, in_array($fe, array_map('intval', array_column((array) ($d['events'] ?? []), 'id')), true));
+    list($st, $d) = t_rest('GET', '/events', ['filter' => 'today', 'search' => 'gibtesnicht' . $sfx]);
+    t_eq('… nicht bei einer Suche', false, in_array($fe, array_map('intval', array_column((array) ($d['events'] ?? []), 'id')), true));
+    list($st, $me) = t_rest('GET', '/me');
+    t_eq('/me demo_shop.scan_event {id, date_start, date_end}', [$fe, '2027-07-09', '2027-07-11'], [intval($me['demo_shop']['scan_event']['id'] ?? 0), $me['demo_shop']['scan_event']['date_start'] ?? '', $me['demo_shop']['scan_event']['date_end'] ?? '']);
+    $tk = get_posts(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => 1, 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => (string) $fe]]]);
+    $code = $tk ? (string) get_post_meta($tk[0]->ID, '_tix_ticket_code', true) : '';
+    list($st, $d) = t_rest('POST', '/checkin/scan', ['code' => $code, 'event_id' => $fe]);
+    t_eq('Ticket des Festivals vor dem Termin einchecken → ok', [200, 'ok'], [$st, $d['status'] ?? '']);
     t_eq('Gutscheine', 3, $r['seeded']['giftcards'] ?? 0);
     t_eq('Sponsoren', function_exists('imagecreatetruecolor') ? 4 : 0, $r['seeded']['sponsors'] ?? -1);
     $bad = 0;
@@ -283,7 +315,17 @@ if ($phase === 'on') {
     t_eq('Zugänge bleiben', [true, true, true], [(bool) get_userdata($pa), (bool) get_userdata($pb), (bool) get_userdata($sales)]);
     $rc = TIX_Demo_Shop::run('reset', 'club');
     $titles = array_map('get_the_title', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids']));
-    t_eq('Vorlage club: Club-Events, kein Festival', [true, false], [in_array('Neon Night', $titles, true), in_array('Seewiese Festival (Beispiel)', $titles, true)]);
+    t_eq('Vorlage club: Club-Events, kein Festival', [true, false], [in_array('Neon Night', $titles, true), in_array(TIX_Demo_Content::OPENAIR_TITLE, $titles, true)]);
+    // Demo B (1.38.844): Programm jede Woche über die nächsten 8–10 Wochen
+    $starts = array_map(function ($id) { return (string) get_post_meta($id, '_tix_date_start', true); }, get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']));
+    $weeks = [];
+    foreach ($starts as $d0) { $diff = intval(floor((strtotime($d0 . ' 12:00') - strtotime(wp_date('Y-m-d') . ' 12:00')) / DAY_IN_SECONDS)); if ($diff >= 0) $weeks[intdiv($diff, 7)] = true; }
+    t_eq('club: in jeder der nächsten 9 Wochen mindestens ein Event, mehr als 10 Events', [true, true], [count(array_intersect(array_keys($weeks), range(0, 8))) === 9, count($starts) > 10]);
+    $live = intval($rc['seeded']['scan_event'] ?? 0);
+    t_eq('club: scan_event = Live-Abend heute', [wp_date('Y-m-d'), 'Live-Abend (Beispiel)'], [(string) get_post_meta($live, '_tix_date_start', true), get_the_title($live)]);
+    t_eq('club: Vorverkauf + Gästeliste je Event, Gästeliste heute befüllt', [true, true], [!array_filter(get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']), function ($id) { return get_post_meta($id, '_tix_presale_active', true) !== '1' || get_post_meta($id, '_tix_guest_list_enabled', true) !== '1'; }), count((array) get_post_meta($live, '_tix_guest_list', true)) > 0]);
+    t_eq('club: Musikwunsch an', true, class_exists('TIX_Music') ? TIX_Music::enabled() : true);
+    t_eq('club: ~50 Bestellungen, Tickets teils eingecheckt, Gutscheine', [true, true, 3], [($rc['seeded']['orders'] ?? 0) >= 40, ($rc['seeded']['checked_in'] ?? 0) > 0, $rc['seeded']['giftcards'] ?? 0]);
     t_eq('Vorlage gemerkt', 'club', TIX_Demo_Shop::vorlage());
     list($st, $d) = t_rest('POST', '/demo-access/reset', ['vorlage' => 'quatsch']);
     t_eq('falsche Vorlage → 400', 400, $st);
@@ -294,7 +336,7 @@ if ($phase === 'on') {
 
     // ── 6. Kasse ──
     $rr = TIX_Demo_Shop::run('reset');
-    $live = intval($rr['seeded']['today_event'] ?? 0);
+    $live = intval($rr['seeded']['scan_event'] ?? 0);
     $cats = (array) get_post_meta($live, '_tix_ticket_categories', true);
     $paid = 0; foreach ($cats as $i => $c) if (floatval($c['price'] ?? 0) > 0) { $paid = intval($i); break; }
     update_option('tix_settings', array_merge(is_array($settings_before) ? $settings_before : [], ['mollie_api_key' => 'live_' . str_repeat('e', 30), 'stripe_enabled' => 0, 'paypal_enabled' => 0, 'bank_transfer_enabled' => 1, 'bank_iban' => 'DE89370400440532013000']));

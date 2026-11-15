@@ -21,6 +21,9 @@ if (!defined('ABSPATH')) exit;
  *  - Nie gezählt: /info, /me und /studio/config tragen demo_instance: true; alle Bestellungen und Events gelten als Sandbox
  *    (keine Rechnungen, kein Datenspiegel, keine Verteilung, keine Auszahlung).
  *  - Seed/Reset: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club] → eine JSON-Zeile für die Wache.
+ *    Seit 1.38.844: openair = genau EIN Festival (Fr–So, Sommer 2027, Demo A demo-shop), club = Club mit Programm über zehn Wochen
+ *    (Demo B demo-club). seeded.scan_event = scannbares Demo-Event (ersetzt today_event); es steht auf der Instanz immer in
+ *    /events?filter=today und in demo_shop.scan_event, damit der Einlass-Test auch vor dem Festival-Termin geht.
  *  - Schlüssel der Verbindung zur Plattform (1.38.843, TIX_Demo_Remote): wp tixomat demo-shop remote-key generate|set|status|clear.
  */
 class TIX_Demo_Shop {
@@ -32,6 +35,7 @@ class TIX_Demo_Shop {
     const OPT_MAIL_LOG = 'tix_demo_mail_log';
     const OPT_REPLY_TO = 'tix_demo_reply_to';
     const OPT_LOGOS = 'tix_demo_shop_logos';
+    const OPT_SCAN = 'tix_demo_shop_scan_event'; // 1.38.844: scannbares Demo-Event des letzten Seeds
     const FROM = 'noreply@evendis.de';
     const REPLY_TO = 'vertrieb@evendis.de';
     const VORLAGEN = ['openair', 'club'];
@@ -112,7 +116,7 @@ class TIX_Demo_Shop {
     /** Für /me (alle Konten) */
     public static function info() {
         return ['vorlage' => self::vorlage(), 'profile' => self::profile(), 'reset_at' => wp_date('c', self::next_reset_ts()), 'last_reset' => self::last_reset(),
-            'studio' => self::studio_url(), 'home' => self::home_url(), 'test_only' => true];
+            'studio' => self::studio_url(), 'home' => self::home_url(), 'test_only' => true, 'scan_event' => self::scan_event()];
     }
 
     // ═══════════════ Zahlung: nie echtes Geld ═══════════════
@@ -367,16 +371,24 @@ class TIX_Demo_Shop {
         wp_cache_delete('tix_coupons', 'options');
         $cp = get_option('tix_coupons', []);
         if (is_array($cp) && $cp) { $n['coupons'] = count($cp); update_option('tix_coupons', []); }
+        delete_option(self::OPT_SCAN);
         return $n;
     }
 
-    /** Fiktive Inhalte der Vorlage anlegen → Zähler */
+    /**
+     * Fiktive Inhalte der Vorlage anlegen → Zähler (1.38.844, Zuschnitt 15.11. abends):
+     *  - openair (Demo A, demo-shop.evendis.de): genau EIN Event – Festival Fr–So im Sommer 2027 mit zwei Bühnen, Programm je Tag,
+     *    11 Acts (3 Headliner), Festival-Guide, Wochenend-/Tages-/VIP-Tickets, ~50 Bestellungen, Gästeliste. Kein „heute Abend“.
+     *  - club (Demo B, demo-club.evendis.de): Club Ostkai mit Programm jede Woche über die nächsten zehn Wochen, Vorverkauf,
+     *    Gästeliste, Musikwunsch an, ~50 Bestellungen; „Live-Abend“ heute.
+     * scan_event = Event, dessen Tickets am Einlass gescannt werden können (openair: das Festival, auch vor dem Termin; club: heute).
+     */
     public static function seed_content($vorlage) {
-        $out = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'checked_in' => 0, 'giftcards' => 0, 'sponsors' => 0, 'today_event' => 0];
+        $out = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'checked_in' => 0, 'giftcards' => 0, 'sponsors' => 0, 'acts' => 0, 'scan_event' => 0, 'scan_event_date' => null];
         mt_srand(intval(wp_date('Ymd')) + ($vorlage === 'club' ? 0 : 11));
         $ev = [];
         if ($vorlage === 'club') {
-            foreach (TIX_Demo_Content::club_events() as $s) {
+            foreach (array_merge(TIX_Demo_Content::club_events(), TIX_Demo_Content::club_weekly()) as $s) {
                 $eid = TIX_Demo::make_from($s, 0, TIX_Demo_Content::ADDRESS_CLUB);
                 if (!$eid) continue;
                 $ev[$s['key']] = $eid;
@@ -384,38 +396,30 @@ class TIX_Demo_Shop {
             }
             list($o, $t) = TIX_Demo::seed_orders($ev, self::ORDERS, 'past');
             $out['orders'] += $o; $out['tickets'] += $t;
+            $out['events'] = count($ev);
+            $scan = intval($ev['live'] ?? 0);
+            // Einlass: vergangenes Event fast ganz, „heute“ teilweise
+            foreach (['past' => 90, 'live' => 30] as $k => $pct) {
+                if (empty($ev[$k])) continue;
+                foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => (string) $ev[$k]]]]) as $tid) {
+                    if (mt_rand(1, 100) <= $pct && class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'checkin_ticket')) { TIX_Tickets::checkin_ticket($tid, 'demo'); $out['checked_in']++; }
+                }
+            }
+            // Gästelisten: heute (teils eingecheckt) und die nächste große Nacht
+            foreach (['live' => 8, 'w1' => 6] as $k => $count) if (!empty($ev[$k])) update_post_meta($ev[$k], '_tix_guest_list', self::guests($count, $k === 'live' ? 3 : 0));
+            // Musikwunsch an (Club-Funktion; Zeitfenster rund um jedes Event regelt TIX_Music)
+            if (class_exists('TIX_Music')) {
+                $m = get_option(TIX_Music::OPT, []);
+                update_option(TIX_Music::OPT, array_merge(is_array($m) ? $m : [], ['enabled' => 1]), false);
+            }
         } else {
-            foreach (TIX_Demo_Content::openair_events() as $s) {
-                $eid = TIX_Demo::make_from($s, 0, TIX_Demo_Content::ADDRESS_FESTIVAL);
-                if (!$eid) continue;
-                $ev[$s['key']] = $eid;
-                TIX_Demo_Content::no_lookup($eid, array_map('wp_strip_all_tags', preg_split('/<br\s*\/?>/', (string) $s['lineup'])));
-            }
-            list($o, $t) = TIX_Demo::seed_orders($ev, intval(self::ORDERS * 0.6), 'past');
-            $out['orders'] += $o; $out['tickets'] += $t;
-            $f = TIX_Demo::seed_festival(0, intval(self::ORDERS * 0.4)); // Festival über zwei Tage mit Programm, Line-up, Künstlern
-            $out['events'] += intval($f['events'] ?? 0); $out['orders'] += intval($f['orders'] ?? 0); $out['tickets'] += intval($f['tickets'] ?? 0);
+            $f = self::seed_openair(self::ORDERS);
+            $out['events'] = intval($f['events']); $out['orders'] += intval($f['orders']); $out['tickets'] += intval($f['tickets']); $out['acts'] = intval($f['acts']);
+            $scan = intval($f['event_id']);
         }
-        $out['events'] += count($ev);
-        $out['today_event'] = intval($ev['live'] ?? 0);
-        // Einlass: vergangenes Event fast ganz, „heute Abend“ teilweise
-        foreach (['past' => 90, 'live' => 30] as $k => $pct) {
-            if (empty($ev[$k])) continue;
-            foreach (get_posts(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_query' => [['key' => '_tix_ticket_event_id', 'value' => (string) $ev[$k]]]]) as $tid) {
-                if (mt_rand(1, 100) <= $pct && class_exists('TIX_Tickets') && method_exists('TIX_Tickets', 'checkin_ticket')) { TIX_Tickets::checkin_ticket($tid, 'demo'); $out['checked_in']++; }
-            }
-        }
-        // Gästeliste am Abend
-        if (!empty($ev['live'])) {
-            $g = [];
-            for ($i = 0; $i < 8; $i++) {
-                $in = $i < 3;
-                $g[] = ['id' => wp_generate_uuid4(), 'name' => TIX_Demo::FIRST[($i * 3) % count(TIX_Demo::FIRST)] . ' ' . TIX_Demo::LAST[($i * 5) % count(TIX_Demo::LAST)], 'email' => '', 'plus' => $i % 2,
-                    'note' => $i === 0 ? 'Presse' : '', 'checked_in' => $in, 'checked_in_count' => $in ? 1 : 0, 'checkin_time' => $in ? current_time('mysql') : '', 'checkin_by' => $in ? 'demo' : '',
-                    'added_by' => 'demo', 'added_at' => current_time('mysql')];
-            }
-            update_post_meta($ev['live'], '_tix_guest_list', $g);
-        }
+        $out['scan_event'] = $scan;
+        $out['scan_event_date'] = $scan ? ((string) get_post_meta($scan, '_tix_date_start', true) ?: null) : null;
+        update_option(self::OPT_SCAN, $scan, false);
         // Gutscheine (fiktiv)
         wp_cache_delete('tix_coupons', 'options');
         $cp = get_option('tix_coupons', []);
@@ -431,6 +435,75 @@ class TIX_Demo_Shop {
         update_option('tix_coupons', $cp);
         $out['sponsors'] = self::seed_sponsors();
         return $out;
+    }
+
+    /** Gästeliste mit $count fiktiven Einträgen, die ersten $in eingecheckt */
+    private static function guests($count, $in = 0) {
+        $g = [];
+        for ($i = 0; $i < $count; $i++) {
+            $done = $i < $in;
+            $g[] = ['id' => strtoupper(wp_generate_password(6, false, false)), 'name' => TIX_Demo::FIRST[($i * 3) % count(TIX_Demo::FIRST)] . ' ' . TIX_Demo::LAST[($i * 5) % count(TIX_Demo::LAST)], 'email' => '', 'plus' => $i % 2,
+                'note' => $i === 0 ? 'Presse' : ($i < 3 && !$in ? 'Künstler-Team' : ''), 'checked_in' => $done, 'checked_in_count' => $done ? 1 : 0, 'checkin_time' => $done ? current_time('mysql') : '', 'checkin_by' => $done ? 'demo' : '',
+                'added_by' => 'demo', 'added_at' => current_time('mysql')];
+        }
+        return $g;
+    }
+
+    /** Demo A: das eine Festival (Fr–So, Sommer 2027) → {events, event_id, orders, tickets, acts, start, end} */
+    public static function seed_openair($orders) {
+        $f = TIX_Demo_Content::openair_festival();
+        list($start, $end) = TIX_Demo_Content::openair_dates();
+        $date = function ($d) use ($start) { return (new DateTime($start . ' 12:00:00', wp_timezone()))->modify('+' . intval($d) . ' days')->format('Y-m-d'); };
+        $tt = [];
+        foreach ($f['acts'] as $a) $tt[$date($a[0])][] = ['time' => $a[2], 'end' => $a[3], 'stage' => $a[1], 'title' => $a[4], 'desc' => $a[5]];
+        ksort($tt);
+        foreach ($tt as &$slots) usort($slots, function ($x, $y) { return strcmp($x['time'], $y['time']); });
+        unset($slots);
+        $heads = array_values(array_map(function ($a) { return $a[4]; }, array_filter($f['acts'], function ($a) { return !empty($a[6]); })));
+        $names = array_values(array_unique(array_merge($heads, array_column($f['acts'], 4)))); // Headliner zuerst (öffentliche Regel)
+        $f['lineup'] = implode('<br>', $names);
+        $f['meta'] = ['_tix_date_start' => $start, '_tix_date_end' => $end, '_tix_time_end' => $f['time_end'], '_tix_time_doors' => $f['doors'], '_tix_stages' => $f['stages'],
+            '_tix_info_entry_rules' => $f['entry_rules'], '_tix_info_ticket_notes' => $f['ticket_notes']];
+        $eid = TIX_Demo::make_from($f, 0, TIX_Demo_Content::ADDRESS_FESTIVAL);
+        if (!$eid) return ['events' => 0, 'event_id' => 0, 'orders' => 0, 'tickets' => 0, 'acts' => 0];
+        // Musikdienst-Suche aus, bevor das Programm (und damit das Line-up) gespeichert wird
+        TIX_Demo_Content::no_lookup($eid, $names);
+        update_post_meta($eid, '_tix_timetable', $tt);
+        if (class_exists('TIX_Lineup_Links')) update_post_meta($eid, TIX_Lineup_Links::META_HEAD, array_values(array_filter(array_map(['TIX_Lineup_Links', 'act_key_of'], $heads))));
+        TIX_Demo_Content::artists($eid, 0, $names, count($heads));
+        list($made, $tickets) = TIX_Demo::seed_orders(['fest' => $eid], $orders);
+        update_post_meta($eid, '_tix_guest_list', self::guests(10));
+        return ['events' => 1, 'event_id' => $eid, 'orders' => $made, 'tickets' => $tickets, 'acts' => count($names), 'start' => $start, 'end' => $end];
+    }
+
+    // ═══════════════ Einlass-Ausnahme der Demo-Instanz ═══════════════
+
+    /**
+     * Scannbares Demo-Event (nur auf der Demo-Instanz): das Event aus dem letzten Seed, solange es ein Demo-Event ist → ID oder 0.
+     * Der Scan selbst prüft kein Datum; die Ausnahme sorgt dafür, dass das Event in der Einlass-Auswahl („heute“) steht,
+     * auch wenn das Festival erst 2027 stattfindet.
+     */
+    public static function scan_event_id() {
+        if (!self::on()) return 0;
+        $id = intval(get_option(self::OPT_SCAN, 0));
+        if (!$id || get_post_type($id) !== 'event' || get_post_status($id) !== 'publish' || !get_post_meta($id, '_tix_demo', true)) return 0;
+        return $id;
+    }
+
+    /** GET /events?filter=today auf der Demo-Instanz: das scannbare Demo-Event gehört dazu (vorne). Sonst unverändert. */
+    public static function with_scan_event(array $posts, $filter, $search = '') {
+        if ($filter !== 'today' || (string) $search !== '' || !($sid = self::scan_event_id())) return $posts;
+        foreach ($posts as $p) if (intval(is_object($p) ? $p->ID : $p) === $sid) return $posts;
+        $p = get_post($sid);
+        return $p ? array_merge([$p], $posts) : $posts;
+    }
+
+    /** {id, title, date_start, date_end} für /me und /info (null ohne scannbares Event) */
+    public static function scan_event() {
+        $id = self::scan_event_id();
+        if (!$id) return null;
+        return ['id' => $id, 'title' => html_entity_decode((string) get_the_title($id), ENT_QUOTES, 'UTF-8'), 'date_start' => (string) get_post_meta($id, '_tix_date_start', true),
+            'date_end' => ((string) get_post_meta($id, '_tix_date_end', true)) ?: null];
     }
 
     /** Sponsoren der Seite: fiktive Namen mit erzeugtem Schriftzug (kein fremdes Bild) */
@@ -555,7 +628,7 @@ class TIX_Demo_Shop {
             return;
         }
         if (!in_array($do, ['seed', 'reset'], true)) {
-            WP_CLI::line(wp_json_encode(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club] | remote-key generate --file=<pfad>|set|status|clear'], JSON_UNESCAPED_UNICODE));
+            WP_CLI::line(wp_json_encode(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club] | remote-key generate --file=<pfad>|set|status|clear [--target=shop|club]'], JSON_UNESCAPED_UNICODE));
             WP_CLI::halt(1);
             return;
         }

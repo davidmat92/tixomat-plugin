@@ -2,8 +2,12 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * TIX_Demo_Remote – ein Demo-Zugang mit Fällen (Plattform / Eigener Shop / beide), Verbindung Plattform → Demo-Instanz
- * (1.38.843, Vorschlag uebergaben/vorschlag-demo-zugaenge-beide.md, Vertrag uebergaben/vertrag-demo-shop.md „Fälle“, DOCUMENTATION §228).
+ * TIX_Demo_Remote – ein Demo-Zugang mit Fällen (Plattform / Demo-Shop / Demo-Club, beliebig kombiniert), Verbindung Plattform →
+ * Demo-Instanzen (1.38.843, drei Fälle seit 1.38.844; Vertrag uebergaben/vertrag-demo-shop.md „Fälle“, DOCUMENTATION §228/§229).
+ *
+ *  - Ziele (Instanzen): shop = demo-shop.evendis.de (Vorlage openair, ein Event), club = demo-club.evendis.de (Vorlage club,
+ *    mehrere Events). Je Ziel eigene Plattform-Optionen (URL, Schlüssel, Zwischenspeicher). Auf der Instanz selbst gibt es keine
+ *    Rolle: sie nimmt immer den Schlüssel aus tix_demo_shop_key – welche Instanz „shop“ oder „club“ ist, legt nur die Plattform fest.
  *
  *  - Die Plattform (evendis.de, Mehr-Veranstalter-Modus) führt: Liste, Limit, Laufzeit und Eigentümer-Prüfung bleiben dort.
  *    Für den Fall „shop“ ruft sie die Instanz Server → Server auf, signiert mit dem gemeinsamen Schlüssel.
@@ -20,16 +24,21 @@ if (!defined('ABSPATH')) exit;
 class TIX_Demo_Remote {
 
     const OPT_URL = 'tix_demo_shop_url';          // Plattform: https://demo-shop.evendis.de/wp-json/tixomat/v1
-    const OPT_KEY = 'tix_demo_shop_key';          // beide Seiten: gemeinsames Geheimnis
+    const OPT_KEY = 'tix_demo_shop_key';          // Instanz (immer) und Plattform (Ziel shop): gemeinsames Geheimnis
+    /** Plattform: Optionen je Ziel (1.38.844) */
+    const TARGETS = [
+        'shop' => ['url' => 'tix_demo_shop_url', 'key' => 'tix_demo_shop_key', 'cache' => 'tix_demo_shop_state', 'label' => 'Demo-Shop'],
+        'club' => ['url' => 'tix_demo_club_url', 'key' => 'tix_demo_club_key', 'cache' => 'tix_demo_club_state', 'label' => 'Demo-Club'],
+    ];
     const OPT_ENABLED = 'tix_demo_remote_enabled'; // Instanz: signierte Aufrufe annehmen
-    const OPT_LINKS = 'tix_demo_links';           // {hub, platform, shop} für „Anderen Fall ansehen“
+    const OPT_LINKS = 'tix_demo_links';           // {hub, platform, shop, club} für „Anderen Fall ansehen“
     const WINDOW = 300;
     const REPLAY_TTL = 900;
     const MIN_KEY = 32;
-    const CACHE = 'tix_demo_shop_state';
-    const CACHE_LAST = 'tix_demo_shop_state_last';
-    const LINKS = ['hub' => 'https://demo.evendis.de/', 'platform' => 'https://demo-studio.evendis.de/', 'shop' => 'https://studio.demo-shop.evendis.de/'];
-    const CASES = ['platform', 'shop'];
+    const LINKS = ['hub' => 'https://demo.evendis.de/', 'platform' => 'https://demo-studio.evendis.de/', 'shop' => 'https://studio.demo-shop.evendis.de/', 'club' => 'https://studio.demo-club.evendis.de/'];
+    const CASES = ['platform', 'shop', 'club'];
+    /** Fälle, die auf einer Demo-Instanz liegen (= Ziele) */
+    const INSTANCE_CASES = ['shop', 'club'];
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -38,15 +47,29 @@ class TIX_Demo_Remote {
 
     // ═══════════════ Schlüssel ═══════════════
 
-    private static function key() {
-        $k = trim((string) get_option(self::OPT_KEY, ''));
+    public static function target_ok($t) {
+        return is_string($t) && isset(self::TARGETS[$t]);
+    }
+
+    private static function t($target) {
+        return self::TARGETS[self::target_ok($target) ? $target : 'shop'];
+    }
+
+    /** Schlüssel: Instanz immer tix_demo_shop_key; Plattform je Ziel */
+    private static function key($target = 'shop') {
+        $k = trim((string) get_option(self::t($target)['key'], ''));
         return strlen($k) >= self::MIN_KEY ? $k : '';
     }
 
     /** Kurzer Fingerabdruck zum Vergleich beider Seiten (verrät den Schlüssel nicht) */
-    public static function fingerprint() {
-        $k = self::key();
+    public static function fingerprint($target = 'shop') {
+        $k = self::key($target);
         return $k === '' ? '' : substr(hash('sha256', 'tix-demo-remote-fp|' . $k), 0, 12);
+    }
+
+    /** „Der Demo-Shop“ / „Der Demo-Club“ für Meldungen */
+    public static function label($target) {
+        return self::t($target)['label'];
     }
 
     // ═══════════════ Signatur ═══════════════
@@ -70,14 +93,14 @@ class TIX_Demo_Remote {
 
     // ═══════════════ Plattform: Verbindung zur Instanz ═══════════════
 
-    /** Plattform mit eingerichteter Instanz? (Mehr-Veranstalter-Modus, URL, Schlüssel) */
-    public static function platform_ready() {
-        return class_exists('TIX_Demo_Access') && TIX_Demo_Access::multi() && self::base_url() !== '' && self::key() !== '';
+    /** Plattform mit eingerichteter Instanz für dieses Ziel? (Mehr-Veranstalter-Modus, URL, Schlüssel) */
+    public static function platform_ready($target = 'shop') {
+        return self::target_ok($target) && class_exists('TIX_Demo_Access') && TIX_Demo_Access::multi() && self::base_url($target) !== '' && self::key($target) !== '';
     }
 
-    /** Basis-URL der Instanz; https Pflicht außer lokalen Testseiten (Host ohne Punkt, .test, .localhost) */
-    public static function base_url() {
-        $u = trim((string) get_option(self::OPT_URL, ''));
+    /** Basis-URL der Instanz des Ziels; https Pflicht außer lokalen Testseiten (Host ohne Punkt, .test, .localhost) */
+    public static function base_url($target = 'shop') {
+        $u = trim((string) get_option(self::t($target)['url'], ''));
         if ($u === '') return '';
         $p = wp_parse_url($u);
         $host = strtolower((string) ($p['host'] ?? ''));
@@ -91,9 +114,10 @@ class TIX_Demo_Remote {
      * Signierter Aufruf an die Instanz → ['ok' => bool, 'status' => int, 'data' => array|null, 'error' => string]
      * Fehlertexte enthalten nie den Schlüssel oder die Signatur.
      */
-    public static function call($method, $path, array $query = [], $body = null, $timeout = 15) {
-        $base = self::base_url();
-        $key = self::key();
+    public static function call($method, $path, array $query = [], $body = null, $timeout = 15, $target = 'shop') {
+        if (!self::target_ok($target)) return ['ok' => false, 'status' => 0, 'data' => null, 'error' => 'not_configured'];
+        $base = self::base_url($target);
+        $key = self::key($target);
         if ($base === '' || $key === '') return ['ok' => false, 'status' => 0, 'data' => null, 'error' => 'not_configured'];
         $method = strtoupper($method);
         $route = '/' . TIX_Demo_Access::NS . $path;
@@ -117,44 +141,55 @@ class TIX_Demo_Remote {
             'error' => $code >= 200 && $code < 300 ? (is_array($data) ? '' : 'bad_response') : (is_array($data) ? (string) ($data['code'] ?? 'http_' . $code) : 'http_' . $code)];
     }
 
-    /** Fehler für die Plattform-Antwort: 502 tix_demo_shop_unreachable (oder die Feldmeldung der Instanz, z. B. E-Mail vergeben) */
-    public static function error($r) {
-        if (($r['error'] ?? '') === 'not_configured') return new WP_Error('tix_demo_shop_unreachable', 'Der Demo-Shop ist mit dieser Plattform noch nicht verbunden.', ['status' => 502]);
+    /**
+     * Fehler für die Plattform-Antwort: 502 tix_demo_shop_unreachable (beide Ziele, data.target nennt die Instanz) oder die
+     * Feldmeldung der Instanz (z. B. E-Mail vergeben, 409 tix_invalid_field mit data.target).
+     */
+    public static function error($r, $target = 'shop') {
+        $l = self::label($target);
+        $t = self::target_ok($target) ? $target : 'shop';
+        if (($r['error'] ?? '') === 'not_configured') return new WP_Error('tix_demo_shop_unreachable', 'Der ' . $l . ' ist mit dieser Plattform noch nicht verbunden.', ['status' => 502, 'target' => $t]);
         $d = (array) ($r['data'] ?? []);
         if (intval($r['status'] ?? 0) === 409 && ($d['code'] ?? '') === 'tix_invalid_field') {
-            return new WP_Error('tix_invalid_field', (string) ($d['message'] ?? 'Im Demo-Shop gibt es diese E-Mail schon.'), ['status' => 409, 'field' => (string) ($d['data']['field'] ?? 'email')]);
+            $msg = (string) ($d['message'] ?? 'Im ' . $l . ' gibt es diese E-Mail schon.');
+            if ($t === 'club') $msg = str_replace('Im Demo-Shop', 'Im Demo-Club', $msg);
+            return new WP_Error('tix_invalid_field', $msg, ['status' => 409, 'field' => (string) ($d['data']['field'] ?? 'email'), 'target' => $t]);
         }
         if (intval($r['status'] ?? 0) === 409 && in_array($d['code'] ?? '', ['tix_demo_busy', 'tix_demo_reset'], true)) {
-            return new WP_Error('tix_demo_reset', (string) ($d['message'] ?? 'Zurücksetzen fehlgeschlagen.'), ['status' => 409]);
+            return new WP_Error('tix_demo_reset', (string) ($d['message'] ?? 'Zurücksetzen fehlgeschlagen.'), ['status' => 409, 'target' => $t]);
         }
-        if (intval($r['status'] ?? 0) === 429) return new WP_Error('tix_rate_limit', 'Der Demo-Shop wurde heute schon oft zurückgesetzt. Bitte später noch einmal.', ['status' => 429]);
-        return new WP_Error('tix_demo_shop_unreachable', 'Der Demo-Shop ist gerade nicht erreichbar. Es wurde nichts geändert.', ['status' => 502]);
+        if (intval($r['status'] ?? 0) === 429) return new WP_Error('tix_rate_limit', 'Der ' . $l . ' wurde heute schon oft zurückgesetzt. Bitte später noch einmal.', ['status' => 429, 'target' => $t]);
+        return new WP_Error('tix_demo_shop_unreachable', 'Der ' . $l . ' ist gerade nicht erreichbar. Es wurde nichts geändert.', ['status' => 502, 'target' => $t]);
     }
 
-    /** Stand der Instanz (alle per Plattform angelegten Zugänge + Kopfdaten), 60 s zwischengespeichert → array|null */
-    public static function state($fresh = false) {
+    /** Stand der Instanz des Ziels (alle per Plattform angelegten Zugänge + Kopfdaten), 60 s zwischengespeichert → array|null */
+    public static function state($fresh = false, $target = 'shop') {
+        if (!self::target_ok($target)) return null;
+        $ck = self::TARGETS[$target]['cache'];
         if (!$fresh) {
-            $c = get_transient(self::CACHE);
+            $c = get_transient($ck);
             if (is_array($c)) return $c;
         }
-        $r = self::call('GET', '/demo-access/remote');
+        $r = self::call('GET', '/demo-access/remote', [], null, 15, $target);
         if (!$r['ok']) return null;
         $s = ['accesses' => [], 'shop' => (array) ($r['data']['shop'] ?? [])];
         foreach ((array) ($r['data']['accesses'] ?? []) as $a) {
             if (is_array($a) && intval($a['remote_id'] ?? 0) > 0) $s['accesses'][intval($a['remote_id'])] = $a;
         }
-        set_transient(self::CACHE, $s, 60);
-        set_transient(self::CACHE_LAST, $s, DAY_IN_SECONDS);
+        set_transient($ck, $s, 60);
+        set_transient($ck . '_last', $s, DAY_IN_SECONDS);
         return $s;
     }
 
-    public static function forget() {
-        delete_transient(self::CACHE);
+    /** Zwischenspeicher eines Ziels (null = beider) verwerfen */
+    public static function forget($target = null) {
+        foreach (self::TARGETS as $t => $o) if ($target === null || $target === $t) delete_transient($o['cache']);
     }
 
     /** Letzter bekannter Stand (Liste bleibt vollständig, wenn die Instanz gerade nicht antwortet) */
-    public static function last_state() {
-        $c = get_transient(self::CACHE_LAST);
+    public static function last_state($target = 'shop') {
+        if (!self::target_ok($target)) return null;
+        $c = get_transient(self::TARGETS[$target]['cache'] . '_last');
         return is_array($c) ? $c : null;
     }
 
@@ -167,6 +202,11 @@ class TIX_Demo_Remote {
         if (!is_array($v)) return [];
         $v = array_map('strval', $v);
         return array_values(array_filter(self::CASES, function ($c) use ($v) { return in_array($c, $v, true); }));
+    }
+
+    /** Ziele (Instanz-Fälle) einer Fall-Liste in fester Reihenfolge shop, club */
+    public static function instance_cases(array $cases) {
+        return array_values(array_filter(self::INSTANCE_CASES, function ($c) use ($cases) { return in_array($c, $cases, true); }));
     }
 
     // ═══════════════ demo_links in /studio/config ═══════════════
@@ -399,12 +439,21 @@ class TIX_Demo_Remote {
      * remote-key set                     Schlüssel von stdin lesen (z. B. < Datei), nie als Argument
      * remote-key status                  gesetzt? Länge, Fingerabdruck (beide Seiten müssen gleich sein), Rolle, Schalter
      * remote-key clear                   Schlüssel entfernen
+     * --target=shop|club (1.38.844): auf der Plattform das Ziel (Vorgabe shop; Optionen tix_demo_{shop|club}_key). Auf einer
+     * Instanz gilt immer tix_demo_shop_key – ein Ziel wird dort angenommen und nur in der Ausgabe vermerkt (target_ignored).
      * Ausgabe: eine JSON-Zeile ohne Schlüssel.
      */
     public static function cli_key($args, $assoc) {
         $do = (string) ($args[1] ?? '');
         $line = function ($a, $fail = false) { WP_CLI::line(wp_json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); if ($fail) WP_CLI::halt(1); };
         if (isset($args[2])) return $line(['ok' => false, 'error' => 'tix_usage', 'message' => 'Den Schlüssel nie als Argument übergeben – nur über stdin (set) oder --file (generate).'], true);
+        $target = array_key_exists('target', $assoc) ? (string) $assoc['target'] : 'shop';
+        if (!self::target_ok($target)) return $line(['ok' => false, 'error' => 'tix_usage', 'message' => 'Ziel: --target=shop oder --target=club.'], true);
+        $multi = class_exists('TIX_Demo_Access') && TIX_Demo_Access::multi();
+        // Instanz: immer der eine Schlüssel tix_demo_shop_key (die Rolle shop/club kennt nur die Plattform)
+        $opt = $multi ? self::TARGETS[$target]['key'] : self::OPT_KEY;
+        $kt = $multi ? $target : 'shop';
+        $extra = ['target' => $multi ? $target : null, 'option' => $opt] + (!$multi && $target !== 'shop' ? ['target_ignored' => true] : []);
         if ($do === 'generate') {
             $file = (string) ($assoc['file'] ?? '');
             if ($file === '') return $line(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop remote-key generate --file=<pfad> (Datei wird mit Rechten 0600 angelegt).'], true);
@@ -415,28 +464,31 @@ class TIX_Demo_Remote {
             umask($old);
             if ($ok === false) return $line(['ok' => false, 'error' => 'tix_write', 'message' => 'Datei konnte nicht geschrieben werden – Schlüssel nicht gespeichert.'], true);
             @chmod($file, 0600);
-            update_option(self::OPT_KEY, $k, false);
-            return $line(['ok' => true, 'action' => 'generate', 'file' => $file, 'length' => strlen($k), 'fingerprint' => self::fingerprint()]);
+            update_option($opt, $k, false);
+            return $line(['ok' => true, 'action' => 'generate', 'file' => $file, 'length' => strlen($k), 'fingerprint' => self::fingerprint($kt)] + $extra);
         }
         if ($do === 'set') {
             $in = function_exists('posix_isatty') && @posix_isatty(STDIN) ? '' : (string) stream_get_contents(STDIN);
             $k = trim($in);
             if (strlen($k) < self::MIN_KEY || preg_match('/\s/', $k)) return $line(['ok' => false, 'error' => 'tix_invalid_key', 'message' => 'Kein gültiger Schlüssel auf stdin (mindestens ' . self::MIN_KEY . ' Zeichen, ohne Leerzeichen). Aufruf: wp tixomat demo-shop remote-key set < datei'], true);
-            update_option(self::OPT_KEY, $k, false);
-            return $line(['ok' => true, 'action' => 'set', 'length' => strlen($k), 'fingerprint' => self::fingerprint()]);
+            update_option($opt, $k, false);
+            return $line(['ok' => true, 'action' => 'set', 'length' => strlen($k), 'fingerprint' => self::fingerprint($kt)] + $extra);
         }
         if ($do === 'clear') {
-            delete_option(self::OPT_KEY);
-            return $line(['ok' => true, 'action' => 'clear']);
+            delete_option($opt);
+            return $line(['ok' => true, 'action' => 'clear'] + $extra);
         }
         if ($do === 'status' || $do === '') {
-            $multi = class_exists('TIX_Demo_Access') && TIX_Demo_Access::multi();
-            return $line(['ok' => self::key() !== '', 'action' => 'status', 'set' => self::key() !== '', 'length' => strlen(self::key()), 'fingerprint' => self::fingerprint(),
+            $k = self::key($kt);
+            $out = ['ok' => $k !== '', 'action' => 'status', 'set' => $k !== '', 'length' => strlen($k), 'fingerprint' => self::fingerprint($kt),
                 'role' => $multi ? 'platform' : (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on() ? 'instance' : 'none'),
-                'platform_ready' => self::platform_ready(), 'url' => $multi ? self::base_url() : null,
-                'instance_ready' => self::instance_ready(), 'remote_enabled' => get_option(self::OPT_ENABLED, '0') === '1'], self::key() === '');
+                'platform_ready' => self::platform_ready($kt), 'url' => $multi ? self::base_url($kt) : null,
+                'instance_ready' => self::instance_ready(), 'remote_enabled' => get_option(self::OPT_ENABLED, '0') === '1'] + $extra;
+            // Plattform: Überblick über beide Ziele (ohne Schlüssel)
+            if ($multi) foreach (array_keys(self::TARGETS) as $t) $out['targets'][$t] = ['set' => self::key($t) !== '', 'fingerprint' => self::fingerprint($t), 'url' => self::base_url($t), 'ready' => self::platform_ready($t)];
+            return $line($out, $k === '');
         }
-        return $line(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop remote-key generate --file=<pfad> | set < datei | status | clear'], true);
+        return $line(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop remote-key generate --file=<pfad> | set < datei | status | clear [--target=shop|club]'], true);
     }
 }
 

@@ -159,6 +159,99 @@ class TIX_Demo_Content {
         ];
     }
 
+    // ═══════════════ Demo A: Eigene Website mit EINEM Event (demo-shop.evendis.de, 1.38.844, User 15.11. abends) ═══════════════
+
+    const OPENAIR_TITLE = 'Uferklang Festival 2027 (Beispiel)';
+
+    /**
+     * Termin des Festivals: Freitag bis Sonntag, der erste Freitag ab dem 8. Juli 2027 (= 9.–11.07.2027). Liegt das Wochenende
+     * schon zurück (die Demo läuft länger), dasselbe Wochenende im nächsten Jahr. → [Start Y-m-d, Ende Y-m-d]
+     */
+    public static function openair_dates($now = null) {
+        $today = wp_date('Y-m-d', $now === null ? time() : intval($now));
+        for ($y = 2027; $y < 2100; $y++) {
+            $d = new DateTime($y . '-07-08 12:00:00', wp_timezone());
+            while ($d->format('w') !== '5') $d->modify('+1 day');
+            $start = $d->format('Y-m-d');
+            $end = (clone $d)->modify('+2 days')->format('Y-m-d');
+            if ($end >= $today) return [$start, $end];
+        }
+        return ['2027-07-09', '2027-07-11'];
+    }
+
+    /**
+     * Das eine Festival: Fr–So, zwei Bühnen, 11 fiktive Acts mit Zeiten je Tag, drei Headliner (je Abend einer), Festival-Guide,
+     * Kategorien Wochenende / Tagestickets Fr–So / VIP. Acts: [Tag 0–2, Bühne 0|1, Beginn, Ende, Act, Beschreibung, Headliner].
+     */
+    public static function openair_festival() {
+        $c = [__CLASS__, 'cat'];
+        $acts = [
+            [0, 1, '17:00', '18:00', 'Duo Liebeslied', 'Akustik zum Ankommen an der Strandbühne', false],
+            [0, 0, '18:30', '19:45', 'Die Uferbande', 'Die Band vom See – mit Bläsern', false],
+            [0, 0, '21:00', '23:00', 'Nordlicht Kollektiv', 'Headliner am Freitag: Indie-Pop mit Lichtshow', true],
+            [1, 1, '14:00', '15:00', 'Kati Konfetti', 'Gute-Laune-Pop zum Mitklatschen', false],
+            [1, 1, '16:00', '17:30', 'DJ Seegang', 'Party-Set direkt am Wasser', false],
+            [1, 0, '18:00', '19:15', 'Toni Tanzbein', 'Der Discofox-König', false],
+            [1, 0, '20:30', '22:30', 'Lena Sonnenschein', 'Headliner am Samstag', true],
+            [2, 1, '13:00', '14:00', 'Sandra Strandkorb', 'Sonntagsbrunch mit Liedern', false],
+            [2, 0, '15:00', '16:15', 'Paul Partyboot', 'Mitsing-Hits für alle', false],
+            [2, 1, '17:00', '18:30', 'Hannes Hitparade', 'Die größten Hits aus fünf Jahrzehnten', false],
+            [2, 0, '20:00', '22:00', 'Die Wellenwerker', 'Headliner am Sonntag: Abschluss-Show mit Feuerwerk', true],
+        ];
+        return [
+            'title' => self::OPENAIR_TITLE, 'day' => 0, 'time' => '16:00', 'time_end' => '23:00', 'doors' => '15:00', 'image' => 'festival',
+            'cats' => [
+                call_user_func($c, 'Wochenend-Ticket', 89, 4000, ['desc' => 'Freitag bis Sonntag, ein Bändchen für alle drei Tage']),
+                call_user_func($c, 'Tagesticket Freitag', 34.9, 1500),
+                call_user_func($c, 'Tagesticket Samstag', 44.9, 2000),
+                call_user_func($c, 'Tagesticket Sonntag', 39.9, 1500),
+                call_user_func($c, 'VIP Wochenende', 189, 300, ['desc' => 'Tribüne, eigener Eingang, Getränke-Flat, Parkplatz direkt am Gelände']),
+            ],
+            'excerpt' => 'Drei Tage Musik am See – zwei Bühnen, elf Acts, drei Headliner. Freitag bis Sonntag im Sommer 2027.',
+            'desc' => '<p>Das Uferklang Festival ist das Sommerwochenende am Uferweg: die Hauptbühne im großen Zelt, die Strandbühne direkt am Wasser. Drei Tage Pop, Party und Mitsingen – mit Foodcourt, Cocktailbar, Zeltwiese und Feuerwerk zum Abschluss am Sonntag.</p><p>Alle Namen, Acts und Orte sind erfunden – das ist ein Beispiel-Event von evendis.</p>',
+            'extra' => '<p><b>Anreise:</b> Shuttle-Busse ab Bahnhof Musterstadt alle 15 Minuten, Parkplätze an der Wiese (5 € je Tag).</p><p><b>Camping:</b> Zeltwiese direkt nebenan, geöffnet von Freitag 12 Uhr bis Montag 12 Uhr.</p><p><b>Bändchen:</b> Am ersten Besuchstag gegen das Ticket tauschen – es gilt bis zum Ende deines Tickets.</p><p><b>Awareness:</b> Das Awareness-Team findest du am Infozelt mit der lila Fahne.</p>',
+            'entry_rules' => '<p>Einlass ab 15 Uhr (Samstag und Sonntag ab 12 Uhr) am Haupteingang Uferweg. Keine Glasflaschen, keine Dosen, keine Pyrotechnik. Leere Plastikflaschen bis 0,5 l sind erlaubt.</p>',
+            'ticket_notes' => '<p>Tagestickets gelten nur am aufgedruckten Tag. Das Wochenend-Ticket gilt von Freitag bis Sonntag.</p>',
+            'age' => '16', 'stages' => [['name' => 'Hauptbühne', 'color' => '#FC2F55'], ['name' => 'Strandbühne', 'color' => '#14B8A6']], 'acts' => $acts,
+            'faq' => [
+                ['Ab welchem Alter darf ich kommen?', 'Ab 16 Jahren. Unter 18 nur mit unterschriebenem Muttizettel und Ausweis.'],
+                ['Gilt das Wochenend-Ticket für alle drei Tage?', 'Ja, du bekommst am ersten Tag ein Bändchen, das bis Sonntag gilt.'],
+                ['Darf ich Getränke mitbringen?', 'Nein, Getränke gibt es an den Bars auf dem Gelände. Leere Plastikflaschen bis 0,5 l sind erlaubt.'],
+                ['Was ist, wenn es regnet?', 'Das Festival findet bei jedem Wetter statt. Nur bei Unwetter unterbrechen wir.'],
+                ['Gibt es Schließfächer?', 'Ja, am Eingang – mit Handy-Ladestation.'],
+                ['Kann ich bargeldlos zahlen?', 'Ja, an allen Ständen mit Karte, Handy oder Festival-Guthaben.'],
+            ],
+            'gallery' => ['festival', 'konzert', 'publikum', 'freunde'],
+        ];
+    }
+
+    // ═══════════════ Demo B: Eigene Website mit mehreren Events (demo-club.evendis.de, 1.38.844) ═══════════════
+
+    /**
+     * Weitere Wochen des Clubs Ostkai (Wochen 5–9, je Freitag), damit das Programm über die nächsten zehn Wochen reicht –
+     * zusätzlich zu club_events() (Wochen 0–4). Nur für die Demo-Instanz; der Beispiel-Club der Plattform bleibt, wie er ist.
+     */
+    public static function club_weekly($now = null) {
+        $c = [__CLASS__, 'cat'];
+        $fri = (5 - intval(wp_date('w', $now === null ? time() : intval($now))) + 7) % 7;
+        $house = [['Gibt es eine Garderobe?', 'Ja, direkt am Eingang – 2 € je Teil.'], ['Ab welchem Alter?', 'Wenn nicht anders angegeben ab 18 Jahren. Bitte Ausweis mitbringen.']];
+        $list = [
+            ['title' => 'Kai Club Nacht', 'time' => '22:00', 'image' => 'publikum', 'cats' => [call_user_func($c, 'Early Bird', 8, 100), call_user_func($c, 'Normal', 12, 350)],
+                'excerpt' => 'House und Disco auf zwei Floors – jede Woche am Kai.', 'desc' => '<p>Die Clubnacht am Kai: House im großen Saal, Disco-Klassiker in der Lounge.</p>', 'lineup' => 'DJ Möwe<br>Nachtfalter-Crew'],
+            ['title' => 'Ostkai Classics', 'time' => '22:00', 'image' => 'freunde', 'cats' => [call_user_func($c, 'Normal', 11, 400)],
+                'excerpt' => 'Die besten Partyhits von den 80ern bis heute.', 'desc' => '<p>Hits zum Mitsingen aus vier Jahrzehnten – gespielt von Rapid Retro.</p>', 'lineup' => 'Rapid Retro'],
+            ['title' => 'Latin Night am Kai', 'time' => '21:00', 'image' => 'konzert', 'cats' => [call_user_func($c, 'Normal', 12, 300), call_user_func($c, 'Mit Tanzkurs', 18, 60, ['desc' => 'Salsa-Schnupperkurs ab 20 Uhr'])],
+                'excerpt' => 'Salsa, Bachata und Reggaeton – mit Schnupperkurs zum Start.', 'desc' => '<p>Erst lernen, dann tanzen: Um 20 Uhr gibt es einen Schnupperkurs, danach Latin-Sound bis zum Morgen.</p>', 'lineup' => 'Duo Hafenblick (live)<br>DJ Kaimauer'],
+            ['title' => 'Neon Night Vol. 2', 'time' => '22:00', 'image' => 'festival', 'cats' => [call_user_func($c, 'Early Bird', 9, 100), call_user_func($c, 'Normal', 14, 400), call_user_func($c, 'VIP', 39, 40, ['desc' => 'Eigener Bereich, ein Getränk inklusive'])],
+                'excerpt' => 'Die Neon Night geht weiter – Leuchtfarben, Laser, Clubhits.', 'desc' => '<p>Bring deine knalligsten Farben mit – am Eingang gibt es Leuchtstifte.</p>', 'lineup' => 'Nachtfalter-Crew<br>DJ Möwe'],
+            ['title' => 'Ü30 am Kai', 'time' => '21:00', 'image' => 'publikum', 'cats' => [call_user_func($c, 'Vorverkauf', 11, 400), call_user_func($c, 'Abendkasse', 14, 150)], 'age' => '30',
+                'excerpt' => 'Die Party für alle ab 30 – Hits, die jeder kennt.', 'desc' => '<p>Ohne Gedränge, mit Sitzplätzen an der Bar und der besten Musik der 90er und 2000er.</p>', 'lineup' => 'DJ Seemannsgarn'],
+        ];
+        $out = [];
+        foreach ($list as $i => $s) $out[] = $s + ['key' => 'wk' . ($i + 5), 'day' => $fri + 7 * ($i + 5), 'faq' => $house];
+        return $out;
+    }
+
     /** App-Inhalte je Profil (Form wie GET /app/config: home.tiles, home.hashtag, pages.{slug}) – auf evendis sind die echten seitenweit */
     public static function app_content($profile) {
         if ($profile === 'festival') {
@@ -199,7 +292,7 @@ class TIX_Demo_Content {
     }
 
     /** Künstler-Einträge der fiktiven Acts (Art host für die Moderation), verwaltet vom Festival-Veranstalter; vorherige Demo-Acts weg */
-    public static function artists($event_id, $org_id, array $names) {
+    public static function artists($event_id, $org_id, array $names, $heads = 2) { // $heads: die ersten N sind Headliner (1.38.844)
         if (!class_exists('TIX_Artists')) return 0;
         foreach (get_posts(['post_type' => TIX_Artists::CPT, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'meta_key' => '_tix_demo_artist', 'meta_value' => '1']) as $old) wp_delete_post($old, true);
         $list = [];
@@ -211,7 +304,7 @@ class TIX_Demo_Content {
                 'images' => [], 'links' => [], 'ids' => [], 'tours' => [], 'status' => 'public', 'verified' => false, 'managed_by' => ['type' => 'organizer', 'id' => intval($org_id)], 'duplicate_of' => 0]);
             update_post_meta($aid, TIX_Artists::META_NORM, TIX_Artists::norm($n));
             update_post_meta($aid, '_tix_demo_artist', '1');
-            $list[] = ['artist_id' => intval($aid), 'role' => $i < 2 ? 'headliner' : 'support', 'tour' => null, 'by_organizer' => intval($org_id), 'at' => current_time('c'), 'notified' => true];
+            $list[] = ['artist_id' => intval($aid), 'role' => $i < intval($heads) ? 'headliner' : 'support', 'tour' => null, 'by_organizer' => intval($org_id), 'at' => current_time('c'), 'notified' => true];
         }
         update_post_meta($event_id, TIX_Artists::EV_META, $list);
         delete_post_meta($event_id, TIX_Artists::EV_REF);

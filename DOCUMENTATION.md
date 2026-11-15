@@ -6921,3 +6921,36 @@ Vorschlag `uebergaben/vorschlag-demo-zugaenge-beide.md`, Vertrag `uebergaben/ver
 - **`/studio/config` → `demo_links {hub, platform, shop}`** auf Plattform und Instanz (wo `TIX_Demo_Access::enabled()`), Vorgaben wie im Studio, Option `tix_demo_links` überschreibt (nur https).
 - **Abweichungen vom Vorschlag:** signierter „Pfad“ = REST-Route statt URL-Pfad (s. o.), Zufallswert `_n`, Schlüssel-Option auf beiden Seiten gleich benannt (`tix_demo_shop_key`), Shop-Teil-Fehler beim Anlegen mit belegter E-Mail auf der Instanz → 409 `tix_invalid_field` (`field: email`) statt 502.
 - **Tests:** `tests/run-demo-remote.sh` (sichert/spielt DBs zurück, Schlüssel per `generate`/stdin, Instanz als `php -S` in zh-kk, echte HTTP-Kette von zh-plat), `tests/test-demo-remote-wp.php`: inst 42, plat 62, none 9; CLI-Prüfungen (Argument abgelehnt, zu kurz, Dateirechte 0600, Fingerabdruck gleich). Regression `run-demo-shop.sh` grün (off 15, on 116, plat 14, Demo-Studio 14 = Grundlinie), `check-weg1` grün.
+
+## 229. Drei Demos: Demo-Shop mit einem Festival, Demo-Club mit Wochenprogramm, drei Fälle je Zugang (ab 1.38.844)
+Neuer Zuschnitt des Users vom 15.11. abends (`uebergaben/plan-demo-alles-an-einem-ort-2026-11-15.md`, Abschnitt „Neuer Zuschnitt“), Vertrag `uebergaben/vertrag-demo-shop.md` (Abschnitte „Seed“ und „Fälle“).
+- **Seed `--vorlage=openair` (Demo A, demo-shop.evendis.de) – genau EIN Event:**
+  - „Uferklang Festival 2027 (Beispiel)“ von Freitag 9. bis Sonntag 11.07.2027 (`_tix_date_start`/`_tix_date_end`, 16–23 Uhr, Einlass 15 Uhr). Regel `TIX_Demo_Content::openair_dates()`: der erste Freitag ab dem 8. Juli 2027; liegt das Wochenende zurück, dasselbe Wochenende im Folgejahr.
+  - Zwei Bühnen (`_tix_stages`), Programm je Tag (`_tix_timetable`, drei Tage), 11 fiktive Acts, davon 3 Headliner (je Abend einer: Stern `_tix_lineup_headliners`, Künstler-Rolle `headliner`, im Line-up-Text zuerst). `TIX_Demo_Content::artists()` hat dafür den Parameter `$heads` (Vorgabe 2 wie bisher).
+  - Kategorien Wochenend-Ticket, Tagesticket Freitag/Samstag/Sonntag, VIP Wochenende; Festival-Guide in `_tix_info_extra_info` (Anreise, Camping, Bändchen, Awareness), `_tix_info_entry_rules`, `_tix_info_ticket_notes`, FAQ, Galerie, Gästeliste (10).
+  - ~50 Bestellungen `@demo.invalid`, 3 Gutscheine, 4 Sponsoren, Bilder nur aus den lizenzierten Demo-Fotos. Kein „Warm-up heute“, kein Kino, kein vergangenes Event mehr.
+- **Seed `--vorlage=club` (Demo B, demo-club.evendis.de):** Club Ostkai wie bisher (`club_events()`, Wochen 0–4, „Live-Abend“ heute) plus `TIX_Demo_Content::club_weekly()` (Wochen 5–9 je Freitag) = Programm über die nächsten zehn Wochen, 14 Events. Vorverkauf und Gästeliste an jedem Event, Gästelisten heute und bei der Neon Night, Musikwunsch an (`tix_music.enabled = 1`), ~50 Bestellungen, Check-ins (vergangenes Event 90 %, heute 30 %), 3 Gutscheine. Der Beispiel-Club der Plattform (`TIX_Demo::seed`) bleibt unverändert.
+- **Einlass vor dem Termin (nur Demo-Instanz):**
+  - Der Scan (`POST /checkin/scan`) prüft das Datum ohnehin nicht. Die Apps und das Studio bieten aber nur Events von „heute“ bzw. der nächsten 14 Tage zum Einlass an – ein Festival 2027 wäre nicht wählbar.
+  - Deshalb merkt sich der Seed das scannbare Event (Option `tix_demo_shop_scan_event`; openair = das Festival, club = der Live-Abend heute). Nur bei `TIX_Demo_Shop::on()` und solange es ein veröffentlichtes Demo-Event ist (`_tix_demo`):
+    - `GET /events?filter=today` enthält es (vorne; nicht bei `search` und nicht in der Archiv-Ansicht),
+    - `/me` und `/info` → `demo_shop.scan_event {id, title, date_start, date_end}` (sonst `null`).
+  - Sonst bleibt die Einlass-Logik unverändert; ohne Instanz-Schalter gibt es weder das Feld noch die Ergänzung.
+- **JSON-Zeile für die Wache:** `seeded.today_event` entfällt. Neu `seeded.scan_event` (Event-ID, > 0 = Einlass-Test möglich) und `seeded.scan_event_date` (Start `Y-m-d`), außerdem `seeded.acts` (openair 11). `wipe()` löscht `tix_demo_shop_scan_event` mit.
+- **Drei Fälle je Demo-Zugang (Plattform):** `cases` ⊆ `platform`, `shop`, `club` (`TIX_Demo_Remote::CASES`, Instanz-Fälle `INSTANCE_CASES`).
+  - Ziele mit eigenen Optionen: shop = `tix_demo_shop_url` + `tix_demo_shop_key`, club = `tix_demo_club_url` + `tix_demo_club_key`; Zwischenspeicher `tix_demo_{shop|club}_state[_last]`.
+  - Die Instanz kennt ihre Rolle nicht: sie nimmt immer `tix_demo_shop_key`. Dieselbe Plugin-Version läuft auf beiden Instanzen.
+  - `remote-key … --target=shop|club` wählt auf der Plattform das Ziel (Vorgabe shop, sonst Exit 1). Auf der Instanz wird ein Ziel angenommen und mit `target_ignored: true` vermerkt. `status` zeigt auf der Plattform zusätzlich `targets {shop, club}` (gesetzt, Fingerabdruck, URL, bereit).
+  - `GET /demo-access?cases=all`: je Zeile `cases`, `shop` und `club` (je `{status, last_seen, test_orders}` oder `null`). Ohne Fall `platform` kommen `test_orders` (Summe), `last_seen` (jüngster) und `home` (erste Instanz) von den Instanzen. Dieser Teil wirkte bis 1.38.843 nicht, weil `row()` die Felder per `+` nicht überschrieb – jetzt `array_merge`.
+  - Dazu die Blöcke `shop` und `club` (`available`, `message` mit „Demo-Shop“ bzw. „Demo-Club“, `studio`, `home`, `vorlage`, `last_reset`, `reset_at`, `summary`).
+  - `POST /demo-access {cases}`: Instanz-Teile nacheinander (shop, dann club). Scheitert einer, werden die schon angelegten und der Plattform-Zugang gelöscht → 502 `tix_demo_shop_unreachable` bzw. 409 `tix_invalid_field`, jeweils mit `data.target`. Danach geht eine Mail mit allen gewählten Links raus (Knöpfe „Plattform ansehen“, „Eigenen Shop ansehen“, „Club-Website ansehen“).
+  - `PATCH`: erst prüfen, ob alle beteiligten Instanzen antworten. Scheitert eine mittendrin, werden die schon geänderten auf den Stand der Plattform zurückgesetzt (Ausnahme: beim Sperren gelöschte Geräte-Tokens der Instanz kommen nicht zurück).
+  - `/link`: erst alle Links holen, dann eine Mail; fehlt einer → 502, keine Mail.
+  - `DELETE`: erst prüfen, ob alle antworten, dann löschen (404 einer Instanz = schon weg). Bricht es mittendrin ab, bleibt die Plattform-Zeile stehen, und ein neuer Versuch löscht den Rest.
+  - `POST /demo-access/reset {target: "shop"|"club", vorlage?}`, Grenze je Ziel (`tix_demo_{ziel}_reset_rl`). Der tägliche Aufräumlauf löscht die Teile auf beiden Instanzen mit.
+  - `demo_links {hub, platform, shop, club}`, Vorgabe club `https://studio.demo-club.evendis.de/`.
+  - Ohne `cases` bleibt alles wie bisher.
+- **Tests:**
+  - `tests/run-demo-shop.sh`: off 15, on 135 (Festival: ein Event, Termin, Programm, Bühnen, Headliner, Kategorien, Guide, `/events?filter=today`, `/me.demo_shop.scan_event`, Check-in vor dem Termin; Club: Wochen 0–8 belegt, Live-Abend heute, Vorverkauf/Gästeliste, Musikwunsch), plat 14, Demo-Studio-Regression wie bisher 14 vorbestehende Fehler.
+  - `tests/run-demo-remote.sh` mit zweiter Instanz: zweite WordPress-Installation in zh-kk, gleiche DB, Präfix `club_` über `WORDPRESS_TABLE_PREFIX`, `php -S :8081`, Vorlage club, eigener Schlüssel über `--target=club`. Ergebnisse: inst 42 (shop) und 42 (club), plat 91, none 12.
+  - `tests/check-weg1.sh` grün.
