@@ -21,6 +21,7 @@ if (!defined('ABSPATH')) exit;
  *  - Nie gezählt: /info, /me und /studio/config tragen demo_instance: true; alle Bestellungen und Events gelten als Sandbox
  *    (keine Rechnungen, kein Datenspiegel, keine Verteilung, keine Auszahlung).
  *  - Seed/Reset: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club] → eine JSON-Zeile für die Wache.
+ *  - Schlüssel der Verbindung zur Plattform (1.38.843, TIX_Demo_Remote): wp tixomat demo-shop remote-key generate|set|status|clear.
  */
 class TIX_Demo_Shop {
 
@@ -540,6 +541,12 @@ class TIX_Demo_Shop {
      */
     public static function cli($args, $assoc) {
         $do = (string) ($args[0] ?? '');
+        // Schlüssel für die signierte Verbindung Plattform ↔ Instanz (1.38.843): nie als Argument, nur stdin bzw. --file
+        if ($do === 'remote-key') {
+            if (!class_exists('TIX_Demo_Remote')) { WP_CLI::line('{"ok":false,"error":"tix_demo_missing"}'); WP_CLI::halt(1); return; }
+            TIX_Demo_Remote::cli_key($args, $assoc);
+            return;
+        }
         if ($do === 'status') {
             $line = ['ok' => self::on(), 'action' => 'status', 'site' => (string) wp_parse_url(home_url(), PHP_URL_HOST), 'version' => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : '',
                 'demo_instance' => self::on(), 'vorlage' => self::vorlage(), 'last_reset' => self::last_reset(), 'next_reset' => wp_date('c', self::next_reset_ts()), 'seeded' => self::on() ? self::seeded() : null];
@@ -548,7 +555,7 @@ class TIX_Demo_Shop {
             return;
         }
         if (!in_array($do, ['seed', 'reset'], true)) {
-            WP_CLI::line(wp_json_encode(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club]'], JSON_UNESCAPED_UNICODE));
+            WP_CLI::line(wp_json_encode(['ok' => false, 'error' => 'tix_usage', 'message' => 'Aufruf: wp tixomat demo-shop seed|reset|status [--vorlage=openair|club] | remote-key generate --file=<pfad>|set|status|clear'], JSON_UNESCAPED_UNICODE));
             WP_CLI::halt(1);
             return;
         }

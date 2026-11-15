@@ -14,6 +14,9 @@ if (!defined('ABSPATH')) exit;
  *  - Kasse: Events des Beispiel-Clubs nur mit Zahlart „demo“ (kein Zahlungsanbieter), echte Zahlarten gesperrt.
  *  - Seit 1.38.841 auch auf einer Demo-Instanz „Eigene Website“ (TIX_Demo_Shop, Option tix_demo_instance): gleiche Rollen und
  *    Routen, ohne Modell/Profil, ohne Beispiel-Veranstalter; Zurücksetzen = ganze Instanz; Kasse = „demo“ + Anbieter im Testmodus.
+ *  - Seit 1.38.843 Fälle je Zugang (Meta _tix_demo_cases: platform, shop oder beide; ohne Meta = platform): die Plattform führt
+ *    Liste, Limit und Laufzeit, der Shop-Teil liegt signiert auf der Instanz (TIX_Demo_Remote). Ein Zugang nur mit „shop“ meldet
+ *    sich im Demo-Studio nie an. Ohne `cases` in der Anfrage verhält sich alles wie bisher (ältere Studios).
  */
 class TIX_Demo_Access {
 
@@ -34,6 +37,8 @@ class TIX_Demo_Access {
     /** Website-Profil (User 06.11.): club = mehrere Events (Beispiel-Club Ostkai), festival = 1 Event (Beispiel-Festival Seewiese) */
     const META_PROFILE = '_tix_demo_profile';
     const PROFILES = ['club', 'festival'];
+    /** Fälle je Zugang (1.38.843): platform = Demo-Studio, shop = Demo-Shop „Eigene Website“ auf der Instanz */
+    const META_CASES = '_tix_demo_cases';
 
     private static $foreign = null;
 
@@ -174,6 +179,27 @@ class TIX_Demo_Access {
         return $u ? intval($u[0]) : 0;
     }
 
+    /** Fälle des Zugangs; ältere Zugänge und Vertriebler: ['platform'] */
+    public static function cases($uid) {
+        $c = get_user_meta(intval($uid), self::META_CASES, true);
+        $c = is_array($c) ? array_values(array_intersect(['platform', 'shop'], array_map('strval', $c))) : [];
+        return $c ?: ['platform'];
+    }
+
+    public static function has_case($uid, $case) {
+        return in_array($case, self::cases($uid), true);
+    }
+
+    /** Zugang mit Fällen angelegt (eine Mail mit allen Links) */
+    private static function with_cases($uid) {
+        return is_array(get_user_meta(intval($uid), self::META_CASES, true));
+    }
+
+    /** Plattform: Zugang nur mit Fall „shop“ darf sich im Demo-Studio nicht anmelden */
+    private static function studio_denied($uid) {
+        return self::multi() && !self::has_case($uid, 'platform');
+    }
+
     // ═══════════════ Anmeldung sperren ═══════════════
 
     /** Abgelaufene bzw. gesperrte Interessenten gelten als nicht angemeldet (Token bleibt wirkungslos). */
@@ -181,7 +207,7 @@ class TIX_Demo_Access {
         if (!$user_id) return $user_id;
         $u = get_userdata(intval($user_id));
         if (!$u || !in_array(self::ROLE, (array) $u->roles, true) || $u->has_cap('manage_options')) return $user_id;
-        if (!self::usable($u->ID)) return 0;
+        if (!self::usable($u->ID) || self::studio_denied($u->ID)) return 0;
         // zuletzt aktiv (höchstens alle 5 Minuten schreiben)
         $last = intval(get_user_meta($u->ID, '_tix_demo_last_seen', true));
         if (time() - $last > 300) update_user_meta($u->ID, '_tix_demo_last_seen', time());
@@ -189,7 +215,7 @@ class TIX_Demo_Access {
     }
 
     public static function gate_password($user) {
-        if ($user instanceof WP_User && in_array(self::ROLE, (array) $user->roles, true) && !self::usable($user->ID)) {
+        if ($user instanceof WP_User && in_array(self::ROLE, (array) $user->roles, true) && (!self::usable($user->ID) || self::studio_denied($user->ID))) {
             return new WP_Error('tix_demo_expired', 'Dieser Demo-Zugang ist abgelaufen oder gesperrt.');
         }
         return $user;
@@ -275,17 +301,23 @@ class TIX_Demo_Access {
         )));
     }
 
+    public static function test_orders_of(WP_User $u) {
+        return self::test_orders($u->ID, $u->user_email);
+    }
+
     /** Testkäufe: auf der Plattform Zahlart demo, auf der Demo-Instanz jede Bestellung (dort ist alles Test) */
     private static function pm_clause($alias = '') {
         if (self::instance()) return '1=1';
         return ($alias !== '' ? $alias . '.' : '') . "payment_method = 'demo'";
     }
 
-    public static function row(WP_User $u) {
+    /** $state: false = ohne Fälle (wie bisher); sonst Stand der Instanz (TIX_Demo_Remote::state) oder null */
+    public static function row(WP_User $u, $state = false) {
         $prospect = self::is_prospect($u);
         $exp = $prospect ? self::expires($u->ID) : 0;
         $owner = intval(get_user_meta($u->ID, '_tix_demo_owner', true));
         $ou = $owner ? get_userdata($owner) : null;
+        $ro = $ou ? null : get_user_meta($u->ID, '_tix_demo_remote_owner', true); // Instanz: von der Plattform angelegt
         $last = intval(get_user_meta($u->ID, '_tix_demo_last_seen', true));
         $created = intval(get_user_meta($u->ID, '_tix_demo_created', true)) ?: strtotime($u->user_registered . ' UTC');
         return [
@@ -299,13 +331,33 @@ class TIX_Demo_Access {
             'extended'    => (bool) get_user_meta($u->ID, '_tix_demo_extended', true),
             'can_extend'  => $prospect && !get_user_meta($u->ID, '_tix_demo_extended', true),
             'status'      => $prospect ? self::status($u->ID) : 'active',
-            'owner'       => $ou ? ['id' => intval($ou->ID), 'name' => (string) $ou->display_name] : null,
+            'owner'       => $ou ? ['id' => intval($ou->ID), 'name' => (string) $ou->display_name] : (is_array($ro) && !empty($ro['name']) ? ['id' => 0, 'name' => (string) $ro['name'] . ' (Plattform)'] : null),
             'last_seen'   => $last ? wp_date('c', $last) : null,
             'test_orders' => self::test_orders($u->ID, $u->user_email),
             'model'       => self::model($u->ID),
             'profile'     => self::profile($u->ID),
             'home'        => self::home_url(self::code($u->ID), self::model($u->ID), self::profile($u->ID)),
-        ];
+        ] + ($state === false ? [] : self::case_fields($u, $state));
+    }
+
+    /** cases + shop {status, last_seen, test_orders} je Zeile (GET /demo-access?cases=all) */
+    private static function case_fields(WP_User $u, $state) {
+        $cases = self::is_prospect($u) ? self::cases($u->ID) : ['platform'];
+        $shop = null;
+        if (in_array('shop', $cases, true) && is_array($state) && isset($state['accesses'][$u->ID]) && is_array($state['accesses'][$u->ID])) {
+            $a = $state['accesses'][$u->ID];
+            $st = (string) ($a['status'] ?? '');
+            $shop = ['status' => in_array($st, ['active', 'expiring', 'expired', 'blocked'], true) ? $st : 'active',
+                'last_seen' => !empty($a['last_seen']) ? (string) $a['last_seen'] : null, 'test_orders' => intval($a['test_orders'] ?? 0)];
+        }
+        $f = ['cases' => $cases, 'shop' => $shop];
+        if (!in_array('platform', $cases, true)) {
+            // nur Demo-Shop: Testkäufe, letzte Anmeldung und Testkauf-Adresse kommen von der Instanz
+            $f['test_orders'] = $shop ? $shop['test_orders'] : 0;
+            $f['last_seen'] = $shop ? $shop['last_seen'] : null;
+            $f['home'] = is_array($state) ? (string) ($state['shop']['home'] ?? '') : '';
+        }
+        return $f;
     }
 
     /** GET /demo-access?status=&kind=&q= */
@@ -313,7 +365,15 @@ class TIX_Demo_Access {
         $admin = self::is_admin_caller();
         $args = ['role__in' => $admin ? [self::ROLE, 'tix_sales'] : [self::ROLE], 'orderby' => 'registered', 'order' => 'DESC', 'number' => 500];
         if (!$admin) $args['meta_query'] = [['key' => '_tix_demo_owner', 'value' => (string) get_current_user_id()]];
-        $rows = array_map([__CLASS__, 'row'], array_filter(get_users($args), function ($u) { return !$u->has_cap('manage_options'); }));
+        // Fälle (1.38.843): ?cases=all → je Zeile cases + shop, Block shop; ohne Parameter wie bisher
+        $with_cases = self::multi() && (string) $req->get_param('cases') === 'all';
+        $state = false;
+        $fresh = null;
+        if ($with_cases) {
+            $fresh = TIX_Demo_Remote::platform_ready() ? TIX_Demo_Remote::state() : null;
+            $state = $fresh ?? TIX_Demo_Remote::last_state();
+        }
+        $rows = array_values(array_map(function ($u) use ($state) { return self::row($u, $state); }, array_filter(get_users($args), function ($u) { return !$u->has_cap('manage_options'); })));
         $kind = (string) $req->get_param('kind');
         $model = self::clean_model($req->get_param('model'));
         $profile = self::clean_profile($req->get_param('profile'));
@@ -331,7 +391,8 @@ class TIX_Demo_Access {
         }));
         $week = time() - 7 * DAY_IN_SECONDS;
         $active_own = self::active_count(get_current_user_id());
-        return self::out([
+        $extra = $with_cases ? ['shop' => self::shop_block($fresh, $all, $admin)] : [];
+        return self::out($extra + [
             'ok' => true,
             'accesses' => $rows,
             'summary' => [
@@ -352,6 +413,28 @@ class TIX_Demo_Access {
             'last_reset' => self::instance() ? TIX_Demo_Shop::last_reset() : (($t = (string) get_option('tix_demo_reset_at', '')) !== '' ? wp_date('c', strtotime($t . ' ' . wp_timezone_string()) ?: time()) : null),
             'instance' => self::instance(),
         ]);
+    }
+
+    /** Block shop der Liste: Verbindung, Kopfdaten der Instanz, Zahlen (Admin: ganze Instanz, Vertriebler: eigene Zugänge) */
+    private static function shop_block($fresh, array $rows, $admin) {
+        $ready = TIX_Demo_Remote::platform_ready();
+        $s = is_array($fresh) ? (array) ($fresh['shop'] ?? []) : [];
+        $mine = array_values(array_filter($rows, function ($r) { return in_array('shop', (array) ($r['cases'] ?? []), true); }));
+        $week = time() - 7 * DAY_IN_SECONDS;
+        $own = ['active' => count(array_filter($mine, function ($r) { return in_array($r['status'], ['active', 'expiring'], true); })),
+            'seen_week' => count(array_filter($mine, function ($r) use ($week) { return !empty($r['shop']['last_seen']) && strtotime($r['shop']['last_seen']) >= $week; })),
+            'test_orders' => array_sum(array_map(function ($r) { return intval($r['shop']['test_orders'] ?? 0); }, $mine))];
+        $sum = $admin && is_array($s['summary'] ?? null) ? ['active' => intval($s['summary']['active'] ?? 0), 'seen_week' => intval($s['summary']['seen_week'] ?? 0), 'test_orders' => intval($s['summary']['test_orders'] ?? 0)] : $own;
+        return [
+            'available' => $fresh !== null,
+            'message'   => $fresh !== null ? '' : ($ready ? 'Der Demo-Shop ist gerade nicht erreichbar.' : 'Der Demo-Shop ist mit dieser Plattform noch nicht verbunden.'),
+            'studio'    => (string) ($s['studio'] ?? ''),
+            'home'      => (string) ($s['home'] ?? ''),
+            'vorlage'   => (string) ($s['vorlage'] ?? ''),
+            'last_reset' => $s['last_reset'] ?? null,
+            'reset_at'  => $s['reset_at'] ?? null,
+            'summary'   => $sum,
+        ];
     }
 
     private static function active_count($owner) {
@@ -377,12 +460,19 @@ class TIX_Demo_Access {
             return self::out(['ok' => true, 'access' => $u ? self::row($u) : null, 'invite_sent' => !empty($d['invite_sent'])], 201);
         }
         if ($kind !== 'prospect') return new WP_Error('tix_invalid_field', 'Unbekannte Art.', ['status' => 400, 'field' => 'kind']);
+        // Fälle (1.38.843, nur Plattform): null = nicht übergeben → wie bisher
+        $cases = self::multi() ? TIX_Demo_Remote::clean_cases($req->get_param('cases')) : null;
+        if ($cases !== null && !$cases) return new WP_Error('tix_invalid_field', 'Bitte mindestens einen Fall wählen: Plattform oder Eigener Shop.', ['status' => 400, 'field' => 'cases']);
+        $with_platform = $cases === null || in_array('platform', $cases, true);
+        $with_shop = $cases !== null && in_array('shop', $cases, true);
         $model = self::clean_model($req->get_param('model'));
         // Demo-Instanz: Modell steht fest (eigene Website), Profil folgt der Vorlage – das Studio schickt beides nicht
         if ($model === '' && self::instance()) $model = 'self';
+        if ($model === '' && $cases !== null) $model = 'platform'; // mit Fällen ist das Modell im Demo-Studio „Plattform“
         if ($model === '') return new WP_Error('tix_invalid_field', 'Bitte das Modell wählen: Provisionskunde oder selbstgehostet.', ['status' => 400, 'field' => 'model']);
         $profile = self::clean_profile($req->get_param('profile'));
         if ($profile === '' && self::instance()) $profile = TIX_Demo_Shop::profile();
+        if ($profile === '' && !$with_platform) $profile = 'club'; // Profil nur beim Fall „platform“ Pflicht
         if ($profile === '') return new WP_Error('tix_invalid_field', 'Bitte das Profil wählen: Club (mehrere Events) oder Festival (1 Event).', ['status' => 400, 'field' => 'profile']);
         $email = sanitize_email((string) $req->get_param('email'));
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 80);
@@ -393,81 +483,160 @@ class TIX_Demo_Access {
             return new WP_Error('tix_demo_limit', 'Du hast schon ' . self::MAX_ACTIVE . ' aktive Demo-Zugänge. Bitte zuerst einen sperren oder löschen.', ['status' => 409]);
         }
         if (get_user_by('email', $email)) return new WP_Error('tix_invalid_field', 'Zu dieser E-Mail gibt es schon ein Konto. Bitte eine andere Adresse nehmen.', ['status' => 409, 'field' => 'email']);
-        if (!self::instance() && !TIX_Sales::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
+        if ($with_shop && !TIX_Demo_Remote::platform_ready()) return TIX_Demo_Remote::error(['error' => 'not_configured']);
+        if ($with_platform && !self::instance() && !TIX_Sales::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
+        $u = self::insert_prospect($name, $email, $company, time() + self::DAYS * DAY_IN_SECONDS, get_current_user_id(), $with_platform);
+        if (is_wp_error($u)) return $u;
+        $uid = $u->ID;
+        update_user_meta($uid, self::META_MODEL, $model);
+        if ($with_platform) self::set_profile($uid, $profile);
+        else update_user_meta($uid, self::META_PROFILE, $profile); // nur Shop: kein Team im Beispiel-Veranstalter
+        if ($cases !== null) update_user_meta($uid, self::META_CASES, $cases);
+        $shop_login = '';
+        if ($with_shop) {
+            // Shop-Teil auf der Instanz anlegen; scheitert das, wird auch der Plattform-Zugang wieder gelöscht (kein halber Zugang)
+            $me = wp_get_current_user();
+            $r = TIX_Demo_Remote::call('POST', '/demo-access/remote', [], [
+                'remote_id' => $uid, 'owner' => ['id' => intval($me->ID), 'name' => (string) $me->display_name, 'email' => (string) $me->user_email],
+                'name' => $name, 'email' => $email, 'company' => $company, 'expires_at' => wp_date('c', self::expires($uid)), 'extended' => false, 'invite' => false,
+            ]);
+            $shop_login = $r['ok'] ? (string) ($r['data']['login_url'] ?? '') : '';
+            if (!$r['ok'] || $shop_login === '') {
+                if ($r['status'] === 0 || $r['status'] >= 500 || $r['ok']) TIX_Demo_Remote::call('DELETE', '/demo-access/remote/' . $uid); // evtl. doch angelegt: aufräumen
+                self::delete_prospect($uid);
+                return TIX_Demo_Remote::error($r);
+            }
+            TIX_Demo_Remote::forget();
+        }
+        $invite = $req->get_param('invite') === null || filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN);
+        $sent = false;
+        if ($invite) $sent = $cases !== null ? self::send_cases_mail(get_userdata($uid), true, $shop_login) : self::send_link(get_userdata($uid), true);
+        $state = false;
+        if ($cases !== null) {
+            $st = TIX_Demo_Remote::state();
+            $state = $st ?? ['accesses' => [], 'shop' => []];
+        }
+        return self::out(['ok' => true, 'access' => self::row(get_userdata($uid), $state), 'invite_sent' => $sent], 201);
+    }
+
+    /**
+     * Interessent anlegen (Plattform: rest_create; Instanz: signierter Aufruf der Plattform) → WP_User|WP_Error.
+     * $studio: Rolle tix_organizer und (Plattform) Team im Beispiel-Club – nicht bei Zugängen nur mit Fall „shop“.
+     */
+    public static function insert_prospect($name, $email, $company, $expires, $owner = 0, $studio = true) {
         $login = 'demo_' . (sanitize_user(strtok($email, '@'), true) ?: 'zugang');
         $base = $login; $i = 1;
         while (username_exists($login)) $login = $base . (++$i);
         $uid = wp_insert_user(['user_login' => $login, 'user_email' => $email, 'display_name' => $name, 'first_name' => strtok($name, ' '), 'user_pass' => wp_generate_password(32), 'role' => self::ROLE]);
         if (is_wp_error($uid)) return new WP_Error('tix_invalid_field', $uid->get_error_message(), ['status' => 400, 'field' => 'email']);
         $u = get_userdata($uid);
-        $u->add_role('tix_organizer');
-        if (!self::instance()) update_user_meta($uid, '_tix_team_organizer_id', TIX_Sales::demo_id()); // Instanz: Team der Seite (ohne Veranstalter)
-        update_user_meta($uid, '_tix_demo_owner', get_current_user_id());
+        if ($studio) {
+            $u->add_role('tix_organizer');
+            if (!self::instance()) update_user_meta($uid, '_tix_team_organizer_id', TIX_Sales::demo_id()); // Instanz: Team der Seite (ohne Veranstalter)
+        }
+        if (intval($owner) > 0) update_user_meta($uid, '_tix_demo_owner', intval($owner));
         update_user_meta($uid, '_tix_demo_created', time());
-        update_user_meta($uid, '_tix_demo_expires', time() + self::DAYS * DAY_IN_SECONDS);
-        update_user_meta($uid, self::META_MODEL, $model);
-        self::set_profile($uid, $profile);
+        update_user_meta($uid, '_tix_demo_expires', intval($expires));
         if ($company !== '') update_user_meta($uid, '_tix_demo_company', $company);
         self::code($uid);
-        $sent = $req->get_param('invite') === null || filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN) ? self::send_link(get_userdata($uid), true) : false;
-        return self::out(['ok' => true, 'access' => self::row(get_userdata($uid)), 'invite_sent' => $sent], 201);
+        return get_userdata($uid);
     }
 
-    /** PATCH /demo-access/{id} {extend?: true, blocked?: bool, name?, company?} */
+    /**
+     * PATCH /demo-access/{id} {extend?: true, blocked?: bool, name?, company?, model?, profile?}
+     * Erst alles prüfen, dann (Fall „shop“) auf der Instanz anwenden, erst danach hier – scheitert die Instanz, ändert sich nichts.
+     */
     public static function rest_update(WP_REST_Request $req) {
         $u = get_userdata(absint($req['id']));
         if (!$u || !self::can_manage($u)) return new WP_Error('tix_not_found', 'Demo-Zugang nicht gefunden.', ['status' => 404]);
         $prospect = self::is_prospect($u);
+        $shop = $prospect && self::multi() && self::has_case($u->ID, 'shop');
+        $remote = [];
+        $new_exp = 0;
         if ($req->get_param('extend') !== null && filter_var($req->get_param('extend'), FILTER_VALIDATE_BOOLEAN)) {
             if (!$prospect) return new WP_Error('tix_invalid_field', 'Vertriebs-Zugänge laufen nicht ab.', ['status' => 400, 'field' => 'extend']);
             if (get_user_meta($u->ID, '_tix_demo_extended', true)) return new WP_Error('tix_demo_extended', 'Der Zugang wurde schon einmal verlängert.', ['status' => 409]);
-            update_user_meta($u->ID, '_tix_demo_expires', max(time(), self::expires($u->ID)) + self::DAYS * DAY_IN_SECONDS);
-            update_user_meta($u->ID, '_tix_demo_extended', 1);
+            $new_exp = max(time(), self::expires($u->ID)) + self::DAYS * DAY_IN_SECONDS;
+            $remote['expires_at'] = wp_date('c', $new_exp); // beide Seiten dasselbe Ende
+            $remote['extended'] = true;
         }
+        $blocked = null;
         if ($req->get_param('blocked') !== null) {
             if (!$prospect) return new WP_Error('tix_invalid_field', 'Vertriebs-Zugänge bitte löschen statt sperren.', ['status' => 400, 'field' => 'blocked']);
-            if (filter_var($req->get_param('blocked'), FILTER_VALIDATE_BOOLEAN)) {
-                update_user_meta($u->ID, '_tix_demo_blocked', 1);
-                delete_user_meta($u->ID, '_tix_app_tokens');
-                delete_user_meta($u->ID, '_tix_demo_link');
-            } else {
-                delete_user_meta($u->ID, '_tix_demo_blocked');
-            }
+            $blocked = filter_var($req->get_param('blocked'), FILTER_VALIDATE_BOOLEAN);
+            $remote['blocked'] = $blocked;
+        }
+        $m = $p = '';
+        if ($req->get_param('model') !== null || $req->get_param('profile') !== null) {
+            // Modell und Profil betreffen nur den Fall „platform“
+            if ($prospect && self::multi() && !self::has_case($u->ID, 'platform')) return new WP_Error('tix_invalid_field', 'Modell und Profil gibt es nur beim Fall Plattform.', ['status' => 400, 'field' => $req->get_param('model') !== null ? 'model' : 'profile']);
         }
         if ($req->get_param('model') !== null) {
             $m = self::clean_model($req->get_param('model'));
             if ($m === '') return new WP_Error('tix_invalid_field', 'Unbekanntes Modell.', ['status' => 400, 'field' => 'model']);
-            update_user_meta($u->ID, self::META_MODEL, $m);
         }
         if ($req->get_param('profile') !== null) {
             $p = self::clean_profile($req->get_param('profile'));
             if ($p === '') return new WP_Error('tix_invalid_field', 'Unbekanntes Profil.', ['status' => 400, 'field' => 'profile']);
-            self::set_profile($u->ID, $p);
         }
-        if (($n = trim(sanitize_text_field((string) $req->get_param('name')))) !== '') wp_update_user(['ID' => $u->ID, 'display_name' => mb_substr($n, 0, 80)]);
-        if ($req->get_param('company') !== null) update_user_meta($u->ID, '_tix_demo_company', mb_substr(trim(sanitize_text_field((string) $req->get_param('company'))), 0, 80));
-        return self::out(['ok' => true, 'access' => self::row(get_userdata($u->ID))]);
+        $n = trim(sanitize_text_field((string) $req->get_param('name')));
+        if ($n !== '') $remote['name'] = mb_substr($n, 0, 80);
+        $company = $req->get_param('company') !== null ? mb_substr(trim(sanitize_text_field((string) $req->get_param('company'))), 0, 80) : null;
+        if ($company !== null) $remote['company'] = $company;
+        if ($shop && $remote) {
+            $r = TIX_Demo_Remote::call('PATCH', '/demo-access/remote/' . intval($u->ID), [], $remote);
+            if (!$r['ok']) return TIX_Demo_Remote::error($r);
+            TIX_Demo_Remote::forget();
+        }
+        if ($new_exp) {
+            update_user_meta($u->ID, '_tix_demo_expires', $new_exp);
+            update_user_meta($u->ID, '_tix_demo_extended', 1);
+        }
+        if ($blocked === true) {
+            update_user_meta($u->ID, '_tix_demo_blocked', 1);
+            delete_user_meta($u->ID, '_tix_app_tokens');
+            delete_user_meta($u->ID, '_tix_demo_link');
+        } elseif ($blocked === false) {
+            delete_user_meta($u->ID, '_tix_demo_blocked');
+        }
+        if ($m !== '') update_user_meta($u->ID, self::META_MODEL, $m);
+        if ($p !== '') self::set_profile($u->ID, $p);
+        if ($n !== '') wp_update_user(['ID' => $u->ID, 'display_name' => mb_substr($n, 0, 80)]);
+        if ($company !== null) update_user_meta($u->ID, '_tix_demo_company', $company);
+        return self::out(['ok' => true, 'access' => self::row(get_userdata($u->ID), self::with_cases($u->ID) ? (TIX_Demo_Remote::state() ?? ['accesses' => [], 'shop' => []]) : false)]);
     }
 
-    /** POST /demo-access/{id}/link – Einladung bzw. Anmelde-Link neu senden */
+    /** POST /demo-access/{id}/link – Einladung bzw. Anmelde-Link neu senden (mit Fällen: eine Mail mit allen Links) */
     public static function rest_resend(WP_REST_Request $req) {
         $u = get_userdata(absint($req['id']));
         if (!$u || !self::can_manage($u)) return new WP_Error('tix_not_found', 'Demo-Zugang nicht gefunden.', ['status' => 404]);
         if (!self::is_prospect($u)) return new WP_Error('tix_invalid_field', 'Vertriebler melden sich mit Passwort an.', ['status' => 400]);
         if (!self::usable($u->ID)) return new WP_Error('tix_demo_expired', 'Der Zugang ist abgelaufen oder gesperrt.', ['status' => 409]);
-        return self::out(['ok' => true, 'sent' => self::send_link($u, true)]);
+        if (!self::multi() || !self::with_cases($u->ID)) return self::out(['ok' => true, 'sent' => self::send_link($u, true)]);
+        $shop_login = '';
+        if (self::has_case($u->ID, 'shop')) {
+            $r = TIX_Demo_Remote::call('POST', '/demo-access/remote/' . intval($u->ID) . '/link', [], []);
+            $shop_login = $r['ok'] ? (string) ($r['data']['login_url'] ?? '') : '';
+            if ($shop_login === '') return TIX_Demo_Remote::error($r);
+        }
+        return self::out(['ok' => true, 'sent' => self::send_cases_mail($u, true, $shop_login)]);
     }
 
-    /** DELETE /demo-access/{id} */
+    /** DELETE /demo-access/{id} – mit Fall „shop“ erst auf der Instanz (dort schon weg = in Ordnung) */
     public static function rest_delete(WP_REST_Request $req) {
         $u = get_userdata(absint($req['id']));
         if (!$u || !self::can_manage($u)) return new WP_Error('tix_not_found', 'Demo-Zugang nicht gefunden.', ['status' => 404]);
         if (!self::is_prospect($u)) return TIX_Sales::rest_delete($req);
+        if (self::multi() && self::has_case($u->ID, 'shop')) {
+            $r = TIX_Demo_Remote::call('DELETE', '/demo-access/remote/' . intval($u->ID));
+            if (!$r['ok'] && intval($r['status']) !== 404) return TIX_Demo_Remote::error($r);
+            TIX_Demo_Remote::forget();
+        }
         self::delete_prospect($u->ID);
         return self::out(['ok' => true, 'deleted' => true]);
     }
 
-    private static function delete_prospect($uid) {
+    public static function delete_prospect($uid) {
         if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
         wp_delete_user(intval($uid));
     }
@@ -503,6 +672,24 @@ class TIX_Demo_Access {
 
     /** POST /demo-access/reset – Beispiel-Club zurücksetzen (Admin und Vertriebler, nie Interessenten) */
     public static function rest_reset(WP_REST_Request $req) {
+        // Plattform: {target: "shop"} setzt den Demo-Shop zurück (signiert an die Instanz); ohne target wie bisher das Demo-Studio
+        $target = (string) $req->get_param('target');
+        if ($target !== '' && !in_array($target, ['studio', 'shop'], true)) return new WP_Error('tix_invalid_field', 'Ziel: studio oder shop.', ['status' => 400, 'field' => 'target']);
+        if ($target === 'shop' && self::multi()) {
+            $v = (string) $req->get_param('vorlage');
+            if ($v !== '' && !in_array($v, ['openair', 'club'], true)) return new WP_Error('tix_invalid_field', 'Vorlage: openair oder club.', ['status' => 400, 'field' => 'vorlage']);
+            if (!TIX_Demo_Remote::platform_ready()) return TIX_Demo_Remote::error(['error' => 'not_configured']);
+            $key = 'tix_demo_shop_reset_rl';
+            $n = intval(get_transient($key));
+            if (!self::is_admin_caller() && $n >= 6) return new WP_Error('tix_rate_limit', 'Heute schon oft zurückgesetzt. Bitte später noch einmal.', ['status' => 429]);
+            $r = TIX_Demo_Remote::call('POST', '/demo-access/remote/reset', [], $v !== '' ? ['vorlage' => $v] : [], 180);
+            if (!$r['ok']) return TIX_Demo_Remote::error($r);
+            set_transient($key, $n + 1, 6 * HOUR_IN_SECONDS);
+            TIX_Demo_Remote::forget();
+            $d = (array) $r['data'];
+            return self::out(['ok' => true, 'target' => 'shop', 'last_reset' => $d['last_reset'] ?? null, 'next_reset' => $d['next_reset'] ?? null, 'vorlage' => $d['vorlage'] ?? null,
+                'studio' => $d['studio'] ?? null, 'home' => $d['home'] ?? null, 'seeded' => $d['seeded'] ?? null, 'wiped' => $d['wiped'] ?? null]);
+        }
         if (self::instance()) {
             // Demo-Instanz: ganze Seite zurücksetzen (Zugänge, Gestaltung, Test-Schlüssel, Rechtstexte bleiben), optional Vorlage wechseln
             $key = 'tix_demo_reset_rl';
@@ -539,12 +726,47 @@ class TIX_Demo_Access {
     }
 
     /** Neuen Link erzeugen und mailen. $invite: Einladung (7 Tage gültig) statt Anmelde-Link (30 min). */
-    public static function send_link(WP_User $u, $invite = false) {
+    /** Einmal-Anmelde-Link erzeugen (Einladung 7 Tage, sonst 30 min) → URL des Studios dieser Seite */
+    public static function login_url(WP_User $u, $invite = false) {
         $raw = wp_generate_password(40, false, false);
         $list = array_values(array_filter((array) get_user_meta($u->ID, '_tix_demo_link', true), function ($t) { return is_array($t) && intval($t['exp'] ?? 0) > time(); }));
         $list[] = ['h' => hash('sha256', $raw), 'exp' => time() + ($invite ? self::INVITE_TTL : self::LINK_TTL)];
         update_user_meta($u->ID, '_tix_demo_link', array_slice($list, -5));
-        $url = self::studio_url('/anmelden/link/?t=' . rawurlencode($raw));
+        return self::studio_url('/anmelden/link/?t=' . rawurlencode($raw));
+    }
+
+    /**
+     * Eine Mail mit allen Links eines Zugangs mit Fällen (Plattform): je Fall ein Knopf, dazu demo.evendis.de.
+     * $shop_url = Einmal-Anmelde-Link der Instanz (von TIX_Demo_Remote), nur mit Fall „shop“.
+     */
+    public static function send_cases_mail(WP_User $u, $invite, $shop_url = '') {
+        if (!class_exists('TIX_Mail_Layout')) return false;
+        $cases = self::cases($u->ID);
+        $both = count($cases) > 1;
+        $links = TIX_Demo_Remote::links();
+        $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite
+            ? 'du hast einen Zugang zu den <b>evendis-Demos</b>. ' . ($both ? 'Du kannst beide Wege ausprobieren – mit Beispieldaten, Testkauf und Einlass. Es fließt kein echtes Geld.' : 'Dort probierst du alles mit Beispieldaten aus – inklusive Testkauf und Einlass. Es fließt kein echtes Geld.')
+            : 'hier sind deine Anmelde-Links für die evendis-Demos.')]];
+        if (in_array('platform', $cases, true)) {
+            $blocks[] = ['type' => 'text', 'html' => '<b>Plattform</b> – Verkauf über evendis.de: Beispiel-Veranstalter mit Veranstalter-Seite und das Studio dazu.'];
+            $blocks[] = ['type' => 'button', 'label' => 'Plattform ansehen', 'url' => self::login_url($u, $invite)];
+        }
+        if (in_array('shop', $cases, true) && $shop_url !== '') {
+            $blocks[] = ['type' => 'text', 'html' => '<b>Eigener Shop</b> – eigene Ticket-Website mit eigenem Studio, nur Testzahlung. Jede Nacht wird dort alles zurückgesetzt.'];
+            $blocks[] = ['type' => 'button', 'label' => 'Eigenen Shop ansehen', 'url' => $shop_url];
+        }
+        $blocks[] = ['type' => 'text', 'html' => 'Alle Demos auf einen Blick: <a href="' . esc_url($links['hub']) . '">' . esc_html(preg_replace('#^https?://|/$#', '', $links['hub'])) . '</a>'];
+        $exp = self::expires($u->ID);
+        if ($exp) $blocks[] = ['type' => 'text', 'html' => 'Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. ' . ($invite ? 'Die Links in dieser Mail gelten 7 Tage; danach forderst du auf der Anmeldeseite einfach einen neuen an.' : '')];
+        return (bool) TIX_Mail_Layout::send($u->user_email, 'evendis Demo – ' . ($invite ? 'dein Zugang' : 'deine Anmelde-Links'), [
+            'title' => $invite ? 'Dein Zugang zu den evendis-Demos' : 'Deine Anmelde-Links',
+            'blocks' => $blocks,
+            'kind' => 'account',
+        ]);
+    }
+
+    public static function send_link(WP_User $u, $invite = false) {
+        $url = self::login_url($u, $invite);
         if (!class_exists('TIX_Mail_Layout')) return false;
         $exp = self::expires($u->ID);
         if (self::instance()) {
@@ -581,7 +803,7 @@ class TIX_Demo_Access {
         $email = sanitize_email((string) $req->get_param('email'));
         if (is_email($email)) {
             $u = get_user_by('email', $email);
-            if ($u && self::is_prospect($u) && self::usable($u->ID)) {
+            if ($u && self::is_prospect($u) && self::usable($u->ID) && !self::studio_denied($u->ID)) {
                 $mk = 'tix_dal_mail_' . $u->ID;
                 if (intval(get_transient($mk)) < 5) {
                     set_transient($mk, intval(get_transient($mk)) + 1, HOUR_IN_SECONDS);
@@ -610,7 +832,7 @@ class TIX_Demo_Access {
         unset($list[$i]);
         update_user_meta($u->ID, '_tix_demo_link', array_values($list)); // einmal einlösbar
         if ($exp <= time()) return new WP_Error('tix_demo_link_expired', 'Der Link ist abgelaufen. Fordere auf der Anmeldeseite einfach einen neuen an.', ['status' => 410]);
-        if (!self::usable($u->ID)) return new WP_Error('tix_demo_expired', 'Dieser Demo-Zugang ist abgelaufen oder gesperrt.', ['status' => 403]);
+        if (!self::usable($u->ID) || self::studio_denied($u->ID)) return new WP_Error('tix_demo_expired', 'Dieser Demo-Zugang ist abgelaufen oder gesperrt.', ['status' => 403]);
         $token = TIX_REST_API::issue_app_token($u->ID, (string) ($req->get_param('device') ?: 'Demo-Studio'));
         update_user_meta($u->ID, '_tix_demo_last_seen', time());
         $first = !get_user_meta($u->ID, '_tix_demo_first_login', true);
@@ -622,7 +844,10 @@ class TIX_Demo_Access {
     public static function cleanup() {
         foreach (get_users(['role' => self::ROLE, 'fields' => 'ids', 'meta_key' => '_tix_demo_expires', 'meta_value' => time() - self::GRACE, 'meta_compare' => '<', 'meta_type' => 'NUMERIC']) as $uid) {
             $u = get_userdata(intval($uid));
-            if ($u && !$u->has_cap('manage_options') && in_array(self::ROLE, (array) $u->roles, true)) self::delete_prospect($u->ID);
+            if (!$u || $u->has_cap('manage_options') || !in_array(self::ROLE, (array) $u->roles, true)) continue;
+            // Shop-Teil best effort mitlöschen; die Instanz räumt ihn sonst selbst auf (gleiches Ablaufdatum)
+            if (self::multi() && self::has_case($u->ID, 'shop') && TIX_Demo_Remote::platform_ready()) TIX_Demo_Remote::call('DELETE', '/demo-access/remote/' . intval($u->ID));
+            self::delete_prospect($u->ID);
         }
     }
 
