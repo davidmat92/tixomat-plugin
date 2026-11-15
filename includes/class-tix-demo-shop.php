@@ -338,7 +338,7 @@ class TIX_Demo_Shop {
     /** Alles Veränderliche der Instanz löschen: Events (ohne System-Events), Bestellungen, Tickets, Gutscheine, Anfragen, Demo-Künstler, Platz-Reservierungen. */
     public static function wipe() {
         global $wpdb;
-        $n = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'coupons' => 0, 'support' => 0, 'artists' => 0];
+        $n = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'coupons' => 0, 'support' => 0, 'artists' => 0, 'tips' => 0];
         $events = [];
         foreach (get_posts(['post_type' => 'event', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'tix_include_system' => 1, 'suppress_filters' => true]) as $eid) {
             if (get_post_meta($eid, '_tix_system_giftcard_event', true) || get_post_meta($eid, '_tix_system_wallet_event', true)) continue;
@@ -356,6 +356,9 @@ class TIX_Demo_Shop {
             }
         }
         foreach ($events as $eid) { wp_delete_post($eid, true); $n['events']++; }
+        // Gewinnspiel-Teilnahmen der Demo-Events (Namen/E-Mails der Tester) mit weg (1.38.846)
+        $re = $wpdb->prefix . (class_exists('TIX_Raffle') ? TIX_Raffle::TABLE : 'tix_raffle_entries');
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $re)) === $re) $wpdb->query("DELETE FROM $re");
         $sr = $wpdb->prefix . 'tix_seat_reservations';
         if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sr)) === $sr) $wpdb->query("DELETE FROM $sr");
         foreach (get_posts(['post_type' => 'tix_support_ticket', 'post_status' => array_values(get_post_stati()), 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true]) as $sid) {
@@ -372,6 +375,7 @@ class TIX_Demo_Shop {
         $cp = get_option('tix_coupons', []);
         if (is_array($cp) && $cp) { $n['coupons'] = count($cp); update_option('tix_coupons', []); }
         delete_option(self::OPT_SCAN);
+        $n['tips'] = self::drop_demo_tips();
         return $n;
     }
 
@@ -384,16 +388,21 @@ class TIX_Demo_Shop {
      * scan_event = Event, dessen Tickets am Einlass gescannt werden können (openair: das Festival, auch vor dem Termin; club: heute).
      */
     public static function seed_content($vorlage) {
-        $out = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'checked_in' => 0, 'giftcards' => 0, 'sponsors' => 0, 'acts' => 0, 'scan_event' => 0, 'scan_event_date' => null];
+        $out = ['events' => 0, 'orders' => 0, 'tickets' => 0, 'checked_in' => 0, 'giftcards' => 0, 'sponsors' => 0, 'acts' => 0, 'flyers' => 0, 'tips' => 0, 'notifications' => 0, 'app_content' => 0, 'raffles' => 0, 'scan_event' => 0, 'scan_event_date' => null];
         mt_srand(intval(wp_date('Ymd')) + ($vorlage === 'club' ? 0 : 11));
         $ev = [];
         if ($vorlage === 'club') {
-            foreach (array_merge(TIX_Demo_Content::club_events(), TIX_Demo_Content::club_weekly()) as $s) {
+            $tpl = [];
+            foreach (array_merge(TIX_Demo_Content::club_events(), TIX_Demo_Content::club_weekly(), TIX_Demo_Content::club_more()) as $s) {
                 $eid = TIX_Demo::make_from($s, 0, TIX_Demo_Content::ADDRESS_CLUB);
                 if (!$eid) continue;
                 $ev[$s['key']] = $eid;
+                $tpl[$s['key']] = $s;
                 TIX_Demo_Content::no_lookup($eid, array_map('wp_strip_all_tags', preg_split('/<br\s*\/?>/', (string) $s['lineup'])));
+                // Freier Eintritt (ohne Online-Verkauf, 1.38.846)
+                if (!empty($s['free'])) { update_post_meta($eid, '_tix_tickets_enabled', '0'); update_post_meta($eid, '_tix_free_entry', '1'); update_post_meta($eid, '_tix_free_entry_note', (string) $s['free']); }
             }
+            $out['flyers'] = self::enrich_club($ev, $tpl);
             list($o, $t) = TIX_Demo::seed_orders($ev, self::ORDERS, 'past');
             $out['orders'] += $o; $out['tickets'] += $t;
             $out['events'] = count($ev);
@@ -416,6 +425,7 @@ class TIX_Demo_Shop {
             $f = self::seed_openair(self::ORDERS);
             $out['events'] = intval($f['events']); $out['orders'] += intval($f['orders']); $out['tickets'] += intval($f['tickets']); $out['acts'] = intval($f['acts']);
             $scan = intval($f['event_id']);
+            $out['flyers'] = intval($f['images'] ?? 0);
         }
         $out['scan_event'] = $scan;
         $out['scan_event_date'] = $scan ? ((string) get_post_meta($scan, '_tix_date_start', true) ?: null) : null;
@@ -434,7 +444,133 @@ class TIX_Demo_Shop {
         }
         update_option('tix_coupons', $cp);
         $out['sponsors'] = self::seed_sponsors();
+        // Mehr Inhalt wie bei echten Seiten (1.38.846): Tipps des Tages, Mitteilungen, Kacheln/Seiten der App und Website
+        $keys = $vorlage === 'club' ? $ev : ['fest' => $scan];
+        $out['tips'] = self::seed_tips($vorlage, $keys);
+        $out['notifications'] = self::seed_notifications($vorlage, $keys);
+        $out['app_content'] = self::seed_app_content($vorlage);
+        $out['raffles'] = count(get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_raffle_enabled', 'meta_value' => '1', 'suppress_filters' => true]));
         return $out;
+    }
+
+    // ═══════════════ Mehr Inhalt (1.38.846, User 15.11.: „lebendiger, orientiere dich an Kitchen und Mallorca“) ═══════════════
+
+    /** Flyer je Abend, Ende, Specials, Dresscode, Awareness, „Das könnte dich auch interessieren“, zwei Gewinnspiele → Zahl der Flyer */
+    private static function enrich_club(array $ev, array $tpl) {
+        $x = TIX_Demo_Content::club_extras();
+        $aw = TIX_Demo_Content::awareness('club');
+        $upcoming = array_values(array_filter(array_keys($ev), function ($k) { return $k !== 'past'; }));
+        $flyers = 0;
+        foreach ($ev as $k => $eid) {
+            $e = $x[$k] ?? ['#3D7BF7', (string) ($tpl[$k]['excerpt'] ?? ''), '04:00', '', ''];
+            $title = trim(preg_replace('/\s*\(Beispiel\)\s*$/u', '', (string) ($tpl[$k]['title'] ?? get_the_title($eid))));
+            $img = TIX_Demo_Content::flyer('club-' . $k, $title, $e[1], (string) ($tpl[$k]['image'] ?? 'publikum'), $e[0], 'Demo-Club Ostkai', 'Ostkai 12 · Musterstadt');
+            if ($img) { set_post_thumbnail($eid, $img); $flyers++; }
+            update_post_meta($eid, '_tix_time_end', $e[2]);
+            update_post_meta($eid, '_tix_address', TIX_Demo_Content::ADDRESS_CLUB);
+            if ($e[3] !== '') update_post_meta($eid, '_tix_info_specials', '<p>' . esc_html($e[3]) . '</p>');
+            if ($e[4] !== '') update_post_meta($eid, '_tix_info_dresscode', $e[4]);
+            if (!isset($tpl[$k]['age'])) update_post_meta($eid, '_tix_info_age_limit', '18');
+            if (class_exists('TIX_Awareness')) { update_post_meta($eid, TIX_Awareness::META_MODE, 'custom'); update_post_meta($eid, TIX_Awareness::META, TIX_Awareness::sanitize($aw)); }
+            // drei weitere Abende als Empfehlung
+            $i = array_search($k, $upcoming, true);
+            if ($i !== false) {
+                $rel = [];
+                for ($j = 1; $j <= 3; $j++) $rel[] = intval($ev[$upcoming[($i + $j) % count($upcoming)]]);
+                update_post_meta($eid, '_tix_upsell_events', array_values(array_unique(array_diff($rel, [intval($eid)]))));
+            }
+        }
+        // Gewinnspiele: Neon Night (2 × VIP) und Sommerfest (Familien-Paket), Teilnahmeschluss vor dem Abend
+        foreach (['w1' => ['2 × VIP für die Neon Night', 'Gewinne zwei VIP-Tickets mit eigenem Bereich und einem Getränk inklusive.', '2 VIP-Tickets'],
+            'm1' => ['Familien-Paket fürs Sommerfest', 'Gewinne ein Familien-Ticket (2+2) und vier Gutscheine für die Foodtrucks.', 'Familien-Ticket + Foodtruck-Gutscheine']] as $k => $r) {
+            if (empty($ev[$k])) continue;
+            $start = (string) get_post_meta($ev[$k], '_tix_date_start', true);
+            self::raffle($ev[$k], $r[0], $r[1], $r[2], (new DateTime($start . ' 20:00:00', wp_timezone()))->modify('-1 day')->format('Y-m-d H:i'));
+        }
+        return $flyers;
+    }
+
+    /** Gewinnspiel an einem Demo-Event (offen, ein Preis, Teilnahmeschluss $end „Y-m-d H:i“) */
+    private static function raffle($eid, $title, $desc, $prize, $end) {
+        foreach (['_tix_raffle_enabled' => '1', '_tix_raffle_title' => $title, '_tix_raffle_description' => $desc, '_tix_raffle_end_date' => $end, '_tix_raffle_status' => 'open',
+            '_tix_raffle_max_entries' => '0', '_tix_raffle_prizes' => [['name' => $prize, 'qty' => 1, 'type' => 'text', 'cat_index' => 0, 'per_winner' => 1]]] as $mk => $mv) update_post_meta($eid, $mk, $mv);
+    }
+
+    /** Festival: Flyer, Künstlerbilder je Bühnenfarbe, Awareness, Barrierefreiheit, Gewinnspiel → Zahl der Bilder */
+    private static function enrich_openair($eid, array $f) {
+        $n = 0;
+        // Bildmotiv ohne Schrift: die Openair-Bühne setzt Titel, Datum und Ort selbst darüber
+        $img = TIX_Demo_Content::flyer('openair-fest', '', '', 'festival', '#FC2F55', '', '');
+        if ($img) { set_post_thumbnail($eid, $img); $n++; }
+        update_post_meta($eid, '_tix_address', TIX_Demo_Content::ADDRESS_FESTIVAL);
+        if (!empty($f['dresscode'])) update_post_meta($eid, '_tix_info_dresscode', $f['dresscode']);
+        if (!empty($f['specials'])) update_post_meta($eid, '_tix_info_specials', $f['specials']);
+        if (class_exists('TIX_Awareness')) { update_post_meta($eid, TIX_Awareness::META_MODE, 'custom'); update_post_meta($eid, TIX_Awareness::META, TIX_Awareness::sanitize(TIX_Demo_Content::awareness('openair'))); }
+        if (class_exists('TIX_Event_Facts')) {
+            update_post_meta($eid, TIX_Event_Facts::META_ACC_MODE, 'custom');
+            update_post_meta($eid, TIX_Event_Facts::META_ACC, TIX_Event_Facts::sanitize_acc(['items' => ['step_free', 'wheelchair_wc', 'companion', 'parking', 'quiet_room'], 'note' => 'Rollstuhl-Plattform an der Hauptbühne, Ruheraum im Infozelt.']));
+        }
+        // Galerie: die vier Fotos plus zwei Flyer-Motive
+        $gal = (array) get_post_meta($eid, '_tix_gallery', true);
+        foreach ([['openair-impression-1', 'Drei Bühnen am See', 'Hauptbühne · Strandbühne · Waldbühne', 'konzert', '#8E5CF7'], ['openair-impression-2', 'Camping am Uferweg', 'Zeltwiese direkt nebenan', 'freunde', '#14B8A6']] as $g) {
+            $gi = TIX_Demo_Content::flyer($g[0], $g[1], $g[2], $g[3], $g[4], 'Uferklang Festival', 'Beispielbild');
+            if ($gi) { $gal[] = $gi; $n++; }
+        }
+        update_post_meta($eid, '_tix_gallery', array_values(array_unique(array_map('intval', $gal))));
+        self::raffle($eid, '2 VIP-Wochenend-Tickets gewinnen', 'Gewinne zwei VIP-Wochenend-Tickets mit Tribüne, Getränke-Flat und Parkplatz am Gelände.', '2 VIP-Wochenend-Tickets',
+            wp_date('Y-m-d', time() + 21 * DAY_IN_SECONDS) . ' 23:59');
+        return $n;
+    }
+
+    /** Tipps des Tages der Instanz (vorige Demo-Tipps weg) → Anzahl */
+    private static function seed_tips($vorlage, array $ev) {
+        if (!class_exists('TIX_App_Tips')) return 0;
+        self::drop_demo_tips();
+        $n = 0;
+        foreach (TIX_Demo_Content::tips($vorlage) as $i => $t) {
+            $tid = wp_insert_post(['post_type' => TIX_App_Tips::CPT, 'post_status' => 'publish', 'post_title' => wp_trim_words($t[0], 6, '…'), 'menu_order' => $i], true);
+            if (is_wp_error($tid) || !$tid) continue;
+            foreach (['_tix_tip_text' => $t[0], '_tix_tip_author' => $t[1], '_tix_tip_label' => $t[2], '_tix_tip_placements' => $t[3], '_tix_tip_link' => '', '_tix_tip_start' => '', '_tix_tip_end' => '', '_tix_demo' => 1] as $mk => $mv) update_post_meta($tid, $mk, $mv);
+            if ($t[4] !== '' && !empty($ev[$t[4]])) update_post_meta($tid, '_tix_tip_event_id', intval($ev[$t[4]]));
+            $n++;
+        }
+        TIX_App_Tips::flush();
+        return $n;
+    }
+
+    private static function drop_demo_tips() {
+        if (!class_exists('TIX_App_Tips')) return 0;
+        $ids = get_posts(['post_type' => TIX_App_Tips::CPT, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_demo', 'meta_value' => '1', 'suppress_filters' => true]);
+        foreach ($ids as $id) wp_delete_post($id, true);
+        return count($ids);
+    }
+
+    /** Mitteilungen im Posteingang (ohne Push; vorige Demo-Mitteilungen weg, andere bleiben) → Anzahl */
+    private static function seed_notifications($vorlage, array $ev) {
+        if (!class_exists('TIX_Notifications')) return 0;
+        $list = array_values(array_filter((array) get_option(TIX_Notifications::OPT_FEED, []), function ($it) { return is_array($it) && strpos((string) ($it['id'] ?? ''), 'b_demo_') !== 0; }));
+        $n = 0;
+        foreach (TIX_Demo_Content::notifications($vorlage) as $i => $m) {
+            $eid = intval($ev[$m[2]] ?? 0);
+            $list[] = ['id' => 'b_demo_' . $vorlage . '_' . $i, 'kind' => 'info', 'type' => 'message', 'title' => $m[0], 'body' => $m[1], 'event_id' => $eid, 'action' => $eid ? 'event:' . $eid : '', 'campaign' => '', 'created' => time() - intval($m[3]) * HOUR_IN_SECONDS];
+            $n++;
+        }
+        usort($list, function ($a, $b) { return intval($b['created'] ?? 0) - intval($a['created'] ?? 0); });
+        update_option(TIX_Notifications::OPT_FEED, array_slice($list, 0, TIX_Notifications::MAX_FEED), false);
+        return $n;
+    }
+
+    /** Kacheln, Hashtag und Seiten (FAQ, Ü16, Musikwunsch, Kontakt, Festival-Guide) der App und Website; andere Einstellungen bleiben → Zahl der Kacheln */
+    private static function seed_app_content($vorlage) {
+        if (!class_exists('TIX_App_Config')) return 0;
+        $in = TIX_Demo_Content::instance_content($vorlage);
+        $c = TIX_App_Config::stored();
+        $home = isset($c['home']) && is_array($c['home']) ? $c['home'] : [];
+        $c['home'] = array_merge($home, $in['home']);
+        $c['pages'] = $in['pages'];
+        update_option('_tix_app_config', $c, false);
+        if (method_exists('TIX_App_Config', 'touch')) TIX_App_Config::touch();
+        return count($in['home']['tiles']);
     }
 
     /** Gästeliste mit $count fiktiven Einträgen, die ersten $in eingecheckt */
@@ -470,10 +606,18 @@ class TIX_Demo_Shop {
         TIX_Demo_Content::no_lookup($eid, $names);
         update_post_meta($eid, '_tix_timetable', $tt);
         if (class_exists('TIX_Lineup_Links')) update_post_meta($eid, TIX_Lineup_Links::META_HEAD, array_values(array_filter(array_map(['TIX_Lineup_Links', 'act_key_of'], $heads))));
-        TIX_Demo_Content::artists($eid, 0, $names, count($heads));
+        // Künstlerbilder in der Farbe ihrer Bühne, Genre und Kurztext je Act (1.38.846)
+        $meta = [];
+        foreach ($f['acts'] as $a) {
+            if (isset($meta[$a[4]])) continue;
+            $meta[$a[4]] = ['genres' => [(string) ($a[7] ?? 'Pop')], 'short_bio' => $a[5] . ' – fiktiver Act des Beispiel-Festivals.',
+                'image' => stripos($a[4], 'Mikro') !== false ? 0 : TIX_Demo_Content::act_image($a[4], (string) ($f['stages'][$a[1]]['color'] ?? '#FC2F55'))];
+        }
+        TIX_Demo_Content::artists($eid, 0, $names, count($heads), $meta);
+        $imgs = self::enrich_openair($eid, $f);
         list($made, $tickets) = TIX_Demo::seed_orders(['fest' => $eid], $orders);
         update_post_meta($eid, '_tix_guest_list', self::guests(10));
-        return ['events' => 1, 'event_id' => $eid, 'orders' => $made, 'tickets' => $tickets, 'acts' => count($names), 'start' => $start, 'end' => $end];
+        return ['events' => 1, 'event_id' => $eid, 'orders' => $made, 'tickets' => $tickets, 'acts' => count($names), 'images' => $imgs, 'start' => $start, 'end' => $end];
     }
 
     // ═══════════════ Einlass-Ausnahme der Demo-Instanz ═══════════════
