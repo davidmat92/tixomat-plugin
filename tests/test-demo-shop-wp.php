@@ -271,20 +271,15 @@ if ($phase === 'on') {
     if (class_exists('TIX_Artists')) {
         $roles = array_count_values(array_column((array) get_post_meta($fe, TIX_Artists::EV_META, true), 'role'));
         t_eq('Künstler: 3 Headliner, 18 weitere', [3, 18], [$roles['headliner'] ?? 0, $roles['support'] ?? 0]);
-        if (function_exists('imagecreatefromjpeg')) {
-            $withimg = 0;
-            foreach ((array) get_post_meta($fe, TIX_Artists::EV_META, true) as $row) { $ad = (array) get_post_meta($row['artist_id'], TIX_Artists::META, true); if (!empty($ad['images']['portrait']['id']) && get_post_meta($ad['images']['portrait']['id'], '_tix_demo_image', true)) $withimg++; }
-            t_eq('Künstlerbilder (selbst erzeugt) für alle Acts außer der Moderation', 20, $withimg);
-        }
     }
     $cn = array_column((array) get_post_meta($fe, '_tix_ticket_categories', true), 'name');
     t_eq('Kategorien: Wochenende, Tagestickets Fr/Sa/So, VIP, Camping, Parken', ['Wochenend-Ticket', 'Tagesticket Freitag', 'Tagesticket Samstag', 'Tagesticket Sonntag', 'VIP Wochenende', 'Camping-Ticket', 'Parkticket Wochenende'], $cn);
-    // Mehr Inhalt (1.38.846): Gewinnspiel, Awareness, Barrierefreiheit, Specials, Dresscode, Tipps, Mitteilungen, Kacheln
+    // Mehr Inhalt (1.38.847): Gewinnspiel, Awareness, Barrierefreiheit, Specials, Dresscode, Tipps, Mitteilungen, Kacheln
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_pub%' OR option_name LIKE '\\_transient\\_timeout\\_%tix\\_pub%'");
     $fd = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/events/' . $fe))->get_data();
     $fd = $fd['event'] ?? $fd;
     t_eq('Festival: Gewinnspiel offen, Awareness-Team, Barrierefreiheit, Specials, Dresscode, Galerie ≥ 6', [true, true, true, true, true, true],
-        [($fd['raffle']['status'] ?? '') === 'open', !empty($fd['awareness']['team']), count($fd['accessibility']['items'] ?? []) >= 3, (string) ($fd['specials'] ?? '') !== '', (string) ($fd['dresscode'] ?? '') !== '', count((array) ($fd['gallery'] ?? [])) >= (function_exists('imagettftext') ? 6 : 4)]);
+        [($fd['raffle']['status'] ?? '') === 'open', !empty($fd['awareness']['team']), count($fd['accessibility']['items'] ?? []) >= 3, (string) ($fd['specials'] ?? '') !== '', (string) ($fd['dresscode'] ?? '') !== '', count((array) ($fd['gallery'] ?? [])) >= 4]);
     t_eq('Festival: Tipps 3, Mitteilungen 3, Kacheln mit Line-up/Guide, Seiten faq/u16/guide/kontakt', [3, 3, true, ['faq', 'u16', 'guide', 'kontakt']],
         [$r['seeded']['tips'] ?? 0, $r['seeded']['notifications'] ?? 0, in_array('page:guide', array_column((array) (TIX_App_Config::stored()['home']['tiles'] ?? []), 'action'), true), array_keys((array) (TIX_App_Config::stored()['pages'] ?? []))]);
     $tips = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/tips'))->get_data();
@@ -292,7 +287,7 @@ if ($phase === 'on') {
     $nf = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/notifications'))->get_data();
     $dn = array_values(array_filter($nf['notifications'] ?? [], function ($x) { return strpos($x['id'], 'b_demo_') === 0; }));
     t_eq('/notifications: 3 Demo-Mitteilungen, verlinkt aufs Festival', [3, 'event:' . $fe], [count($dn), $dn[0]['action'] ?? '']);
-    if (function_exists('imagettftext')) t_eq('Festival-Flyer selbst erzeugt (nicht das Rohfoto)', [true, true], [(bool) get_post_meta(get_post_thumbnail_id($fe), '_tix_demo_image', true), get_post_thumbnail_id($fe) !== TIX_Demo_Content::image('festival')]);
+    t_eq('Festival-Bild = KI-Beispielbild (Band)', [true, TIX_Demo_Content::ki_image('band')], [(bool) get_post_meta(get_post_thumbnail_id($fe), '_tix_demo_ki', true), get_post_thumbnail_id($fe)]);
     t_eq('Festival-Guide: Anreise/Camping, Einlass-Regeln, FAQ, Galerie', [true, true, true, true], [strpos((string) get_post_meta($fe, '_tix_info_extra_info', true), 'Camping') !== false, (string) get_post_meta($fe, '_tix_info_entry_rules', true) !== '', count((array) get_post_meta($fe, '_tix_faq', true)) >= 5, count((array) get_post_meta($fe, '_tix_gallery', true)) >= 3]);
     t_eq('Gästeliste', 10, count((array) get_post_meta($fe, '_tix_guest_list', true)));
     t_eq('rund 50 Bestellungen', true, ($r['seeded']['orders'] ?? 0) >= 40 && ($r['seeded']['orders'] ?? 0) <= 60);
@@ -322,11 +317,15 @@ if ($phase === 'on') {
     t_eq('keine geschützten/echten Namen (auch nicht Schwelm, Tixomat) – Events, Tipps, Mitteilungen, Seiten', 0, $bad);
     $imgs = array_filter(array_map('get_post_thumbnail_id', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids'])));
     t_eq('Bilder nur lizenzierte Demo-Fotos', true, $imgs && !array_filter($imgs, function ($a) { return !get_post_meta($a, '_tix_demo_image', true); }));
+    // Demo-Instanz: Event- und Galeriebilder nur KI-Beispielbilder, nie die Adobe-Fotos (nur für die App lizenziert, User 15.11.)
+    $all_imgs = $imgs;
+    foreach (get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids']) as $gid) $all_imgs = array_merge($all_imgs, array_map('intval', (array) get_post_meta($gid, '_tix_gallery', true)));
+    t_eq('Demo-Instanz: Event- und Galeriebilder nur KI-Beispielbilder', [true, 0], [(bool) $all_imgs, count(array_filter(array_unique($all_imgs), function ($a) { return !get_post_meta($a, '_tix_demo_ki', true); }))]);
     $n_orders = intval($wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders"));
     $n_events = count(get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids']));
     $n_media = count(get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids']));
     $r2 = TIX_Demo_Shop::run('reset');
-    t_eq('Reset legt keine neuen Bilder an (Flyer/Künstlerbilder wiederverwendet)', $n_media, count(get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids'])));
+    t_eq('Reset legt keine neuen Bilder an (KI-Bilder wiederverwendet)', $n_media, count(get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'posts_per_page' => -1, 'fields' => 'ids'])));
     t_eq('Reset idempotent: Tipps und Mitteilungen nicht doppelt', [3, 3], [count(get_posts(['post_type' => 'tix_app_tip', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids'])), count(array_filter((array) get_option('_tix_app_notifications', []), function ($x) { return strpos((string) ($x['id'] ?? ''), 'b_demo_') === 0; }))]);
     t_eq('Reset idempotent: gleiche Zahl Events und Bestellungen', [$n_events, $n_orders], [count(get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids'])), intval($wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders"))]);
     t_eq('Reset löscht die vorigen Bestellungen', $n_orders, intval($r2['wiped']['orders'] ?? -1));
@@ -351,10 +350,10 @@ if ($phase === 'on') {
     t_eq('club: Vorverkauf + Gästeliste je Event, Gästeliste heute befüllt', [true, true], [!array_filter(get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']), function ($id) { return get_post_meta($id, '_tix_presale_active', true) !== '1' || get_post_meta($id, '_tix_guest_list_enabled', true) !== '1'; }), count((array) get_post_meta($live, '_tix_guest_list', true)) > 0]);
     t_eq('club: Musikwunsch an', true, class_exists('TIX_Music') ? TIX_Music::enabled() : true);
     t_eq('club: ~50 Bestellungen, Tickets teils eingecheckt, Gutscheine', [true, true, 3], [($rc['seeded']['orders'] ?? 0) >= 40, ($rc['seeded']['checked_in'] ?? 0) > 0, $rc['seeded']['giftcards'] ?? 0]);
-    // Club wie ein echter Club (1.38.846): eigener Flyer je Abend, 20+ Events, Ü16, freier Eintritt, zwei Gewinnspiele, Kacheln, Tipps, Mitteilungen
+    // Club wie ein echter Club (1.38.847): KI-Bild je Abend, 20+ Events, Ü16, freier Eintritt, zwei Gewinnspiele, Kacheln, Tipps, Mitteilungen
     $cids = get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids']);
     $thumbs = array_filter(array_map('get_post_thumbnail_id', $cids));
-    t_eq('club: mindestens 20 Events, jeder mit eigenem Bild', [true, true], [count($cids) >= 20, count(array_unique($thumbs)) === count($cids) || !function_exists('imagettftext')]);
+    t_eq('club: mindestens 20 Events, jedes mit KI-Bild, alle vier Motive genutzt', [true, true, 4], [count($cids) >= 20, count($thumbs) === count($cids) && !array_filter($thumbs, function ($a) { return !get_post_meta($a, '_tix_demo_ki', true); }), count(array_unique($thumbs))]);
     t_eq('club: Ü16-Party, Afterwork mit freiem Eintritt, zwei Gewinnspiele', [true, true, 2],
         [in_array('16', array_map(function ($id) { return (string) get_post_meta($id, '_tix_info_age_limit', true); }, $cids), true), (bool) array_filter($cids, function ($id) { return get_post_meta($id, '_tix_free_entry', true) === '1' && get_post_meta($id, '_tix_tickets_enabled', true) === '0'; }), $rc['seeded']['raffles'] ?? 0]);
     t_eq('club: Tipps 3, Mitteilungen 3, 10 Kacheln, Hashtag, Seiten faq/u16/musikwunsch/kontakt', [3, 3, 10, '#ostkainacht', ['faq', 'u16', 'musikwunsch', 'kontakt']],

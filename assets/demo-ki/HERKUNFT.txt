@@ -1,0 +1,9 @@
+KI-generierte Beispiel-Eventbilder (Google Gemini), früher als Bilder der Beispiel-Events auf evendis.de genutzt
+(Mediathek veranstalter.evendis.de, wp-content/uploads/2026/10, Anhänge 49/50/55-Reihe). Nur für die Demo-Seeds der
+Demo-Instanzen (TIX_Demo_Content::ki_image, User-Vorgabe 15.11.). Ausgewählt nur Bilder ohne echte Marken, Personen-
+namen, Web-Adressen oder echte Orte:
+  band.jpg      = Gemini_Generated_Image_4z4n4v4z4n4v4z4n (Event „Northern Lights – Indie Live Tour 2026“)
+  techno.jpg    = Gemini_Generated_Image_kqx2jhkqx2jhkqx2 (Event „Tiefton Warehouse – 10 Stunden Techno“)
+  hiphop.jpg    = Gemini_Generated_Image_xbovtdxbovtdxbov (Event „Old but Gold Ü30 Hip Hop Party“)
+  cocktail.jpg  = Gemini_Generated_Image_julyojulyojulyoj (Event „Cocktail-Workshop: Die großen Klassiker“)
+Die Adobe-Stock-Fotos in assets/demo sind hier bewusst NICHT verwendet (nur für die App lizenziert).

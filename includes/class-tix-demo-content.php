@@ -181,7 +181,7 @@ class TIX_Demo_Content {
 
     /**
      * Das eine Festival: Fr–So, drei Bühnen, 21 fiktive Acts mit Zeiten je Tag, drei Headliner (je Abend einer), Festival-Guide,
-     * Kategorien Wochenende / Tagestickets Fr–So / VIP / Camping / Parken (1.38.846: drei Bühnen statt zwei, mehr Inhalt nach dem
+     * Kategorien Wochenende / Tagestickets Fr–So / VIP / Camping / Parken (1.38.847: drei Bühnen statt zwei, mehr Inhalt nach dem
      * Vorbild gut gefüllter Festival-Seiten). Acts: [Tag 0–2, Bühne 0–2, Beginn, Ende, Act, Beschreibung, Headliner, Genre].
      */
     public static function openair_festival() {
@@ -308,141 +308,42 @@ class TIX_Demo_Content {
         ];
     }
 
-    // ═══════════════ Demo-Instanz: Flyer, Künstlerbilder, mehr Inhalt (1.38.846, User 15.11. „lebendiger, wie KitchenKlub/Mallorca“) ═══════════════
+    // ═══════════════ Demo-Instanz: KI-Beispielbilder und mehr Inhalt (1.38.847, User 15.11. „lebendiger, wie KitchenKlub/Mallorca“) ═══════════════
 
-    const OPT_FLYERS = 'tix_demo_flyers';
-    const FLYER_V = 2;
-
-    /**
-     * Flyer eines Beispiel-Events (GD + Manrope, nur aus den lizenzierten Demo-Fotos): Foto im Querformat 1600×900, eingefärbt,
-     * Verlauf für die Schrift, Augenbraue, Titel, Unterzeile, Fußzeile mit Ort und „Beispiel“. Einmal je Inhalt angelegt
-     * (Option tix_demo_flyers, Medien mit _tix_demo_image) – der nächtliche Reset legt nichts neu an. → Medien-ID, 0 ohne GD/FreeType.
-     */
-    public static function flyer($key, $title, $sub, $base, $hex, $eyebrow, $foot) {
-        $id = sanitize_title($key) . '-' . substr(md5(wp_json_encode([$title, $sub, $base, $hex, $eyebrow, $foot, self::FLYER_V])), 0, 8);
-        $map = get_option(self::OPT_FLYERS, []);
-        $map = is_array($map) ? $map : [];
-        if (!empty($map[$id]) && get_post_type(intval($map[$id])) === 'attachment') return intval($map[$id]);
-        $src = TIXOMAT_PATH . 'assets/demo/' . $base . '.jpg';
-        $font = TIXOMAT_PATH . 'assets/fonts/manrope/Manrope-800.ttf';
-        $font2 = TIXOMAT_PATH . 'assets/fonts/manrope/Manrope-600.ttf';
-        if (!in_array($base, self::IMAGES, true) || !file_exists($src) || !file_exists($font) || !function_exists('imagettftext') || !function_exists('imagecreatefromjpeg')) return 0;
-        $W = 1600; $H = 900;
-        $im = self::cover($src, $W, $H, 0.5, 0.5);
-        if (!$im) return 0;
-        list($r, $g, $b) = sscanf($hex, '#%02x%02x%02x');
-        // Foto einfärben: Graustufen, Kontrast, Farbe der Marke
-        imagefilter($im, IMG_FILTER_GRAYSCALE);
-        imagefilter($im, IMG_FILTER_CONTRAST, -12);
-        imagefilter($im, IMG_FILTER_COLORIZE, intval($r * 0.55), intval($g * 0.55), intval($b * 0.55));
-        imagealphablending($im, true);
-        // Verlauf links dunkel (Schrift), rechts frei; unten zusätzlich abgedunkelt
-        for ($x = 0; $x < $W; $x += 2) {
-            $t = min(1, $x / ($W * 0.78));
-            $a = intval(10 + 117 * $t * $t);
-            imagefilledrectangle($im, $x, 0, $x + 1, $H, imagecolorallocatealpha($im, 12, 12, 24, min(127, $a)));
-        }
-        for ($y = intval($H * 0.62); $y < $H; $y += 2) {
-            $t = ($y - $H * 0.62) / ($H * 0.38);
-            imagefilledrectangle($im, 0, $y, $W, $y + 1, imagecolorallocatealpha($im, 8, 8, 16, intval(127 - 70 * $t)));
-        }
-        $white = imagecolorallocate($im, 255, 255, 255);
-        $soft = imagecolorallocatealpha($im, 255, 255, 255, 40);
-        $accent = imagecolorallocate($im, min(255, $r + 40), min(255, $g + 40), min(255, $b + 40));
-        $L = 96;
-        // Ohne Titel: Bildmotiv ohne Schrift (Bühne der Vorlage Openair setzt ihre eigene Überschrift darüber), nur „Beispiel“
-        if ($title === '') goto tag;
-        // Augenbraue mit Balken
-        imagefilledrectangle($im, $L, 150, $L + 96, 158, $accent);
-        imagettftext($im, 26, 0, $L, 214, $accent, $font, mb_strtoupper($eyebrow, 'UTF-8'));
-        // Titel: größte Schrift, die in höchstens drei Zeilen à 1000 px passt
-        $lines = [];
-        for ($size = 104; $size >= 56; $size -= 6) {
-            $lines = self::wrap($title, $font, $size, 1000);
-            if (count($lines) <= 3) break;
-        }
-        $y = 214 + intval($size * 1.35);
-        foreach (array_slice($lines, 0, 3) as $ln) { imagettftext($im, $size, 0, $L - 4, $y, $white, $font, $ln); $y += intval($size * 1.12); }
-        if ($sub !== '') {
-            foreach (array_slice(self::wrap($sub, $font2, 34, 900), 0, 2) as $ln) { $y += 12; imagettftext($im, 34, 0, $L, $y + 22, $soft, $font2, $ln); $y += 44; }
-        }
-        // Fuß: Ort links, „Beispiel“-Etikett rechts
-        imagettftext($im, 24, 0, $L, $H - 70, $soft, $font2, mb_strtoupper($foot, 'UTF-8'));
-        tag:
-        $tag = 'BEISPIEL';
-        $bb = imagettfbbox(22, 0, $font, $tag);
-        $tw = abs($bb[2] - $bb[0]);
-        imagefilledrectangle($im, $W - $L - $tw - 36, $H - 108, $W - $L, $H - 58, imagecolorallocatealpha($im, 255, 255, 255, 18));
-        imagettftext($im, 22, 0, $W - $L - $tw - 18, $H - 72, imagecolorallocate($im, 20, 20, 32), $font, $tag);
-        return self::store($im, $id, 'demo-flyer-' . $id . '.jpg', 'Beispiel-Flyer ' . $title, self::OPT_FLYERS);
-    }
+    const OPT_KI = 'tix_demo_ki_images';
+    /** KI-generierte Beispiel-Eventbilder (assets/demo-ki, Herkunft in HERKUNFT.txt) – nur diese auf den Demo-Instanzen (User 15.11.) */
+    const KI_IMAGES = ['band', 'techno', 'hiphop', 'cocktail'];
 
     /**
-     * Bild eines fiktiven Acts: quadratischer Ausschnitt aus dem lizenzierten Bühnenfoto (Licht, keine erkennbare Person),
-     * zweifarbig in der Farbe des Acts. → Medien-ID, 0 ohne GD.
+     * Medien-ID eines KI-Beispielbilds (legt es beim ersten Mal an, Option tix_demo_ki_images, Medien mit _tix_demo_image und
+     * _tix_demo_ki). Die Adobe-Stock-Fotos aus assets/demo nutzt die Demo-Instanz nicht (nur für die App lizenziert). → 0 ohne Datei
      */
-    public static function act_image($name, $hex) {
-        $id = 'act-' . sanitize_title($name) . '-' . substr(md5($hex . '|' . self::FLYER_V), 0, 6);
-        $map = get_option(self::OPT_FLYERS, []);
+    public static function ki_image($name) {
+        $map = get_option(self::OPT_KI, []);
         $map = is_array($map) ? $map : [];
-        if (!empty($map[$id]) && get_post_type(intval($map[$id])) === 'attachment') return intval($map[$id]);
-        $src = TIXOMAT_PATH . 'assets/demo/konzert.jpg';
-        if (!file_exists($src) || !function_exists('imagecreatefromjpeg')) return 0;
-        $h = crc32($name);
-        // nur die obere Bildhälfte (Lichtkegel), Ausschnitt je Name verschieden
-        $im = self::cover($src, 800, 800, (($h % 100) / 100), 0.0, 0.62);
-        if (!$im) return 0;
-        list($r, $g, $b) = sscanf($hex, '#%02x%02x%02x');
-        imagefilter($im, IMG_FILTER_GRAYSCALE);
-        imagefilter($im, IMG_FILTER_BRIGHTNESS, -95);
-        imagefilter($im, IMG_FILTER_CONTRAST, -30);
-        imagefilter($im, IMG_FILTER_COLORIZE, intval($r * 0.85), intval($g * 0.85), intval($b * 0.85));
-        imagealphablending($im, true);
-        for ($y = 360; $y < 800; $y += 2) imagefilledrectangle($im, 0, $y, 800, $y + 1, imagecolorallocatealpha($im, 10, 10, 20, intval(127 - 95 * (($y - 360) / 440))));
-        return self::store($im, $id, 'demo-act-' . $id . '.jpg', 'Beispielbild ' . $name, self::OPT_FLYERS);
-    }
-
-    /** Foto als Ausschnitt $w×$h (cover); $fx/$fy = Lage des Ausschnitts 0–1; $zoom < 1 = nur ein Teil des Fotos */
-    private static function cover($src, $w, $h, $fx = 0.5, $fy = 0.5, $zoom = 1.0) {
-        $s = @imagecreatefromjpeg($src);
-        if (!$s) return null;
-        $sw = imagesx($s) * $zoom; $sh = imagesy($s) * $zoom;
-        $scale = max($w / $sw, $h / $sh);
-        $cw = $w / $scale; $ch = $h / $scale;
-        $sx = (imagesx($s) - $cw) * max(0, min(1, $fx)); $sy = (imagesy($s) * $zoom - $ch) * max(0, min(1, $fy));
-        $im = imagecreatetruecolor($w, $h);
-        imagecopyresampled($im, $s, 0, 0, intval($sx), intval($sy), $w, $h, intval($cw), intval($ch));
-        imagedestroy($s);
-        return $im;
-    }
-
-    private static function wrap($text, $font, $size, $max) {
-        $lines = []; $cur = '';
-        foreach (preg_split('/\s+/u', trim((string) $text)) as $w) {
-            $try = $cur === '' ? $w : $cur . ' ' . $w;
-            $bb = imagettfbbox($size, 0, $font, $try);
-            if ($cur !== '' && abs($bb[2] - $bb[0]) > $max) { $lines[] = $cur; $cur = $w; } else $cur = $try;
-        }
-        if ($cur !== '') $lines[] = $cur;
-        return $lines;
-    }
-
-    /** JPEG speichern, als Medium anlegen (_tix_demo_image), in der Option merken → Medien-ID */
-    private static function store($im, $id, $file, $title, $opt) {
-        ob_start(); imagejpeg($im, null, 84); $jpg = (string) ob_get_clean();
-        imagedestroy($im);
-        $up = wp_upload_bits($file, null, $jpg);
+        if (!empty($map[$name]) && get_post_type(intval($map[$name])) === 'attachment') return intval($map[$name]);
+        $src = TIXOMAT_PATH . 'assets/demo-ki/' . $name . '.jpg';
+        if (!in_array($name, self::KI_IMAGES, true) || !file_exists($src)) return 0;
+        $up = wp_upload_bits('evendis-beispiel-' . $name . '.jpg', null, (string) file_get_contents($src));
         if (!empty($up['error'])) return 0;
-        $aid = wp_insert_attachment(['post_mime_type' => 'image/jpeg', 'post_title' => $title, 'post_status' => 'inherit'], $up['file']);
+        $aid = wp_insert_attachment(['post_mime_type' => 'image/jpeg', 'post_title' => 'Beispielbild ' . $name . ' (KI-generiert)', 'post_status' => 'inherit'], $up['file']);
         if (!$aid || is_wp_error($aid)) return 0;
         if (!function_exists('wp_generate_attachment_metadata')) require_once ABSPATH . 'wp-admin/includes/image.php';
         wp_update_attachment_metadata($aid, wp_generate_attachment_metadata($aid, $up['file']));
         update_post_meta($aid, '_tix_demo_image', 1);
-        $map = get_option($opt, []);
-        $map = is_array($map) ? $map : [];
-        $map[$id] = intval($aid);
-        update_option($opt, $map, false);
+        update_post_meta($aid, '_tix_demo_ki', 1);
+        $map[$name] = intval($aid);
+        update_option(self::OPT_KI, $map, false);
         return intval($aid);
+    }
+
+    /** KI-Bild je Club-Abend: Live-Musik → band, Clubnächte/Techno → techno, Hip-Hop/Partyhits → hiphop, Bar/Wein/Brunch → cocktail */
+    public static function club_image($key) {
+        $m = ['live' => 'band', 'w2' => 'band', 'm1' => 'band', 'wk7' => 'band', 'karaoke' => 'band', 'comedy' => 'band',
+            'keller' => 'techno', 'w1' => 'techno', 'wk8' => 'techno', 'wk5' => 'techno', 'past' => 'techno',
+            'classix' => 'hiphop', 'u16' => 'hiphop', 'retro' => 'hiphop', 'wk6' => 'hiphop', 'badtaste' => 'hiphop', 'singles' => 'hiphop', 'wk9' => 'hiphop',
+            'vino' => 'cocktail', 'afterwork' => 'cocktail', 'brunch' => 'cocktail'];
+        return $m[$key] ?? 'hiphop';
     }
 
     /**
@@ -495,8 +396,8 @@ class TIX_Demo_Content {
     }
 
     /**
-     * Zusätze je Club-Abend (Schlüssel aus club_events/club_weekly/club_more) für die Demo-Instanz: Farbe und Unterzeile des Flyers,
-     * Ende, Specials, Dresscode. Unbekannte Schlüssel bekommen Vorgaben.
+     * Zusätze je Club-Abend (Schlüssel aus club_events/club_weekly/club_more) für die Demo-Instanz: [Farbe, Kurzzeile (beide nur
+     * Beschreibung, nicht angezeigt), Ende, Specials, Dresscode]. Unbekannte Schlüssel bekommen Vorgaben.
      */
     public static function club_extras() {
         return [
@@ -624,7 +525,7 @@ class TIX_Demo_Content {
     }
 
     /** Künstler-Einträge der fiktiven Acts (Art host für die Moderation), verwaltet vom Festival-Veranstalter; vorherige Demo-Acts weg */
-    public static function artists($event_id, $org_id, array $names, $heads = 2, array $meta = []) { // $heads: die ersten N sind Headliner (1.38.844); $meta: Name ⇒ {kind, genres, short_bio, image} (1.38.846)
+    public static function artists($event_id, $org_id, array $names, $heads = 2, array $meta = []) { // $heads: die ersten N sind Headliner (1.38.844); $meta: Name ⇒ {kind, genres, short_bio, image} (1.38.847)
         if (!class_exists('TIX_Artists')) return 0;
         foreach (get_posts(['post_type' => TIX_Artists::CPT, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'suppress_filters' => true, 'meta_key' => '_tix_demo_artist', 'meta_value' => '1']) as $old) wp_delete_post($old, true);
         $list = [];
