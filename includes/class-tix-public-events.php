@@ -541,7 +541,7 @@ class TIX_Public_Events {
                 if ($dist > $geo['radius']) continue;
             }
             // Demo Club / Vorschau nie in Listen (1.38.508), nur im Detail
-            if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($id)) continue;
+            if (class_exists('TIX_Sales') && !(class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) && TIX_Sales::is_sandbox_event($id)) continue;
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;
@@ -614,7 +614,7 @@ class TIX_Public_Events {
             if ($end && $end < $now) continue;
             $span = self::day_span($id);
             if (!$span || $span[0] > $to || $span[1] < $lo) continue;
-            if (class_exists('TIX_Sales') && TIX_Sales::is_sandbox_event($id)) continue;
+            if (class_exists('TIX_Sales') && !(class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) && TIX_Sales::is_sandbox_event($id)) continue;
             $p = self::payload($id, false);
             if (!$p) continue;
             if ($filtering && !TIX_Public_Platform::matches($p, $f)) continue;

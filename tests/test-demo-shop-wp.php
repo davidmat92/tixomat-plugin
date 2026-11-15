@@ -276,6 +276,10 @@ if ($phase === 'on') {
     t_eq('Vorlage bleibt openair', 'openair', $r2['vorlage'] ?? '');
     $r3 = TIX_Demo_Shop::run('seed');
     t_eq('seed bei vorhandenen Daten: übersprungen', [true, true], [!empty($r3['ok']), !empty($r3['skipped'])]);
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_pub%' OR option_name LIKE '\\_transient\\_timeout\\_%tix\\_pub%'");
+    wp_cache_flush();
+    $pl = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/events'))->get_data();
+    t_eq('Demo-Events erscheinen in der öffentlichen Liste (Homepage)', true, intval($pl['count'] ?? 0) > 0);
     t_eq('Zugänge bleiben', [true, true, true], [(bool) get_userdata($pa), (bool) get_userdata($pb), (bool) get_userdata($sales)]);
     $rc = TIX_Demo_Shop::run('reset', 'club');
     $titles = array_map('get_the_title', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids']));
