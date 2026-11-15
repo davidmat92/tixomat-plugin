@@ -1595,7 +1595,8 @@ class TIX_Platform_Offers {
         $cat = self::catalog();
         $have = array_filter(array_column((array) ($cat['references'] ?? []), 'customer_key'));
         $cand = [];
-        if (class_exists('TIX_Platform_Customers')) {
+        // Sicherheits-Hotfix (Audit 15.11., M10): Vorschläge aus der Kundenliste nur für Admins, nicht für den Vertrieb
+        if (self::is_admin_user() && class_exists('TIX_Platform_Customers')) {
             foreach (TIX_Platform_Customers::index()['customers'] as $c) {
                 if (!in_array($c['art'], ['hosted', 'license', 'bestand'], true)) continue;
                 $row = TIX_Platform_Customers::row($c);

@@ -1742,6 +1742,7 @@ class TIX_REST_API {
         $pw = self::verify_checkin_password($event_id, $req);
         if (is_wp_error($pw)) return $pw;
         if ($lock = TIX_Tickets::mirror_lock_message($tid)) return new WP_Error('tix_mirror_ticket', $lock, ['status' => 409]);
+        if ($inv = self::manual_checkin_blocked($tid)) return $inv;
         $was = TIX_Tickets::is_checked_in($tid);
         if ($was) {
             TIX_Tickets::reset_checkin($tid);
@@ -1754,6 +1755,17 @@ class TIX_REST_API {
         }
         return rest_ensure_response(['ok' => true, 'type' => 'ticket', 'id' => $tid, 'event_id' => $event_id, 'checked_in' => false, 'changed' => $was,
             'name' => (string) get_post_meta($tid, '_tix_ticket_owner_name', true), 'message' => $was ? 'Check-in zurückgesetzt.' : 'War nicht eingecheckt.']);
+    }
+
+    /**
+     * Sicherheits-Hotfix (Audit 15.11., M1): weiterverkaufte bzw. stornierte Tickets dürfen weder von Hand eingecheckt
+     * noch zurückgesetzt werden (sonst wäre das alte Ticket wieder gültig). → WP_Error oder null.
+     */
+    public static function manual_checkin_blocked($ticket_id) {
+        $st = (string) (get_post_meta(intval($ticket_id), '_tix_ticket_status', true) ?: 'valid');
+        if ($st === 'resold') return new WP_Error('tix_ticket_resold', 'Dieses Ticket wurde weiterverkauft und ist ungültig.', ['status' => 409, 'ticket_status' => $st]);
+        if ($st === 'cancelled') return new WP_Error('tix_ticket_cancelled', 'Dieses Ticket ist storniert und ungültig.', ['status' => 409, 'ticket_status' => $st]);
+        return null;
     }
 
     public static function checkin_toggle_ticket(WP_REST_Request $req) {
@@ -1779,6 +1791,7 @@ class TIX_REST_API {
         if ($lock = TIX_Tickets::mirror_lock_message($ticket_id)) {
             return new WP_Error('tix_mirror_ticket', $lock, ['status' => 409]);
         }
+        if ($inv = self::manual_checkin_blocked($ticket_id)) return $inv;
 
         $checked_in = TIX_Tickets::is_checked_in($ticket_id);
         $by         = wp_get_current_user()->user_login;

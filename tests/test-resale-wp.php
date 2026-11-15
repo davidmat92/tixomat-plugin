@@ -282,6 +282,35 @@ $late = get_posts(['post_type' => 'tix_ticket', 'post_status' => 'any', 'fields'
 rs_eq('Späte Zahlung: Angebot bleibt beim ersten Bezahlten, späte Bestellung erstattet + Ticket storniert',
     [$bo6, 'refunded', 'cancelled'], [intval(TIX_Resale::get($oid4)['buyer_order_id'] ?? 0), (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $bo5)), (string) get_post_meta($late[0] ?? 0, '_tix_ticket_status', true)]);
 
+// ═══ Sicherheits-Hotfix H1 (Audit 15.11.): gleichzeitiger Abschluss derselben Bestellung (Webhook + Rückkehr) ═══
+list($so8, $st8) = $mkorder($seller, $ev, 0, 1, 20.0);
+wp_set_current_user($seller);
+[$s, $d] = rs_rest('POST', "/customer/tickets/{$st8[0]}/resale", ['price' => 14, 'accept_terms' => true]);
+$oid9 = intval($d['offer']['id'] ?? 0);
+[$s, $d] = $order($buyer, null, ['items' => [['resale_offer' => $oid9, 'qty' => 1]]]);
+$bo9 = intval($d['order']['id'] ?? 0); $orders[] = $bo9;
+$GLOBALS['rs_race'] = $bo9; $GLOBALS['rs_refunds'] = []; $rs_conf = 0;
+add_action('tix_resale_conflict', $rs_cc = function ($oid) use (&$rs_conf, $bo9) { if (intval($oid) === $bo9) $rs_conf++; });
+// Vor dem bedingten UPDATE des ersten Abschlusses läuft ein zweiter Abschluss derselben Bestellung durch
+add_filter('query', $rs_qf = function ($q) {
+    if (!empty($GLOBALS['rs_race']) && strpos($q, "SET status = 'sold'") !== false && strpos($q, TIX_Resale::table()) !== false) { $b = $GLOBALS['rs_race']; $GLOBALS['rs_race'] = 0; TIX_Resale::finalize($b); }
+    return $q;
+});
+TIX_Native_Checkout::update_order_status($bo9, 'completed', 'mollie');
+remove_filter('query', $rs_qf); remove_action('tix_resale_conflict', $rs_cc);
+$o9 = TIX_Resale::get($oid9);
+rs_eq('H1: gleichzeitiger Abschluss → Angebot beim Käufer, keine Erstattung, kein Konflikt',
+    ['sold', $bo9, 'completed', 0], [$o9['status'] ?? '', intval($o9['buyer_order_id'] ?? 0), (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $bo9)), $rs_conf]);
+rs_eq('H1: Verkäufer genau einmal ausgezahlt', [1, 'paid'], [count(array_filter($GLOBALS['rs_refunds'], function ($r) use ($so8) { return $r[0] === 'tr_seller' . $so8; })), $o9['payout_status'] ?? '']);
+$wpdb->update(TIX_Resale::table(), ['payout_status' => 'processing'], ['id' => $oid9]);
+$GLOBALS['rs_refunds'] = []; TIX_Resale::payout($oid9);
+rs_eq('H1: Auszahlung läuft schon (processing) → kein zweiter Versuch', [[], 'processing'], [$GLOBALS['rs_refunds'], TIX_Resale::get($oid9)['payout_status'] ?? '']);
+$wpdb->update(TIX_Resale::table(), ['payout_status' => 'paid'], ['id' => $oid9]);
+// M1: weiterverkauftes Alt-Ticket nicht von Hand einchecken/zurücksetzen
+wp_set_current_user($owner);
+[$s, $d, $c] = rs_rest('POST', "/checkin/ticket/{$st8[0]}/toggle");
+rs_eq('M1: Hand-Check-in weiterverkauftes Ticket → 409 tix_ticket_resold, bleibt ungültig', [409, 'tix_ticket_resold', 'resold', ''], [$s, $c, (string) get_post_meta($st8[0], '_tix_ticket_status', true), (string) get_post_meta($st8[0], '_tix_ticket_checked_in', true) === '1' ? '1' : '']);
+
 // ═══ Gescanntes Ticket, Einlass während Angebot, personalisiert, Frist, nur ausverkauft ═══
 list($so4, $st4) = $mkorder($seller, $ev, 0, 3, 20.0);
 TIX_Tickets::checkin_ticket($st4[0], 'test');

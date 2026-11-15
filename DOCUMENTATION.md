@@ -6830,3 +6830,15 @@ Vertrag (endgültig, mit „Umzug nach evendis-api“): `uebergaben/vertrag-zwei
 - **Löschfrist** (Befund Rechtstexte): `TIX_Resale::purge_old()` im Cron löscht Angebote ohne Verkauf 30 Tage nach Veranstaltungsende (`end_ts`, gelöschte Events sofort), Spiegel löscht mit; verkaufte bleiben nach den Aufbewahrungsregeln der Bestellungen. Reine Regel `purge_due`.
 - Datenspiegel-Abgleich für `resale_offers` aus `dev/datenspiegel-resale` (1.38.836) eingemergt.
 - **Test:** `test-resale` 100/100 (Einzel-Seite), 103/103 (Plattform).
+
+## 224. Sicherheits-Hotfix aus dem Audit vom 15.11. (ab 1.38.838)
+Bericht: `uebergaben/audit-2026-11-15.md`. Nur Absicherungen, rückwärtskompatibel, keine neuen Routen.
+- **K1 Kalender-Abo** (`class-tix-calendar-feed.php`): `?artist=` nur für veröffentlichte, öffentliche Künstler (`tix_artist`, `publish`, `TIX_Artists::is_public`), sonst leerer Kalender mit Seitennamen; `?organizer=` nur veröffentlichte `tix_organizer`. Vorher lieferte `?artist=<beliebige Post-ID>` den Titel jedes Posts (z. B. Ticket-Codes).
+- **H1 Zweitmarkt** (`class-tix-resale.php`): `finalize` liest nach 0 betroffenen Zeilen neu – gehört das Angebot schon dieser Bestellung, keine Erstattung. `payout` beansprucht die Auszahlung per bedingtem UPDATE (`payout_status = processing`); Abbruch → `failed` (von Hand prüfen).
+- **H2 Einlassbereiche** (`class-tix-checkin-areas.php`): Anlegen/Ändern/Sortieren/Löschen nur Admin oder Hauptveranstalter; Co-Veranstalter lesen, 403 beim Schreiben.
+- **H3 Social-Planer** (`class-tix-social-planner.php`): Cron erinnert erst fällige Posts, dann Abgleich; Abgleich löscht nur künftige Regel-Posts.
+- **M1 Hand-Check-in** (`class-tix-rest-api.php`, `class-tix-checkin.php`): Toggle/Zurücksetzen/Admin-AJAX lehnen `resold` (409 `tix_ticket_resold`) und `cancelled` (409 `tix_ticket_cancelled`) ab (`TIX_REST_API::manual_checkin_blocked`).
+- **M3** `/pos/config` mit `check_pos`, `/checkin/config` mit `check_entrance` (Kasse & Bar bzw. Eingang lesen ihre Einstellungen).
+- **M6 Rechnungs-Storno** (`class-tix-invoices.php`): unter der Bestell-Sperre, Rest neu geprüft; belegt → 409 `tix_busy`, schon storniert → 409.
+- **M10 Angebote** (`class-tix-platform-offers.php`): `candidates` in `/platform/offer-references` nur für Admins, Vertrieb bekommt `[]`.
+- **Tests:** neue Blöcke in `test-calendar-feed` (K1), `test-resale` (H1, M1; Einzel-Seite 104/104, Plattform 107/107), `test-checkin-areas` (H2), `test-social-planner` (H3), `test-sale-settings` (M3), `test-invoice-cancel` (M6), `test-offer-options` (M10). Verträge: „Umzug nach evendis-api“ in `vertrag-zweitmarkt`, `vertrag-angebote-planrechnung`, `vertrag-einlassbereiche`, `vertrag-kasse-einlass-einstellungen`, `vertrag-marketing-welle1`, `vertrag-rechnungen-studio` ergänzt.

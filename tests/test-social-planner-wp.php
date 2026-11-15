@@ -50,6 +50,14 @@ try {
     $eq('Fällig: Erinnerung per Mail mit Text, Status reminded', ['reminded', true, true], [$row->status ?? '', strpos($subj, 'Social-Planer: Ankündigung') === 0, $mails && strpos((string) $mails[0]['message'], 'Planer-Event') !== false]);
     $c = count($mails); TIX_Social_Planner::cron();
     $eq('Keine doppelte Erinnerung', $c, count($mails));
+    // Sicherheits-Hotfix H3 (Audit 15.11.): fälliger Regel-Post (Termin vorbei, Regel nicht mehr in der Soll-Liste) wird erst erinnert, nicht gelöscht
+    $past = time() - 2 * HOUR_IN_SECONDS;
+    update_post_meta($ev, '_tix_presale_start', wp_date('Y-m-d H:i', $past));
+    $wpdb->update(TIX_Social_Planner::t(), ['due_at' => gmdate('Y-m-d H:i:s', $past)], ['id' => $by2['presale_start']['id']]);
+    $mails = [];
+    TIX_Social_Planner::cron();
+    $row = $wpdb->get_row($wpdb->prepare("SELECT status FROM " . TIX_Social_Planner::t() . " WHERE id = %d", $by2['presale_start']['id']));
+    $eq('H3: fälliger VVK-Start-Post wird erinnert statt gelöscht', ['reminded', 1], [$row->status ?? 'gelöscht', count(array_filter($mails, function ($m) { return strpos((string) $m['subject'], 'Social-Planer') === 0; }))]);
     // eigener Post, Regel-Post löschen → übersprungen
     [$st, $d] = $rest('POST', "/events/$ev/social-plan/posts", ['text' => 'Gewinnspiel!', 'due_at' => gmdate('c', time() + 3 * DAY_IN_SECONDS), 'format' => 'story']);
     $cid = intval($d['post']['id'] ?? 0);

@@ -47,6 +47,18 @@ try {
     $eq('Zweiter Storno → 409', [409, 'tix_invoice_already_cancelled'], [$st, $c]);
     [$st, , $c] = $rest('POST', '/invoices/' . intval($d['correction']['id'] ?? 0) . '/cancel', ['reason' => 'Korrektur weg']);
     $eq('Korrektur stornieren → 409', [409, 'tix_invoice_is_correction'], [$st, $c]);
+    // Sicherheits-Hotfix M6 (Audit 15.11.): Storno läuft unter der Bestell-Sperre (zweite Verbindung hält sie → 409 tix_busy)
+    $inv2 = intval($wpdb->get_var($wpdb->prepare("SELECT id FROM " . TIX_Invoices::table() . " WHERE order_id = %d AND kind = 'invoice' ORDER BY id ASC LIMIT 1", $o2)));
+    $hp = explode(':', DB_HOST); $db2 = @new mysqli($hp[0], DB_USER, DB_PASSWORD, DB_NAME, isset($hp[1]) && ctype_digit($hp[1]) ? intval($hp[1]) : 3306);
+    if ($db2 && !$db2->connect_errno && $inv2) {
+        $db2->query("SELECT GET_LOCK('tix_inv_" . intval($o2) . "', 0)");
+        [$st, , $c] = $rest('POST', "/invoices/$inv2/cancel", ['reason' => 'Gleichzeitig']);
+        $eq('M6: Storno während die Bestellung gesperrt ist → 409 tix_busy, nichts storniert', [409, 'tix_busy', 0], [$st, $c, intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Invoices::table() . " WHERE ref_invoice_id = %d", $inv2)))]);
+        $db2->query("SELECT RELEASE_LOCK('tix_inv_" . intval($o2) . "')"); $db2->close();
+        [$st, $d2] = $rest('POST', "/invoices/$inv2/cancel", ['reason' => 'Danach']);
+        if (!empty($d2['correction']['id'])) $invs[] = intval($d2['correction']['id']);
+        $eq('M6: nach Freigabe genau ein Storno', [200, 1], [$st, intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Invoices::table() . " WHERE ref_invoice_id = %d", $inv2)))]);
+    }
     [$st, $d] = $rest('GET', '/organizer/invoices', null, ['event_id' => $ev, 'format' => 'csv']);
     $eq('Export je Event (CSV): Rechnung + Korrektur', [200, 2], [$st, intval($d['rows'] ?? 0)]);
 } catch (Throwable $e) {

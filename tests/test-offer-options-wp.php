@@ -455,6 +455,15 @@ if (TIX_Platform_Offers::multi()) {
         $eq('Fehlender Preis als items.<i>.price mit item_id', ['price', 'items.0.price'], (function () use ($O, $it) { $m = $O::missing($O::clean_data(['customer' => ['company' => 'X', 'email' => 'x@example.org'], 'mode' => 'platform', 'items' => [$it('datenumzug')]])); return [$m[0]['code'] ?? '', $m[0]['field'] ?? '']; })());
         [$st, $r] = $rest('GET', '/platform/offer-references');
         $eq('GET /platform/offer-references: Katalog-Referenzen und Vorschläge mit Betriebsart', [200, true, true], [$st, is_array($r['references'] ?? null), is_array($r['candidates'] ?? null) && (!$r['candidates'] || isset($r['candidates'][0]['mode'], $r['candidates'][0]['live']))]);
+        // Sicherheits-Hotfix M10 (Audit 15.11.): Vertrieb bekommt keine Vorschläge aus der Kundenliste
+        $adm_cand = count((array) ($r['candidates'] ?? []));
+        $m10 = wp_insert_user(['user_login' => 'm10sales' . wp_rand(1000, 9999), 'user_pass' => wp_generate_password(), 'user_email' => 'm10sales' . wp_rand(1000, 9999) . '@example.test', 'role' => 'tix_sales']);
+        wp_set_current_user($m10);
+        [$st, $r] = $rest('GET', '/platform/offer-references');
+        $eq("M10: Vertrieb → Referenzen ja, Vorschläge leer (Admin sieht $adm_cand)", [200, true, []], [$st, is_array($r['references'] ?? null), $r['candidates'] ?? null]);
+        wp_set_current_user($adm);
+        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
+        wp_delete_user($m10);
         [$st, $r] = $rest('POST', '/platform/offers/calc', ['items' => [['catalog_key' => 'lizenz'], ['catalog_key' => 'hosting']]]);
         $eq('calc: Hosting bei selbstgehostet → 400 tix_offer_item_mode', [400, 'tix_offer_item_mode'], [$st, $r['code'] ?? '']);
         [$st, $r] = $rest('POST', '/platform/offers', ['customer' => ['company' => 'App-Plattform'], 'items' => [['catalog_key' => 'tickets'], ['catalog_key' => 'app']]]);

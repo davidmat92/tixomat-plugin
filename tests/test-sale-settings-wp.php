@@ -99,6 +99,17 @@ try {
     wp_set_current_user($staff);
     $eq('Mitarbeiter: ändern verboten', true, in_array($rest('POST', '/studio/checkout-settings', ['checkin' => ['sound' => false]], $q)[0], [401, 403], true));
     require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($staff);
+    // Sicherheits-Hotfix M3 (Audit 15.11.): Kasse & Bar liest /pos/config, Eingang liest /checkin/config
+    $mkrole = function ($cap) use ($multi, $org) { $sx = wp_rand(10000, 99999); $u = wp_insert_user(['user_login' => "m3$cap$sx", 'user_pass' => wp_generate_password(), 'user_email' => "m3$cap$sx@example.test", 'role' => 'subscriber']);
+        (new WP_User($u))->add_cap($cap); if ($multi) update_user_meta($u, '_tix_team_organizer_id', $org); return $u; };
+    $cash = $mkrole('tix_app_pos'); $door = $mkrole('tix_app_entrance');
+    wp_set_current_user($cash);
+    $eq('M3: Kasse & Bar → /pos/config 200, /checkin/config verboten', [200, true], [$rest('GET', '/pos/config')[0], in_array($rest('GET', '/checkin/config')[0], [401, 403], true)]);
+    wp_set_current_user($door);
+    $eq('M3: Eingang → /checkin/config 200, /pos/config verboten', [200, true], [$rest('GET', '/checkin/config')[0], in_array($rest('GET', '/pos/config')[0], [401, 403], true)]);
+    wp_set_current_user(0);
+    $eq('M3: ohne Anmeldung → 401', [401, 401], [$rest('GET', '/pos/config')[0], $rest('GET', '/checkin/config')[0]]);
+    wp_delete_user($cash); wp_delete_user($door);
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

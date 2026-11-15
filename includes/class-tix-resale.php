@@ -680,7 +680,13 @@ class TIX_Resale {
             $n = intval($wpdb->query($wpdb->prepare("UPDATE " . self::table() . " SET status = 'sold', buyer_order_id = %d, sold_at = %s, updated_at = %s, active_ticket = NULL, lock_token = ''
                 WHERE id = %d AND ((status = 'locked' AND lock_order_id = %d) OR status = 'open')", $order_id, self::utc(), self::utc(), $offer_id, $order_id)));
         }
-        if (!$n) return self::conflict($order_id, $o, $old_valid ? 'taken' : 'invalid');
+        if (!$n) {
+            // Sicherheits-Hotfix (Audit 15.11., H1): gleichzeitiger Abschluss derselben Bestellung (Webhook + Rückkehr) –
+            // neu lesen; gehört das Angebot schon dieser Bestellung, nichts erstatten.
+            $fresh = self::get($offer_id);
+            if ($fresh && $fresh['status'] === 'sold' && intval($fresh['buyer_order_id']) === $order_id) return $fresh;
+            return self::conflict($order_id, $fresh ?: $o, ($fresh && $fresh['status'] === 'sold') || $old_valid ? 'taken' : 'invalid');
+        }
 
         // Altes Ticket ungültig, neues Ticket des Käufers verknüpfen
         $new_ids = self::order_ticket_ids($order_id);
@@ -756,7 +762,20 @@ class TIX_Resale {
      */
     public static function payout($offer_id, $force_fallback = false) {
         $o = self::get($offer_id);
-        if (!$o || $o['status'] !== 'sold' || $o['payout_status'] === 'paid') return $o;
+        if (!$o || $o['status'] !== 'sold' || in_array($o['payout_status'], ['paid', 'processing'], true)) return $o;
+        // Sicherheits-Hotfix (Audit 15.11., H1): Auszahlung per bedingtem UPDATE beanspruchen (Zwischenstatus processing),
+        // damit sich Abschluss und Cron nicht überlappen und doppelt auszahlen.
+        if (!self::update($o['id'], ['payout_status' => 'processing'], $GLOBALS['wpdb']->prepare(" AND status = 'sold' AND payout_status = %s", (string) $o['payout_status']))) return self::get($o['id']);
+        try {
+            return self::payout_run($o, $force_fallback);
+        } catch (\Throwable $e) {
+            // Ausgang unklar (evtl. schon erstattet) → nicht automatisch wiederholen, von Hand prüfen
+            self::update($o['id'], ['payout_status' => 'failed', 'payout_error' => mb_substr('Auszahlung abgebrochen – bitte prüfen: ' . $e->getMessage(), 0, 250)]);
+            return self::get($o['id']);
+        }
+    }
+
+    private static function payout_run(array $o, $force_fallback) {
         $amount = round(floatval($o['price']), 2);
         $order = self::order_row(intval($o['seller_order_id']));
         $refundable = 0.0;

@@ -26,15 +26,38 @@ class TIX_Calendar_Feed {
         add_filter('rest_pre_serve_request', [__CLASS__, 'serve_raw'], 10, 4);
     }
 
+    /**
+     * Sicherheits-Hotfix (Audit 15.11., K1): Künstler-ID nur, wenn der Post wirklich ein veröffentlichter, öffentlicher
+     * Künstler ist – sonst 0 (vorher lieferte ?artist=<beliebige ID> den Titel jedes Posts, z. B. Ticket-Codes).
+     */
+    public static function public_artist_id($raw) {
+        $aid = absint($raw);
+        if (!$aid || !class_exists('TIX_Artists')) return 0;
+        $cpt = defined('TIX_Artists::CPT') ? TIX_Artists::CPT : 'tix_artist';
+        if (get_post_type($aid) !== $cpt || get_post_status($aid) !== 'publish') return 0;
+        if (method_exists('TIX_Artists', 'is_public') && !TIX_Artists::is_public($aid)) return 0;
+        return $aid;
+    }
+
+    /** Veranstalter-ID nur für veröffentlichte tix_organizer-Posts, sonst 0 */
+    public static function public_organizer_id($raw) {
+        $org = (string) $raw;
+        if ($org === '') return 0;
+        $oid = ctype_digit($org) ? intval($org) : intval((get_page_by_path(sanitize_title($org), OBJECT, 'tix_organizer') ?: (object) ['ID' => 0])->ID);
+        return ($oid && get_post_type($oid) === 'tix_organizer' && get_post_status($oid) === 'publish') ? $oid : 0;
+    }
+
     /** Event-IDs für den Feed (kommende, öffentlich sichtbare) */
     public static function event_ids(WP_REST_Request $req) {
-        $aid = absint($req->get_param('artist'));
-        if ($aid && class_exists('TIX_Artists') && method_exists('TIX_Artists', 'event_ids')) {
+        if (absint($req->get_param('artist'))) {
+            $aid = self::public_artist_id($req->get_param('artist'));
+            if (!$aid || !method_exists('TIX_Artists', 'event_ids')) return [];
             $today = current_time('Y-m-d');
             $ids = array_values(array_filter(TIX_Artists::event_ids($aid), function ($e) use ($today) { return (string) get_post_meta($e, '_tix_date_start', true) >= $today; }));
             usort($ids, function ($a, $b) { return strcmp((string) get_post_meta($a, '_tix_date_start', true), (string) get_post_meta($b, '_tix_date_start', true)); });
             return array_slice($ids, 0, 200);
         }
+        if ((string) $req->get_param('organizer') !== '' && !self::public_organizer_id($req->get_param('organizer'))) return [];
         $q = new WP_REST_Request('GET', '/' . self::NS . '/public/events');
         $params = ['per_page' => 200, 'filter' => 'upcoming'];
         foreach (['organizer', 'venue', 'city', 'category'] as $k) if ($req->get_param($k) !== null && $req->get_param($k) !== '') $params[$k] = $req->get_param($k);
@@ -79,12 +102,10 @@ class TIX_Calendar_Feed {
 
     public static function rest(WP_REST_Request $req) {
         $name = html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8');
-        $org = (string) $req->get_param('organizer');
-        if ($org !== '') {
-            $oid = ctype_digit($org) ? intval($org) : intval((get_page_by_path(sanitize_title($org), OBJECT, 'tix_organizer') ?: (object) ['ID' => 0])->ID);
-            if ($oid && get_post_type($oid) === 'tix_organizer') $name = html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8');
-        }
-        if (absint($req->get_param('artist'))) $name = html_entity_decode(get_the_title(absint($req->get_param('artist'))), ENT_QUOTES, 'UTF-8') ?: $name;
+        $oid = self::public_organizer_id($req->get_param('organizer'));
+        if ($oid) $name = html_entity_decode(get_the_title($oid), ENT_QUOTES, 'UTF-8');
+        $aid = self::public_artist_id($req->get_param('artist'));
+        if ($aid) $name = html_entity_decode(get_the_title($aid), ENT_QUOTES, 'UTF-8') ?: $name;
         $r = new WP_REST_Response(self::build(self::event_ids($req), $name . ' – Events'), 200);
         $r->header('Content-Type', 'text/calendar; charset=utf-8');
         $r->header('Cache-Control', 'public, max-age=1800');

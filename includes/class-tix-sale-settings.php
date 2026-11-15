@@ -153,8 +153,9 @@ class TIX_Sale_Settings {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => [__CLASS__, 'perm_write']],
         ]);
-        register_rest_route(self::NS, '/pos/config', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_pos'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
-        register_rest_route(self::NS, '/checkin/config', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_checkin'], 'permission_callback' => ['TIX_REST_API', 'check_organizer']]);
+        // Audit 15.11. (M3): Kasse & Bar bzw. Eingang (App) lesen ihre Einstellungen mit
+        register_rest_route(self::NS, '/pos/config', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_pos'], 'permission_callback' => ['TIX_REST_API', 'check_pos']]);
+        register_rest_route(self::NS, '/checkin/config', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_checkin'], 'permission_callback' => ['TIX_REST_API', 'check_entrance']]);
     }
 
     public static function perm_write(WP_REST_Request $req) {

@@ -100,6 +100,30 @@ try {
     $eq('Offline: anderes Gerät im selben Bereich (warn) → conflict', 'conflict', $bt['results'][0]['status'] ?? '');
     $staff = intval(get_users(['role' => 'tix_staff', 'number' => 1, 'fields' => 'ID'])[0] ?? 0);
     if ($staff && !$multi) { wp_set_current_user($staff); $eq('Mitarbeiter: Bereiche lesen ja, anlegen nein', [200, true], [$rest('GET', '/checkin/areas')[0], in_array($rest('POST', '/checkin/areas', ['name' => 'X'])[0], [401, 403], true)]); wp_set_current_user($adm); }
+    // Sicherheits-Hotfix H2 (Audit 15.11.): Co-Veranstalter liest, schreibt aber nicht die Bereiche des Hauptveranstalters
+    if ($multi) {
+        $sx = wp_rand(1000, 9999);
+        $u_main = wp_insert_user(['user_login' => "h2_main_$sx", 'user_pass' => wp_generate_password(), 'user_email' => "h2_main_$sx@example.test", 'role' => 'tix_organizer']);
+        $u_co = wp_insert_user(['user_login' => "h2_co_$sx", 'user_pass' => wp_generate_password(), 'user_email' => "h2_co_$sx@example.test", 'role' => 'tix_organizer']);
+        $h2_users = [$u_main, $u_co];
+        update_post_meta($org, '_tix_org_user_id', $u_main);
+        $co = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'Area-Co', 'meta_input' => ['_tix_org_user_id' => $u_co, '_tix_org_approval' => 'approved']]); $posts[] = $co;
+        update_post_meta($ev, '_tix_co_organizer_id', $co);
+        $aid = intval($rest('POST', '/checkin/areas', ['name' => 'H2-Bereich'], $q)[1]['area']['id'] ?? 0);
+        wp_set_current_user($u_co);
+        $eq('H2: Co-Veranstalter liest Bereiche des Events', 200, $rest('GET', '/checkin/areas', null, ['event_id' => $ev])[0]);
+        $eq('H2: Co-Veranstalter anlegen/ändern/sortieren/löschen → 403',
+            [403, 403, 403, 403], [$rest('POST', '/checkin/areas', ['name' => 'Fremd'], ['event_id' => $ev])[0], $rest('POST', "/checkin/areas/$aid", ['name' => 'Fremd'], ['event_id' => $ev])[0],
+                $rest('POST', '/checkin/areas/order', ['ids' => [$aid]], ['event_id' => $ev])[0], $rest('DELETE', "/checkin/areas/$aid", null, ['event_id' => $ev])[0]]);
+        $eq('H2: Bereich unverändert', 'H2-Bereich', (string) (TIX_Checkin_Areas::areas($org)[$aid]['name'] ?? ''));
+        wp_set_current_user($u_main);
+        $eq('H2: Hauptveranstalter ändert über event_id', 200, $rest('POST', "/checkin/areas/$aid", ['name' => 'H2-Neu'], ['event_id' => $ev])[0]);
+        $eq('H2: Hauptveranstalter löscht', 200, $rest('DELETE', "/checkin/areas/$aid", null, ['event_id' => $ev])[0]);
+        wp_set_current_user($adm);
+        delete_post_meta($ev, '_tix_co_organizer_id');
+        if (!function_exists('wp_delete_user')) require_once ABSPATH . 'wp-admin/includes/user.php';
+        foreach ($h2_users as $u) wp_delete_user($u);
+    }
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

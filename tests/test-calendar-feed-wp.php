@@ -26,6 +26,19 @@ try {
         $r = new WP_REST_Request('GET', '/tixomat/v1/public/calendar.ics'); $r->set_query_params(['artist' => 99999999]);
         $eq('Unbekannter Künstler → leerer Kalender', false, strpos((string) rest_do_request($r)->get_data(), 'BEGIN:VEVENT') !== false);
     }
+    // Sicherheits-Hotfix K1 (Audit 15.11.): ?artist=<fremde Post-ID> verrät keinen Titel mehr, echter Künstler klappt weiter
+    $feed = function ($q) { $r = new WP_REST_Request('GET', '/tixomat/v1/public/calendar.ics'); $r->set_query_params($q); return (string) rest_do_request($r)->get_data(); };
+    $tk = wp_insert_post(['post_type' => 'tix_ticket', 'post_status' => 'publish', 'post_title' => 'GEHEIMCODE-K1-4711']); $posts[] = $tk;
+    $eq('K1: ?artist=<Ticket-ID> → kein Titel, Seitenname', [false, true], [strpos($feed(['artist' => $tk]), 'GEHEIMCODE-K1-4711') !== false, strpos($feed(['artist' => $tk]), 'X-WR-CALNAME:' . TIX_Calendar::ics_escape(html_entity_decode(get_bloginfo('name'), ENT_QUOTES, 'UTF-8'))) !== false]);
+    $eq('K1: ?organizer=<Ticket-ID> → kein Titel', false, strpos($feed(['organizer' => $tk]), 'GEHEIMCODE-K1-4711') !== false);
+    if (class_exists('TIX_Artists')) {
+        $ar = wp_insert_post(['post_type' => TIX_Artists::CPT, 'post_status' => 'publish', 'post_title' => 'K1 Kuenstlerin']); $posts[] = $ar;
+        $ev2 = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'K1 Konzert', 'meta_input' => ['_tix_date_start' => $date, '_tix_time_start' => '20:00', TIX_Artists::EV_REF => (string) $ar]]); $posts[] = $ev2;
+        $ics3 = $feed(['artist' => $ar]);
+        $eq('K1: echter Künstler → Name im Kalender + sein Event', [true, true], [strpos($ics3, 'X-WR-CALNAME:K1 Kuenstlerin') !== false, strpos($ics3, "UID:event-$ev2@") !== false]);
+        wp_update_post(['ID' => $ar, 'post_status' => 'draft']);
+        $eq('K1: Künstler-Entwurf → kein Name, keine Events', [false, false], [strpos($feed(['artist' => $ar]), 'K1 Kuenstlerin') !== false, strpos($feed(['artist' => $ar]), 'BEGIN:VEVENT') !== false]);
+    }
 } catch (Throwable $e) {
     $f++; echo 'FEHLER ' . $e->getMessage() . ' @' . $e->getLine() . "\n";
 } finally {

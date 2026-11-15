@@ -907,6 +907,11 @@ class TIX_Checkin {
         if ($lock = TIX_Tickets::mirror_lock_message($ticket_id)) {
             wp_send_json_error(['message' => $lock, 'status' => 'invalid']);
         }
+        // Sicherheits-Hotfix (Audit 15.11., M1): weiterverkaufte/stornierte Tickets nicht von Hand ein- oder auschecken
+        $tst = (string) (get_post_meta($ticket_id, '_tix_ticket_status', true) ?: 'valid');
+        if (in_array($tst, ['resold', 'cancelled'], true)) {
+            wp_send_json_error(['message' => $tst === 'resold' ? 'Dieses Ticket wurde weiterverkauft und ist ungültig.' : 'Dieses Ticket ist storniert und ungültig.', 'status' => 'invalid']);
+        }
 
         $checked_in = TIX_Tickets::is_checked_in($ticket_id);
         $by = is_user_logged_in() ? wp_get_current_user()->user_login : 'door';

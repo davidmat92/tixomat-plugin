@@ -1290,7 +1290,14 @@ class TIX_Invoices {
         $reason = trim(sanitize_text_field((string) $req->get_param('reason')));
         if (mb_strlen($reason) < 3 || mb_strlen($reason) > 200) return self::err('tix_invalid', 'Bitte einen Grund angeben (3–200 Zeichen).', 400, 'reason');
         if (self::remaining($inv)['total'] <= self::EPS) return self::err('tix_invoice_already_cancelled', 'Dieser Beleg ist schon vollständig storniert bzw. korrigiert.', 409);
-        $id = self::correct($inv, 0, true, 'manual', null, $reason);
+        // Sicherheits-Hotfix (Audit 15.11., M6): Sperre je Bestellung gegen Doppelstorno, Rest unter der Sperre neu prüfen
+        if (!self::lock($inv->order_id)) return self::err('tix_busy', 'Die Bestellung wird gerade bearbeitet. Bitte gleich noch einmal versuchen.', 409);
+        try {
+            if (self::remaining($inv)['total'] <= self::EPS) return self::err('tix_invoice_already_cancelled', 'Dieser Beleg ist schon vollständig storniert bzw. korrigiert.', 409);
+            $id = self::correct($inv, 0, true, 'manual', null, $reason);
+        } finally {
+            self::unlock($inv->order_id);
+        }
         if ($id && class_exists('TIX_Order_Admin') && method_exists('TIX_Order_Admin', 'add_note')) TIX_Order_Admin::add_note(intval($inv->order_id), 'Beleg ' . $inv->number . ' storniert: ' . $reason, 'invoice');
         if (!$id) return self::err('tix_invoice_cancel_failed', 'Der Storno konnte nicht erstellt werden.', 500);
         return rest_ensure_response(['ok' => true, 'invoice' => self::row(self::get($inv->id)), 'correction' => self::row(self::get($id))]);

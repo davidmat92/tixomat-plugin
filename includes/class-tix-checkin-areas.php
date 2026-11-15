@@ -275,6 +275,19 @@ class TIX_Checkin_Areas {
         return intval(TIX_App_Scope::organizer_id_for_user());
     }
 
+    /**
+     * Sicherheits-Hotfix (Audit 15.11., H2): Schreiben (anlegen/ändern/sortieren/löschen) nur Admin oder Hauptveranstalter.
+     * Co-Veranstalter eines Events dürfen dessen Bereiche lesen, aber nicht ändern.
+     */
+    private static function write_org(WP_REST_Request $req) {
+        $org = self::org($req);
+        if (is_wp_error($org) || !self::multi() || current_user_can('manage_options')) return $org;
+        if (intval($org) !== intval(TIX_App_Scope::organizer_id_for_user())) {
+            return new WP_Error('forbidden', 'Einlassbereiche kann nur der Hauptveranstalter des Events ändern.', ['status' => 403]);
+        }
+        return $org;
+    }
+
     private static function payload($org) { return ['ok' => true, 'areas' => array_values(array_map([__CLASS__, 'area_out'], self::areas($org))), 'max' => self::MAX]; }
 
     public static function rest_list(WP_REST_Request $req) {
@@ -301,7 +314,7 @@ class TIX_Checkin_Areas {
 
     public static function rest_create(WP_REST_Request $req) {
         global $wpdb;
-        $org = self::org($req);
+        $org = self::write_org($req);
         if (is_wp_error($org)) return $org;
         $set = self::fields($req, true);
         if (is_wp_error($set)) return $set;
@@ -319,7 +332,7 @@ class TIX_Checkin_Areas {
 
     public static function rest_update(WP_REST_Request $req) {
         global $wpdb;
-        $org = self::org($req);
+        $org = self::write_org($req);
         if (is_wp_error($org)) return $org;
         if (!self::own($req['id'], $org)) return new WP_Error('not_found', 'Bereich nicht gefunden.', ['status' => 404]);
         $set = self::fields($req, false);
@@ -330,7 +343,7 @@ class TIX_Checkin_Areas {
 
     public static function rest_order(WP_REST_Request $req) {
         global $wpdb;
-        $org = self::org($req);
+        $org = self::write_org($req);
         if (is_wp_error($org)) return $org;
         $ids = array_values(array_unique(array_map('intval', (array) $req->get_param('ids'))));
         $have = self::areas($org);
@@ -341,7 +354,7 @@ class TIX_Checkin_Areas {
     /** Löschen: Zählung bleibt in der Statistik nicht erhalten; Kategorien mit nur diesem Bereich gelten wieder überall */
     public static function rest_delete(WP_REST_Request $req) {
         global $wpdb;
-        $org = self::org($req);
+        $org = self::write_org($req);
         if (is_wp_error($org)) return $org;
         if (!self::own($req['id'], $org)) return new WP_Error('not_found', 'Bereich nicht gefunden.', ['status' => 404]);
         $wpdb->delete(self::t(), ['id' => intval($req['id'])]);

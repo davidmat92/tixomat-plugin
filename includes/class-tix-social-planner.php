@@ -192,9 +192,12 @@ class TIX_Social_Planner {
             if (empty($d['edited'])) { $d['text'] = $text; $set['data'] = wp_json_encode($d); }
             if ($set) $wpdb->update(self::t(), $set + ['updated' => self::now()], ['id' => intval($r['id'])]);
         }
-        // Regel fällt weg (z. B. Preisphase gelöscht): offene, unbearbeitete Posts entfernen
+        // Regel fällt weg (z. B. Preisphase gelöscht): offene, unbearbeitete Posts entfernen – nur künftige
+        // (Sicherheits-Hotfix Audit 15.11., H3: fällige Posts fehlen in rules() und wurden sonst vor der Erinnerung gelöscht)
+        $now_ts = $now ?: time();
         foreach ($have as $occ => $r) {
             if (isset($want[$occ]) || $r['status'] !== 'planned' || in_array($occ, ['few_left', 'announce'], true)) continue;
+            if (strtotime((string) $r['due_at'] . ' UTC') <= $now_ts) continue;
             if (empty(self::data($r)['edited'])) $wpdb->delete(self::t(), ['id' => intval($r['id'])]);
         }
     }
@@ -204,6 +207,8 @@ class TIX_Social_Planner {
     public static function cron() {
         self::maybe_install();
         global $wpdb;
+        // H3 (Audit 15.11.): erst fällige Posts erinnern, dann abgleichen/aufräumen
+        foreach ((array) $wpdb->get_results($wpdb->prepare("SELECT * FROM " . self::t() . " WHERE status = 'planned' AND due_at <= %s ORDER BY due_at ASC LIMIT 50", self::now()), ARRAY_A) as $r) self::remind($r);
         // „nur noch wenige“: ab 80 % der Kapazität verkauft (einmal je Event)
         $ids = [];
         if (class_exists('TIX_Object_Data')) foreach ((array) TIX_Object_Data::all(self::KIND) as $id => $v) if (is_array($v) && !empty($v['enabled'])) $ids[] = intval($id);
