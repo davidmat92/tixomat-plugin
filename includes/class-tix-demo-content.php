@@ -93,6 +93,31 @@ class TIX_Demo_Content {
         ];
     }
 
+    /**
+     * Openair Seewiese (Demo-Shop „Eigene Website“, 1.38.841): Events rund um das Festival – „heute Abend“ zum Scannen
+     * (0-€-Beispiel-Ticket), Kino am Ufer, vergangener Saisonstart für die Statistik. Das Festival selbst kommt aus festival_event().
+     */
+    public static function openair_events() {
+        $c = [__CLASS__, 'cat'];
+        $lake = [['Wo parke ich?', 'Parkplätze an der Wiese (5 € je Tag), Shuttle ab Bahnhof Musterstadt.'], ['Was passiert bei Regen?', 'Wir spielen bei jedem Wetter, nur bei Unwetter unterbrechen wir.'], ['Darf ich Getränke mitbringen?', 'Nein, Getränke gibt es an den Ständen auf dem Gelände.']];
+        return [
+            ['key' => 'live', 'title' => 'Warm-up am See (Beispiel)', 'day' => 0, 'time' => '19:00', 'image' => 'freunde',
+                'cats' => [call_user_func($c, TIX_Demo::DEMO_CAT, 0, 10000, ['desc' => 'Kostenlos – zum Ausprobieren des Einlasses']), call_user_func($c, 'Abendticket', 9.9, 400)],
+                'excerpt' => 'Sonnenuntergang, DJ-Set und Akustik am Ufer – heute Abend, perfekt zum Ausprobieren des Einlasses.',
+                'desc' => '<p>Der Abend vor dem großen Wochenende: Lichterketten am Steg, ein entspanntes DJ-Set und zwei Akustik-Sets am Lagerfeuer. Hol dir das kostenlose Beispiel-Ticket und lass es am Einlass scannen.</p>',
+                'lineup' => 'DJ Seegang<br>Duo Liebeslied', 'faq' => $lake, 'gallery' => ['freunde', 'publikum']],
+            ['key' => 'kino', 'title' => 'Open-Air-Kino am Ufer', 'day' => 10, 'time' => '20:30', 'image' => 'publikum',
+                'cats' => [call_user_func($c, 'Liegestuhl', 12.5, 200, ['desc' => 'Mit Decke, solange der Vorrat reicht']), call_user_func($c, 'Wiese', 8, 300)],
+                'excerpt' => 'Kinoabend unter freiem Himmel mit Popcorn und Blick aufs Wasser.',
+                'desc' => '<p>Wenn es dunkel wird, läuft der Film auf der großen Leinwand am Steg. Vorher gibt es Livemusik und Popcorn aus der Seeküche.</p>',
+                'lineup' => 'Vorprogramm: Duo Liebeslied', 'faq' => $lake],
+            ['key' => 'past', 'title' => 'Saisonstart am See', 'day' => -12, 'time' => '16:00', 'image' => 'konzert',
+                'cats' => [call_user_func($c, 'Eintritt', 15, 800), call_user_func($c, 'VIP-Steg', 39, 60)],
+                'excerpt' => 'Der Auftakt der Openair-Saison mit drei Bands.', 'desc' => '<p>Die Saison ist eröffnet – danke an alle, die dabei waren!</p>',
+                'lineup' => 'Die Uferbande<br>Kati Konfetti<br>DJ Seegang'],
+        ];
+    }
+
     /** Festival Seewiese: 1 Event, Samstag + Sonntag, zwei Bühnen, 12 fiktive Acts (einer moderiert) */
     public static function festival_event() {
         $c = [__CLASS__, 'cat'];

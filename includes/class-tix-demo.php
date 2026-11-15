@@ -246,7 +246,7 @@ class TIX_Demo {
     }
 
     /** Event aus einer Vorlage (TIX_Demo_Content): Bild, Kurztext, Texte, Line-up, FAQ, Galerie, Alter */
-    private static function make_from(array $s, $oid, $address) {
+    public static function make_from(array $s, $oid, $address) { // öffentlich für TIX_Demo_Shop (1.38.841)
         $extra = ['_tix_location' => $address, '_tix_info_description' => $s['desc'] ?? '', '_tix_info_lineup' => $s['lineup'] ?? ''];
         if (!empty($s['faq'])) $extra['_tix_faq'] = array_map(function ($p) { return ['q' => $p[0], 'a' => $p[1]]; }, $s['faq']);
         if (!empty($s['gallery'])) $extra['_tix_gallery'] = array_values(array_filter(array_map(['TIX_Demo_Content', 'image'], $s['gallery'])));
@@ -260,7 +260,7 @@ class TIX_Demo {
     }
 
     /** Bestellungen über die normale Bestell-Logik (Zahlart demo, Adressen @demo.invalid) → [Bestellungen, Tickets] */
-    private static function seed_orders(array $ev, $orders, $past_key = '') {
+    public static function seed_orders(array $ev, $orders, $past_key = '') {
         global $wpdb;
         $weights = [];
         foreach ($ev as $key => $eid) {
@@ -289,7 +289,7 @@ class TIX_Demo {
     }
 
     /** Festival-Seed: ein Event über zwei Tage mit Programm, Line-up ohne Musikdienst-Suche, Bestellungen, Gästeliste */
-    private static function seed_festival($fid, $orders) {
+    public static function seed_festival($fid, $orders) {
         mt_srand(intval(wp_date('Ymd')) + 7);
         $f = TIX_Demo_Content::festival_event();
         // immer ein Samstag (Tag 0) und Sonntag (Tag 1), rund sechs Wochen voraus

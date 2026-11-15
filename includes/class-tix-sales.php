@@ -77,6 +77,7 @@ class TIX_Sales {
     }
 
     public static function is_sandbox_event($event_id) {
+        if (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) return true; // Demo-Instanz: alles Sandbox (1.38.841)
         $oid = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
         return $oid && self::sandbox($oid);
     }
@@ -86,6 +87,7 @@ class TIX_Sales {
         global $wpdb;
         $order_id = intval($order_id);
         if (!$order_id) return false;
+        if (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) return true; // Demo-Instanz (1.38.841)
         $pm = (string) $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id));
         if ($pm === 'demo') return true;
         foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT DISTINCT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id)) as $eid) {
@@ -201,7 +203,8 @@ class TIX_Sales {
         $name = trim(sanitize_text_field((string) $req->get_param('name')));
         if (!is_email($email)) return new WP_Error('tix_invalid_field', 'Bitte eine gültige E-Mail angeben.', ['status' => 400, 'field' => 'email']);
         if ($name === '') return new WP_Error('tix_invalid_field', 'Bitte einen Namen angeben.', ['status' => 400, 'field' => 'name']);
-        if (!self::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
+        // Demo-Instanz „Eigene Website“ (1.38.841): kein Beispiel-Club auf der Einzel-Seite anlegen
+        if (self::multi() && !self::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
         $u = get_user_by('email', $email);
         if ($u) {
             if ($u->has_cap('manage_options')) return new WP_Error('tix_invalid_field', 'Admins brauchen keinen Vertriebs-Zugang.', ['status' => 409, 'field' => 'email']);

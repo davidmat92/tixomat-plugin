@@ -6866,3 +6866,33 @@ Bericht: `uebergaben/audit-2026-11-15.md`. Rückwärtskompatibel, keine neuen Ro
 - **M11 Partner-Gutschrift** (`class-tix-promoter-partner.php`, `class-tix-promoter-rest.php`): Nummer erst bei der Auszahlung (Hook `tix_promoter_payout_paid`, Priorität 5), in einer Transaktion mit dem Beleg (Auszahlung + Zähler `FOR UPDATE`, `UPDATE … WHERE doc_no = ''`); Abruf vorher = Entwurf ohne Nummer (`draft`, `number: null`); zurückgenommen ohne Beleg → 409 `tix_credit_note_none`. Reverse Charge bei steuerpflichtigem Partner mit USt-IdNr. außerhalb DE (`reverse_charge`, 0 % USt, Hinweis § 13b UStG).
 - **Bereichs-Kapazität atomar** (`class-tix-checkin-areas.php`): `GET_LOCK` je Event und Bereich um Prüfen + Eintragen (Scan und Offline-Abgleich), nur bei Kapazität > 0; belegt → `tix_busy`.
 - **Tests:** neu `test-audit-1511-a-wp` (Einzel-Seite 23, Plattform 21), `test-promoter-partner` (18, M11: Entwurf, Nummer bei Auszahlung, keine zweite Nummer, Reverse Charge); grün: `test-seatmap-flow`, `test-sale-settings`, `test-checkin-areas`, `test-checkin-offline`, `test-stock`, `test-order-attribution`, `test-co-sale`, `test-co-seller`, `test-co-money`, `test-resale` (104/107), `test-audit-1511-b`. Vorbestehend rot (auch auf 1.38.838): `test-promoter-p4` „Kassenverkauf mit Promoter-Code“, Plattform `test-promoter-p2` Upload und `test-seatmap-phase1/2` (Bild-Aufträge, Schreibrechte im Container). Verträge: „Umzug nach evendis-api“ in `vertrag-saalplan-verkauf`, `vertrag-kasse-einlass-einstellungen`, `vertrag-reichweite-a11y-welle2`, `vertrag-einlassbereiche`.
+
+## 227. Demo-Shop „Eigene Website“: Demo-Instanz mit Testzahlung, Zugängen und nächtlichem Reset (ab 1.38.841)
+Vertrag: `uebergaben/vertrag-demo-shop.md` (Plan `plan-demo-shop-2026-11-15.md`, Studio-Vorschlag `vertrag-demo-shop-studio.md`). Neue Klasse `TIX_Demo_Shop` (`class-tix-demo-shop.php`, früh geladen, damit der Einstellungs-Filter vor dem ersten `tix_get_settings()` hängt).
+- **Schalter** `tix_demo_instance` = 1, wirkt nur auf Einzel-Seiten (`tix_multi_organizer` ≠ 1) und nur auf Hosts, die mit `demo` beginnen, oder auf lokalen Testseiten (Filter `tix_demo_instance_host_ok`). Ohne Schalter tut die Klasse nichts (Test-Phase „off“).
+- **Nie echtes Geld:** Die Filter `option_tix_settings` und `pre_update_option_tix_settings` leeren Live-Schlüssel (Mollie `live_`, Stripe `*_live`, Live-Schlüssel in Test-Feldern), setzen Stripe und Mollie auf den Testmodus und PayPal auf die Sandbox und schalten die Überweisung aus.
+  - `POST /studio/payments` (Admin) antwortet auf Live-Werte mit 400 `tix_demo_live_key` + `data.field`.
+  - In der App-Kasse gilt die Instanz als Demo (`TIX_Demo_Access::is_demo_event` = true). Angeboten werden `demo` und Anbieter im Testmodus, sonst 400 `tix_demo_test_only` (`TIX_Demo_Shop::payment_error`), ohne Guthaben.
+- **Mails** (`wp_mail` Priorität 1, `pre_wp_mail` 2, `wp_mail_from` 1000):
+  - Empfänger nur Admins, Vertriebler, gültige Interessenten und `tix_demo_mail_allow`; An, Cc und Bcc werden einzeln gefiltert.
+  - Verworfenes landet maskiert in `tix_demo_mail_log` (100 Einträge); `*.invalid` geht nie hinaus.
+  - Absender `noreply@evendis.de`, Reply-To `tix_demo_reply_to` (Vorgabe `vertrieb@evendis.de`).
+- **Abschottung** (`rest_pre_dispatch` 5): Für angemeldete Nicht-Admins sind die Routen aus `BLOCK_ALL` gesperrt (403 `tix_demo_forbidden`), die aus `BLOCK_WRITE` nur lesbar. Gemeint sind Zahlung, Mailversand, Domain, Lizenz, Team, Go-Live, Vertrag, Auszahlung, KI-Einstellungen und Anbindungen bzw. Rechtstexte, Gebühren, Rechnungsdaten, Module, Tracking und Newsletter-Einstellungen. Über `BLOCK_RE` ist außerdem der Newsletter-Versand bzw. -Testversand gesperrt (`/marketing/newsletter/campaigns/{id}/send|test`, läuft über Brevo/Mailchimp statt über `wp_mail`).
+- **Kennzeichen** (`rest_post_dispatch`): `demo_instance: true` in `/me`, `/info` und `/studio/config`; dazu `demo_shop {vorlage, profile, reset_at, last_reset, studio, home}` in `/me` und `/info`. In `/me` außerdem `demo_access`, `is_admin` und `sales`.
+- **Sandbox:** `TIX_Sales::is_sandbox_event/order`, `TIX_Mirror_Map::is_sandbox_event/order` und der Filter `tix_sandbox_organizer` sind auf der Instanz immer true. Damit gibt es keine Rechnungen, keinen Spiegel, keine Verteilung, keine Admin-Bestellmail und keine Tages-Hinweise.
+- **Demo-Zugänge** (`TIX_Demo_Access::enabled()` = Plattform oder Instanz): dieselben Routen.
+  - Auf der Instanz ohne `model`/`profile` (Modell `self`, Profil aus der Vorlage), ohne Beispiel-Veranstalter und ohne Team-Zuordnung.
+  - `/demo-access/reset {vorlage?}` setzt die ganze Instanz zurück. Testkäufe sind alle Bestellungen (`pm_clause`), Staff-Pushes gehen nie an Demo-Zugänge.
+  - Vertriebler legt auf der Instanz keinen Beispiel-Club an (`TIX_Sales::rest_create` nur im Mehr-Veranstalter-Modus).
+- **Seed/Reset** (`wp tixomat demo-shop seed|reset|status [--vorlage=openair|club]`), eine JSON-Zeile, bei Fehlern Exit 1:
+  - `wipe()` löscht Events (ohne System-Events), Bestellungen, Tickets, Platz-Reservierungen, Gutscheine, Anfragen und Demo-Künstler.
+  - `seed_content()` legt an: `openair` = `TIX_Demo_Content::openair_events()` + `TIX_Demo::seed_festival(0)`, `club` = `club_events()`. Dazu rund 50 Bestellungen über `TIX_Demo::seed_orders`, Check-ins, Gästeliste, 3 Gutscheine und 4 Sponsoren (Schriftzug per GD).
+  - Während des Laufs keine Mails und keine Pushes; eine Sperre verhindert doppelte Läufe.
+  - Der Cron 04:30 liegt beim Server.
+  - `TIX_Demo::make_from`, `seed_orders` und `seed_festival` sind dafür öffentlich (ohne Verhaltensänderung).
+- **Lizenzserver:** Spalte `kind` (DB 6), `''` | `'demo'`. Demo-Lizenzen haben nie `valid_until` und nie `enforce`. Admin-REST nimmt `kind` an; Antwort `kind`/`kind_label`, `/license/check` liefert `kind`. Plattform-Akte: `art: demo`, zählt nicht in `counts.all`.
+- **Tests:** `tests/run-demo-shop.sh` (sichert und spielt die DBs zurück), `tests/test-demo-shop-wp.php`:
+  - zh-kk: off 15, on 115; CLI aus/an/seed/status/falsche Vorlage; zh-plat: plat 14.
+  - Regression `test-demo-access-wp` auf zh-plat mit denselben 14 vorbestehenden Fehlern wie auf 1.38.840 (Beispiel-Club-Kasse/`/public/demo` im Container).
+  - Grün: `test-audit-1511-a`, `test-checkout-assets`, `test-website-license` (zh-kk), `test-license-create-modules`, `test-platform-customers`, `test-sales-push` (zh-plat).
+  - `test-license-wp` mit 3 vorbestehenden Fehlern (Schreibrechte `uploads/tix-basis` im Container).

@@ -22,7 +22,9 @@ if (!defined('ABSPATH')) exit;
 class TIX_License_Server {
 
     const NS          = 'tixomat/v1';
-    const DB_VERSION  = '5'; // 4: tix_license_sites.mode (Betriebsart der Seite, Audit 08.11.), 5: .ready (Startklar)
+    const DB_VERSION  = '6'; // 4: tix_license_sites.mode (Betriebsart der Seite, Audit 08.11.), 5: .ready (Startklar), 6: tix_licenses.kind (intern/Demo)
+    /** Lizenz-Art (1.38.841): '' = Kunde, 'demo' = intern/Demo (Demo-Shop): ohne Laufzeitende, ohne Rechnung, zählt nie als Kunde */
+    const KINDS       = ['', 'demo'];
     const NOTICE_DAYS = 14;  // Hinweis-Stufe vor Ablauf
     const STAGES      = ['active', 'notice', 'locked', 'basis'];
     const LINK_TTL    = 43200; // Download-Link 12 h gültig
@@ -99,6 +101,7 @@ class TIX_License_Server {
             stage_override varchar(20) NOT NULL DEFAULT '',
             basis_url varchar(255) NOT NULL DEFAULT '',
             last_event_date date NULL,
+            kind varchar(20) NOT NULL DEFAULT '',
             created_at datetime NOT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY license_key (license_key)
@@ -169,7 +172,10 @@ class TIX_License_Server {
         global $wpdb;
         self::maybe_install();
         $key = self::generate_key();
+        $kind = self::clean_kind($args['kind'] ?? '');
+        if ($kind === 'demo') { $args['valid_until'] = ''; $args['enforce'] = false; } // intern/Demo: kein Laufzeitende, keine Sperrstufen
         $wpdb->insert(self::t('tix_licenses'), [
+            'kind'        => (string) $kind,
             'license_key' => $key,
             'customer'    => mb_substr(sanitize_text_field($args['customer'] ?? ''), 0, 190),
             'email'       => sanitize_email($args['email'] ?? ''),
@@ -186,6 +192,17 @@ class TIX_License_Server {
         $mods = self::modules_value($args['modules'] ?? null);
         self::log($id, 'create', ['enforce' => !empty($args['enforce']), 'modules' => $mods === null ? 'alle' : json_decode($mods, true)]);
         return self::get($id);
+    }
+
+    /** Lizenz-Art säubern: 'demo' | '' (Kunde); 'kunde'/'customer' = ''; Unbekanntes = null */
+    public static function clean_kind($k) {
+        $k = sanitize_key((string) $k);
+        if (in_array($k, ['', 'kunde', 'customer'], true)) return '';
+        return $k === 'demo' ? 'demo' : null;
+    }
+
+    public static function is_demo($lic) {
+        return $lic && (string) ($lic->kind ?? '') === 'demo';
     }
 
     private static function date_or_null($d) {
@@ -433,6 +450,7 @@ class TIX_License_Server {
             'valid'      => false,
             'status'     => $state,
             'expires_at' => $lic && $lic->valid_until ? (string) $lic->valid_until : null,
+            'kind'       => self::is_demo($lic) ? 'demo' : ($lic ? 'customer' : null),
             'latest'     => [
                 'version'      => TIXOMAT_VERSION,
                 'released_at'  => self::released_at(TIXOMAT_VERSION),
@@ -662,6 +680,7 @@ class TIX_License_Server {
             'valid_until' => $lic->valid_until ? (string) $lic->valid_until : null, 'last_event_date' => $lic->last_event_date ? (string) $lic->last_event_date : null,
             'basis_url' => (string) $lic->basis_url, 'max_sites' => intval($lic->max_sites), 'note' => (string) $lic->note,
             'modules' => self::license_modules($lic), 'sites' => $sites,
+            'kind' => self::is_demo($lic) ? 'demo' : 'customer', 'kind_label' => self::is_demo($lic) ? 'intern/Demo' : 'Kunde',
             'heartbeat' => ['last' => $last, 'overdue' => $hb_age === null || $hb_age > 2 * DAY_IN_SECONDS],
             'created_at' => (string) $lic->created_at,
         ];
@@ -681,7 +700,10 @@ class TIX_License_Server {
         self::maybe_install();
         $mods = $req->get_param('modules');
         if ($bad = self::unknown_modules($mods)) return new WP_Error('tix_invalid_field', 'Unbekannte Module: ' . implode(', ', $bad), ['status' => 400, 'field' => 'modules']);
+        $kind = self::clean_kind($req->get_param('kind'));
+        if ($kind === null) return new WP_Error('tix_invalid_field', 'Art: customer oder demo.', ['status' => 400, 'field' => 'kind']);
         $lic = self::create([
+            'kind' => $kind,
             'modules' => $mods,
             'customer' => (string) $req->get_param('customer'), 'email' => (string) $req->get_param('email'),
             'max_sites' => $req->get_param('max_sites') ?? 1, 'valid_until' => (string) ($req->get_param('valid_until') ?? gmdate('Y-m-d', strtotime('+1 year'))),
@@ -722,6 +744,13 @@ class TIX_License_Server {
             $up['status'] = $st;
         }
         if (array_key_exists('enforce', $p)) $up['enforce'] = filter_var($p['enforce'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+        if (array_key_exists('kind', $p)) {
+            $k = self::clean_kind($p['kind']);
+            if ($k === null) return new WP_Error('tix_invalid_field', 'Art: customer oder demo.', ['status' => 400, 'field' => 'kind']);
+            $up['kind'] = $k;
+        }
+        // intern/Demo: nie Laufzeitende, nie durchgesetzt (auch wenn es mitgeschickt wird)
+        if (($up['kind'] ?? (string) ($lic->kind ?? '')) === 'demo') { $up['valid_until'] = null; $up['enforce'] = 0; }
         if (array_key_exists('basis_url', $p)) {
             $u = trim((string) $p['basis_url']);
             if ($u !== '' && !preg_match('#^https://#i', $u)) return new WP_Error('tix_invalid_field', 'Die Basis-Adresse muss mit https:// beginnen.', ['status' => 400, 'field' => 'basis_url']);

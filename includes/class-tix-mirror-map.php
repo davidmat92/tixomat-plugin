@@ -105,6 +105,7 @@ class TIX_Mirror_Map {
     public static function is_sandbox_event($eid) {
         $eid = (int) $eid;
         if ($eid <= 0) return false;
+        if (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) return true; // Demo-Instanz „Eigene Website“: nie im Spiegel (1.38.841)
         if (!isset(self::$sandbox_events[$eid])) {
             self::$sandbox_events[$eid] = (bool) get_post_meta($eid, '_tix_preview', true) || (bool) get_post_meta($eid, '_tix_preview_scratch', true)
                 || self::is_sandbox_org((int) get_post_meta($eid, '_tix_organizer_id', true));
@@ -117,6 +118,7 @@ class TIX_Mirror_Map {
         global $wpdb;
         $order_id = (int) $order_id;
         if ($order_id <= 0) return false;
+        if (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) return true; // Demo-Instanz (1.38.841)
         $prev = $wpdb->suppress_errors(true);
         $eids = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT event_id FROM {$wpdb->prefix}tix_order_items WHERE order_id = %d", $order_id));
         $wpdb->suppress_errors($prev);

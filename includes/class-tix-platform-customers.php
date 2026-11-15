@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) exit;
 class TIX_Platform_Customers {
 
     const NS = 'tixomat/v1';
-    const ARTS = ['provision', 'hosted', 'bestand', 'license', 'co'];
+    const ARTS = ['provision', 'hosted', 'bestand', 'license', 'co', 'demo']; // demo: Lizenz-Art intern/Demo (1.38.841), zählt nie mit
     const KEY_RE = '/^(h-[a-z][a-z0-9]{1,15}|[lv]-\d{1,20}|p-[a-z0-9_-]{1,60})$/';
     const EXPIRING_DAYS = 30;
 
@@ -133,7 +133,7 @@ class TIX_Platform_Customers {
             $partner = null;
             foreach ($L['hosts'] as $h) if (isset($by_host[$h])) { $partner = $by_host[$h]; break; }
             $oid = $partner && isset($org_set[$partner['organizer_id']]) && !isset($used_org[$partner['organizer_id']]) ? $partner['organizer_id'] : 0;
-            $art = $L['kurz'] !== '' ? 'hosted' : ($partner ? 'bestand' : 'license');
+            $art = (string) ($L['row']->kind ?? '') === 'demo' ? 'demo' : ($L['kurz'] !== '' ? 'hosted' : ($partner ? 'bestand' : 'license'));
             $key = $L['kurz'] !== '' ? 'h-' . $L['kurz'] : 'l-' . $lid;
             if (isset($customers[$key])) $key = 'l-' . $lid; // doppelter Kurzname (sollte es nicht geben)
             $customers[$key] = ['key' => $key, 'art' => $art, 'organizer_id' => $oid ?: null, 'license_id' => $lid, 'hosting_kurz' => $L['kurz'] ?: null,
@@ -334,7 +334,7 @@ class TIX_Platform_Customers {
 
     public static function rest_list(WP_REST_Request $req) {
         $art = (string) $req->get_param('art');
-        if ($art !== '' && $art !== 'all' && !in_array($art, self::ARTS, true)) return new WP_Error('tix_invalid_field', 'art: provision, hosted, bestand, license oder co.', ['status' => 400, 'field' => 'art']);
+        if ($art !== '' && $art !== 'all' && !in_array($art, self::ARTS, true)) return new WP_Error('tix_invalid_field', 'art: provision, hosted, bestand, license, co oder demo.', ['status' => 400, 'field' => 'art']);
         $q = mb_strtolower(trim((string) $req->get_param('q')));
         $att = filter_var($req->get_param('attention'), FILTER_VALIDATE_BOOLEAN);
         $counts = array_fill_keys(array_merge(['all'], self::ARTS, ['attention']), 0);
@@ -345,7 +345,7 @@ class TIX_Platform_Customers {
                 $hay = mb_strtolower(implode(' ', array_filter([$row['name'], $row['domain'], $row['hosting_kurz'], $row['key'], implode(' ', self::emails($c))])));
                 if (mb_strpos($hay, $q) === false) continue;
             }
-            $counts['all']++;
+            if ($row['art'] !== 'demo') $counts['all']++; // Demo-Shop zählt nicht als Kunde (1.38.841)
             $counts[$row['art']]++;
             if ($row['attention']) $counts['attention']++;
             if ($art !== '' && $art !== 'all' && $row['art'] !== $art) continue;

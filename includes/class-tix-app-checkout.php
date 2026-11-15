@@ -1363,6 +1363,10 @@ class TIX_App_Checkout {
             if (class_exists('TIX_Demo_Access') && TIX_Demo_Access::is_demo_event($event_id)) {
                 unset($resp['wallet']);
                 $resp['payment_methods'] = $t['total'] > 0 ? [TIX_Demo_Access::method()] : self::payment_methods(true);
+                // Demo-Instanz „Eigene Website“ (1.38.841): zusätzlich Anbieter im Testmodus (Live-Schlüssel filtert TIX_Demo_Shop heraus)
+                if ($t['total'] > 0 && class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) {
+                    foreach (self::payment_methods(false) as $m) if (!TIX_Demo_Shop::payment_error($m['id'] ?? '')) $resp['payment_methods'][] = $m;
+                }
             }
             $resp['coupon'] = [
                 'code'     => (string) ($cart['coupon']['code'] ?? $coupon),
@@ -1532,7 +1536,10 @@ class TIX_App_Checkout {
             $due = $t['total'];
             if ($e = TIX_Demo_Access::order_limit_error()) return $e;
         }
-        if ($demo_sale && $t['total'] > 0) {
+        // Demo-Instanz „Eigene Website“ (1.38.841): „demo“ oder Anbieter im Testmodus – nie echtes Geld
+        $demo_shop = $demo_sale && class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on();
+        if ($demo_shop && $t['total'] > 0 && ($e = TIX_Demo_Shop::payment_error($payment_method !== '' ? $payment_method : 'none'))) return $e;
+        if ($demo_sale && $t['total'] > 0 && ($payment_method === 'demo' || !$demo_shop)) {
             if ($payment_method !== 'demo') return self::error('tix_demo_payment', 'Im Beispiel-Club wird nur mit der Demo-Zahlung bezahlt.', 400);
         } elseif ($wallet && $due <= 0) {
             $payment_method = 'wallet';

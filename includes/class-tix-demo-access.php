@@ -12,6 +12,8 @@ if (!defined('ABSPATH')) exit;
  *  - Ein gemeinsamer Beispiel-Club für alle: Testkäufe ANDERER Zugänge sehen Demo-Zugänge nur verkürzt
  *    („M. M***“, E-Mail maskiert), die eigenen voll. Mitteilungen über Testkäufe nur an den eigenen Zugang.
  *  - Kasse: Events des Beispiel-Clubs nur mit Zahlart „demo“ (kein Zahlungsanbieter), echte Zahlarten gesperrt.
+ *  - Seit 1.38.841 auch auf einer Demo-Instanz „Eigene Website“ (TIX_Demo_Shop, Option tix_demo_instance): gleiche Rollen und
+ *    Routen, ohne Modell/Profil, ohne Beispiel-Veranstalter; Zurücksetzen = ganze Instanz; Kasse = „demo“ + Anbieter im Testmodus.
  */
 class TIX_Demo_Access {
 
@@ -53,6 +55,16 @@ class TIX_Demo_Access {
         return class_exists('TIX_Sales') && TIX_Sales::multi();
     }
 
+    /** Demo-Instanz „Eigene Website“ (Einzel-Seite mit Schalter tix_demo_instance, 1.38.841) */
+    public static function instance() {
+        return class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on();
+    }
+
+    /** Zugänge aktiv: Demo-Studio auf der Plattform oder Demo-Instanz */
+    public static function enabled() {
+        return self::multi() || self::instance();
+    }
+
     public static function ensure_role() {
         if (!get_role(self::ROLE)) add_role(self::ROLE, 'Demo-Zugang', ['read' => true, 'tix_app_pos' => true]);
     }
@@ -88,6 +100,7 @@ class TIX_Demo_Access {
     }
 
     public static function studio_url($path = '/') {
+        if (self::instance()) return rtrim(TIX_Demo_Shop::studio_url(), '/') . '/' . ltrim($path, '/');
         $b = rtrim((string) get_option(self::OPT_STUDIO, 'https://demo-studio.evendis.de'), '/');
         return $b . '/' . ltrim($path, '/');
     }
@@ -95,6 +108,10 @@ class TIX_Demo_Access {
     /** Testkauf: selbstgehostet → Demo-Homepage (demo.evendis.de/club/ bzw. /festival/), Provisionskunde → evendis.de/demo/ (?profile=festival) */
     public static function home_url($code = '', $model = 'self', $profile = 'club') {
         $q = [];
+        if (self::instance()) {
+            $b = TIX_Demo_Shop::home_url();
+            return $code !== '' ? $b . '?' . http_build_query(['demo' => $code]) : $b;
+        }
         if ($model === 'platform') {
             $b = rtrim((string) get_option(self::OPT_PLATFORM_HOME, 'https://evendis.de/demo'), '/') . '/';
             if ($profile === 'festival') $q['profile'] = 'festival';
@@ -117,6 +134,7 @@ class TIX_Demo_Access {
 
     /** Profil setzen und den Zugang dem passenden Beispiel-Veranstalter zuordnen (Team) */
     public static function set_profile($uid, $profile) {
+        if (self::instance()) { update_user_meta(intval($uid), self::META_PROFILE, $profile); return; } // kein Beispiel-Veranstalter auf der Instanz
         if ($profile === 'festival' && class_exists('TIX_Demo')) TIX_Demo::ensure_festival();
         update_user_meta(intval($uid), self::META_PROFILE, $profile);
         $oid = class_exists('TIX_Demo') ? TIX_Demo::org_for($profile) : 0;
@@ -179,7 +197,8 @@ class TIX_Demo_Access {
 
     /** Für /me: null bei normalen Konten */
     public static function me_payload(WP_User $user) {
-        if (!self::multi()) return null;
+        if (!self::enabled()) return null;
+        $inst = self::instance();
         $prospect = self::is_prospect($user);
         $sales = class_exists('TIX_Sales') && TIX_Sales::is_sales_user($user);
         if (!$prospect && !$sales) return null;
@@ -193,11 +212,12 @@ class TIX_Demo_Access {
             // Modell (06.11.): Sicht im Demo-Studio; Vertriebler schalten selbst um (POST /demo-access/view)
             'model'      => self::model($user->ID),
             'profile'    => self::profile($user->ID),
-            'can_switch' => !$prospect,
+            'can_switch' => !$prospect && !$inst,
+            'instance'   => $inst,
             'home'       => self::home_url(self::code($user->ID), self::model($user->ID), self::profile($user->ID)),
             'home_self'  => self::home_url(self::code($user->ID), 'self', self::profile($user->ID)),
             'home_platform' => self::home_url(self::code($user->ID), 'platform', self::profile($user->ID)),
-            'reset_at'   => class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null,
+            'reset_at'   => $inst ? wp_date('c', TIX_Demo_Shop::next_reset_ts()) : (class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null),
             // eigene Testkäufe seit dem letzten Zurücksetzen (Karte „Testkauf ausprobieren“ im Studio)
             'test_orders' => self::test_orders($user->ID, $user->user_email),
         ];
@@ -207,11 +227,11 @@ class TIX_Demo_Access {
 
     public static function routes() {
         $staff = function () {
-            if (!self::multi()) return new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]);
+            if (!self::enabled()) return new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]);
             if (current_user_can('manage_options') || (class_exists('TIX_Sales') && TIX_Sales::is_sales_user())) return true;
             return new WP_Error('rest_forbidden', 'Nur für den Vertrieb.', ['status' => 403]);
         };
-        $public = function () { return self::multi() ? true : new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]); };
+        $public = function () { return self::enabled() ? true : new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]); };
         register_rest_route(self::NS, '/demo-access', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $staff],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_create'], 'permission_callback' => $staff],
@@ -250,9 +270,15 @@ class TIX_Demo_Access {
         $o = $wpdb->prefix . 'tix_orders';
         $since = $days ? $wpdb->prepare(' AND o.date_created >= %s', gmdate('Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS)) : '';
         return intval($wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $o o WHERE o.payment_method = 'demo' AND o.status IN ('completed','processing')$since AND (o.billing_email = %s OR o.id IN (SELECT pm.post_id FROM {$wpdb->postmeta} pm WHERE pm.meta_key = %s AND pm.meta_value = %s))",
+            "SELECT COUNT(*) FROM $o o WHERE " . self::pm_clause('o') . " AND o.status IN ('completed','processing')$since AND (o.billing_email = %s OR o.id IN (SELECT pm.post_id FROM {$wpdb->postmeta} pm WHERE pm.meta_key = %s AND pm.meta_value = %s))",
             (string) $email, self::META_ORDER, (string) intval($uid)
         )));
+    }
+
+    /** Testkäufe: auf der Plattform Zahlart demo, auf der Demo-Instanz jede Bestellung (dort ist alles Test) */
+    private static function pm_clause($alias = '') {
+        if (self::instance()) return '1=1';
+        return ($alias !== '' ? $alias . '.' : '') . "payment_method = 'demo'";
     }
 
     public static function row(WP_User $u) {
@@ -322,8 +348,9 @@ class TIX_Demo_Access {
             'limits' => ['days' => self::DAYS, 'max_active' => $admin ? null : self::MAX_ACTIVE, 'active_own' => $active_own, 'can_create_sales' => $admin],
             'studio' => self::studio_url('/'),
             'home' => self::home_url(),
-            'reset_at' => class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null,
-            'last_reset' => ($t = (string) get_option('tix_demo_reset_at', '')) !== '' ? wp_date('c', strtotime($t . ' ' . wp_timezone_string()) ?: time()) : null,
+            'reset_at' => self::instance() ? wp_date('c', TIX_Demo_Shop::next_reset_ts()) : (class_exists('TIX_Demo') ? wp_date('c', TIX_Demo::next_reset_ts()) : null),
+            'last_reset' => self::instance() ? TIX_Demo_Shop::last_reset() : (($t = (string) get_option('tix_demo_reset_at', '')) !== '' ? wp_date('c', strtotime($t . ' ' . wp_timezone_string()) ?: time()) : null),
+            'instance' => self::instance(),
         ]);
     }
 
@@ -351,8 +378,11 @@ class TIX_Demo_Access {
         }
         if ($kind !== 'prospect') return new WP_Error('tix_invalid_field', 'Unbekannte Art.', ['status' => 400, 'field' => 'kind']);
         $model = self::clean_model($req->get_param('model'));
+        // Demo-Instanz: Modell steht fest (eigene Website), Profil folgt der Vorlage – das Studio schickt beides nicht
+        if ($model === '' && self::instance()) $model = 'self';
         if ($model === '') return new WP_Error('tix_invalid_field', 'Bitte das Modell wählen: Provisionskunde oder selbstgehostet.', ['status' => 400, 'field' => 'model']);
         $profile = self::clean_profile($req->get_param('profile'));
+        if ($profile === '' && self::instance()) $profile = TIX_Demo_Shop::profile();
         if ($profile === '') return new WP_Error('tix_invalid_field', 'Bitte das Profil wählen: Club (mehrere Events) oder Festival (1 Event).', ['status' => 400, 'field' => 'profile']);
         $email = sanitize_email((string) $req->get_param('email'));
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 80);
@@ -363,7 +393,7 @@ class TIX_Demo_Access {
             return new WP_Error('tix_demo_limit', 'Du hast schon ' . self::MAX_ACTIVE . ' aktive Demo-Zugänge. Bitte zuerst einen sperren oder löschen.', ['status' => 409]);
         }
         if (get_user_by('email', $email)) return new WP_Error('tix_invalid_field', 'Zu dieser E-Mail gibt es schon ein Konto. Bitte eine andere Adresse nehmen.', ['status' => 409, 'field' => 'email']);
-        if (!TIX_Sales::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
+        if (!self::instance() && !TIX_Sales::demo_id() && class_exists('TIX_Demo')) TIX_Demo::ensure_organizer();
         $login = 'demo_' . (sanitize_user(strtok($email, '@'), true) ?: 'zugang');
         $base = $login; $i = 1;
         while (username_exists($login)) $login = $base . (++$i);
@@ -371,7 +401,7 @@ class TIX_Demo_Access {
         if (is_wp_error($uid)) return new WP_Error('tix_invalid_field', $uid->get_error_message(), ['status' => 400, 'field' => 'email']);
         $u = get_userdata($uid);
         $u->add_role('tix_organizer');
-        update_user_meta($uid, '_tix_team_organizer_id', TIX_Sales::demo_id());
+        if (!self::instance()) update_user_meta($uid, '_tix_team_organizer_id', TIX_Sales::demo_id()); // Instanz: Team der Seite (ohne Veranstalter)
         update_user_meta($uid, '_tix_demo_owner', get_current_user_id());
         update_user_meta($uid, '_tix_demo_created', time());
         update_user_meta($uid, '_tix_demo_expires', time() + self::DAYS * DAY_IN_SECONDS);
@@ -473,6 +503,19 @@ class TIX_Demo_Access {
 
     /** POST /demo-access/reset – Beispiel-Club zurücksetzen (Admin und Vertriebler, nie Interessenten) */
     public static function rest_reset(WP_REST_Request $req) {
+        if (self::instance()) {
+            // Demo-Instanz: ganze Seite zurücksetzen (Zugänge, Gestaltung, Test-Schlüssel, Rechtstexte bleiben), optional Vorlage wechseln
+            $key = 'tix_demo_reset_rl';
+            $n = intval(get_transient($key));
+            if (!self::is_admin_caller() && $n >= 6) return new WP_Error('tix_rate_limit', 'Heute schon oft zurückgesetzt. Bitte später noch einmal.', ['status' => 429]);
+            set_transient($key, $n + 1, 6 * HOUR_IN_SECONDS);
+            $v = (string) $req->get_param('vorlage');
+            if ($v !== '' && !in_array($v, TIX_Demo_Shop::VORLAGEN, true)) return new WP_Error('tix_invalid_field', 'Vorlage: openair oder club.', ['status' => 400, 'field' => 'vorlage']);
+            $r = TIX_Demo_Shop::reset($v);
+            if (empty($r['ok'])) return new WP_Error((string) ($r['error'] ?? 'tix_demo_reset'), (string) ($r['message'] ?? 'Zurücksetzen fehlgeschlagen.'), ['status' => 409]);
+            return self::out(['ok' => true, 'last_reset' => $r['last_reset'], 'next_reset' => $r['next_reset'], 'vorlage' => $r['vorlage'],
+                'studio' => TIX_Demo_Shop::studio_url(), 'home' => TIX_Demo_Shop::home_url(), 'seeded' => $r['seeded'], 'wiped' => $r['wiped']]);
+        }
         if (!class_exists('TIX_Demo')) return new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]);
         $key = 'tix_demo_reset_rl';
         $n = intval(get_transient($key));
@@ -504,6 +547,20 @@ class TIX_Demo_Access {
         $url = self::studio_url('/anmelden/link/?t=' . rawurlencode($raw));
         if (!class_exists('TIX_Mail_Layout')) return false;
         $exp = self::expires($u->ID);
+        if (self::instance()) {
+            $blocks = [
+                ['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite
+                    ? 'du hast einen Zugang zum <b>evendis Demo-Shop „Eigene Website“</b>. Dort probierst du eine eigene Ticket-Website mit Studio aus – mit Testkauf auf ' . esc_html((string) wp_parse_url(home_url(), PHP_URL_HOST)) . ' und Einlass. Es fließt kein echtes Geld, und jede Nacht wird alles zurückgesetzt.'
+                    : 'hier ist dein Anmelde-Link für den evendis Demo-Shop. Er gilt 30 Minuten.')],
+                ['type' => 'button', 'label' => 'Studio öffnen', 'url' => $url],
+            ];
+            if ($exp) $blocks[] = ['type' => 'text', 'html' => 'Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. ' . ($invite ? 'Der Link in dieser Mail gilt 7 Tage; danach forderst du auf der Anmeldeseite einfach einen neuen an.' : '')];
+            return (bool) TIX_Mail_Layout::send($u->user_email, 'evendis Demo-Shop – ' . ($invite ? 'dein Zugang' : 'dein Anmelde-Link'), [
+                'title' => $invite ? 'Dein Zugang zum Demo-Shop' : 'Dein Anmelde-Link',
+                'blocks' => $blocks,
+                'kind' => 'account',
+            ]);
+        }
         $blocks = [
             ['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite
                 ? 'du hast einen Zugang zum <b>evendis Demo-Studio</b>. Dort probierst du das ganze Studio mit Beispieldaten aus – inklusive Testkauf auf der Demo-Homepage und Einlass. Nichts davon geht live, es fließt kein Geld.'
@@ -573,6 +630,7 @@ class TIX_Demo_Access {
 
     /** Event des Beispiel-Clubs? (nur Demo Club, nicht Vorschauen) */
     public static function is_demo_event($event_id) {
+        if (self::instance()) return true; // Demo-Instanz: jedes Event ist Demo (Zahlart „demo“ + Testmodus, TIX_Demo_Shop)
         if (!class_exists('TIX_Sales') || !TIX_Sales::multi()) return false;
         $oid = intval(get_post_meta(intval($event_id), '_tix_organizer_id', true));
         return $oid > 0 && TIX_Sales::is_demo_organizer($oid);
@@ -608,6 +666,7 @@ class TIX_Demo_Access {
     /** Staff-Pushes des Beispiel-Clubs nie an Demo-Zugänge (sonst sähe jeder die Testkäufe der anderen). */
     public static function push_recipients($uids, $org_ids, $pref) {
         if (!class_exists('TIX_Sales')) return $uids;
+        if (self::instance()) return array_values(array_filter((array) $uids, function ($uid) { return !self::is_demo_user(intval($uid)); }));
         if (!array_intersect(self::demo_orgs(), array_map('intval', (array) $org_ids))) return $uids;
         return array_values(array_filter((array) $uids, function ($uid) { return !self::is_demo_user(intval($uid)); }));
     }
@@ -616,14 +675,14 @@ class TIX_Demo_Access {
     public static function on_order_completed($order_id) {
         global $wpdb;
         $pm = (string) $wpdb->get_var($wpdb->prepare("SELECT payment_method FROM {$wpdb->prefix}tix_orders WHERE id = %d", intval($order_id)));
-        if ($pm !== 'demo') return;
+        if ($pm !== 'demo' && !self::instance()) return;
         $uid = intval(get_post_meta(intval($order_id), self::META_ORDER, true));
         if (!$uid || !class_exists('TIX_Staff_Push') || !method_exists('TIX_Staff_Push', 'send_to_users')) return;
         $o = class_exists('TIX_Order') ? TIX_Order::get($order_id) : null;
         $n = 0;
         if ($o) foreach ($o->get_items() as $it) $n += intval($it->get_quantity());
         $total = $o ? (float) $o->get_total() : 0.0;
-        TIX_Staff_Push::send_to_users([$uid], 'Testkauf eingegangen', ($n === 1 ? '1 Ticket' : $n . ' Tickets') . ' · ' . number_format($total, 2, ',', '.') . ' € (Demo-Zahlung)', ['action' => 'staff:order:' . intval($order_id), 'type' => 'demo_order']);
+        TIX_Staff_Push::send_to_users([$uid], 'Testkauf eingegangen', ($n === 1 ? '1 Ticket' : $n . ' Tickets') . ' · ' . number_format($total, 2, ',', '.') . ' € (' . ($pm === 'demo' ? 'Demo-Zahlung' : 'Testzahlung') . ')', ['action' => 'staff:order:' . intval($order_id), 'type' => 'demo_order']);
     }
 
     // ═══════════════ Fremde Testkäufe verkürzen ═══════════════
@@ -653,7 +712,7 @@ class TIX_Demo_Access {
         $o = $wpdb->prefix . 'tix_orders';
         $own = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s", self::META_ORDER, (string) intval($viewer->ID))));
         $rows = (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT id, billing_first_name f, billing_last_name l, billing_email e, billing_phone p, billing_company c, billing_address_1 a FROM $o WHERE payment_method = 'demo' AND billing_email NOT LIKE %s AND billing_email <> %s ORDER BY id DESC LIMIT 2000",
+            "SELECT id, billing_first_name f, billing_last_name l, billing_email e, billing_phone p, billing_company c, billing_address_1 a FROM $o WHERE " . self::pm_clause() . " AND billing_email NOT LIKE %s AND billing_email <> %s ORDER BY id DESC LIMIT 2000",
             '%.invalid', (string) $viewer->user_email
         ));
         $map = [];
@@ -678,7 +737,7 @@ class TIX_Demo_Access {
 
     /** Antworten der Studio-Routen für Demo-Zugänge (nicht Admins): fremde Testkäufer verkürzen. */
     public static function mask_response($response, $server, $request) {
-        if (!($response instanceof WP_REST_Response) || !($request instanceof WP_REST_Request) || !self::multi()) return $response;
+        if (!($response instanceof WP_REST_Response) || !($request instanceof WP_REST_Request) || !self::enabled()) return $response;
         $route = (string) $request->get_route();
         if (strpos($route, '/' . self::NS . '/') !== 0) return $response;
         // Zugangs-Verwaltung zeigt Name und E-Mail der Zugänge immer voll (Vertriebler/Admin verwalten sie)
