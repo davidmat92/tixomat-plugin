@@ -874,7 +874,7 @@ class TIX_Promoter_Admin {
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
         if ($type === 'commissions') {
-            fputcsv($out, ['Datum', 'Promoter', 'Event', 'Bestellung', 'Tickets', 'Umsatz', 'Provision', 'Status'], ';');
+            tix_fputcsv($out, ['Datum', 'Promoter', 'Event', 'Bestellung', 'Tickets', 'Umsatz', 'Provision', 'Status'], ';');
             $filters = [];
             if (!empty($_GET['promoter_id'])) $filters['promoter_id'] = intval($_GET['promoter_id']);
             if (!empty($_GET['event_id']))    $filters['event_id']    = intval($_GET['event_id']);
@@ -884,7 +884,7 @@ class TIX_Promoter_Admin {
 
             $rows = TIX_Promoter_DB::get_commissions($filters);
             foreach ($rows as $r) {
-                fputcsv($out, [
+                tix_fputcsv($out, [
                     self::format_datetime($r->created_at),
                     $r->promoter_name ?: $r->promoter_code,
                     $r->event_title,
@@ -897,14 +897,14 @@ class TIX_Promoter_Admin {
             }
         } else {
             // Payouts
-            fputcsv($out, ['Zeitraum', 'Promoter', 'Umsatz', 'Provision', 'Anzahl', 'Status', 'Bezahlt am'], ';');
+            tix_fputcsv($out, ['Zeitraum', 'Promoter', 'Umsatz', 'Provision', 'Anzahl', 'Status', 'Bezahlt am'], ';');
             $filters = [];
             if (!empty($_GET['promoter_id'])) $filters['promoter_id'] = intval($_GET['promoter_id']);
             if (!empty($_GET['status']))      $filters['status']      = sanitize_text_field($_GET['status']);
 
             $rows = TIX_Promoter_DB::get_payouts($filters);
             foreach ($rows as $r) {
-                fputcsv($out, [
+                tix_fputcsv($out, [
                     self::format_date($r->period_from) . ' - ' . self::format_date($r->period_to),
                     $r->promoter_name ?: $r->promoter_code,
                     number_format($r->total_sales, 2, ',', '.'),
@@ -961,14 +961,14 @@ class TIX_Promoter_Admin {
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
-        fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link', 'Referral-Link mit Coupon', 'Coupon'], ';');
+        tix_fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link', 'Referral-Link mit Coupon', 'Coupon'], ';');
 
         // Erste Zeile: Allgemeiner Link (gilt fuer alle Events ueber Cookie)
         $home_link = add_query_arg('ref', $code, home_url('/'));
         $home_link_coupon = $default_coupon
             ? add_query_arg(['ref' => $code, 'coupon' => $default_coupon], home_url('/'))
             : '';
-        fputcsv($out, [
+        tix_fputcsv($out, [
             '0',
             'Allgemeiner Link (Startseite, alle Events)',
             'Dauerhaft',
@@ -986,7 +986,7 @@ class TIX_Promoter_Admin {
             $ref_coup = $default_coupon
                 ? add_query_arg(['ref' => $code, 'coupon' => $default_coupon], $permalink)
                 : '';
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $ev->ID,
                 $ev->post_title,
                 $date_fmt,

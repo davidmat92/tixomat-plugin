@@ -429,7 +429,7 @@ class TIX_Columns {
         $out = fopen('php://output', 'w');
         // BOM für Excel UTF-8
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, ['Typ', 'Kontakt', 'Name', 'Adresse', 'Käufe', 'Datum'], ';');
+        tix_fputcsv($out, ['Typ', 'Kontakt', 'Name', 'Adresse', 'Käufe', 'Datum'], ';');
 
         foreach ($subscribers as $sub) {
             $purchases = get_post_meta($sub->ID, '_tix_sub_purchases', true);
@@ -445,7 +445,7 @@ class TIX_Columns {
                 if ($order_id) $purchases_str = '#' . $order_id;
             }
 
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 get_post_meta($sub->ID, '_tix_sub_type', true) === 'whatsapp' ? 'WhatsApp' : 'E-Mail',
                 get_post_meta($sub->ID, '_tix_sub_contact', true),
                 get_post_meta($sub->ID, '_tix_sub_name', true),
@@ -1519,7 +1519,7 @@ class TIX_Columns {
 
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF)); // BOM
-        fputcsv($out, ['Ticket-Code', 'Event', 'Name', 'E-Mail', 'Kategorie', 'Sitzplatz', 'Bestellung', 'Status', 'Datum'], ';');
+        tix_fputcsv($out, ['Ticket-Code', 'Event', 'Name', 'E-Mail', 'Kategorie', 'Sitzplatz', 'Bestellung', 'Status', 'Datum'], ';');
 
         $status_map = ['valid' => 'Gültig', 'used' => 'Eingelöst', 'cancelled' => 'Storniert'];
 
@@ -1535,7 +1535,7 @@ class TIX_Columns {
             $seat   = get_post_meta($tid, '_tix_ticket_seat_id', true);
             $status = get_post_meta($tid, '_tix_ticket_status', true) ?: 'valid';
 
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 get_post_meta($tid, '_tix_ticket_code', true),
                 $ev ? $ev->post_title : '#' . $eid,
                 get_post_meta($tid, '_tix_ticket_owner_name', true),

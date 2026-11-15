@@ -1970,6 +1970,27 @@ class TIX_Metabox {
         <?php
     }
 
+    /** Felder, die das Kategorie-Formular im WP-Admin selbst setzt (alles andere bleibt beim Speichern erhalten) */
+    const FORM_CATEGORY_KEYS = ['name', 'price', 'sale_price', 'qty', 'desc', 'image_id', 'online', 'offline_ticket', 'admin_only', 'hidden', 'no_fee',
+        'gift_card', 'gift_free_amount', 'bundle_buy', 'bundle_pay', 'bundle_label', 'tc_event_id', 'product_id', 'sku', 'group', 'seatmap_id',
+        'seatmap_section', 'tax_rate', 'low_stock_mode', 'low_stock_threshold', 'low_stock_text', 'phases', 'stock'];
+
+    /**
+     * Audit 15.11. (M7): Speichern im WP-Admin hat Felder ohne Formularfeld verworfen (Einlassbereiche `areas`, Begleitperson
+     * `access`, Studio-/App-Felder). Bestehende Zeilen tragen ihren alten Index (`_orig`); deren unbekannte Felder bleiben.
+     * `stock` folgt wie bisher dem Bestand (TIX_Stock), neue Zeilen ohne `_orig` bekommen nichts.
+     */
+    private static function keep_category_extras(array $cat, $ticket, $old_cats) {
+        if (!is_array($ticket) || !isset($ticket['_orig']) || !is_numeric($ticket['_orig']) || !is_array($old_cats)) return $cat;
+        $old = $old_cats[intval($ticket['_orig'])] ?? null;
+        if (!is_array($old)) return $cat;
+        foreach ($old as $k => $v) {
+            if (!is_string($k) || in_array($k, self::FORM_CATEGORY_KEYS, true) || array_key_exists($k, $cat)) continue;
+            $cat[$k] = $v;
+        }
+        return $cat;
+    }
+
     private static function render_row($i, $cat, $stock = null) {
         $has_ids  = !empty($cat['tc_event_id']) || !empty($cat['product_id']);
         $image_id = intval($cat['image_id'] ?? 0);
@@ -1995,6 +2016,7 @@ class TIX_Metabox {
         ?>
         <tr class="<?php echo $row_class; ?>">
             <td>
+                <input type="hidden" name="tix_tickets[<?php echo $i; ?>][_orig]" value="<?php echo intval($i); ?>"><?php // Herkunft der Zeile: unbekannte Felder (access, areas …) beim Speichern erhalten (Audit 15.11., M7) ?>
                 <input type="text" name="tix_tickets[<?php echo $i; ?>][name]"
                        value="<?php echo esc_attr($cat['name'] ?? ''); ?>" placeholder="z.B. VIP" style="width:100%">
                 <input type="text" name="tix_tickets[<?php echo $i; ?>][group]"
@@ -4495,6 +4517,7 @@ class TIX_Metabox {
         // Ticket-Kategorien
         $raw = $_POST['tix_tickets'] ?? [];
         $categories = [];
+        $old_cats = get_post_meta($post_id, '_tix_ticket_categories', true); // M7: Felder ohne Formular (access, areas …) erhalten
 
         foreach ($raw as $ticket) {
             $name = sanitize_text_field($ticket['name'] ?? '');
@@ -4574,7 +4597,7 @@ class TIX_Metabox {
                 }
             }
 
-            $categories[] = $cat;
+            $categories[] = self::keep_category_extras($cat, $ticket, $old_cats);
         }
 
         update_post_meta($post_id, '_tix_ticket_categories', $categories);
@@ -4749,7 +4772,7 @@ class TIX_Metabox {
 
         // Low-Stock-Badge (Per-Event Override) — global/custom/manual/off
         $ls_mode = in_array(($tix_meta['_tix_low_stock_mode'] ?? 'global'), ['global','custom','manual','off'], true)
-                 ? $tix_meta['_tix_low_stock_mode'] : 'global';
+                 ? ($tix_meta['_tix_low_stock_mode'] ?? 'global') : 'global'; // ohne Feld keine Warnung (KK: display_errors)
         update_post_meta($post_id, '_tix_low_stock_mode', $ls_mode);
         if ($ls_mode === 'custom') {
             $ls_threshold = max(1, min(9999, intval($tix_meta['_tix_low_stock_threshold'] ?? 50)));
@@ -5260,6 +5283,7 @@ class TIX_Metabox {
         // ── Ticket-Kategorien (meta only, NO WC sync) ──
         $raw = $_POST['tix_tickets'] ?? [];
         $categories = [];
+        $old_cats = get_post_meta($post_id, '_tix_ticket_categories', true); // M7: Felder ohne Formular (access, areas …) erhalten
         if (is_array($raw)) {
             foreach ($raw as $ticket) {
                 $name = sanitize_text_field($ticket['name'] ?? '');
@@ -5309,7 +5333,7 @@ class TIX_Metabox {
                     usort($phases, fn($a, $b) => strcmp($a['until'], $b['until']));
                 }
                 $cat['phases'] = $phases;
-                $categories[] = $cat;
+                $categories[] = self::keep_category_extras($cat, $ticket, $old_cats);
             }
         }
         update_post_meta($post_id, '_tix_ticket_categories', $categories);

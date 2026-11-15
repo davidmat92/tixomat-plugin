@@ -1273,10 +1273,10 @@ class TIX_Promoter_Dashboard {
 
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link'], ';');
+        tix_fputcsv($out, ['Event-ID', 'Event-Titel', 'Datum', 'Referral-Link'], ';');
 
         // Erste Zeile: Allgemeiner Link
-        fputcsv($out, [
+        tix_fputcsv($out, [
             '0',
             'Allgemeiner Link (Startseite, alle Events)',
             'Dauerhaft',
@@ -1287,7 +1287,7 @@ class TIX_Promoter_Dashboard {
             $permalink = get_permalink($ev->ID);
             if (!$permalink) continue;
             $date_raw = get_post_meta($ev->ID, '_tix_date_start', true);
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $ev->ID,
                 $ev->post_title,
                 $date_raw ? date_i18n('d.m.Y', strtotime($date_raw)) : '',

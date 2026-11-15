@@ -20,6 +20,9 @@ class TIX_REST_API {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
         // Token-basierte Authentifizierung für Guest-User
         add_filter('determine_current_user', [__CLASS__, 'authenticate_by_token'], 30);
+        // Server-Härtung 15.11. (Schritt 3): Nutzerliste und Autoren-Archive nicht für Anonyme (Anmeldenamen)
+        add_filter('rest_endpoints', [__CLASS__, 'hide_users_route']);
+        add_action('template_redirect', [__CLASS__, 'block_author_scan'], 1);
         add_action('init', [__CLASS__, 'ensure_staff_role'], 5);
         // Token-Index (Suche per Hash statt Schleife über alle Konten): folgt jeder
         // Änderung der Token-Listen, egal über welchen Weg (Login, Logout, Passwort …)
@@ -30,6 +33,27 @@ class TIX_REST_API {
         add_action('init', [__CLASS__, 'maybe_schedule_token_reindex'], 20);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) {
             WP_CLI::add_command('tixomat app-tokens', [__CLASS__, 'cli_app_tokens']);
+        }
+    }
+
+    /**
+     * `/wp/v2/users[/…]` nur für Angemeldete (Cookie mit Nonce, App-/Studio-Token über determine_current_user). Anonym → 404
+     * rest_no_route, auch über ?rest_route= und jede Schreibweise. Apps, Studio, Homepages und Plugin nutzen die Route nicht.
+     */
+    public static function hide_users_route($endpoints) {
+        if (!is_array($endpoints) || is_user_logged_in()) return $endpoints;
+        foreach (array_keys($endpoints) as $route) {
+            if (preg_match('#^/wp/v2/users(/|$)#i', (string) $route)) unset($endpoints[$route]);
+        }
+        return $endpoints;
+    }
+
+    /** ?author=N und /author/<slug>/ für Anonyme auf die Startseite (sonst verraten Autoren-Archive die Anmeldenamen) */
+    public static function block_author_scan() {
+        if (is_user_logged_in() || is_admin()) return;
+        if (isset($_GET['author']) || is_author()) {
+            wp_safe_redirect(home_url('/'), 301);
+            exit;
         }
     }
 

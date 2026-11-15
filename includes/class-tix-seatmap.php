@@ -1414,7 +1414,26 @@ class TIX_Seatmap {
         $seat = (string) get_post_meta(intval($ticket_id), '_tix_ticket_seat_id', true);
         if ($seat === '') return '';
         $eid = intval(get_post_meta(intval($ticket_id), '_tix_ticket_event_id', true));
-        return self::seat_label($seat, $eid ? self::event_data($eid) : null);
+        if (!$eid) return self::seat_label($seat, null);
+        $map = self::seat_label_map($eid);
+        return $map[$seat] ?? self::seat_label($seat, null);
+    }
+
+    /** Je Anfrage vorgeladene Platzangaben eines Events [seat_id => Label] (Audit 15.11., M14: kein Plan-Laden je Ticket in Listen) */
+    private static $label_maps = [];
+
+    public static function seat_label_map($event_id) {
+        $eid = intval($event_id);
+        $key = $eid . '|' . self::event_seatmap($eid) . '|' . self::event_version($eid) . '|' . (get_post_meta($eid, self::META_SNAPSHOT, true) ? 's' : 'p');
+        if (isset(self::$label_maps[$key])) return self::$label_maps[$key];
+        $map = [];
+        $data = self::event_data($eid);
+        if (is_array($data)) foreach (($data['sections'] ?? []) as $sec) foreach (($sec['rows'] ?? []) as $row) foreach (($row['seats'] ?? []) as $s) {
+            $sid = (string) ($s['id'] ?? '');
+            if ($sid !== '' && !isset($map[$sid])) $map[$sid] = self::seat_label($sid, ['sections' => [['label' => $sec['label'] ?? '', 'rows' => [['id' => $row['id'] ?? '', 'label' => $row['label'] ?? null, 'seats' => [$s]]]]]]);
+        }
+        if (count(self::$label_maps) > 50) self::$label_maps = [];
+        return self::$label_maps[$key] = $map;
     }
 
     /** Einzelnes Ticket storniert → seinen Platz freigeben (Aktion tix_release_seat) */
@@ -1573,6 +1592,9 @@ class TIX_Seatmap {
         $eid = intval($req['id'] ?? $req->get_param('event_id'));
         $up = self::upstream($eid);
         if (!$up) return null;
+        // Audit 15.11. (M9): jeder Durchgriff ist ein Server-Aufruf beim Ersteller – auch Plan und Freigeben begrenzt
+        if ($action === 'map' && self::rest_limit('seat_map_fw', 60)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+        if ($action === 'release' && self::rest_limit('seat_release_fw', 60)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         $q = []; $body = null;
         if ($action === 'map') { $tok = (string) $req->get_param('hold_token'); if ($tok !== '') $q['hold_token'] = $tok; $q['_client'] = self::client_key(); }
         else {
@@ -1629,8 +1651,9 @@ class TIX_Seatmap {
     }
 
     public static function rest_hold(WP_REST_Request $req) {
-        if ($fw = self::maybe_forward($req, 'hold')) return $fw;
+        // Audit 15.11. (M9): Ratenbegrenzung vor dem Durchgriff zum Ersteller (sonst unbegrenzt über Spiegel/Kopien)
         if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
+        if ($fw = self::maybe_forward($req, 'hold')) return $fw;
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;
@@ -1658,8 +1681,8 @@ class TIX_Seatmap {
      * → beste Plätze finden und halten (preview: nur zeigen). attempt = „anderer Vorschlag“, replace = eigene Haltung vorher freigeben.
      */
     public static function rest_best(WP_REST_Request $req) {
+        if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]); // M9: vor dem Durchgriff
         if ($fw = self::maybe_forward($req, 'best')) return $fw;
-        if (self::rest_limit('seat_hold', 30)) return new WP_Error('tix_rate_limit', 'Zu viele Anfragen. Bitte kurz warten.', ['status' => 429]);
         $ev = self::rest_event($req);
         if (is_wp_error($ev)) return $ev;
         list($event_id, $sm) = $ev;

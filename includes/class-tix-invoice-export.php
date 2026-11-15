@@ -39,6 +39,7 @@ class TIX_Invoice_Export {
     }
 
     private static function q($s) {
+        if (function_exists('tix_csv_cell')) $s = tix_csv_cell((string) $s); // Formel-Injection (Audit 15.11.)
         return '"' . str_replace('"', '""', (string) $s) . '"';
     }
 

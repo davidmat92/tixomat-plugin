@@ -929,10 +929,10 @@ class TIX_Organizer_Admin {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, $header, ';');
+        tix_fputcsv($out, $header, ';');
         foreach ($rows as $r) {
             unset($r['date_sort']);
-            fputcsv($out, array_values($r), ';');
+            tix_fputcsv($out, array_values($r), ';');
         }
         fclose($out);
         exit;
@@ -1221,8 +1221,8 @@ class TIX_Organizer_Admin {
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Bestellnr', 'Datum', 'Event', 'Tickets', 'Brutto', 'MwSt', 'Netto'], ';');
-        foreach ($rows as $r) fputcsv($out, $r, ';');
+        tix_fputcsv($out, ['Bestellnr', 'Datum', 'Event', 'Tickets', 'Brutto', 'MwSt', 'Netto'], ';');
+        foreach ($rows as $r) tix_fputcsv($out, $r, ';');
         fclose($out);
         exit;
     }

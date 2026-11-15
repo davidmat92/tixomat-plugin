@@ -768,10 +768,10 @@ class TIX_Awareness_Live {
         header('Content-Disposition: attachment; filename="awareness-hinweise-' . current_time('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['ID', 'Zeit', 'Event-ID', 'Event', 'Art', 'Art (Schlüssel)', 'Bereich', 'Text', 'Erkennungszeichen', 'Anonym', 'Vorname', 'Status', 'Übernommen', 'Erledigt', 'Reaktion (min)'], ';');
+        tix_fputcsv($out, ['ID', 'Zeit', 'Event-ID', 'Event', 'Art', 'Art (Schlüssel)', 'Bereich', 'Text', 'Erkennungszeichen', 'Anonym', 'Vorname', 'Status', 'Übernommen', 'Erledigt', 'Reaktion (min)'], ';');
         foreach ($rows as $r) {
             $c = self::category($r->category ?? 'other');
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 intval($r->id), $r->created, intval($r->event_id), html_entity_decode(get_the_title(intval($r->event_id)), ENT_QUOTES, 'UTF-8'),
                 self::CATEGORIES[$c], $c, $r->area, $r->text, $r->sign, $r->anonymous ? 'ja' : 'nein', $r->anonymous ? '' : $r->first_name,
                 self::status_label($r->status), (string) $r->taken_at, (string) $r->done_at, (string) self::reaction_min($r),

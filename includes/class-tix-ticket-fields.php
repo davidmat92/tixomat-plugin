@@ -534,11 +534,11 @@ class TIX_Ticket_Fields {
             $head = array_merge(['Ticket-Code', 'Kategorie', 'Vorname', 'Nachname'], $mgr ? ['E-Mail'] : [], ['Eingecheckt', 'Bestellung'], array_map(function ($q) { return $q['label']; }, $qs));
             $fh = fopen('php://temp', 'w+');
             fwrite($fh, "\xEF\xBB\xBF");
-            fputcsv($fh, $head, ';');
+            tix_fputcsv($fh, $head, ';');
             foreach ($rows as $r) {
                 $line = array_merge([$r['code'], $r['category'], $r['first_name'] ?: $r['name'], $r['last_name']], $mgr ? [$r['email']] : [], [$r['checked_in'] ? 'ja' : 'nein', $r['order_id']]);
                 foreach ($qs as $q) $line[] = $q['scope'] === 'order' ? (string) (((array) $r['order_answers'])[$q['key']] ?? '') : (string) ($r['answers'][$q['key']] ?? '');
-                fputcsv($fh, array_map(function ($v) { $v = (string) $v; return preg_match('/^[=+\-@]/', $v) ? "'" . $v : $v; }, $line), ';');
+                tix_fputcsv($fh, array_map(function ($v) { $v = (string) $v; return preg_match('/^[=+\-@]/', $v) ? "'" . $v : $v; }, $line), ';');
             }
             rewind($fh);
             $csv = stream_get_contents($fh);

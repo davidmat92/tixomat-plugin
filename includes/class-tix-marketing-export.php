@@ -169,10 +169,10 @@ class TIX_Marketing_Export {
         // BOM für Excel
         fwrite($out, "\xEF\xBB\xBF");
         // Header
-        fputcsv($out, ['Email', 'Vorname', 'Nachname', 'VIP', 'Events', 'Letzte_Bestellung', 'Gesamtumsatz', 'Newsletter'], ';');
+        tix_fputcsv($out, ['Email', 'Vorname', 'Nachname', 'VIP', 'Events', 'Letzte_Bestellung', 'Gesamtumsatz', 'Newsletter'], ';');
 
         foreach ($results as $row) {
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $row['email'],
                 $row['first_name'],
                 $row['last_name'],

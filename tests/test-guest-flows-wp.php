@@ -50,6 +50,13 @@ try {
     $c = count($items($g1));
     TIX_Guest_Flows::process_new($new2);
     $eq('Einmal je Event', $c, count($items($g1)));
+    // M13 (Audit 15.11.): Serien-Termine melden sich nur einmal je Serie
+    $mk = function ($t, $d, $parent = 0) use ($meta, &$posts) { $id = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => $t, 'meta_input' => $meta + ['_tix_date_start' => wp_date('Y-m-d', time() + $d * DAY_IN_SECONDS)] + ($parent ? ['_tix_recurrence_parent' => $parent] : [])]); $posts[] = $id; return $id; };
+    $sm = $mk('Flow Serie', 30); $sc1 = $mk('Flow Serie', 37, $sm); $sc2 = $mk('Flow Serie', 44, $sm);
+    $r1 = TIX_Guest_Flows::process_new($sm); $c = count($items($g1));
+    $r2 = TIX_Guest_Flows::process_new($sc1); $r3 = TIX_Guest_Flows::process_new($sc2);
+    $eq('M13: Serie meldet sich einmal (Vorlage ja, Termine nein)', [true, [], [], $c], [isset($r1['next_event']), $r2, $r3, count($items($g1))]);
+    $eq('M13: Serien-Schlüssel', [$sm, $sm, $new2], [TIX_Guest_Flows::series_key($sc1), TIX_Guest_Flows::series_key($sm), TIX_Guest_Flows::series_key($new2)]);
     $t = TIX_Guest_Flows::process_thanks($last);
     $eq('Danke an die Gäste (einmal)', [2, true, 0], [$t, in_array('Danke für deinen Besuch', $items($g1), true), TIX_Guest_Flows::process_thanks($last)]);
     $eq('Ohne Ticket-Gäste: niemand', true, TIX_Guest_Flows::sent('next_event', $new2));

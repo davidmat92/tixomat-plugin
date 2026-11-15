@@ -494,11 +494,14 @@ class TIX_Resale {
     }
 
     /** Fällige Angebote schließen: offen + Frist vorbei → expired; Sperren ohne Zahlung → wieder frei. */
-    public static function expire_due() {
+    public static function expire_due($force = false) {
         static $done = false;
         if ($done && self::$now === null) return;
+        // Audit 15.11. (niedrig): öffentliche GETs räumen höchstens einmal je Minute auf (Cron stündlich, Kauf immer)
+        if (!$force && self::$now === null && get_transient('tix_resale_expire_ran')) return;
         $done = true;
         if (!self::ready()) return;
+        if (self::$now === null) set_transient('tix_resale_expire_ran', 1, MINUTE_IN_SECONDS);
         global $wpdb;
         $now = self::utc();
         $locks = (array) $wpdb->get_results($wpdb->prepare("SELECT id, lock_order_id FROM " . self::table() . " WHERE status = 'locked' AND locked_until IS NOT NULL AND locked_until < %s LIMIT 100", $now), ARRAY_A);
@@ -564,7 +567,7 @@ class TIX_Resale {
         }
         $qty = intval($items[0]['qty'] ?? ($items[0]['quantity'] ?? 1));
         if ($qty !== 1) return new WP_Error('tix_resale_mixed', 'Ein Weiterverkaufs-Angebot enthält genau ein Ticket.', ['status' => 400]);
-        self::expire_due();
+        self::expire_due(true);
         $o = self::get(intval($items[0]['resale_offer']));
         if (!$o || intval($o['event_id']) !== intval($event_id)) return new WP_Error('tix_resale_taken', 'Dieses Angebot ist nicht mehr verfügbar.', ['status' => 409]);
         if ($o['status'] === 'expired' || (self::deadline_ts($event_id) <= self::now())) return new WP_Error('tix_resale_expired', 'Die Frist für dieses Angebot ist abgelaufen.', ['status' => 409]);
@@ -920,7 +923,7 @@ class TIX_Resale {
 
     public static function cron() {
         if (!self::ready()) return;
-        self::expire_due();
+        self::expire_due(true);
         self::purge_old();
         global $wpdb;
         $due = (array) $wpdb->get_col($wpdb->prepare("SELECT id FROM " . self::table() . " WHERE status = 'sold' AND payout_status = 'pending' AND updated_at < %s LIMIT 50", self::utc(self::now() - 600)));

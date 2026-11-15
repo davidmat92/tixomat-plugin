@@ -1884,9 +1884,9 @@ class TIX_CRM {
 
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // Excel (deutsch): UTF-8 mit BOM, Semikolon – wie die übrigen Exporte
-        fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Bestellungen', 'Umsatz', 'Erste Bestellung', 'Letzte Bestellung', 'Quelle', 'Rolle'], ';');
+        tix_fputcsv($out, ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Bestellungen', 'Umsatz', 'Erste Bestellung', 'Letzte Bestellung', 'Quelle', 'Rolle'], ';');
         foreach ($result['rows'] as $r) {
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $r['first_name'],
                 $r['last_name'],
                 $r['email'],

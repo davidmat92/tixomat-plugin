@@ -424,14 +424,14 @@ class TIX_Sponsor_Dashboard {
 
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, ['Code', 'Event', 'Kategorie', 'Name', 'E-Mail', 'Status', 'Eingecheckt', 'Versandt am', 'Online-Link'], ';');
+        tix_fputcsv($out, ['Code', 'Event', 'Kategorie', 'Name', 'E-Mail', 'Status', 'Eingecheckt', 'Versandt am', 'Online-Link'], ';');
 
         $tids = TIX_Sponsor_DB::get_sponsor_tickets(intval($sponsor->id));
         foreach ($tids as $tid) {
             $tid = intval($tid);
             $event = get_post(intval(get_post_meta($tid, '_tix_ticket_event_id', true)));
             $online_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($tid) : '';
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 get_post_meta($tid, '_tix_ticket_code', true),
                 $event ? $event->post_title : '',
                 get_post_meta($tid, '_tix_ticket_cat_name', true),

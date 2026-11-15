@@ -883,12 +883,28 @@ class TIX_Invoices {
     // ═══════════════ Korrekturen ═══════════════
 
     /** Verbleibender Betrag je Satz eines Belegs (Ursprung minus Korrekturen). */
+    /** Vorab geladene Korrekturen/Ersatzrechnungen einer Listenseite (Audit 15.11.: Rechnungsliste ohne Abfrage je Zeile) */
+    private static $pre_corr = null;
+    private static $pre_repl = null;
+
+    private static function preload_list(array $rows) {
+        global $wpdb;
+        $ids = array_values(array_unique(array_filter(array_map(function ($r) { return intval($r->id); }, $rows))));
+        self::$pre_corr = []; self::$pre_repl = [];
+        if (!$ids) return;
+        $in = implode(',', $ids);
+        foreach ($ids as $id) { self::$pre_corr[$id] = []; self::$pre_repl[$id] = null; }
+        foreach ((array) $wpdb->get_results("SELECT ref_invoice_id, data FROM " . self::table() . " WHERE ref_invoice_id IN ($in)") as $c) self::$pre_corr[intval($c->ref_invoice_id)][] = $c;
+        foreach ((array) $wpdb->get_results("SELECT * FROM " . self::table() . " WHERE replaces_id IN ($in) ORDER BY id ASC") as $r) { $k = intval($r->replaces_id); if (self::$pre_repl[$k] === null) self::$pre_repl[$k] = $r; }
+    }
+
     private static function remaining($inv) {
         global $wpdb;
         $d = json_decode((string) $inv->data, true);
         $by = [];
         foreach ((array) ($d['lines'] ?? []) as $l) { $rk = $l['rate'] === null ? 'x' : number_format(floatval($l['rate']), 2, '.', ''); $by[$rk] = round(($by[$rk] ?? 0) + floatval($l['gross']), 2); }
-        $corr = (array) $wpdb->get_results($wpdb->prepare("SELECT data FROM " . self::table() . " WHERE ref_invoice_id = %d", intval($inv->id)));
+        $corr = (self::$pre_corr !== null && array_key_exists(intval($inv->id), self::$pre_corr)) ? self::$pre_corr[intval($inv->id)]
+            : (array) $wpdb->get_results($wpdb->prepare("SELECT data FROM " . self::table() . " WHERE ref_invoice_id = %d", intval($inv->id)));
         foreach ($corr as $c) {
             $cd = json_decode((string) $c->data, true);
             foreach ((array) ($cd['lines'] ?? []) as $l) { $rk = $l['rate'] === null ? 'x' : number_format(floatval($l['rate']), 2, '.', ''); $by[$rk] = round(($by[$rk] ?? 0) + floatval($l['gross']), 2); }
@@ -1003,6 +1019,7 @@ class TIX_Invoices {
     /** Neue Rechnung, die diese ersetzt (oder null). */
     public static function replacement_of($id) {
         global $wpdb;
+        if (self::$pre_repl !== null && array_key_exists(intval($id), self::$pre_repl)) return self::$pre_repl[intval($id)];
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table() . " WHERE replaces_id = %d ORDER BY id ASC LIMIT 1", intval($id)));
     }
 
@@ -1529,6 +1546,12 @@ class TIX_Invoices {
         $page = max(1, intval($req->get_param('page') ?: 1));
         $tot = $wpdb->get_row("SELECT COUNT(*) n, COALESCE(SUM(net),0) net, COALESCE(SUM(tax),0) tax, COALESCE(SUM(gross),0) gross FROM $t WHERE $w");
         $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM $t WHERE $w ORDER BY created DESC, id DESC LIMIT %d OFFSET %d", $per, ($page - 1) * $per));
+        self::preload_list($rows);
+        try {
+            $items = array_map(function ($r) { return self::row($r, false); }, $rows);
+        } finally {
+            self::$pre_corr = null; self::$pre_repl = null;
+        }
         return rest_ensure_response([
             'ok' => true, 'issuer' => $issuer === '' ? null : $issuer, 'enabled' => self::enabled(),
             'totals' => ['count' => intval($tot->n), 'net' => round(floatval($tot->net), 2), 'tax' => round(floatval($tot->tax), 2), 'gross' => round(floatval($tot->gross), 2)],
@@ -1536,7 +1559,7 @@ class TIX_Invoices {
             'tax_id_missing_open' => self::tax_id_missing_stats($issuer ?: '')['open'],
             'without_invoice' => self::missing_payload($issuer ?: ''),
             'page' => $page, 'per_page' => $per, 'total' => intval($tot->n), 'has_more' => intval($tot->n) > $page * $per,
-            'invoices' => array_map(function ($r) { return self::row($r, false); }, $rows),
+            'invoices' => $items,
         ]);
     }
 

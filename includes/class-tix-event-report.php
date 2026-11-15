@@ -1217,51 +1217,51 @@ class TIX_Event_Report {
         // Aussteller-Block ganz oben (Steuerberater-freundlich)
         $issuer = self::format_issuer_block();
         if (!empty($issuer)) {
-            fputcsv($out, ['AUSSTELLER'], ';');
-            foreach ($issuer as $line) fputcsv($out, [$line], ';');
-            fputcsv($out, [], ';');
+            tix_fputcsv($out, ['AUSSTELLER'], ';');
+            foreach ($issuer as $line) tix_fputcsv($out, [$line], ';');
+            tix_fputcsv($out, [], ';');
         }
 
         // Event-Header
-        fputcsv($out, ['Event:', $event ? $event->post_title : ''], ';');
-        fputcsv($out, ['Datum (Leistung):', $event ? (get_post_meta($event->ID, '_tix_date_start', true) ?: '') : ''], ';');
-        fputcsv($out, ['Bericht erstellt:', date_i18n('d.m.Y H:i')], ';');
-        fputcsv($out, [], ';');
+        tix_fputcsv($out, ['Event:', $event ? $event->post_title : ''], ';');
+        tix_fputcsv($out, ['Datum (Leistung):', $event ? (get_post_meta($event->ID, '_tix_date_start', true) ?: '') : ''], ';');
+        tix_fputcsv($out, ['Bericht erstellt:', date_i18n('d.m.Y H:i')], ';');
+        tix_fputcsv($out, [], ';');
 
         // KPIs
-        fputcsv($out, ['Tickets verkauft', $data['kpis']['sold']], ';');
-        fputcsv($out, ['Storniert',        $data['kpis']['cancelled']], ';');
-        fputcsv($out, ['Eingecheckt',      $data['kpis']['checked_in']], ';');
-        fputcsv($out, ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'], ';');
-        fputcsv($out, ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'], ';');
-        fputcsv($out, ['Netto-Umsatz (vor Geb.)', number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
+        tix_fputcsv($out, ['Tickets verkauft', $data['kpis']['sold']], ';');
+        tix_fputcsv($out, ['Storniert',        $data['kpis']['cancelled']], ';');
+        tix_fputcsv($out, ['Eingecheckt',      $data['kpis']['checked_in']], ';');
+        tix_fputcsv($out, ['Check-in Rate',    $data['kpis']['checkin_rate'] . '%'], ';');
+        tix_fputcsv($out, ['Brutto-Umsatz',    number_format($data['kpis']['revenue_gross'], 2, ',', '.') . ' EUR'], ';');
+        tix_fputcsv($out, ['Netto-Umsatz (vor Geb.)', number_format($data['kpis']['revenue_net'], 2, ',', '.') . ' EUR'], ';');
         if (!empty($data['kpis']['payment_fees']) && $data['kpis']['payment_fees'] > 0) {
-            fputcsv($out, ['Zahlungs-Gebühren',         '-' . number_format($data['kpis']['payment_fees'], 2, ',', '.') . ' EUR'], ';');
-            fputcsv($out, ['Brutto nach Gebühren',      number_format($data['kpis']['revenue_after_fees'], 2, ',', '.') . ' EUR'], ';');
-            fputcsv($out, ['Netto nach Gebühren',       number_format($data['kpis']['revenue_net_after_fees'], 2, ',', '.') . ' EUR'], ';');
+            tix_fputcsv($out, ['Zahlungs-Gebühren',         '-' . number_format($data['kpis']['payment_fees'], 2, ',', '.') . ' EUR'], ';');
+            tix_fputcsv($out, ['Brutto nach Gebühren',      number_format($data['kpis']['revenue_after_fees'], 2, ',', '.') . ' EUR'], ';');
+            tix_fputcsv($out, ['Netto nach Gebühren',       number_format($data['kpis']['revenue_net_after_fees'], 2, ',', '.') . ' EUR'], ';');
         }
-        fputcsv($out, [], ';');
+        tix_fputcsv($out, [], ';');
 
         // Steueraufschlüsselung
         $vat_rate = floatval($data['kpis']['vat_rate'] ?: 19);
         $brutto   = floatval($data['kpis']['revenue_gross']);
         $netto    = floatval($data['kpis']['revenue_net']);
         $vat_amt  = round($brutto - $netto, 2);
-        fputcsv($out, ['STEUERLICHE AUFSCHLÜSSELUNG'], ';');
-        fputcsv($out, ['Steuersatz', 'Netto EUR', 'USt-Betrag EUR', 'Brutto EUR'], ';');
-        fputcsv($out, [
+        tix_fputcsv($out, ['STEUERLICHE AUFSCHLÜSSELUNG'], ';');
+        tix_fputcsv($out, ['Steuersatz', 'Netto EUR', 'USt-Betrag EUR', 'Brutto EUR'], ';');
+        tix_fputcsv($out, [
             number_format($vat_rate, 0, ',', '.') . '%',
             number_format($netto, 2, ',', '.'),
             number_format($vat_amt, 2, ',', '.'),
             number_format($brutto, 2, ',', '.'),
         ], ';');
-        fputcsv($out, [], ';');
+        tix_fputcsv($out, [], ';');
 
         // Kategorien
-        fputcsv($out, ['KATEGORIEN'], ';');
-        fputcsv($out, ['Kategorie', 'Verkauft', 'Eingecheckt', 'Ø Preis EUR', 'Brutto-Umsatz EUR'], ';');
+        tix_fputcsv($out, ['KATEGORIEN'], ';');
+        tix_fputcsv($out, ['Kategorie', 'Verkauft', 'Eingecheckt', 'Ø Preis EUR', 'Brutto-Umsatz EUR'], ';');
         foreach ($data['categories'] as $c) {
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $c['name'],
                 $c['sold'],
                 $c['checked_in'],
@@ -1269,13 +1269,13 @@ class TIX_Event_Report {
                 number_format($c['revenue'], 2, ',', '.'),
             ], ';');
         }
-        fputcsv($out, [], ';');
+        tix_fputcsv($out, [], ';');
 
         // Detail-Tickets
-        fputcsv($out, ['DETAILS — VERKAUFTE TICKETS'], ';');
-        fputcsv($out, ['Ticket-Code', 'Käufer', 'Email', 'Kategorie', 'Preis EUR', 'Bestellt am', 'Bestell-Nr.', 'Sitzplatz', 'Status', 'Check-in', 'Check-in Zeit'], ';');
+        tix_fputcsv($out, ['DETAILS — VERKAUFTE TICKETS'], ';');
+        tix_fputcsv($out, ['Ticket-Code', 'Käufer', 'Email', 'Kategorie', 'Preis EUR', 'Bestellt am', 'Bestell-Nr.', 'Sitzplatz', 'Status', 'Check-in', 'Check-in Zeit'], ';');
         foreach ($data['tickets'] as $t) {
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $t['code'],
                 $t['owner_name'],
                 $t['owner_email'],
@@ -1291,8 +1291,8 @@ class TIX_Event_Report {
         }
 
         // Compliance-Hinweis
-        fputcsv($out, [], ';');
-        fputcsv($out, ['Hinweis: Aufbewahrungspflicht 10 Jahre gemäß § 147 AO / GoBD. Dieser Bericht ist eine Auswertung — keine einzelne Rechnung.'], ';');
+        tix_fputcsv($out, [], ';');
+        tix_fputcsv($out, ['Hinweis: Aufbewahrungspflicht 10 Jahre gemäß § 147 AO / GoBD. Dieser Bericht ist eine Auswertung — keine einzelne Rechnung.'], ';');
 
         fclose($out);
     }

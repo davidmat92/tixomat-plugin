@@ -29,6 +29,7 @@ class TIX_Newsletter_Mailchimp {
     public static function init() {
         add_action('tix_newsletter_optin', [__CLASS__, 'on_optin'], 11, 4);
         add_action('tix_nl_confirmed', [__CLASS__, 'on_confirmed'], 11, 4);
+        add_action(self::DEFER_HOOK, [__CLASS__, 'run_deferred'], 10, 2);
     }
 
     private static function bad($field, $msg, $code = 'tix_invalid_field', $status = 400) { return new WP_Error($code, $msg, ['status' => $status, 'field' => $field]); }
@@ -38,9 +39,9 @@ class TIX_Newsletter_Mailchimp {
     public static function dc($key) { return substr((string) strrchr((string) $key, '-'), 1); }
 
     /** Aufruf der Mailchimp-API → [code, array] oder WP_Error */
-    public static function api($key, $method, $path, $body = null) {
+    public static function api($key, $method, $path, $body = null, $timeout = 25) {
         if (!preg_match(self::KEY_RE, (string) $key)) return new WP_Error('tix_mc_key', 'Kein gültiger Mailchimp-Schlüssel.', ['status' => 400, 'field' => 'mc_api_key']);
-        $args = ['method' => $method, 'timeout' => 25, 'headers' => ['Authorization' => 'Basic ' . base64_encode('evendis:' . $key), 'Accept' => 'application/json', 'Content-Type' => 'application/json']];
+        $args = ['method' => $method, 'timeout' => max(1, intval($timeout)), 'headers' => ['Authorization' => 'Basic ' . base64_encode('evendis:' . $key), 'Accept' => 'application/json', 'Content-Type' => 'application/json']];
         if ($body !== null) $args['body'] = wp_json_encode($body);
         $r = wp_remote_request('https://' . self::dc($key) . '.api.mailchimp.com/3.0' . $path, $args);
         if (is_wp_error($r)) return new WP_Error('tix_mc_down', 'Mailchimp ist gerade nicht erreichbar.', ['status' => 502]);
@@ -375,9 +376,9 @@ class TIX_Newsletter_Mailchimp {
         $email = strtolower(trim(sanitize_email((string) $email)));
         if (!is_email($email) || $s['mc_key'] === '' || $s['mc_audience_id'] === '') return false;
         $path = '/lists/' . rawurlencode($s['mc_audience_id']) . '/members/' . self::hash($email);
-        $r = self::api($s['mc_key'], 'PUT', $path, ['email_address' => $email, 'status_if_new' => 'subscribed'] + ((string) $first !== '' ? ['merge_fields' => ['FNAME' => mb_substr((string) $first, 0, 60)]] : []));
+        $r = self::api($s['mc_key'], 'PUT', $path, ['email_address' => $email, 'status_if_new' => 'subscribed'] + ((string) $first !== '' ? ['merge_fields' => ['FNAME' => mb_substr((string) $first, 0, 60)]] : []), self::PUSH_TIMEOUT);
         if (!self::ok($r)) return false;
-        if ($tags) self::api($s['mc_key'], 'POST', $path . '/tags', ['tags' => array_map(function ($t) { return ['name' => $t, 'status' => 'active']; }, $tags)]);
+        if ($tags) self::api($s['mc_key'], 'POST', $path . '/tags', ['tags' => array_map(function ($t) { return ['name' => $t, 'status' => 'active']; }, $tags)], self::PUSH_TIMEOUT);
         return true;
     }
 
@@ -387,15 +388,64 @@ class TIX_Newsletter_Mailchimp {
         return $cfg['enabled'] && $cfg['timing'] === $timing ? $cfg : null;
     }
 
-    /** Kauf-Häkchen (native Kasse): je Bereich der gekauften Events, Zeitpunkt „sofort“ */
+    // ── Audit 15.11. (M12): die Anmeldung läuft nach der Antwort (Cron-Einzeltermin), nie in der Kasse; kurze Zeitgrenze ──
+    const DEFER_HOOK = 'tix_nl_mc_deferred';
+    const PUSH_TIMEOUT = 5;
+
+    private static function defer($kind, array $args) {
+        $ok = wp_schedule_single_event(time(), self::DEFER_HOOK, [$kind, $args]);
+        if ($ok === false || is_wp_error($ok)) {
+            // Termin nicht anlegbar (z. B. schon derselbe in der Warteschlange): am Ende der Anfrage
+            add_action('shutdown', function () use ($kind, $args) { self::run_deferred($kind, $args); });
+        }
+    }
+
+    /** Vorgemerkte Übertragung ausführen (Cron bzw. Ende der Anfrage) */
+    public static function run_deferred($kind, $args) {
+        $a = array_values((array) $args);
+        if ($kind === 'optin') self::do_optin(intval($a[0] ?? 0), (string) ($a[1] ?? ''), (string) ($a[2] ?? ''), (string) ($a[3] ?? ''));
+        elseif ($kind === 'confirmed') self::do_confirmed(intval($a[0] ?? 0), (string) ($a[1] ?? ''), (string) ($a[2] ?? ''), intval($a[3] ?? 0));
+    }
+
+    /** Alle vorgemerkten Übertragungen sofort ausführen (Tests, WP-CLI) → Anzahl */
+    public static function run_pending() {
+        $n = 0;
+        foreach ((array) _get_cron_array() as $ts => $hooks) {
+            foreach ((array) ($hooks[self::DEFER_HOOK] ?? []) as $ev) {
+                $args = (array) ($ev['args'] ?? []);
+                wp_unschedule_event($ts, self::DEFER_HOOK, $args);
+                self::run_deferred($args[0] ?? '', $args[1] ?? []);
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /** Kauf-Häkchen (native Kasse): vormerken – die Kasse wartet nicht auf Mailchimp */
     public static function on_optin($order_id, $email, $first, $last) {
+        $any = false;
+        foreach (self::optin_orgs($order_id) as $o) if (self::sync_active(TIX_Newsletter::settings($o), 'immediate')) { $any = true; break; }
+        if ($any) self::defer('optin', [intval($order_id), (string) $email, (string) $first, (string) $last]);
+    }
+
+    /** Bestätigte Anmeldung (Double-Opt-in): vormerken */
+    public static function on_confirmed($org, $email, $first, $order_id) {
+        if (self::sync_active(TIX_Newsletter::settings(intval($org)), 'after_confirm')) self::defer('confirmed', [intval($org), (string) $email, (string) $first, intval($order_id)]);
+    }
+
+    private static function optin_orgs($order_id) {
         $orgs = [0];
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && class_exists('TIX_Order')) {
             global $wpdb;
             $orgs = [];
             foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT DISTINCT event_id FROM " . TIX_Order::items_table_name() . " WHERE order_id = %d", intval($order_id))) as $e) { $o = intval(get_post_meta(intval($e), '_tix_organizer_id', true)); if ($o) $orgs[$o] = $o; }
         }
-        foreach ($orgs as $o) {
+        return $orgs;
+    }
+
+    /** Kauf-Häkchen (native Kasse): je Bereich der gekauften Events, Zeitpunkt „sofort“ */
+    public static function do_optin($order_id, $email, $first, $last) {
+        foreach (self::optin_orgs($order_id) as $o) {
             $s = TIX_Newsletter::settings($o);
             if (!($cfg = self::sync_active($s, 'immediate'))) continue;
             self::push_member($s, $email, $first, self::tags_for_order($o, intval($order_id), $cfg));
@@ -403,7 +453,7 @@ class TIX_Newsletter_Mailchimp {
     }
 
     /** Bestätigte Anmeldung (Double-Opt-in), Zeitpunkt „nach Bestätigung“ */
-    public static function on_confirmed($org, $email, $first, $order_id) {
+    public static function do_confirmed($org, $email, $first, $order_id) {
         $s = TIX_Newsletter::settings(intval($org));
         if (!($cfg = self::sync_active($s, 'after_confirm'))) return;
         self::push_member($s, $email, $first, self::tags_for_order(intval($org), intval($order_id), $cfg));

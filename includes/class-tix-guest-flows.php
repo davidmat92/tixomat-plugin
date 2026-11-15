@@ -162,6 +162,17 @@ class TIX_Guest_Flows {
         return $n;
     }
 
+    /**
+     * Audit 15.11. (M13): Serien (wiederkehrende Termine, alte Event-Serien) melden sich nur einmal je Serie – sonst bekommt jeder
+     * Follower bzw. App-Nutzer für jeden der bis zu 26 angelegten Termine eine Mitteilung. Schlüssel = Serien-Vorlage, sonst das Event.
+     */
+    public static function series_key($eid) {
+        $eid = intval($eid);
+        $p = class_exists('TIX_Recurrence') ? intval(get_post_meta($eid, TIX_Recurrence::META_PARENT, true)) : intval(get_post_meta($eid, '_tix_recurrence_parent', true));
+        if (!$p) $p = intval(get_post_meta($eid, '_tix_series_parent', true));
+        return $p > 0 && $p !== $eid ? $p : $eid;
+    }
+
     /** Neues Event: Follower-Alarm, alle App-Nutzer (Einzel-Seite), nächstes Event an die letzten Gäste */
     public static function process_new($eid) {
         $eid = intval($eid);
@@ -173,15 +184,16 @@ class TIX_Guest_Flows {
         $presale = self::presale_future($eid);
         $res = [];
         $text = $presale ? 'Neu angekündigt: ' . $title . ' am ' . self::when($eid) . '. Der Vorverkauf startet bald.' : $title . ' am ' . self::when($eid) . ' – Tickets gibt es jetzt.';
-        if (self::multi() && $oid && self::on('follower_alert', $oid) && self::claim('follower_new', $eid)) {
+        $sk = self::series_key($eid); // M13: einmal je Serie
+        if (self::multi() && $oid && self::on('follower_alert', $oid) && self::claim('follower_new', $sk)) {
             $n = self::notify(self::followers($oid), 'Neu von ' . self::org_name($oid), $text, $eid, 'follower');
-            self::done('follower_new', $eid, $n); $res['follower_new'] = $n;
+            self::done('follower_new', $sk, $n); $res['follower_new'] = $n;
         }
-        if (!self::multi() && self::on('new_event_all', 0) && class_exists('TIX_Notifications') && self::claim('all_new', $eid)) {
+        if (!self::multi() && self::on('new_event_all', 0) && class_exists('TIX_Notifications') && self::claim('all_new', $sk)) {
             TIX_Notifications::send_broadcast('Neues Event', $text, $eid, 'all', 'event:' . $eid, 'flow-all-' . $eid);
-            self::done('all_new', $eid, 1); $res['all_new'] = 1;
+            self::done('all_new', $sk, 1); $res['all_new'] = 1;
         }
-        if (self::on('next_event', $oid) && self::claim('next_event', $eid)) {
+        if (self::on('next_event', $oid) && self::claim('next_event', $sk)) {
             $last = self::last_past_event($oid, $eid);
             $n = 0;
             if ($last && class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'event_ticket_user_ids')) {
@@ -189,7 +201,7 @@ class TIX_Guest_Flows {
                 $uids = array_diff(TIX_Notifications::event_ticket_user_ids($last), $have);
                 $n = self::notify($uids, 'Dein nächstes Event', 'Du warst bei ' . html_entity_decode(get_the_title($last), ENT_QUOTES, 'UTF-8') . ' – als Nächstes: ' . $title . ' am ' . self::when($eid) . '.', $eid, 'next');
             }
-            self::done('next_event', $eid, $n); $res['next_event'] = $n;
+            self::done('next_event', $sk, $n); $res['next_event'] = $n;
         }
         return $res;
     }
@@ -213,13 +225,14 @@ class TIX_Guest_Flows {
         $oid = self::scope_of($eid);
         $title = html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8');
         $res = [];
-        if (self::multi() && $oid && self::on('follower_alert', $oid) && self::claim('follower_presale', $eid)) {
+        $sk = self::series_key($eid); // M13: einmal je Serie
+        if (self::multi() && $oid && self::on('follower_alert', $oid) && self::claim('follower_presale', $sk)) {
             $n = self::notify(self::followers($oid), 'Vorverkauf gestartet', 'Tickets für ' . $title . ' am ' . self::when($eid) . ' gibt es jetzt.', $eid, 'presale');
-            self::done('follower_presale', $eid, $n); $res['follower_presale'] = $n;
+            self::done('follower_presale', $sk, $n); $res['follower_presale'] = $n;
         }
-        if (!self::multi() && self::on('new_event_all', 0) && class_exists('TIX_Notifications') && self::claim('all_presale', $eid)) {
+        if (!self::multi() && self::on('new_event_all', 0) && class_exists('TIX_Notifications') && self::claim('all_presale', $sk)) {
             TIX_Notifications::send_broadcast('Vorverkauf gestartet', 'Tickets für ' . $title . ' am ' . self::when($eid) . ' gibt es jetzt.', $eid, 'all', 'event:' . $eid, 'flow-presale-' . $eid);
-            self::done('all_presale', $eid, 1); $res['all_presale'] = 1;
+            self::done('all_presale', $sk, 1); $res['all_presale'] = 1;
         }
         return $res;
     }

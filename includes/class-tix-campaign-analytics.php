@@ -451,12 +451,12 @@ class TIX_Campaign_Analytics {
 
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM für Excel
-        fputcsv($out, ['Kanal', 'Kampagne', 'Besucher', 'Bestellungen', 'Tickets', 'Umsatz', 'Conversion (%)'], ';');
+        tix_fputcsv($out, ['Kanal', 'Kampagne', 'Besucher', 'Bestellungen', 'Tickets', 'Umsatz', 'Conversion (%)'], ';');
 
         foreach ($results as $row) {
             $orders = intval($row['orders'] ?? 0);
             $conv = $row['views'] > 0 ? ($orders / $row['views'] * 100) : 0;
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $row['channel_label'],
                 $row['campaign'],
                 $row['views'],

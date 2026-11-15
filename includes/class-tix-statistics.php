@@ -1798,8 +1798,8 @@ class TIX_Statistics {
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM
         if (!empty($rows)) {
-            fputcsv($out, array_keys($rows[0]), ';');
-            foreach ($rows as $row) fputcsv($out, array_values($row), ';');
+            tix_fputcsv($out, array_keys($rows[0]), ';');
+            foreach ($rows as $row) tix_fputcsv($out, array_values($row), ';');
         }
         fclose($out);
         exit;

@@ -347,7 +347,7 @@ class TIX_Promoter_Rules {
     private static function csv(array $rows) {
         $fh = fopen('php://temp', 'r+');
         fwrite($fh, "\xEF\xBB\xBF");
-        foreach ($rows as $r) fputcsv($fh, array_map(function ($v) { $v = (string) $v; return preg_match('/^[=+\-@]/', $v) ? "'" . $v : $v; }, $r), ';');
+        foreach ($rows as $r) tix_fputcsv($fh, array_map(function ($v) { $v = (string) $v; return preg_match('/^[=+\-@]/', $v) ? "'" . $v : $v; }, $r), ';');
         rewind($fh);
         $s = stream_get_contents($fh);
         fclose($fh);

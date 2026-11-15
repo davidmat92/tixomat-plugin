@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.838
+ * Version: 1.38.839
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.838');
+define('TIXOMAT_VERSION', '1.38.839');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -58,6 +58,27 @@ add_filter('get_post_metadata', function($value, $object_id, $meta_key, $single,
  */
 function tix_has_wc() {
     return class_exists('WooCommerce');
+}
+
+/**
+ * CSV-Zelle gegen Formel-Injection (Excel/LibreOffice) entschärfen (Audit 15.11.): beginnt der Text mit = + - @ Tab oder CR,
+ * kommt ein ' davor. Zahlen, Beträge („-12,50 EUR“, „5 %“) und Telefonnummern („+49 171 …“) bleiben unverändert.
+ */
+function tix_csv_cell($v) {
+    if (is_int($v) || is_float($v) || is_bool($v) || $v === null) return $v;
+    $s = (string) $v;
+    if ($s === '' || !preg_match('/^[=+\-@\t\r]/', $s)) return $v;
+    if (preg_match('/^[+\-][\d\s.,\/()\-]*\d[\d\s.,\/()\-]*(\s?(EUR|€|%))?$/u', $s)) return $v;
+    return "'" . $s;
+}
+
+function tix_csv_row($row) {
+    return is_array($row) ? array_map('tix_csv_cell', $row) : $row;
+}
+
+/** fputcsv mit entschärften Zellen (alle CSV-Exporte des Plugins) */
+function tix_fputcsv($handle, $fields, ...$rest) {
+    return fputcsv($handle, tix_csv_row((array) $fields), ...$rest);
 }
 
 /**

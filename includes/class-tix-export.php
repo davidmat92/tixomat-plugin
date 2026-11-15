@@ -34,8 +34,8 @@ class TIX_Export {
     public static function csv(array $header, array $rows) {
         $fh = fopen('php://temp', 'w+');
         fwrite($fh, "\xEF\xBB\xBF");
-        fputcsv($fh, $header, ';');
-        foreach ($rows as $r) fputcsv($fh, array_values($r), ';');
+        tix_fputcsv($fh, $header, ';');
+        foreach ($rows as $r) tix_fputcsv($fh, array_values($r), ';');
         rewind($fh);
         $out = stream_get_contents($fh);
         fclose($fh);

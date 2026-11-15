@@ -1773,7 +1773,7 @@ class TIX_Order_Admin {
         // BOM for Excel UTF-8
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
-        fputcsv($out, [
+        tix_fputcsv($out, [
             'Bestellnummer', 'Datum', 'Status', 'Kunde', 'E-Mail',
             'Zahlungsart', 'Zwischensumme', 'MwSt', 'Rabatt', 'Gesamt', 'Positionen'
         ], ';');
@@ -1796,7 +1796,7 @@ class TIX_Order_Admin {
                 $item_names[] = $item->name . ' x' . intval($item->quantity);
             }
 
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $o->order_number,
                 date_i18n('d.m.Y H:i', strtotime($o->date_created)),
                 $statuses[$o->status] ?? $o->status,
@@ -2841,7 +2841,7 @@ window.addEventListener('load', function() {
         // Excel-DE-Layout: Semikolon-Trennung
         $delim = ';';
 
-        fputcsv($out, [
+        tix_fputcsv($out, [
             'Ticket-Code',
             'Bestellung',
             'Event',
@@ -2882,7 +2882,7 @@ window.addEventListener('load', function() {
             $online_url = class_exists('TIX_Tickets') ? TIX_Tickets::get_download_url($tid) : '';
             $pdf_url    = $online_url ? add_query_arg('format', 'pdf', $online_url) : '';
 
-            fputcsv($out, [
+            tix_fputcsv($out, [
                 $code,
                 $order->order_number,
                 $event_title,

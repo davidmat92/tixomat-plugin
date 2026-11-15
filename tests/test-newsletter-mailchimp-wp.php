@@ -132,12 +132,17 @@ try {
         $eq('Zeitpunkt „sofort“: Bestätigung überträgt nicht', false, isset($mc['members'][md5('mc-kauf@example.test')]));
     } else {
         do_action('tix_newsletter_optin', $oid, 'mc-kauf@example.test', 'Kim', 'Test');
+        $eq('M12: Kauf-Häkchen blockiert die Kasse nicht (erst nach der Antwort übertragen)', false, isset($mc['members'][md5('mc-kauf@example.test')]));
+        $eq('M12: Übertragung vorgemerkt', true, (bool) wp_next_scheduled(TIX_Newsletter_Mailchimp::DEFER_HOOK, ['optin', [$oid, 'mc-kauf@example.test', 'Kim', 'Test']]));
+        TIX_Newsletter_Mailchimp::run_pending();
         $eq('Kauf-Häkchen: Kontakt mit Tags Kasse + VIP-Gast', ['Kasse', 'VIP-Gast'], $mc['members'][md5('mc-kauf@example.test')]['tags'] ?? null);
     }
     $rest('POST', '/marketing/newsletter/sync', ['timing' => 'after_confirm']);
     do_action('tix_newsletter_optin', $oid, 'mc-kauf2@example.test', 'Kim', 'Test');
+    TIX_Newsletter_Mailchimp::run_pending();
     $eq('Nach Bestätigung: Kauf-Häkchen überträgt nichts', false, isset($mc['members'][md5('mc-kauf2@example.test')]));
     do_action('tix_nl_confirmed', 0, 'mc-kauf2@example.test', 'Kim', $oid);
+    TIX_Newsletter_Mailchimp::run_pending();
     $eq('Bestätigung überträgt mit Tags', ['Kasse', 'VIP-Gast'], $mc['members'][md5('mc-kauf2@example.test')]['tags'] ?? null);
 
     // Rechte
