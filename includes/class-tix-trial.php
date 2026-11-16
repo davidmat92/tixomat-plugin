@@ -14,6 +14,11 @@ class TIX_Trial {
     const DELETE_AFTER_DAYS = 3;
     const TOKEN_TTL = DAY_IN_SECONDS;
     const JOB_LOCK = 30 * MINUTE_IN_SECONDS;
+    const PROGRESS_TTL = 2 * DAY_IN_SECONDS;
+    /** Fortschrittsseite (1.38.857): interne Schritte des Kunden-Dienstes → sichtbare Stufe 2–6 */
+    const PROGRESS_STEPS = ['pruefen' => 2, 'env' => 2, 'dns' => 2, 'site' => 2, 'plugin' => 3, 'lizenz' => 3, 'studio' => 4, 'marke' => 4, 'betreiber' => 4, 'testphase' => 4,
+        'zugang' => 5, 'rechtstexte' => 5, 'probe' => 6, 'melden' => 6];
+    const PROGRESS_STAGES = [1 => 'Zahlungsmittel bestätigt', 2 => 'Adresse wird eingerichtet', 3 => 'Shop-System wird installiert', 4 => 'Studio und Design', 5 => 'Zugang und Rechtstexte', 6 => 'Letzte Prüfung', 7 => 'Fertig'];
     const SKEW = 300;
     const REMINDER_DAYS = [7, 12, 13];
     const MOLLIE = 'https://api.mollie.com/v2';
@@ -398,6 +403,8 @@ class TIX_Trial {
         // Server (signiert)
         register_rest_route(self::NS, '/trial/queue', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_queue'], 'permission_callback' => $signed]);
         register_rest_route(self::NS, "/trial/$id/done", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_done'], 'permission_callback' => $signed]);
+        register_rest_route(self::NS, "/trial/$id/progress", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_progress'], 'permission_callback' => $signed]);
+        register_rest_route(self::NS, '/public/trial/progress', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_progress_public'], 'permission_callback' => $pub]);
         // Studio
         register_rest_route(self::NS, '/trial', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $staff]);
         foreach (['extend', 'convert', 'retry', 'cancel'] as $a) register_rest_route(self::NS, "/trial/$id/$a", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_' . $a], 'permission_callback' => $staff]);
@@ -572,12 +579,13 @@ class TIX_Trial {
             $wpdb->update(self::t(), ['mollie_customer_id' => (string) $c['id']], ['id' => $t->id]);
             $t = self::get($t->id);
         }
+        $d = $t->d; $ptok = self::issue_progress($d); // Fortschrittsseite nach der Rückkehr von Mollie
         [$st, $p] = self::mollie('POST', '/payments', ['amount' => ['currency' => 'EUR', 'value' => '0.00'], 'customerId' => $t->mollie_customer_id, 'sequenceType' => 'first',
             'method' => ['creditcard', 'paypal'], 'description' => 'evendis Testphase ' . $t->kurz . ' – Zahlungsmittel hinterlegen (0,00 €)',
-            'redirectUrl' => self::page('mandate', (string) $t->id), 'webhookUrl' => rest_url(self::NS . '/public/trial/mollie-webhook'), 'metadata' => ['trial_id' => intval($t->id), 'kurz' => $t->kurz]]);
+            'redirectUrl' => self::progress_url($t->id, $ptok), 'webhookUrl' => rest_url(self::NS . '/public/trial/mollie-webhook'), 'metadata' => ['trial_id' => intval($t->id), 'kurz' => $t->kurz]]);
         $url = (string) ($p['_links']['checkout']['href'] ?? '');
         if ($st !== 201 || $url === '') return self::err('tix_mollie_unavailable', 'Der Zahlungsanbieter antwortet gerade nicht. Bitte gleich noch einmal.', 502);
-        $d = $t->d; $d['payment_id'] = (string) ($p['id'] ?? '');
+        $d['payment_id'] = (string) ($p['id'] ?? '');
         $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
         return self::out(['ok' => true, 'status' => 'confirmed', 'checkout_url' => $url]);
     }
@@ -619,7 +627,11 @@ class TIX_Trial {
             self::mail($t->email, 'Testphase nicht möglich', 'Das geht leider nicht', ['Mit diesem Zahlungsmittel läuft schon eine Testphase. Melde dich gern bei uns, wenn du Fragen hast.']);
             return self::out(['ok' => true]);
         }
-        self::set($t, 'queued', $cols);
+        $d = $t->d; $ptok = self::issue_progress($d);
+        $t = self::set($t, 'queued', $cols, $d);
+        self::mail($t->email, 'Dein Testshop wird eingerichtet', 'Zahlungsmittel bestätigt',
+            ['Danke! Dein Zahlungsmittel ist hinterlegt, abgebucht wurde nichts. Wir richten jetzt deinen Testshop ' . $t->kurz . '.evendis.de ein – das dauert etwa 10 Minuten.', 'Sobald er fertig ist, bekommst du eine zweite Mail mit deinem Zugang.'],
+            [['Fortschritt ansehen', self::progress_url($t->id, $ptok)]]);
         return self::out(['ok' => true]);
     }
 
@@ -1079,6 +1091,42 @@ class TIX_Trial {
         return $id ? self::get($id) : null;
     }
 
+    /**
+     * POST /trial/{id}/progress {job_id, step, index, total} (signiert wie /done): Zwischenstand der Einrichtung.
+     * Nur für den laufenden create-Auftrag (sonst 409). Schreibt per Vergleich-und-Tausch, damit ein gleichzeitiges /done nie überschrieben wird.
+     */
+    public static function rest_progress(WP_REST_Request $req) {
+        global $wpdb;
+        $t = self::get(intval($req['id']));
+        $b = (array) $req->get_json_params();
+        $job = $t ? (array) ($t->d['job'] ?? []) : [];
+        if (!$t || $t->status !== 'provisioning' || ($job['action'] ?? '') !== 'create' || empty($job['id']) || ($b['job_id'] ?? '') !== $job['id']) return self::err('tix_trial_job_mismatch', 'Auftrag passt nicht zum Stand.', 409);
+        $step = substr(sanitize_key((string) ($b['step'] ?? '')), 0, 40);
+        $total = intval($b['total'] ?? 0); $index = intval($b['index'] ?? -1);
+        if ($step === '' || $total < 1 || $total > 100 || $index < 0 || $index > $total) return self::err('tix_invalid_field', 'step, index (0 … total) und total (1 … 100) angeben.', 400);
+        $d = $t->d;
+        $d['progress'] = ['job_id' => $job['id'], 'step' => $step, 'index' => $index, 'total' => $total, 'at' => wp_date('c')];
+        $d['progress_pct'] = max(intval($d['progress_pct'] ?? 0), min(99, (int) floor($index * 100 / $total))); // 100 erst bei active
+        $n = $wpdb->query($wpdb->prepare('UPDATE ' . self::t() . " SET data = %s WHERE id = %d AND status = 'provisioning' AND data = %s", wp_json_encode($d), $t->id, $t->data));
+        return self::signed_out(['ok' => true, 'stored' => $n === 1]);
+    }
+
+    /** GET /public/trial/progress?p= → Fortschrittsseite (keine Personendaten, no-store) */
+    public static function rest_progress_public(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_progress', 900, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429, null, ['retry_after' => 60]);
+        $tok = (string) $req->get_param('p');
+        global $wpdb;
+        self::maybe_install();
+        $h = preg_match('/^[A-Za-z0-9]{20,64}$/', $tok) ? hash('sha256', $tok) : '';
+        $t = null;
+        if ($h !== '') foreach ((array) $wpdb->get_col($wpdb->prepare('SELECT id FROM ' . self::t() . ' WHERE data LIKE %s ORDER BY id DESC LIMIT 3', '%' . $wpdb->esc_like('"h":"' . $h . '"') . '%')) as $id) {
+            $x = self::get($id);
+            foreach ((array) ($x->d['progress_tokens'] ?? []) as $pt) if (hash_equals((string) ($pt['h'] ?? ''), $h) && intval($pt['exp'] ?? 0) > time()) { $t = $x; break 2; }
+        }
+        if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt oder abgelaufen.', 404);
+        return self::out(self::progress_view($t->status, $t->d));
+    }
+
     /** GET /public/trial/status?token= → Stand fürs Band (keine Personendaten) */
     public static function rest_status(WP_REST_Request $req) {
         if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_status', 120, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429);
@@ -1163,6 +1211,42 @@ class TIX_Trial {
         return self::out(['ok' => true, 'trial' => self::view(self::convert($t, 'user:' . get_current_user_id()))]);
     }
 
+    /**
+     * Öffentliche Sicht der Fortschrittsseite (rein, ohne Personendaten). phase: wartet | einrichtung | fertig | fehler | beendet.
+     * percent fällt nie zurück (progress_pct); bei „Neu versuchen“ bleibt er stehen und retrying ist true.
+     */
+    public static function progress_view($status, array $d) {
+        $phase = in_array($status, ['requested', 'confirmed'], true) ? 'wartet' : (in_array($status, ['queued', 'provisioning'], true) ? 'einrichtung'
+            : (in_array($status, ['active', 'converted'], true) ? 'fertig' : (in_array($status, ['failed', 'payment_failed', 'rejected'], true) ? 'fehler' : 'beendet')));
+        $pr = (array) ($d['progress'] ?? []);
+        $stage = null; $label = '';
+        if ($phase === 'wartet') $label = 'Zahlungsmittel wird bestätigt';
+        elseif ($phase === 'einrichtung') { $stage = $status === 'provisioning' && isset(self::PROGRESS_STEPS[$pr['step'] ?? '']) ? self::PROGRESS_STEPS[$pr['step']] : ($status === 'provisioning' ? 2 : 1); $label = self::PROGRESS_STAGES[$stage]; }
+        elseif ($phase === 'fertig') { $stage = 7; $label = 'Dein Shop ist fertig'; }
+        elseif ($phase === 'fehler') $label = $status === 'failed' ? 'Bei der Einrichtung hakt es – wir kümmern uns und melden uns per Mail.' : 'Das Zahlungsmittel wurde nicht bestätigt.';
+        else $label = 'Diese Testphase ist beendet.';
+        $out = ['ok' => true, 'status' => $status, 'phase' => $phase, 'stage' => $stage, 'step_label' => $label,
+            'index' => $status === 'provisioning' && isset($pr['index']) ? intval($pr['index']) : null, 'total' => $status === 'provisioning' && isset($pr['total']) ? intval($pr['total']) : null,
+            'percent' => $phase === 'fertig' ? 100 : ($phase === 'einrichtung' || $phase === 'fehler' ? intval($d['progress_pct'] ?? 0) : 0),
+            'retrying' => $phase === 'einrichtung' && !empty($d['retried']),
+            'stages' => array_values(array_slice(self::PROGRESS_STAGES, 0, 6))];
+        if ($phase === 'fertig') { $out['shop_url'] = (string) ($d['url'] ?? ''); $out['studio_url'] = (string) ($d['studio_url'] ?? ''); }
+        return $out;
+    }
+
+    /** neuer Fortschritts-Token (zufällig, nur Hash gespeichert, 48 h); höchstens 5 gültige je Testphase */
+    private static function issue_progress(array &$d) {
+        $tok = wp_generate_password(40, false, false);
+        $list = array_values(array_filter((array) ($d['progress_tokens'] ?? []), function ($x) { return intval($x['exp'] ?? 0) > time(); }));
+        $list[] = ['h' => hash('sha256', $tok), 'exp' => time() + self::PROGRESS_TTL];
+        $d['progress_tokens'] = array_slice($list, -5);
+        return $tok;
+    }
+
+    private static function progress_url($id, $tok) {
+        return add_query_arg('p', rawurlencode($tok), self::page('mandate', (string) $id));
+    }
+
     /** Laufende Nummer der Server-Aufträge je Testphase; done/retry/cancel löschen sie nie. Ältere Einträge ohne job_seq: über schon ausgegebene Aufträge (Verlauf) hinaus zählen. */
     public static function next_job_seq(array $d, array $job = []) {
         $base = intval($d['job_seq'] ?? 0);
@@ -1174,6 +1258,7 @@ class TIX_Trial {
         $t = self::load($req); if (is_wp_error($t)) return $t;
         if ($t->status !== 'failed') return self::err('tix_trial_status', 'Nur fehlgeschlagene Testphasen lassen sich neu versuchen.', 409);
         $d = $t->d; unset($d['error'], $d['job']);
+        if (!$t->active_at) $d['retried'] = true; // Fortschrittsseite: „Wir versuchen es noch einmal“, Balken bleibt stehen
         return self::out(['ok' => true, 'trial' => self::view(self::set($t, $t->active_at ? 'cancelled' : 'queued', [], $d, 'user:' . get_current_user_id()))]);
     }
 

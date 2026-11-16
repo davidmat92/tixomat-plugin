@@ -7015,3 +7015,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Dauerhafter Zähler `data.job_seq` je Testphase (über alle Aktionen). Jeder neu ausgegebene Auftrag bekommt `trl-<id>-<aktion>-<job_seq>`; done/retry/cancel löschen ihn nie. Wiederholung nach abgelaufener Sperre ohne `done` behält die `job_id`.
 - Altbestand ohne `job_seq` startet hinter den im Verlauf ausgegebenen Aufträgen (`provisioning`/`deleting`). Reine Funktion `TIX_Trial::next_job_seq($d, $job)`.
 - **Test:** `test-trial-wp` (Plattform 70, KK 21).
+
+## 219. Testphase: Fortschrittsseite der Einrichtung (ab 1.38.857)
+- Plan `uebergaben/plan-testphase-fortschritt-2026-11-16.md`, Vertrag `vertrag-testphase.md` → „Fortschrittsseite“.
+- `POST /trial/{id}/progress {job_id, step, index, total}` (signiert wie `/done`): nur laufender `create`-Auftrag in `provisioning` (sonst 409), speichert `data.progress` und `data.progress_pct` (fällt nie zurück, max. 99 bis active) per Vergleich-und-Tausch.
+- `GET /public/trial/progress?p=`: reine Funktion `TIX_Trial::progress_view($status, $d)` → `{phase wartet|einrichtung|fertig|fehler|beendet, stage, step_label, index, total, percent, retrying, stages, shop_url?, studio_url?}`; no-store, 900/h je IP.
+- `progress_token` (40 Zeichen, 48 h, Hash in `data.progress_tokens`, max. 5): in der Mollie-`redirectUrl` (`…/testen/fertig/?trial=<id>&p=`) und in der neuen Mail „Dein Testshop wird eingerichtet“ (Webhook → queued). „Neu versuchen“ setzt `data.retried`.
+- **Test:** `test-trial-wp` (Plattform 77, KK 23).

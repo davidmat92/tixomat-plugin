@@ -30,6 +30,12 @@ $eq('Hochstufen anteilig: 6.000 > 5.000 → 10.000, Differenz 900 €/Jahr × 18
 $eq('Paket reicht → kein Hochstufen; über der Staffel → auf Anfrage', [null, true, null], [$T::upgrade_quote(4000, 5000, $tq, $y0, $y1, $mid), $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['on_request'], $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['amount_net']]);
 $eq('Am letzten Tag: anteilig 1 Tag; nach Ablauf 0 €', [round(900 / 365, 2), 0.0], [$T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 - 3600)['amount_net'], $T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 + 10)['amount_net']]);
 $eq('evendis-Adressen (auch Subdomains, Großschreibung) erkannt, ähnliche Domains nicht', [true, true, true, false, false], [$T::is_own_domain('max@evendis.de'), $T::is_own_domain('a@mail.evendis.de'), $T::is_own_domain(' Max@EVENDIS.DE '), $T::is_own_domain('a@notevendis.de'), $T::is_own_domain('a@evendis.de.example.com')]);
+$pv = $T::progress_view('provisioning', ['progress' => ['step' => 'plugin', 'index' => 5, 'total' => 14], 'progress_pct' => 35, 'retried' => true, 'url' => 'https://x.evendis.de']);
+$eq('Fortschritt rein: Stufe aus internem Schritt, Prozent, Neuversuch, URLs erst bei fertig', ['einrichtung', 3, 'Shop-System wird installiert', 35, true, false, 6],
+    [$pv['phase'], $pv['stage'], $pv['step_label'], $pv['percent'], $pv['retrying'], isset($pv['shop_url']), count($pv['stages'])]);
+$eq('Fortschritt rein: wartet / queued Stufe 1 / fertig 100 mit URLs / failed ohne Technik / gelöscht', ['wartet', 1, 0, 100, 'https://x.evendis.de', 'fehler', false, 'beendet'],
+    [$T::progress_view('confirmed', [])['phase'], $T::progress_view('queued', [])['stage'], $T::progress_view('queued', [])['percent'], $T::progress_view('active', ['url' => 'https://x.evendis.de'])['percent'], $T::progress_view('active', ['url' => 'https://x.evendis.de'])['shop_url'],
+     $T::progress_view('failed', ['error' => 'technik: geheim'])['phase'], strpos(wp_json_encode($T::progress_view('failed', ['error' => 'technik: geheim', 'progress_pct' => 40])), 'geheim') !== false, $T::progress_view('deleted', [])['phase']]);
 $eq('Wegwerf-Adressen und Firmen-Schlüssel', [true, true, false, 'musterevents', 'musterevents'], [$T::is_disposable('a@mailinator.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@x.yopmail.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@firma.de', $T::DISPOSABLE_DEFAULT), $T::company_key('Muster Events GmbH'), $T::company_key('muster events UG (haftungsbeschränkt)')]);
 
 if (!$T::multi()) {
@@ -109,6 +115,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     $res = function ($code, $body) { return ['headers' => [], 'body' => wp_json_encode($body), 'response' => ['code' => $code, 'message' => ''], 'cookies' => [], 'filename' => null]; };
     $b = json_decode((string) ($args['body'] ?? ''), true) ?: [];
     if ($m === 'POST' && $p === '/customers') return $res(201, ['id' => $mstate['customer']]);
+    if ($m === 'POST' && $p === '/payments') $mstate['redirect'] = (string) ($b['redirectUrl'] ?? '');
     if ($m === 'POST' && $p === '/payments') return $res(201, ['id' => 'tr_t' . count($mol), 'status' => 'open', '_links' => ['checkout' => ['href' => 'https://www.mollie.com/checkout/test']], 'metadata' => $b['metadata'] ?? []]);
     if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0] + (!empty($mstate['kind']) ? ['kind' => $mstate['kind']] : [])]);
     if ($m === 'GET' && strpos($p, '/mandates/') !== false) return $res(200, ['id' => 'mdt_t1', 'status' => 'valid', 'method' => 'creditcard', 'details' => ['cardFingerprint' => $mstate['fp']]]);
@@ -182,12 +189,24 @@ update_option('tix_trial_mollie_key', 'test_dummy', false);
 [$st, $d] = $post('/public/trial/confirm', ['token' => $tok2], null);
 $eq('Bestätigen: Mollie-Kunde + 0-€-Erstzahlung (Karte/PayPal), Weiterleitung', [200, 'confirmed', 'https://www.mollie.com/checkout/test', 'cst_t1', true],
     [$st, $d['status'] ?? '', $d['checkout_url'] ?? '', $T::get($tid)->mollie_customer_id, in_array('POST /customers', $mol, true) && in_array('POST /payments', $mol, true)]);
+$getp = function ($p) { $x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/progress'); $x->set_query_params(['p' => $p]); $r = rest_do_request($x); return [$r->get_status(), $r->get_data(), $r->get_headers()]; };
+$p1 = preg_match('/[?&]p=([A-Za-z0-9]+)/', (string) ($mstate['redirect'] ?? ''), $mm) ? $mm[1] : '';
+[$st, $d, $hd] = $getp($p1);
+[$st2, $d2] = $getp('x' . $p1);
+$eq('redirectUrl: /testen/fertig/?trial=<id>&p=<Token>; Fortschritt „wartet“, no-store, ohne Personendaten; falscher Token 404', [true, 40, 200, 'wartet', 'no-store', false, 404],
+    [strpos((string) $mstate['redirect'], '/testen/fertig/?trial=' . $tid . '&p=') !== false, strlen($p1), $st, $d['phase'] ?? '', $hd['Cache-Control'] ?? '',
+     (bool) preg_grep('/' . preg_quote($em2, '/') . '|Testphase ' . $sfx . '|Max Probe|cst_|mdt_/', [wp_json_encode($d)]), $st2]);
 $mstate['customer'] = 'cst_fremd';
 $post('/public/trial/mollie-webhook', ['id' => 'tr_x1'], null);
 $eq('Webhook mit fremdem Kunden ändert nichts', 'confirmed', $T::get($tid)->status);
 $mstate['customer'] = 'cst_t1';
 [$st] = $post('/public/trial/mollie-webhook', ['id' => 'tr_x2'], null);
 $t = $T::get($tid);
+$pm = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Testshop wird eingerichtet'; }));
+$p2 = $pm && preg_match('/(?:[?&;])p=([A-Za-z0-9]{40})/', (string) $pm[0]['message'], $mm) ? $mm[1] : '';
+[$st2, $d2] = $getp($p2);
+[$st3, $d3] = $getp($p1);
+$eq('Mail „Dein Testshop wird eingerichtet“ mit eigenem Fortschritts-Link; beide Tokens zeigen Stufe 1', [1, true, 200, 'einrichtung', 1, 'Zahlungsmittel bestätigt', 1], [count($pm), $p2 !== '' && $p2 !== $p1, $st2, $d2['phase'] ?? '', $d2['stage'] ?? null, $d2['step_label'] ?? '', $d3['stage'] ?? null]);
 $eq('Webhook: Zahlung neu bei Mollie gelesen, Mandat gültig → queued', [200, 'queued', 'mdt_t1', 'creditcard', 'valid'], [$st, $t->status, $t->mollie_mandate_id, $t->mandate_method, $t->mandate_status]);
 
 // ═══ Abholung (HMAC) ═══
@@ -216,6 +235,15 @@ $eq('Kein Zahlungsdatum im Auftrag', false, strpos(wp_json_encode($job), 'mdt_')
 $eq('Gleiche Nonce zweimal → 401', 401, $st);
 [$st, $d] = $signed('GET', '/trial/queue', ['limit' => 5]);
 $eq('Gesperrter Auftrag kommt nicht doppelt', false, in_array($tid, array_map('intval', array_column((array) ($d['jobs'] ?? []), 'trial_id')), true));
+[$st, $d] = $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => 'falsch', 'step' => 'dns', 'index' => 3, 'total' => 14]));
+[$st2, $d2] = $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'plugin', 'index' => 5, 'total' => 14]));
+[$st3, $d3] = $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'plugin', 'index' => 99, 'total' => 14]));
+[, $g] = $getp($p2);
+$eq('progress: falsche job_id 409, gültig gespeichert, unsinniger index 400; Seite Stufe 3, 35 %, 5/14', [409, 200, true, 400, 3, 35, 5, 14],
+    [$st, $st2, $d2['stored'] ?? null, $st3, $g['stage'] ?? null, $g['percent'] ?? null, $g['index'] ?? null, $g['total'] ?? null]);
+$signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'dns', 'index' => 2, 'total' => 14]));
+[, $g] = $getp($p2);
+$eq('progress: Balken fällt nie zurück (35 % bleibt bei kleinerem Index)', [35, 2], [$g['percent'] ?? null, $g['stage'] ?? null]);
 [$st, $d] = $signed('POST', "/trial/$tid/done", [], wp_json_encode(['job_id' => 'falsch', 'ok' => true]));
 $eq('done mit falscher job_id → 409', [409, 'tix_trial_job_mismatch'], [$st, $d['code'] ?? '']);
 [$st, $d] = $signed('POST', "/trial/$tid/done", [], wp_json_encode(['job_id' => $job['job_id'], 'ok' => true, 'url' => "https://$kurz.evendis.de", 'studio_url' => "https://$kurz.evendis.de/studio/", 'invite_url' => "https://$kurz.evendis.de/einladung/abc123"]));
@@ -224,6 +252,9 @@ $ctok = $token_from('kuendigen');
 $eq('done ok → active, Ende Tag 14, Lizenz bis Ende, Zugangs-Mail mit Einladungs-Link und Kündigen-Link, Einladung nicht gespeichert', [200, 'active', true, true, 40, true, false],
     [$st, $t->status, (bool) $t->ends_at, $t->license_id && substr((string) TIX_License_Server::get($t->license_id)->valid_until, 0, 10) === substr($t->ends_at, 0, 10), strlen($ctok),
      (bool) array_filter($mails, function ($m) use ($kurz) { return strpos((string) $m['message'], "https://$kurz.evendis.de/einladung/abc123") !== false; }), strpos(wp_json_encode($t->d), 'einladung/abc123') !== false]);
+[$st, $g] = $getp($p2);
+[$st2] = $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'melden', 'index' => 14, 'total' => 14]));
+$eq('Nach done: Seite „fertig“, 100 %, Shop- und Studio-Link; progress danach 409', ['fertig', 100, "https://$kurz.evendis.de", "https://$kurz.evendis.de/studio/", 409], [$g['phase'] ?? '', $g['percent'] ?? null, $g['shop_url'] ?? '', $g['studio_url'] ?? '', $st2]);
 // Studio
 $adm = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0] ?? 0);
 wp_set_current_user($adm);
