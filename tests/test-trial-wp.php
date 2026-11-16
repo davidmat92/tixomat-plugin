@@ -106,6 +106,15 @@ if (!$T::multi()) {
     $eq('pausiert: Studio-Schreiben und Kasse 423 tix_paused mit Text, Bestellung im Kern gesperrt; Lesen und Anmelden frei', [423, 'tix_paused', true, 423, 200, true, null, 'tix_paused'],
         [$s1, $d1['code'] ?? '', strpos((string) ($d1['message'] ?? ''), 'Testphase beendet – Shop pausiert') === 0, $s2, $s3, $s4 !== 423, $oid, is_wp_error($err) ? $err->get_error_code() : '']);
     remove_filter('tix_trial_pause_cli_free', '__return_false');
+    // 1.38.867: Zahlweise fürs nächste Vertragsjahr über die Kunden-Seite (leitet mit dem Token an die Plattform)
+    update_option('tix_trial_info', ['ends_at' => wp_date('c', time() - DAY_IN_SECONDS), 'status_url' => 'https://veranstalter.evendis.de/wp-json/tixomat/v1/public/trial/status?token=tokXYZ123'], false);
+    $seen_bn = null;
+    $bnm = function ($pre, $args, $url) use (&$seen_bn) { if (strpos($url, '/public/trial/billing-next') === false) return $pre; $seen_bn = [$url, json_decode((string) $args['body'], true)]; return ['headers' => [], 'body' => wp_json_encode(['ok' => true, 'billing' => 'year', 'billing_next' => 'month', 'applies_from' => '2027-11-17T10:00:00+01:00']), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null]; };
+    add_filter('pre_http_request', $bnm, PHP_INT_MAX, 3);
+    [$sb, $db] = $pr('POST', '/trial/billing-next', ['billing' => 'month']);
+    $eq('Kunden-Seite POST /trial/billing-next: an die Plattform mit Token, Antwort billing_next', [200, 'month', 'https://veranstalter.evendis.de/wp-json/tixomat/v1/public/trial/billing-next', ['token' => 'tokXYZ123', 'billing' => 'month']],
+        [$sb, $db['billing_next'] ?? '', $seen_bn[0] ?? '', $seen_bn[1] ?? null]);
+    remove_filter('pre_http_request', $bnm, PHP_INT_MAX);
     $eq('WP-CLI (Admin) bleibt frei; rein: GET/HEAD/OPTIONS und /auth/* erlaubt, POST sonst nicht', [true, true, true, false, false],
         [TIX_Trial_Site::cli_free(), TIX_Trial_Site::pause_allows('HEAD', '/tixomat/v1/events'), TIX_Trial_Site::pause_allows('POST', '/tixomat/v1/auth/code/confirm'), TIX_Trial_Site::pause_allows('POST', '/tixomat/v1/authx'), TIX_Trial_Site::pause_allows('DELETE', '/wp/v2/media/1')]);
     $kasse = wp_insert_user(['user_login' => 'trialkasse' . wp_rand(), 'user_pass' => wp_generate_password(20), 'user_email' => 'tk' . wp_rand() . '@example.test', 'role' => 'subscriber']);
@@ -657,6 +666,52 @@ $docx = ['number' => 'RV-EV-2026-0001', 'date' => '2026-11-17', 'period' => ['fr
 $pdfb = (string) $T::invoice_pdf($docx);
 $eq('Rechnungs-PDF entsteht (Monatsrate, bezahlt, Fußzeile)', [true, true], [strpos($pdfb, '%PDF') === 0, strlen($pdfb) > 1000]);
 unset($mstate['meta'], $mstate['amount'], $mstate['kind']);
+// ═══ 1.38.867: Jahresabbuchung fehlgeschlagen wie Monatsrate; Wechsel der Zahlweise zum nächsten Vertragsjahr ═══
+$ytok = 'ytok' . wp_generate_password(20, false, false);
+$yuntil = (new DateTimeImmutable('now', wp_timezone()))->modify('+2 months')->format('c');
+$wpdb->insert(TIX_Trial::t(), ['kurz' => "yr-$sfx", 'status' => 'converted', 'email' => "yr-$sfx@firma-test.de", 'email_hash' => hash('sha256', "yr-$sfx@firma-test.de"), 'company' => 'Jahr GmbH', 'company_key' => 'jahr' . $sfx,
+    'data' => wp_json_encode(['flow' => 'nopay', 'billing' => 'year', 'contact' => ['name' => 'Yo'], 'tier' => $tier, 'cancel_token' => $ytok, 'contract_until' => $yuntil, 'contract_start' => (new DateTimeImmutable($yuntil))->modify('-1 year')->format('c'),
+        'charges' => [['status' => 'open', 'payment_id' => 'tr_year1', 'amount' => 940.1, 'label' => 'Vertragsjahr bis X', 'at' => wp_date('c')]], 'charge' => ['status' => 'open', 'payment_id' => 'tr_year1', 'amount' => 940.1]]),
+    'cancel_token_hash' => hash('sha256', $ytok), 'mollie_customer_id' => 'cst_y1', 'mollie_mandate_id' => 'mdt_t1', 'mandate_status' => 'valid', 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+$ty = intval($wpdb->insert_id);
+$mstate = array_merge($mstate, ['trial_id' => $ty, 'kind' => 'contract', 'pay_status' => 'failed', 'customer' => 'cst_y1', 'meta' => [], 'amount' => '940.10']);
+$mc = count($mails);
+$post('/public/trial/mollie-webhook', ['id' => 'tr_year1'], null);
+$co = $T::get($ty)->d['charge_open'] ?? [];
+$x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/status'); $x->set_query_params(['token' => $ytok]); $sd = rest_do_request($x)->get_data();
+$eq('Jahresabbuchung fehlgeschlagen: offene Zahlung mit Pause in 14 Tagen, Mail „Zahlung fehlgeschlagen“ + „Jetzt bezahlen“, Status payment_overdue', [true, true, 1, 'charge', true],
+    [($co['payment_id'] ?? '') === 'tr_year1', abs(strtotime($co['pause_at'] ?? '') - (time() + 14 * DAY_IN_SECONDS)) < 120,
+     count(array_filter(array_slice($mails, $mc), function ($m) use ($ytok) { return ($m['subject'] ?? '') === 'Zahlung fehlgeschlagen' && strpos((string) $m['message'], 'Der Shop wird nicht gelöscht.') !== false && strpos((string) $m['message'], '/testen/rate-bezahlen/?token=' . $ytok) !== false; })),
+     $sd['payment_overdue']['kind'] ?? '', strpos((string) ($sd['pay_rate_url'] ?? ''), '/testen/rate-bezahlen/') !== false]);
+$T::rates_tick($T::get($ty), time() + 13 * DAY_IN_SECONDS);
+$p13 = !empty($T::get($ty)->d['rate_paused']);
+$T::rates_tick($T::get($ty), time() + 15 * DAY_IN_SECONDS);
+$tyy = $T::get($ty);
+$eq('Pause erst 14 Tage nach der Aufforderung (Tag 13 nein, Tag 15 ja), Auftrag pause, kein Löschen', [false, true, true, 'converted', null], [$p13, !empty($tyy->d['rate_paused']), in_array('pause', (array) ($tyy->d['server']['pending'] ?? []), true), $tyy->status, $tyy->delete_at]);
+[$st, $d] = $post('/public/trial/pay-rate', ['token' => $ytok], null);
+$lp = $mstate['last_payment'] ?? [];
+$mstate = array_merge($mstate, ['pay_status' => 'paid', 'meta' => ['retry' => 1]]);
+$post('/public/trial/mollie-webhook', ['id' => 'tr_yretry' . $sfx], null);
+$tyy = $T::get($ty);
+$eq('Jetzt bezahlen: oneoff über den offenen Betrag (retry) → bezahlt → Pause weg, Auftrag resume', [200, 'oneoff', '940.10', 1, false, false, true],
+    [$st, $lp['sequenceType'] ?? '', $lp['amount']['value'] ?? '', intval($lp['metadata']['retry'] ?? 0), isset($tyy->d['charge_open']), !empty($tyy->d['rate_paused']), in_array('resume', (array) ($tyy->d['server']['pending'] ?? []), true)]);
+// billing_next
+[$st0, $d0] = $post('/public/trial/billing-next', ['token' => $ytok, 'billing' => 'woche'], null);
+[$st, $d] = $post('/public/trial/billing-next', ['token' => $ytok, 'billing' => 'month'], null);
+$sd = rest_do_request($x)->get_data();
+$eq('billing-next: falsch 400; month vorgemerkt ab dem nächsten Vertragsjahr; Status billing_next, billing_change_until', [400, 200, 'year', 'month', $yuntil, 'month', $yuntil],
+    [$st0, $st, $d['billing'] ?? '', $d['billing_next'] ?? '', $d['applies_from'] ?? '', $sd['billing_next'] ?? '', $sd['billing_change_until'] ?? '']);
+$T::contract_tick($T::get($ty), (new DateTimeImmutable($yuntil))->getTimestamp() + 3600);
+$tyy = $T::get($ty);
+$T::rates_tick($tyy, (new DateTimeImmutable($yuntil))->getTimestamp() + 7200);
+$tyy = $T::get($ty);
+$eq('Verlängerung: ab jetzt monatlich, Raten ab neuem Vertragsbeginn (Rate 1 fällig), keine Jahresabbuchung, billing_next weg', ['month', $yuntil, 1, null, true],
+    [$tyy->d['billing'] ?? '', $tyy->d['contract_start'] ?? '', intval($tyy->d['rates'][0]['n'] ?? 0), $tyy->d['billing_next'] ?? null, !empty($tyy->d['billing_changed'])]);
+$wpdb->update(TIX_Trial::t(), ['data' => wp_json_encode(array_merge($tyy->d, ['contract_end' => $tyy->d['contract_until']]))], ['id' => $ty]);
+[$st] = $post('/public/trial/billing-next', ['token' => $ytok, 'billing' => 'year'], null);
+$eq('Gekündigter Vertrag: kein Wechsel (409)', 409, $st);
+unset($mstate['meta'], $mstate['amount'], $mstate['kind']);
+$wpdb->delete(TIX_Trial::t(), ['id' => $ty]);
 update_option('tix_trial_auto_charge', '0', false);
 $wpdb->delete(TIX_Trial::t(), ['id' => $tm]);
 

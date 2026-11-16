@@ -7092,3 +7092,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `issue_invoice(…, $opt)` mit `kind` (`year`|`month`|`upgrade`), `paid_at`, `paid_via`; `invoice_pdf` druckt Art, „Bezahlt am …“ und eine Fußzeile mit Pflichtangaben (Geschäftsführung, Register, Steuernummer/USt-IdNr. oder „folgt“, Kontakt, `invoice_footer_text`).
 - Prüfliste: `uebergaben/pruefliste-rechnungen-testphase-2026-11-17.md`.
 - **Test:** `test-trial-wp` (Plattform 113, KK 27).
+
+## 229. Offene Jahreszahlung wie Monatsrate, Wechsel der Zahlweise zum nächsten Vertragsjahr (ab 1.38.867)
+- Webhook `kind: contract` fehlgeschlagen → `data.charge_open` (Pause 14 Tage nach Aufforderung, Mail „Zahlung fehlgeschlagen“). `pay_tick` pausiert bei offener Rate oder offener Abbuchung (`rate_paused`, Auftrag `pause`, nie löschen). `pay-rate` zahlt auch `charge_open` (oneoff, `metadata.retry`). Status `payment_overdue`.
+- `billing_next`: `POST /public/trial/billing-next {token, billing}` (Plattform), `TIX_Trial_Site` `POST /trial/billing-next {billing}` (Kunden-Seite, `perm_brand`, Token aus `tix_trial_info.status_url`, auch im pausierten Shop). `contract_tick` wendet die Zahlweise bei der Verlängerung an (Raten neu ab Vertragsbeginn, Archiv `rates_archive`).
+- „Steuernummer folgt“ für Testphasen-Rechnungen: `TIX_Invoices::save_config('site', … tax_id_follows => tax_number)` (Befehl in `uebergaben/plan-monatliche-zahlung-2026-11-17.md`).
+- **Test:** `test-trial-wp` (Plattform 119, KK 28).

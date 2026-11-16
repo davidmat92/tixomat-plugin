@@ -451,6 +451,7 @@ class TIX_Trial {
         register_rest_route(self::NS, '/public/trial/start', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_start'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/public/trial/activate', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_activate'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/public/trial/pay-rate', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_pay_rate'], 'permission_callback' => $pub]);
+        register_rest_route(self::NS, '/public/trial/billing-next', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_billing_next'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/trial/(?P<id>\d+)/invoices/(?P<n>\d+)/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_invoice_pdf'], 'permission_callback' => $staff]);
         // Server (signiert)
         register_rest_route(self::NS, '/trial/queue', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_queue'], 'permission_callback' => $signed]);
@@ -704,6 +705,19 @@ class TIX_Trial {
             foreach ((array) ($d['charges'] ?? []) as $i => $c) if (($c['payment_id'] ?? '') === $pid) $d['charges'][$i]['status'] = $stt;
             if (($d['charge']['payment_id'] ?? '') === $pid) $d['charge']['status'] = $stt;
             if ($stt === 'paid' && !empty($d['invoices'])) { $last = count($d['invoices']) - 1; if (empty($d['invoices'][$last]['paid_at'])) $d['invoices'][$last]['paid_at'] = wp_date('c'); }
+            $retry = !empty($p['metadata']['retry']);
+            $known = $retry || (($d['charge']['payment_id'] ?? '') === $pid) || in_array($pid, array_column((array) ($d['charges'] ?? []), 'payment_id'), true);
+            if ($known && in_array($stt, ['failed', 'canceled', 'expired'], true) && !$retry && empty($d['charge_open'])) { // 1.38.867: wie die Monatsrate – Aufforderung, Pause nach 14 Tagen, kein Löschen
+                $ch = null; foreach ((array) ($d['charges'] ?? []) as $c) if (($c['payment_id'] ?? '') === $pid) $ch = $c;
+                $pause = time() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS;
+                $d['charge_open'] = ['payment_id' => $pid, 'amount' => floatval($ch['amount'] ?? ($p['amount']['value'] ?? 0)), 'label' => (string) ($ch['label'] ?? 'Jahresbetrag'), 'status' => $stt, 'failed_at' => wp_date('c'), 'pause_at' => wp_date('c', $pause)];
+                if ($t->status === 'converted' && !empty($d['cancel_token'])) self::mail($t->email, 'Zahlung fehlgeschlagen', 'Zahlung offen', ['Die Zahlung „' . $d['charge_open']['label'] . '“ für ' . $t->kurz . '.evendis.de (' . self::money($d['charge_open']['amount']) . ') konnte nicht abgebucht werden. Bitte bezahle sie bis ' . wp_date('d.m.Y', $pause) . '. Ist sie bis dahin nicht da, pausieren wir deinen Shop, bis die Zahlung eingeht. Der Shop wird nicht gelöscht.'],
+                    [['Jetzt bezahlen', self::page('rate', (string) $d['cancel_token'])]]);
+            }
+            if ($stt === 'paid' && !empty($d['charge_open']) && ($retry || ($d['charge_open']['payment_id'] ?? '') === $pid)) {
+                unset($d['charge_open']);
+                if (!empty($d['rate_paused']) && !self::rate_open($d)) { unset($d['rate_paused']); $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['pause']), ['resume']))); }
+            }
             if (in_array($stt, ['failed', 'canceled', 'expired'], true)) self::notify_sales('Abbuchung fehlgeschlagen: ' . $t->kurz, ['Firma: ' . $t->company, 'Zahlung ' . $pid . ': ' . $stt]);
             $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
             return self::out(['ok' => true]);
@@ -1130,10 +1144,18 @@ class TIX_Trial {
         }
         $next = $until->setTimezone(wp_timezone())->modify('+1 year');
         $d['contract_until'] = $next->format('c');
+        if (!empty($d['billing_next']) && in_array($d['billing_next'], self::BILLINGS, true)) { // Wechsel der Zahlweise zum neuen Vertragsjahr (1.38.867)
+            $was = (string) ($d['billing'] ?? 'year');
+            $d['billing'] = $d['billing_next'];
+            if ($d['billing'] === 'month' && $was !== 'month') { $d['rates_archive'] = array_merge((array) ($d['rates_archive'] ?? []), (array) ($d['rates'] ?? [])); $d['rates'] = []; $d['contract_start'] = $until->format('c'); }
+            if ($d['billing'] === 'year' && $was === 'month') { $d['rates_archive'] = array_merge((array) ($d['rates_archive'] ?? []), (array) ($d['rates'] ?? [])); $d['rates'] = []; }
+            $d['billing_changed'][] = ['at' => wp_date('c'), 'from' => $was, 'to' => $d['billing']];
+            unset($d['billing_next']);
+        }
         self::set($t, 'converted', [], $d, 'system');
         if ($t->license_id) $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => $next->format('Y-m-d')], ['id' => $t->license_id]);
         $price = self::tier_price($d['tier'] ?? 0);
-        if (self::billing_of($t) === 'month') { // monatlich: die Raten laufen einfach weiter (rates_tick)
+        if ((string) ($d['billing'] ?? 'year') === 'month') { // monatlich: die Raten laufen einfach weiter (rates_tick)
             self::mail($t->email, 'Dein Vertrag wurde verlängert', 'Ein weiteres Jahr', ['Dein Vertrag für ' . $t->kurz . '.evendis.de läuft jetzt bis ' . $next->format('d.m.Y') . '. Die Monatsraten laufen weiter.']);
             return;
         }
@@ -1280,8 +1302,28 @@ class TIX_Trial {
     }
 
     /** Monatsraten eines Vertrags (Cron): fällige Rate abbuchen, nach 14 Tagen offener Rate pausieren */
+    /** Offene Zahlung (Monatsrate oder Jahres-/Hochstufungs-Abbuchung) → nach 14 Tagen ab Aufforderung pausieren, nie löschen (1.38.867) */
+    public static function pay_tick($t, $now) {
+        if ($t->status !== 'converted' || !empty($t->d['rate_paused'])) return;
+        $d = $t->d;
+        $o = self::billing_of($t) === 'month' ? self::rate_open($d) : null;
+        $c = $d['charge_open'] ?? null;
+        $cands = [];
+        if ($o && in_array($o['status'], ['failed', 'canceled', 'expired', 'error'], true)) $cands[] = [!empty($o['pause_at']) ? (new DateTimeImmutable($o['pause_at']))->getTimestamp() : (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS, 'Die Monatsrate ' . intval($o['n'])];
+        if ($c) $cands[] = [(new DateTimeImmutable($c['pause_at']))->getTimestamp(), 'Die Zahlung „' . $c['label'] . '“'];
+        $hit = null; foreach ($cands as $x) if ($now >= $x[0]) { $hit = $x; break; }
+        if (!$hit) return;
+        $d['rate_paused'] = wp_date('c', $now);
+        $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['resume']), ['pause'])));
+        self::set($t, 'converted', [], $d, 'system');
+        self::mail($t->email, 'Dein Shop ist pausiert', 'Zahlung offen – Shop pausiert', [$hit[1] . ' für ' . $t->kurz . '.evendis.de ist trotz Aufforderung noch offen. Wir haben deinen Shop deshalb pausiert. Der Shop wird nicht gelöscht; Laufzeit und Zahlungspflicht laufen weiter.', 'Sobald die Zahlung eingeht, ist dein Shop in wenigen Minuten wieder online.'],
+            !empty($d['cancel_token']) ? [['Jetzt bezahlen', self::page('rate', (string) $d['cancel_token'])]] : []);
+        self::notify_sales('Shop wegen offener Zahlung pausiert: ' . $t->kurz, ['Firma: ' . $t->company, $hit[1]]);
+    }
+
     public static function rates_tick($t, $now) {
-        if ($t->status !== 'converted' || self::billing_of($t) !== 'month' || empty($t->d['contract_start'])) return;
+        if ($t->status !== 'converted') return;
+        if (self::billing_of($t) !== 'month' || empty($t->d['contract_start'])) { self::pay_tick($t, $now); return; }
         global $wpdb;
         $d = $t->d;
         $n = self::rate_index($d['contract_start'], $now);
@@ -1302,17 +1344,7 @@ class TIX_Trial {
             $d['rates'][] = $rate;
             $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
         }
-        // Pause nach 14 Tagen offener (fehlgeschlagener) Rate – nie löschen
-        $o = self::rate_open($d);
-        $pause_ts = $o ? (!empty($o['pause_at']) ? (new DateTimeImmutable($o['pause_at']))->getTimestamp() : (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS) : 0;
-        if ($o && in_array($o['status'], ['failed', 'canceled', 'expired', 'error'], true) && empty($d['rate_paused']) && $now >= $pause_ts) {
-            $d['rate_paused'] = wp_date('c', $now);
-            $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['resume']), ['pause'])));
-            self::set($t, 'converted', [], $d, 'system');
-            self::mail($t->email, 'Dein Shop ist pausiert', 'Zahlung offen – Shop pausiert', ['Die Monatsrate ' . intval($o['n']) . ' für ' . $t->kurz . '.evendis.de ist trotz Aufforderung noch offen. Wir haben deinen Shop deshalb pausiert. Der Shop wird nicht gelöscht; Laufzeit und Zahlungspflicht laufen weiter.', 'Sobald die Rate bezahlt ist, ist dein Shop in wenigen Minuten wieder online.'],
-                !empty($d['cancel_token']) ? [['Jetzt bezahlen', self::page('rate', (string) $d['cancel_token'])]] : []);
-            self::notify_sales('Shop wegen offener Rate pausiert: ' . $t->kurz, ['Firma: ' . $t->company, 'Rate ' . intval($o['n']) . ' fällig seit ' . wp_date('d.m.Y', (new DateTimeImmutable($o['due']))->getTimestamp())]);
-        }
+        self::pay_tick(self::get($t->id), $now);
     }
 
     /** Rate bezahlt (Webhook) → Rechnung, ggf. Pause aufheben */
@@ -1321,7 +1353,7 @@ class TIX_Trial {
         $d = $t->d; $i = self::rate_pos($d, $n);
         if ($i === null || ($d['rates'][$i]['status'] ?? '') === 'paid') return;
         $d['rates'][$i]['status'] = 'paid'; $d['rates'][$i]['paid_at'] = wp_date('c'); $d['rates'][$i]['payment_id'] = $payment_id;
-        if (!empty($d['rate_paused']) && !self::rate_open($d)) {
+        if (!empty($d['rate_paused']) && !self::rate_open($d) && empty($d['charge_open'])) {
             unset($d['rate_paused']);
             $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['pause']), ['resume'])));
         }
@@ -1342,8 +1374,30 @@ class TIX_Trial {
             if (!$end || $due->getTimestamp() < $end) $next = ['n' => $n, 'due' => $due->format('c'), 'amount' => ['net' => $pm['net'] ?? null, 'gross' => $pm['gross'] ?? null]];
             if ($o = self::rate_open($d)) $over = ['n' => intval($o['n']), 'due' => $o['due'], 'since' => $o['failed_at'] ?? $o['at'] ?? null, 'pause_at' => $o['pause_at'] ?? wp_date('c', (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS), 'amount' => ['net' => floatval($o['net']), 'gross' => floatval($o['gross'])]];
         }
+        $c = $t->status === 'converted' ? ($d['charge_open'] ?? null) : null;
+        $pay = $over ? ['kind' => 'rate'] + $over : ($c ? ['kind' => 'charge', 'label' => $c['label'], 'since' => $c['failed_at'] ?? null, 'pause_at' => $c['pause_at'] ?? null, 'amount' => ['gross' => floatval($c['amount'])]] : null);
+        $until = $d['contract_until'] ?? null;
         return ['billing' => $t->status === 'converted' ? self::billing_of($t) : null, 'price' => self::price_of($d['tier'] ?? 0), 'price_month' => self::price_month_of($d['tier'] ?? 0), 'next_rate' => $next, 'rate_overdue' => $over,
-            'pay_rate_url' => $over && $token !== '' ? self::page('rate', $token) : null, 'paused' => $t->status === 'paused' || !empty($d['rate_paused'])];
+            'payment_overdue' => $pay, 'pay_rate_url' => $pay && $token !== '' ? self::page('rate', $token) : null, 'paused' => $t->status === 'paused' || !empty($d['rate_paused']),
+            'billing_next' => $d['billing_next'] ?? null, 'billing_change_until' => $t->status === 'converted' && $until && empty($d['contract_end']) ? $until : null];
+    }
+
+    /** POST /public/trial/billing-next {token, billing} – Zahlweise ab dem nächsten Vertragsjahr (1.38.867; Studio über die Kunden-Seite) */
+    public static function rest_billing_next(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_billing_next', 30, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429);
+        $b = self::body($req);
+        $t = self::by_token((string) ($b['token'] ?? ''));
+        if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
+        $billing = (string) ($b['billing'] ?? '');
+        if (!in_array($billing, self::BILLINGS, true)) return self::err('tix_invalid_field', 'Zahlweise: year oder month.', 400, 'billing');
+        if ($t->status !== 'converted' || empty($t->d['contract_until'])) return self::err('tix_trial_status', 'Die Zahlweise lässt sich nur in einem laufenden Vertrag ändern.', 409);
+        if (!empty($t->d['contract_end'])) return self::err('tix_trial_status', 'Der Vertrag ist gekündigt und verlängert sich nicht.', 409);
+        if (time() >= (new DateTimeImmutable($t->d['contract_until']))->getTimestamp()) return self::err('tix_trial_status', 'Das neue Vertragsjahr hat schon begonnen.', 409);
+        $d = $t->d;
+        if ($billing === self::billing_of($t)) unset($d['billing_next']); else $d['billing_next'] = $billing;
+        $d['billing_next_at'] = wp_date('c');
+        $t = self::set($t, 'converted', [], $d, 'customer');
+        return self::out(['ok' => true, 'billing' => self::billing_of($t), 'billing_next' => $t->d['billing_next'] ?? null, 'applies_from' => $t->d['contract_until']]);
     }
 
     /** POST /public/trial/pay-rate {token} → Mollie-Checkout (oneoff) für die offene Rate */
@@ -1352,7 +1406,19 @@ class TIX_Trial {
         $t = self::by_token((string) (self::body($req)['token'] ?? ''));
         if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
         $o = $t->status === 'converted' ? self::rate_open($t->d) : null;
-        if (!$o) return self::err('tix_trial_no_rate_due', 'Es ist keine Rate offen.', 409);
+        $c = $t->status === 'converted' && !$o ? ($t->d['charge_open'] ?? null) : null;
+        if (!$o && !$c) return self::err('tix_trial_no_rate_due', 'Es ist keine Zahlung offen.', 409);
+        if ($c) { // Jahresbetrag bzw. Hochstufung erneut, diesmal mit Checkout (1.38.867)
+            if (self::mollie_key() === '' || $t->mollie_customer_id === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
+            $d = $t->d; $ptok = self::issue_progress($d);
+            [$st, $p] = self::mollie('POST', '/payments', ['amount' => ['currency' => 'EUR', 'value' => number_format(floatval($c['amount']), 2, '.', '')], 'customerId' => $t->mollie_customer_id, 'sequenceType' => 'oneoff',
+                'method' => ['creditcard', 'paypal'], 'description' => 'evendis Eigener Shop ' . $t->kurz . ' – ' . $c['label'], 'redirectUrl' => add_query_arg('p', rawurlencode($ptok), self::page('activated', (string) $t->id)),
+                'webhookUrl' => rest_url(self::NS . '/public/trial/mollie-webhook'), 'metadata' => ['trial_id' => intval($t->id), 'kind' => 'contract', 'retry' => 1]]);
+            $url = (string) ($p['_links']['checkout']['href'] ?? '');
+            if ($st !== 201 || $url === '') return self::err('tix_mollie_unavailable', 'Der Zahlungsanbieter antwortet gerade nicht. Bitte gleich noch einmal.', 502);
+            global $wpdb; $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
+            return self::out(['ok' => true, 'checkout_url' => $url, 'rate' => null, 'charge' => ['label' => $c['label'], 'amount' => ['gross' => floatval($c['amount'])], 'pause_at' => $c['pause_at']]]);
+        }
         if (self::mollie_key() === '' || $t->mollie_customer_id === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
         $d = $t->d; $ptok = self::issue_progress($d);
         [$st, $p] = self::mollie('POST', '/payments', ['amount' => ['currency' => 'EUR', 'value' => number_format(floatval($o['gross']), 2, '.', '')], 'customerId' => $t->mollie_customer_id, 'sequenceType' => 'oneoff',
@@ -1752,6 +1818,41 @@ class TIX_Trial_Site {
         add_filter('rest_pre_dispatch', [__CLASS__, 'guard'], 4, 3); // vor dem Demo-Shop (5): auf Test-Seiten gilt die Testphasen-Meldung
         add_filter('rest_pre_dispatch', [__CLASS__, 'pause_guard'], 3, 3); // 1.38.864: pausierter Testshop – nur lesen
         add_action('admin_init', [__CLASS__, 'pause_ajax'], 0);
+        add_action('rest_api_init', [__CLASS__, 'routes']);
+    }
+
+    /** Kunden-Seite: POST /trial/billing-next {billing} (Inhaber/Admin) → leitet mit dem Verwaltungs-Token an die Plattform weiter (1.38.867) */
+    public static function routes() {
+        register_rest_route(TIX_Trial::NS, '/trial/billing-next', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_billing_next'], 'permission_callback' => function (WP_REST_Request $req) {
+            if (TIX_Trial::multi()) return new WP_Error('rest_no_route', 'Nicht gefunden.', ['status' => 404]);
+            return class_exists('TIX_Studio') ? TIX_Studio::perm_brand($req) : current_user_can('manage_options');
+        }]);
+    }
+
+    /** Verwaltungs-Token und Plattform-Adresse aus tix_trial_info.status_url → [url der Route, token] | null */
+    public static function platform_target($route) {
+        $info = get_option('tix_trial_info', null);
+        if (is_string($info)) $info = json_decode($info, true);
+        $su = is_array($info) ? (string) ($info['status_url'] ?? '') : '';
+        if (!preg_match('#^https://#', $su)) return null;
+        parse_str((string) parse_url($su, PHP_URL_QUERY), $q);
+        $tok = (string) ($q['token'] ?? '');
+        if ($tok === '' || strpos($su, '/public/trial/status') === false) return null;
+        return [preg_replace('#/public/trial/status.*$#', '/public/trial/' . $route, strtok($su, '?')), $tok];
+    }
+
+    public static function rest_billing_next(WP_REST_Request $req) {
+        $billing = (string) ($req->get_json_params()['billing'] ?? $req->get_param('billing') ?? '');
+        if (!in_array($billing, TIX_Trial::BILLINGS, true)) return new WP_Error('tix_invalid_field', 'Zahlweise: year oder month.', ['status' => 400, 'field' => 'billing']);
+        $tg = self::platform_target('billing-next');
+        if (!$tg) return new WP_Error('tix_trial_unknown', 'Für diese Seite gibt es keinen Vertrag über evendis.', ['status' => 404]);
+        $r = wp_remote_post($tg[0], ['timeout' => 10, 'headers' => ['Content-Type' => 'application/json'], 'body' => wp_json_encode(['token' => $tg[1], 'billing' => $billing])]);
+        if (is_wp_error($r)) return new WP_Error('tix_platform_unreachable', 'evendis ist gerade nicht erreichbar. Bitte gleich noch einmal.', ['status' => 502]);
+        $code = intval(wp_remote_retrieve_response_code($r));
+        $d = json_decode((string) wp_remote_retrieve_body($r), true);
+        delete_transient('tix_trial_status_' . md5((string) (is_array($i = get_option('tix_trial_info')) ? ($i['status_url'] ?? '') : ''))); // Band zeigt gleich den neuen Stand
+        if ($code !== 200 || !is_array($d)) return new WP_Error(is_array($d) && !empty($d['code']) ? (string) $d['code'] : 'tix_platform_error', is_array($d) && !empty($d['message']) ? (string) $d['message'] : 'Das hat nicht geklappt.', ['status' => in_array($code, [400, 404, 409, 429], true) ? $code : 502]);
+        return rest_ensure_response(['ok' => true, 'billing' => $d['billing'] ?? null, 'billing_next' => $d['billing_next'] ?? null, 'applies_from' => $d['applies_from'] ?? null]);
     }
 
     public static function on() {
@@ -1762,7 +1863,7 @@ class TIX_Trial_Site {
 
     const PAUSED_MSG = 'Testphase beendet – Shop pausiert';
     /** Schreiben bleibt erlaubt: Anmelden/Abmelden/Code/Passwort (Studio lesen); „Aktiv halten“ und „Testshop löschen“ laufen auf der Plattform */
-    const PAUSE_ALLOW = '#^/tixomat/v1/auth(/|$)#';
+    const PAUSE_ALLOW = '#^/tixomat/v1/(auth(/|$)|trial/billing-next$)#';
     /** admin-ajax: schreibende Aktionen der Kasse und des Shops */
     const PAUSE_AJAX = ['tix_add_', 'tix_apply_', 'tix_checkout', 'tix_giftcard', 'tix_capture_', 'tix_group_', 'tix_guest_update', 'tix_ai_', 'tix_app_follow', 'tix_pos', 'tix_order', 'tix_cart', 'tix_seat', 'tix_waitlist', 'tix_raffle', 'tix_newsletter', 'tix_best_available'];
 
@@ -1823,7 +1924,7 @@ class TIX_Trial_Site {
             'contract_until' => null, 'contract_end' => null, 'cancel_deadline' => null, 'can_cancel' => true, 'can_start' => ($info['start_url'] ?? '') !== '',
             // 1.38.862 (ohne Zahlungsdaten): „Aktiv halten“ statt „Jetzt starten“
             'activate_url' => $https($info['activate_url'] ?? ''), 'can_activate' => ($info['activate_url'] ?? '') !== '', 'flow' => ($info['activate_url'] ?? '') !== '' ? 'nopay' : 'mandate', 'phase' => !empty($info['paused']) ? 'paused' : 'trial', 'price' => is_array($info['price'] ?? null) ? $info['price'] : null, 'price_month' => is_array($info['price_month'] ?? null) ? $info['price_month'] : null,
-            'billing' => null, 'next_rate' => null, 'rate_overdue' => null, 'pay_rate_url' => null, 'paused' => !empty($info['paused']), 'auto_renew_trial' => ($info['activate_url'] ?? '') === ''];
+            'billing' => null, 'next_rate' => null, 'rate_overdue' => null, 'pay_rate_url' => null, 'paused' => !empty($info['paused']), 'payment_overdue' => null, 'billing_next' => null, 'billing_change_until' => null, 'auto_renew_trial' => ($info['activate_url'] ?? '') === ''];
         $url = $https($info['status_url'] ?? '');
         if ($url !== '') {
             $key = 'tix_trial_status_' . md5($url);
@@ -1833,7 +1934,7 @@ class TIX_Trial_Site {
                 $st = !is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200 ? (json_decode((string) wp_remote_retrieve_body($r), true) ?: []) : [];
                 set_transient($key, $st, 5 * MINUTE_IN_SECONDS);
             }
-            foreach (['status', 'phase', 'ends_at', 'days_left', 'delete_at', 'contract_until', 'contract_end', 'cancel_deadline', 'can_cancel', 'can_start', 'can_activate', 'activate_url', 'flow', 'price', 'auto_renew_trial', 'billing', 'price_month', 'next_rate', 'rate_overdue', 'pay_rate_url', 'paused'] as $k) if (array_key_exists($k, $st) && $st[$k] !== null) $out[$k] = $st[$k];
+            foreach (['status', 'phase', 'ends_at', 'days_left', 'delete_at', 'contract_until', 'contract_end', 'cancel_deadline', 'can_cancel', 'can_start', 'can_activate', 'activate_url', 'flow', 'price', 'auto_renew_trial', 'billing', 'price_month', 'next_rate', 'rate_overdue', 'pay_rate_url', 'paused', 'payment_overdue', 'billing_next', 'billing_change_until'] as $k) if (array_key_exists($k, $st) && $st[$k] !== null) $out[$k] = $st[$k];
         }
         if ($out['days_left'] === null) { $e = strtotime($out['ends_at']); $out['days_left'] = $e ? max(0, (int) floor(($e - time()) / DAY_IN_SECONDS)) : null; }
         return $out;
