@@ -94,6 +94,20 @@ if (!$T::multi()) {
     $me = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data();
     $eq('/me.trial nopay: paused, activate_url, can_activate, kein Start, flow nopay', ['paused', 'paused', 'https://demo.evendis.de/testen/aktiv-halten/?token=abc', true, false, 'nopay', '2026-12-02T10:00:00+01:00'],
         [$me['trial']['status'] ?? '', $me['trial']['phase'] ?? '', $me['trial']['activate_url'] ?? '', $me['trial']['can_activate'] ?? null, $me['trial']['can_start'] ?? null, $me['trial']['flow'] ?? '', $me['trial']['delete_at'] ?? '']);
+    // 1.38.864: pausiert → Kasse und Schreiben gesperrt (423 tix_paused), Lesen und Anmelden frei, WP-CLI frei
+    add_filter('tix_trial_pause_cli_free', '__return_false');
+    $pr = function ($m, $route, $body = []) { $x = new WP_REST_Request($m, '/tixomat/v1' . $route); if ($body) { $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($body)); } $r = rest_do_request($x); return [$r->get_status(), $r->get_data()]; };
+    [$s1, $d1] = $pr('POST', '/studio/config', ['brand' => ['color' => '#112233']]);
+    [$s2] = $pr('POST', '/app/checkout', ['items' => []]);
+    [$s3] = $pr('GET', '/events');
+    [$s4, $d4] = $pr('POST', '/auth/code', ['email' => 'x@example.test']);
+    $oid = TIX_Native_Checkout::create_order(['billing_first_name' => 'P', 'billing_last_name' => 'Q', 'billing_email' => 'p@example.test', 'payment_method' => 'bar', 'total' => 0, 'items' => []]);
+    $err = TIX_Native_Checkout::$last_error;
+    $eq('pausiert: Studio-Schreiben und Kasse 423 tix_paused mit Text, Bestellung im Kern gesperrt; Lesen und Anmelden frei', [423, 'tix_paused', true, 423, 200, true, null, 'tix_paused'],
+        [$s1, $d1['code'] ?? '', strpos((string) ($d1['message'] ?? ''), 'Testphase beendet – Shop pausiert') === 0, $s2, $s3, $s4 !== 423, $oid, is_wp_error($err) ? $err->get_error_code() : '']);
+    remove_filter('tix_trial_pause_cli_free', '__return_false');
+    $eq('WP-CLI (Admin) bleibt frei; rein: GET/HEAD/OPTIONS und /auth/* erlaubt, POST sonst nicht', [true, true, true, false, false],
+        [TIX_Trial_Site::cli_free(), TIX_Trial_Site::pause_allows('HEAD', '/tixomat/v1/events'), TIX_Trial_Site::pause_allows('POST', '/tixomat/v1/auth/code/confirm'), TIX_Trial_Site::pause_allows('POST', '/tixomat/v1/authx'), TIX_Trial_Site::pause_allows('DELETE', '/wp/v2/media/1')]);
     $kasse = wp_insert_user(['user_login' => 'trialkasse' . wp_rand(), 'user_pass' => wp_generate_password(20), 'user_email' => 'tk' . wp_rand() . '@example.test', 'role' => 'subscriber']);
     wp_set_current_user($kasse);
     $eq('/me.trial nur für Inhaber/Admin', false, array_key_exists('trial', (array) rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data()));

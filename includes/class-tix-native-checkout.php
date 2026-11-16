@@ -2067,6 +2067,8 @@ class TIX_Native_Checkout {
 
     public static function create_order($data) {
         global $wpdb;
+        // Pausierter Testshop (1.38.864): keine neuen Bestellungen, außer per WP-CLI (Admin)
+        if (class_exists('TIX_Trial_Site') && TIX_Trial_Site::paused() && !TIX_Trial_Site::cli_free()) { self::$last_error = TIX_Trial_Site::paused_error(); return null; }
         $t  = $wpdb->prefix . 'tix_orders';
         $ti = $wpdb->prefix . 'tix_order_items';
         self::$last_error = null;

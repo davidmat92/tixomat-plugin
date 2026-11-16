@@ -1519,10 +1519,50 @@ class TIX_Trial_Site {
         add_filter('option_tix_settings', [__CLASS__, 'filter_settings'], 998);
         add_filter('pre_update_option_tix_settings', [__CLASS__, 'filter_settings'], 998);
         add_filter('rest_pre_dispatch', [__CLASS__, 'guard'], 4, 3); // vor dem Demo-Shop (5): auf Test-Seiten gilt die Testphasen-Meldung
+        add_filter('rest_pre_dispatch', [__CLASS__, 'pause_guard'], 3, 3); // 1.38.864: pausierter Testshop – nur lesen
+        add_action('admin_init', [__CLASS__, 'pause_ajax'], 0);
     }
 
     public static function on() {
         return (string) get_option('tix_trial_instance', '0') === '1' && !TIX_Trial::multi();
+    }
+
+    // ── 1.38.864: pausierter Testshop (Auftrag pause, tix_trial_info.paused) – zweite Sicherung neben der nginx-Sperre des Servers ──
+
+    const PAUSED_MSG = 'Testphase beendet – Shop pausiert';
+    /** Schreiben bleibt erlaubt: Anmelden/Abmelden/Code/Passwort (Studio lesen); „Aktiv halten“ und „Testshop löschen“ laufen auf der Plattform */
+    const PAUSE_ALLOW = '#^/tixomat/v1/auth(/|$)#';
+    /** admin-ajax: schreibende Aktionen der Kasse und des Shops */
+    const PAUSE_AJAX = ['tix_add_', 'tix_apply_', 'tix_checkout', 'tix_giftcard', 'tix_capture_', 'tix_group_', 'tix_guest_update', 'tix_ai_', 'tix_app_follow', 'tix_pos', 'tix_order', 'tix_cart', 'tix_seat', 'tix_waitlist', 'tix_raffle', 'tix_newsletter', 'tix_best_available'];
+
+    public static function paused() {
+        if (TIX_Trial::multi()) return false;
+        $i = get_option('tix_trial_info', null);
+        if (is_string($i)) $i = json_decode($i, true);
+        return is_array($i) && !empty($i['paused']);
+    }
+
+    /** Admin-WP-CLI bleibt frei (Filter nur für Tests) */
+    public static function cli_free() { return (bool) apply_filters('tix_trial_pause_cli_free', defined('WP_CLI') && WP_CLI); }
+
+    public static function paused_error($status = 423) {
+        return new WP_Error('tix_paused', self::PAUSED_MSG . '. Mit „Aktiv halten“ geht es weiter.', ['status' => $status]);
+    }
+
+    /** Darf diese Anfrage im pausierten Shop durch? (rein) */
+    public static function pause_allows($method, $route) {
+        return in_array(strtoupper((string) $method), ['GET', 'HEAD', 'OPTIONS'], true) || preg_match(self::PAUSE_ALLOW, (string) $route);
+    }
+
+    public static function pause_guard($result, $server, $request) {
+        if ($result !== null || self::cli_free() || !self::paused()) return $result;
+        return self::pause_allows($request->get_method(), $request->get_route()) ? $result : self::paused_error();
+    }
+
+    public static function pause_ajax() {
+        if (!wp_doing_ajax() || self::cli_free() || !self::paused()) return;
+        $a = (string) ($_REQUEST['action'] ?? '');
+        foreach (self::PAUSE_AJAX as $pre) if (strpos($a, $pre) === 0) wp_send_json(['success' => false, 'code' => 'tix_paused', 'message' => self::PAUSED_MSG . '.'], 423);
     }
 
     public static function filter_settings($s) {

@@ -7070,3 +7070,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `order` (nopay): Pflicht `consents.b2b`, `consents.trial_terms`. `activate`: Pflicht `consents.b2b`, `consents.contract`. Vertrag erst mit Webhook `paid` (`data.contract_consent.contract_at`).
 - `create`/`pause`-Auftrag: `trial.price`; `/me.trial.price`; `progress_view.activation`. Mail „bereit“ mit Pause- und Löschdatum. Pfade für Homepages in `plan-testphase-ohne-zahlung-2026-11-16.md`.
 - **Test:** `test-trial-wp` (Plattform 98, KK 25).
+
+## 226. Pausierter Testshop sperrt Kasse und Schreiben selbst (ab 1.38.864)
+- Zweite Sicherung neben der nginx-Pause des Servers. `TIX_Trial_Site::paused()` liest `tix_trial_info.paused` (nur Einzel-Seite).
+- `pause_guard` (`rest_pre_dispatch`, 3): alles außer GET/HEAD/OPTIONS und `/tixomat/v1/auth/*` → 423 `tix_paused` „Testphase beendet – Shop pausiert. Mit „Aktiv halten“ geht es weiter.“
+- `pause_ajax` (`admin_init`, 0): schreibende Kassen-AJAX-Aktionen (`PAUSE_AJAX`) → 423. `TIX_Native_Checkout::create_order` → `null` mit `last_error` `tix_paused`.
+- WP-CLI bleibt frei (`cli_free()`, Filter `tix_trial_pause_cli_free` nur für Tests).
+- **Test:** `test-trial-wp` (KK 27, Plattform 98).
