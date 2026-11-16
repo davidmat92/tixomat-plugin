@@ -1179,8 +1179,8 @@ class TIX_Trial_Site {
 
     /**
      * W2c: verkaufte Tickets im laufenden Vertragsjahr für die Lizenzprüfung → ['tickets_count', 'tickets_since'] | []
-     * Vertragsjahr = Laufzeitende der Lizenz − 1 Jahr. Gezählt: Tickets valid/used (ohne storniert/weiterverkauft), ohne Freitickets
-     * (Option tix_trial_count_free = 1 zählt sie mit). Nicht während der Testphase.
+     * Vertragsjahr = Laufzeitende der Lizenz − 1 Jahr. Gezählt: bezahlte Tickets valid/used (ohne storniert/weiterverkauft).
+     * Freitickets zählen nie (User-Entscheid 16.11.). Nicht während der Testphase.
      */
     public static function usage_params() {
         if (TIX_Trial::multi() || self::on() || !class_exists('TIX_License')) return [];
@@ -1194,8 +1194,7 @@ class TIX_Trial_Site {
         global $wpdb;
         if (!class_exists('TIX_Ticket_DB') || !TIX_Ticket_DB::table_exists()) return 0;
         $t = $wpdb->prefix . TIX_Ticket_DB::TABLE_SUFFIX; // {prefix}tixomat_tickets
-        $free = get_option('tix_trial_count_free', '0') === '1' ? '' : ' AND ticket_price > 0';
-        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE created_at >= %s AND ticket_status IN ('valid','used')$free", $since . ' 00:00:00')));
+        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE created_at >= %s AND ticket_status IN ('valid','used') AND ticket_price > 0", $since . ' 00:00:00'))); // nur bezahlte Tickets
     }
 
     public static function guard($result, $server, $request) {

@@ -57,8 +57,8 @@ if (!$T::multi()) {
     $cx = 'W2C' . strtoupper(wp_generate_password(6, false, false));
     $mk($cx . 'A', 25, 'valid'); $mk($cx . 'B', 0, 'valid'); $mk($cx . 'C', 25, 'cancelled'); $mk($cx . 'D', 25, 'resold'); $mk($cx . 'E', 25, 'used');
     $eq('Zählung: bezahlt valid/used (+2), ohne Freiticket, Storno und Weiterverkauft', 2, TIX_Trial_Site::tickets_since($since) - $base);
-    update_option('tix_trial_count_free', '1', false);
-    $eq('Mit tix_trial_count_free auch Freitickets (+3)', 3, TIX_Trial_Site::tickets_since($since) - $base);
+    update_option('tix_trial_count_free', '1', false); // früherer Schalter (entfernt): darf nichts mehr ändern
+    $eq('Freitickets zählen nie (User-Entscheid), auch nicht mit dem alten Schalter', 2, TIX_Trial_Site::tickets_since($since) - $base);
     delete_option('tix_trial_count_free');
     $lsb = get_option('tix_license_status', null);
     update_option('tix_license_status', array_merge(is_array($lsb) ? $lsb : [], ['expires_at' => wp_date('Y-m-d', time() + 200 * DAY_IN_SECONDS)]), false);
