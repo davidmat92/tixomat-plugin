@@ -7022,3 +7022,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `GET /public/trial/progress?p=`: reine Funktion `TIX_Trial::progress_view($status, $d)` → `{phase wartet|einrichtung|fertig|fehler|beendet, stage, step_label, index, total, percent, retrying, stages, shop_url?, studio_url?}`; no-store, 900/h je IP.
 - `progress_token` (40 Zeichen, 48 h, Hash in `data.progress_tokens`, max. 5): in der Mollie-`redirectUrl` (`…/testen/fertig/?trial=<id>&p=`) und in der neuen Mail „Dein Testshop wird eingerichtet“ (Webhook → queued). „Neu versuchen“ setzt `data.retried`.
 - **Test:** `test-trial-wp` (Plattform 77, KK 23).
+
+## 220. Testphasen-Mails: eine Hauptaktion, kleine Knöpfe, Kündigen als Textlink (ab 1.38.858)
+- User-Fund aus der Probe: In „Dein Shop ist bereit“ waren drei große, gleich rote Knöpfe.
+- `TIX_Mail_Layout::button($label, $url, $variant = 'primary')`: neu `compact` (rot, 16 px, 12×24 px, Breite nach Inhalt, mobil max. 100 %) und `outline` (Umriss). Eigene Klassen `tm-btn-sm`/`tm-btn-ol`, `normalize()` lässt sie in Ruhe; Dark Mode berücksichtigt. Vorgabe `primary` unverändert.
+- `TIX_Trial::mail(…, $cancel_url)`: erster Knopf `compact`, weitere `outline`; Kündigen nur als Textlink „Du willst doch nicht? Testphase kündigen“ (Zugangs-Mail, Erinnerungen).
+- **Test:** `test-trial-wp` (Plattform 79, KK 23).

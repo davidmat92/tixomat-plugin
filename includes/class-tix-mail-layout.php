@@ -177,10 +177,21 @@ class TIX_Mail_Layout {
     private static function e($s) { return esc_html((string) $s); }
 
     /** Knopf in Markenfarbe (ohne VML, übersteht wp_kses_post). Öffentlich für Mails, die eigenes HTML bauen. */
-    public static function button($label, $url) {
+    /**
+     * Knopf. $variant: 'primary' (Vorgabe, groß, unverändert), ab 1.38.858 'compact' (Hauptaktion klein: 16 px, 12×24 px, Breite nach Inhalt)
+     * und 'outline' (weitere Aktion, gleiche Größe, Umriss). Kleine Varianten tragen eigene Klassen (tm-btn-sm/-ol), normalize() lässt sie in Ruhe.
+     */
+    public static function button($label, $url, $variant = 'primary') {
         $c = self::$c ?: self::colors(self::brand());
         $label = self::e(html_entity_decode((string) $label, ENT_QUOTES, 'UTF-8'));
         $url = esc_url($url);
+        if ($variant === 'compact' || $variant === 'outline') {
+            $ol = $variant === 'outline';
+            $base = 'display:inline-block;max-width:100%;box-sizing:border-box;padding:12px 24px;text-align:center;font-weight:600;font-size:16px;line-height:20px;text-decoration:none;border-radius:8px;';
+            return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 12px;max-width:100%;"><tr><td align="center" class="' . ($ol ? 'tm-btn-ol-td' : 'tm-btn-sm-td') . '"' . ($ol ? '' : ' bgcolor="' . $c['accent'] . '"') . ' style="border-radius:8px;">'
+                . '<a href="' . $url . '" class="' . ($ol ? 'tm-btn-ol' : 'tm-btn-sm') . '" style="' . $base . ($ol ? 'background:transparent;color:' . $c['accent_text'] . ';border:2px solid ' . $c['accent'] . ';padding:10px 22px;' : 'background:' . $c['accent'] . ';color:' . $c['on_accent'] . ';') . '">' . $label . '</a>'
+                . '</td></tr></table>';
+        }
         return '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:12px auto 16px;"><tr><td align="center" class="tm-btn-td" bgcolor="' . $c['accent'] . '" style="border-radius:10px;">'
             // Ohne Outlook-Bedingungskommentare (VML): Kampagnen-Inhalt läuft beim Speichern durch wp_kses_post, das die Kommentare
             // zerschneidet – dann stand „<!--“ sichtbar im Knopf. Die Farbe trägt die Zelle (bgcolor), so sieht der Knopf auch in Outlook gut aus.
@@ -380,13 +391,13 @@ class TIX_Mail_Layout {
             . 'body{margin:0;padding:0;width:100%!important;-webkit-text-size-adjust:100%;}'
             . 'a{color:' . $c['accent_text'] . ';}img{-ms-interpolation-mode:bicubic;}'
             . 'a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;}'
-            . '@media (max-width:620px){.tm-wrap{width:100%!important;}.tm-pad{padding:20px 18px!important;}.tm-outer{padding:0!important;}.tm-card{border-radius:0!important;}.tm-head,.tm-head-accent{border-radius:0!important;}.tm-btn{display:block!important;min-width:0!important;}.tm-title{font-size:24px!important;line-height:30px!important;}.tm-legacy table{max-width:100%!important;}}'
+            . '@media (max-width:620px){.tm-wrap{width:100%!important;}.tm-pad{padding:20px 18px!important;}.tm-outer{padding:0!important;}.tm-card{border-radius:0!important;}.tm-head,.tm-head-accent{border-radius:0!important;}.tm-btn{display:block!important;min-width:0!important;}.tm-btn-sm,.tm-btn-ol{max-width:100%!important;}.tm-title{font-size:24px!important;line-height:30px!important;}.tm-legacy table{max-width:100%!important;}}'
             . '@media (prefers-color-scheme:dark){body,.tm-bg{background:#0B0B0F!important;}.tm-card,.tm-head{background:#16161D!important;}'
             . '.tm-text,.tm-title,td,div,span,p,li,strong,b,h1,h2,h3,h4{color:#ECECF1!important;}'
             . '.tm-muted,.tm-foot,.tm-foot a,.tm-foot div,.tm-foot span{color:#A1A1AA!important;}.tm-accent-text,.tm-legacy a{color:' . self::accent_on_dark($c['accent']) . '!important;}'
             . '.tm-line{border-color:#2A2A35!important;}.tm-soft{background:' . $dark_soft . '!important;border-color:#2A2A35!important;}.tm-card2{border-color:#2A2A35!important;}'
             . '.tm-notice-info{background:#172036!important;}.tm-notice-warn{background:#2A2012!important;}.tm-notice-success{background:#10261D!important;}.tm-notice-error{background:#2C1416!important;}'
-            . '.tm-btn,.tm-btn-td,.tm-legacy .tm-btn{color:' . $c['on_accent'] . '!important;}.tm-head-accent,.tm-head-accent *{color:' . $c['on_head'] . '!important;}}'
+            . '.tm-btn,.tm-btn-td,.tm-legacy .tm-btn,.tm-btn-sm,.tm-legacy .tm-btn-sm{color:' . $c['on_accent'] . '!important;}.tm-head-accent,.tm-head-accent *{color:' . $c['on_head'] . '!important;}}'
             . '[data-ogsc] .tm-card,[data-ogsc] .tm-head{background:#16161D!important;}[data-ogsc] .tm-text,[data-ogsc] .tm-title{color:#ECECF1!important;}[data-ogsc] .tm-soft{background:' . $dark_soft . '!important;}'
             . '</style></head>'
             . '<body class="tm-bg" style="margin:0;padding:0;background:' . $c['bg'] . ';font-family:' . $font . ';">'

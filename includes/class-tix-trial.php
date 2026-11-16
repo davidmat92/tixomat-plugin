@@ -348,10 +348,15 @@ class TIX_Trial {
 
     // ═══════════════ Mails ═══════════════
 
-    private static function mail($to, $subject, $title, array $paras, array $buttons = [], $kind = 'account') {
+    /**
+     * Mail der Testphase (ab 1.38.858 nach User-Fund): nur der erste Knopf ist Hauptaktion (rot, klein), weitere als Umriss-Knopf;
+     * Kündigen nie als Knopf, sondern als kleiner Textlink unter dem Text ($cancel_url).
+     */
+    private static function mail($to, $subject, $title, array $paras, array $buttons = [], $kind = 'account', $cancel_url = '') {
         $h = '';
         foreach ($paras as $p) $h .= '<p>' . esc_html($p) . '</p>';
-        foreach ($buttons as [$label, $url]) $h .= class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::button($label, $url) : '<p><a href="' . esc_url($url) . '">' . esc_html($label) . '</a></p>';
+        foreach (array_values($buttons) as $i => [$label, $url]) $h .= class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::button($label, $url, $i === 0 ? 'compact' : 'outline') : '<p><a href="' . esc_url($url) . '">' . esc_html($label) . '</a></p>';
+        if ($cancel_url !== '') $h .= '<p class="tm-muted" style="margin:16px 0 0;font-size:13px;line-height:18px;color:#6B7280;text-align:center;">Du willst doch nicht? <a href="' . esc_url($cancel_url) . '" style="color:#6B7280;text-decoration:underline;">Testphase kündigen</a></p>';
         if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::send($to, $subject, ['title' => $title, 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => $kind], ['customer' => false]);
         return wp_mail($to, $subject, $h, ['Content-Type: text/html; charset=UTF-8']);
     }
@@ -762,7 +767,7 @@ class TIX_Trial {
             global $wpdb; $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
             self::mail($t->email, 'Dein Shop ist bereit', 'Willkommen bei evendis',
                 ['Dein Shop läuft jetzt 14 Tage kostenlos unter ' . $d['url'] . '. Die Kasse ist im Testmodus, es wird nichts echt verkauft.', 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch – außer du kündigst vorher mit einem Klick.'],
-                array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null, ['Testphase kündigen', self::page('kuendigen', $cancel)]])));
+                array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null])), 'account', self::page('kuendigen', $cancel));
             self::notify_sales('Testphase aktiv: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . wp_date('d.m.Y', $ends), 'Shop: ' . $d['url']]);
             return self::signed_out(['ok' => true, 'status' => 'active']);
         }
@@ -796,7 +801,7 @@ class TIX_Trial {
                 $left = max(0, (int) ceil(($ends - $now) / DAY_IN_SECONDS));
                 self::mail($t->email, 'Deine Testphase endet am ' . wp_date('d.m.Y', $ends), 'Noch ' . $left . ' ' . ($left === 1 ? 'Tag' : 'Tage') . ' Testphase',
                     ['Deine Testphase für ' . $t->kurz . '.evendis.de endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch.', 'Möchtest du nicht weitermachen, kündige einfach mit einem Klick – dein Shop wird dann nach 3 Tagen gelöscht.'],
-                    array_filter([!empty($d['studio_url']) ? ['Jetzt starten', $d['studio_url']] : null, ['Kündigen', self::page('kuendigen', (string) ($d['cancel_token'] ?? ''))]]));
+                    array_values(array_filter([!empty($d['studio_url']) ? ['Jetzt starten', $d['studio_url']] : null])), 'account', !empty($d['cancel_token']) ? self::page('kuendigen', (string) $d['cancel_token']) : '');
                 $d['reminders_sent'][] = $day;
             }
             if (($d['reminders_sent'] ?? []) !== ($t->d['reminders_sent'] ?? [])) { $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]); $t = self::get($t->id); }
@@ -1242,6 +1247,9 @@ class TIX_Trial {
         $d['progress_tokens'] = array_slice($list, -5);
         return $tok;
     }
+
+    /** Mail-Link nach außen (Tests, Homepages-Abgleich) */
+    public static function page_url($kind, $token = '') { return self::page($kind, $token); }
 
     private static function progress_url($id, $tok) {
         return add_query_arg('p', rawurlencode($tok), self::page('mandate', (string) $id));

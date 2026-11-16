@@ -255,6 +255,15 @@ $eq('done ok → active, Ende Tag 14, Lizenz bis Ende, Zugangs-Mail mit Einladun
 [$st, $g] = $getp($p2);
 [$st2] = $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'melden', 'index' => 14, 'total' => 14]));
 $eq('Nach done: Seite „fertig“, 100 %, Shop- und Studio-Link; progress danach 409', ['fertig', 100, "https://$kurz.evendis.de", "https://$kurz.evendis.de/studio/", 409], [$g['phase'] ?? '', $g['percent'] ?? null, $g['shop_url'] ?? '', $g['studio_url'] ?? '', $st2]);
+// 1.38.858: Knöpfe der Testphasen-Mails (User-Fund aus der Probe)
+$rm = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Shop ist bereit'; }));
+$h = (string) ($rm[0]['message'] ?? '');
+preg_match_all('#<a [^>]*class="(tm-btn[a-z-]*)"[^>]*>([^<]+)</a>#', $h, $bm);
+$eq('„Dein Shop ist bereit“: eine rote Hauptaktion (Passwort festlegen), Studio als Umriss, Kündigen nur als Textlink, kein großer Knopf', [['tm-btn-sm', 'tm-btn-ol'], ['Passwort festlegen', 'Zum Studio'], true, true, false],
+    [$bm[1], $bm[2], strpos($h, 'Du willst doch nicht? <a href="' . esc_url($T::page_url('kuendigen', $ctok))) !== false, strpos($h, 'font-size:16px') !== false && strpos($h, 'padding:12px 24px') !== false, strpos($h, 'min-width:200px') !== false]);
+$pm2 = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Testshop wird eingerichtet'; }));
+$eq('„Dein Testshop wird eingerichtet“: kleiner Hauptknopf; andere Mails behalten den großen Knopf', [true, false, true],
+    [strpos((string) ($pm2[0]['message'] ?? ''), 'class="tm-btn-sm"') !== false, strpos((string) ($pm2[0]['message'] ?? ''), 'class="tm-btn"') !== false, strpos(TIX_Mail_Layout::button('X', 'https://example.org'), 'min-width:200px') !== false]);
 // Studio
 $adm = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0] ?? 0);
 wp_set_current_user($adm);
