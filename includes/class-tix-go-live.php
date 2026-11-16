@@ -146,6 +146,7 @@ class TIX_Go_Live {
         $host = (string) ($dom['live_host'] ?? '') ?: (class_exists('TIX_Customer_URL') ? TIX_Customer_URL::host() : '');
         $items[] = ['key' => 'domain', 'ok' => $host !== '', 'state' => $host !== '' ? 'ok' : 'missing', 'required' => true, 'overridable' => true, 'label' => $host !== '' ? 'Adresse: ' . $host : 'Adresse (Domain) fehlt', 'hint' => null, 'link' => '/website/adresse/'];
         $items[] = ['key' => 'owner', 'ok' => !empty($r['owner']), 'state' => !empty($r['owner']) ? 'ok' : 'missing', 'required' => true, 'overridable' => true, 'label' => 'Zugang für den Inhaber', 'hint' => null, 'link' => '/team/'];
+        if (class_exists('TIX_Demo_Seed') && TIX_Demo_Seed::available()) $items[] = TIX_Demo_Seed::readiness_item(); // Hinweis, nie Pflicht (1.38.860)
         $ready = !array_filter($items, function ($i) { return $i['required'] && !$i['ok']; });
         return ['ready' => $ready, 'items' => $items];
     }
@@ -172,6 +173,7 @@ class TIX_Go_Live {
             if (!$legal['ok']) return new WP_Error('tix_legal_incomplete', 'Die Rechtstexte sind noch nicht vollständig (Pflicht, ohne Platzhalter).', ['status' => 409, 'items' => $legal['detail']]);
             $miss = array_values(array_filter($c['items'], function ($i) { return $i['required'] && !$i['ok']; }));
             if ($miss) return new WP_Error('tix_not_ready', 'Noch nicht alles bereit: ' . implode(', ', array_column($miss, 'label')) . '.', ['status' => 409, 'items' => $miss]);
+            if (class_exists('TIX_Demo_Seed') && ($e = TIX_Demo_Seed::go_live_check($req))) return $e; // „Erst Demodaten löschen?“ (1.38.860)
         }
         $key = (string) get_option(TIX_License::OPT_KEY, '');
         $u = wp_get_current_user();

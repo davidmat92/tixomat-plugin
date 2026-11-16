@@ -156,6 +156,7 @@ class TIX_Day_Alerts {
         $p = TIX_Public_Events::payload($event_id, false);
         if (!$p || !empty($p['is_past'])) return 0;
         if (class_exists('TIX_Sales') && !(class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) && TIX_Sales::is_sandbox_event($event_id)) return 0; // 1.38.508
+        if (class_exists('TIX_Demo_Seed') && TIX_Demo_Seed::is_event($event_id)) return 0; // Demodaten: keine Tages-Hinweise (1.38.860)
         $today = current_time('Y-m-d');
         $days = TIX_Public_Events::days_in_range(TIX_Public_Events::day_span($event_id), $today, '9999-12-31');
         if (!$days) return 0;

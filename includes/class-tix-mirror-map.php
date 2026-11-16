@@ -108,6 +108,7 @@ class TIX_Mirror_Map {
         if (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::on()) return true; // Demo-Instanz „Eigene Website“: nie im Spiegel (1.38.841)
         if (!isset(self::$sandbox_events[$eid])) {
             self::$sandbox_events[$eid] = (bool) get_post_meta($eid, '_tix_preview', true) || (bool) get_post_meta($eid, '_tix_preview_scratch', true)
+                || (string) get_post_meta($eid, '_tix_demo_seed', true) === '1' // Demodaten im Kunden-Shop (1.38.860)
                 || self::is_sandbox_org((int) get_post_meta($eid, '_tix_organizer_id', true));
         }
         return self::$sandbox_events[$eid];

@@ -1367,7 +1367,8 @@ class TIX_Trial_Site {
         global $wpdb;
         if (!class_exists('TIX_Ticket_DB') || !TIX_Ticket_DB::table_exists()) return 0;
         $t = $wpdb->prefix . TIX_Ticket_DB::TABLE_SUFFIX; // {prefix}tixomat_tickets
-        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE created_at >= %s AND ticket_status IN ('valid','used') AND ticket_price > 0", $since . ' 00:00:00'))); // nur bezahlte Tickets
+        $o = $wpdb->prefix . 'tix_orders';
+        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t t LEFT JOIN $o o ON o.id = t.order_id WHERE t.created_at >= %s AND t.ticket_status IN ('valid','used') AND t.ticket_price > 0 AND (o.payment_method IS NULL OR o.payment_method <> 'demo')", $since . ' 00:00:00'))); // nur bezahlte Tickets, nie Demodaten (1.38.860)
     }
 
     public static function guard($result, $server, $request) {

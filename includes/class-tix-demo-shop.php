@@ -458,7 +458,7 @@ class TIX_Demo_Shop {
     // ═══════════════ Mehr Inhalt (1.38.847, User 15.11.: „lebendiger, orientiere dich an Kitchen und Mallorca“) ═══════════════
 
     /** KI-Bild je Abend, Ende, Specials, Dresscode, Awareness, „Das könnte dich auch interessieren“, zwei Gewinnspiele → Zahl der Flyer */
-    private static function enrich_club(array $ev, array $tpl) {
+    public static function enrich_club(array $ev, array $tpl) {
         $x = TIX_Demo_Content::club_extras();
         $aw = TIX_Demo_Content::awareness('club');
         $upcoming = array_values(array_filter(array_keys($ev), function ($k) { return $k !== 'past'; }));
@@ -527,7 +527,7 @@ class TIX_Demo_Shop {
     }
 
     /** Tipps des Tages der Instanz (vorige Demo-Tipps weg) → Anzahl */
-    private static function seed_tips($vorlage, array $ev) {
+    public static function seed_tips($vorlage, array $ev) {
         if (!class_exists('TIX_App_Tips')) return 0;
         self::drop_demo_tips();
         $n = 0;
@@ -542,7 +542,7 @@ class TIX_Demo_Shop {
         return $n;
     }
 
-    private static function drop_demo_tips() {
+    public static function drop_demo_tips() {
         if (!class_exists('TIX_App_Tips')) return 0;
         $ids = get_posts(['post_type' => TIX_App_Tips::CPT, 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_demo', 'meta_value' => '1', 'suppress_filters' => true]);
         foreach ($ids as $id) wp_delete_post($id, true);
@@ -550,7 +550,7 @@ class TIX_Demo_Shop {
     }
 
     /** Mitteilungen im Posteingang (ohne Push; vorige Demo-Mitteilungen weg, andere bleiben) → Anzahl */
-    private static function seed_notifications($vorlage, array $ev) {
+    public static function seed_notifications($vorlage, array $ev) {
         if (!class_exists('TIX_Notifications')) return 0;
         $list = array_values(array_filter((array) get_option(TIX_Notifications::OPT_FEED, []), function ($it) { return is_array($it) && strpos((string) ($it['id'] ?? ''), 'b_demo_') !== 0; }));
         $n = 0;
@@ -578,7 +578,7 @@ class TIX_Demo_Shop {
     }
 
     /** Gästeliste mit $count fiktiven Einträgen, die ersten $in eingecheckt */
-    private static function guests($count, $in = 0) {
+    public static function guests($count, $in = 0) {
         $g = [];
         for ($i = 0; $i < $count; $i++) {
             $done = $i < $in;

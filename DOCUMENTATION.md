@@ -7033,3 +7033,22 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Trial::PROGRESS_STEPS` mit 17 Server-Schritten (`beispiel` → 4, `verbindung`/`spiegel` → 6). `data.progress_stage` = höchste erreichte Stufe; `progress_view` nimmt max(gespeicherte Stufe, Stufe des Schritts, Grundstufe). Unbekannte Schritte behalten die Stufe.
 - `TIX_App_Account`: Codes speichern `ttl` (Login/Bestätigen 15 min, `issue_invite_code` die übergebene Laufzeit). `confirm_code` speichert nach einem Fehlversuch nur mit der echten Restzeit (`code_remaining($data, $now, $transient_expires)`, Altbestand ohne `ttl` über `_transient_timeout_*`); abgelaufen → `code_expired`. Grenze 5 Fehlversuche unverändert.
 - **Test:** `test-trial-wp`, `test-invite-code-wp`.
+
+## 222. Demodaten für neue Kunden-Shops, „Demodaten löschen“ (ab 1.38.860)
+- Plan und Schnittstelle: `uebergaben/plan-demodaten-neukunden-2026-11-16.md` (Abschnitte „Schnittstelle“ und „Plugin gebaut“).
+- `TIX_Demo_Seed` (nur Kunden-Shops: keine Mehr-Veranstalter-Plattform, keine Demo-Instanz; sonst 404 bzw. `tix_demo_seed_unavailable`).
+  - **WP-CLI:** `wp tixomat demo-data seed --profil=festival|club [--bestellungen=40]` | `status` | `delete [--auch-bearbeitete]` → eine JSON-Zeile.
+  - **REST** (`TIX_Studio::perm_brand`):
+    - `GET /studio/demo-data/status` → `{present, profile, seeded_at, counts, ids:{events, orders, artists, tips}, edited, in_use}`
+    - `POST /studio/demo-data/delete {include_edited}` → `{deleted, kept:[{id, title, reason}], present}`
+    - `POST /studio/demo-data/seed {profile}` → 201, oder 409 `tix_demo_seed_exists`
+  - Inhalte aus `TIX_Demo_Content`, Bausteine aus `TIX_Demo` und `TIX_Demo_Shop` (`enrich_club`, `seed_tips`, `seed_notifications`, `guests` jetzt öffentlich). Einstellungen des Kunden bleiben unangetastet.
+  - **Kennzeichnung:** `_tix_demo_seed = 1` (Events, Künstler, Tipps), Zahlart `demo`, Option `tix_demo_seed` mit Fingerabdruck je Event (`fingerprint()`).
+  - **Löschen:** nur registrierte Daten. Events mit echten Bestellungen bleiben immer (`in_use`), geänderte nur mit `include_edited` (sonst `edited`). Demo-Bestellungen nur, wenn alle Positionen an gelöschten Events hängen.
+- **Nach außen:**
+  - `TIX_Mirror_Map::is_sandbox_event`, `TIX_Syndication_Push::is_system_event` und `TIX_Day_Alerts` schließen Demo-Events aus.
+  - `TIX_Trial_Site::tickets_since` zählt keine Zahlart `demo`.
+  - Rechnungen gab es für `demo` schon nie; `*.invalid` wird nie zugestellt.
+- **Live:** `TIX_Go_Live::checklist()` hat den Punkt `demo_data` (`required: false`). `rest_request(action live)` → 409 `tix_demo_data_present {counts}`, außer `keep_demo_data: true`.
+- **Umzug nach evendis-api:** Kennzeichnung und Option ziehen mit, gleiche Routen und Antwortformen. Kern ohne WP: `fingerprint`, Lösch-Auswahl, `go_live_check`.
+- **Test:** `test-demo-seed-wp` (KK 14, Plattform 1).
