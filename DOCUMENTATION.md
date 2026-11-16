@@ -6967,3 +6967,13 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - **Reset:** `wipe()` löscht zusätzlich Demo-Tipps und alle Gewinnspiel-Teilnahmen (Tabelle `tix_raffle_entries`). JSON-Zeile für die Wache: neu `seeded.images`, `tips`, `notifications`, `app_content`, `raffles`, `wiped.tips`.
 - **Unverändert:** Schalter und Einstellungen der Instanz (Awareness-Modul, Guthaben, Gutschein-Verkauf, Newsletter, Hörproben bleiben, wie sie sind), Zahlart „demo“, der Beispiel-Club und das Beispiel-Festival der Plattform (`club_events()`/`festival_event()` unverändert; `artists()` hat nur den optionalen Parameter `$meta`).
 - **Tests:** `tests/run-demo-shop.sh` (on jetzt 147 Prüfungen: 3 Bühnen/21 Acts, nur KI-Bilder an Events und Galerien, Kategorien, Gewinnspiel, Awareness, Barrierefreiheit, Tipps, Mitteilungen, Kacheln, KI-Bild je Club-Abend, Wochentage, keine neuen Medien beim zweiten Reset, keine geschützten Namen auch in Tipps/Mitteilungen/Seiten).
+
+## 212. Demo-Zugang automatisch (W1) und 14 Tage eigener Shop testen (W2) (ab 1.38.849)
+- **Vertrag:** `uebergaben/vertrag-testphase.md` (mit „Stand des Baus“). Klasse `TIX_Trial`, nur Plattform.
+- **W1:** `POST /public/demo-access/request` (Herkunft, Honigtopf, Ratenlimit, Wegwerf-Adressen, Double-Opt-in) und `/request/confirm` (Anlage wie im Vertrieb über `TIX_Demo_Access::rest_create`, Quelle `self`, Info an den Vertrieb).
+- **W2:** `GET /public/trial/tiers`, `POST /public/trial/check-subdomain|order|confirm|mollie-webhook|cancel`; Server: `GET /trial/queue` (Aufträge create/extend/convert/delete), `POST /trial/{id}/done` (HMAC `evendis-trial-v1`, Nonce, ±300 s, Antwort an die Nonce gebunden); Studio: `GET /trial`, `POST /trial/{id}/extend|convert|retry|cancel|delete|contract-cancel`; Cron `tix_trial_tick` (Erinnerung Tag 7/12/13, Übergang, Vertragsablauf +1 Jahr bzw. Ende).
+- **Test-Seite:** `TIX_Trial_Site` sperrt mit `tix_trial_instance = 1` Live-Schlüssel (Lesen/Speichern, `POST /studio/payments` → 400 `tix_trial_live_key`).
+- **Tabellen:** `tix_trials`, `tix_trial_requests` (JSON). **Optionen:** `tix_trial_mollie_key`, `tix_trial_queue_secret` (bzw. `EVENDIS_TRIAL_QUEUE_SECRET`), `tix_trial_origins`, `tix_trial_blocked`, `tix_disposable_domains`, `tix_demo_notify`, `tix_demo_self_owner`, `tix_trial_site_url`, `tix_trial_return_url`, `tix_trial_auto_charge` (Vorgabe aus); Kunden-Seite `tix_trial_instance`, `tix_trial_until`.
+- **Reiner Kern:** `kurz_check`, `sig`, `res_sig`, `reminders_due`, `ends_at`, `is_disposable`, `company_key`.
+- **Test:** `test-trial-wp` (48 Plattform, 11 Einzel-Seite).
+
