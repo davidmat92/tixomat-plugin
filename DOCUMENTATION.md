@@ -6995,3 +6995,11 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `GET|POST /platform/trial-settings` (Admin): nur schreiben, Prüfung bei Mollie vor dem Speichern, Änderungsprotokoll ohne Schlüssel.
 - **Test:** `test-trial-wp` (66 Plattform, 20 Einzel-Seite).
 
+## 216. Hotfix rote 1 am App-Symbol: APNs-badge nur bei nutzerbezogenen Hinweisen (ab 1.38.854)
+- Analyse `uebergaben/kitchenklub-app.md` (16.11.): Jeder Fernpush setzte fest `aps.badge = 1`; ohne Konto zählt die App nichts, die 1 blieb stehen.
+- `TIX_Notifications::apns_payload($title, $body, $data, $badge = null)`: `badge` nur, wenn übergeben. `send_push(…, $badge = null)`, `apns_send(…, $topic = null, $badge = null)`.
+- **Mit badge 1:** nur `push_user` (alle `add_user_item`: Tickets, Support, Guthaben … – die App zählt sie mit Konto und setzt beim Lesen auf 0).
+- **Ohne badge:** Rundmails an alle (`add_broadcast` → `push_all`), Geräte ohne Konto, Team-Mitteilungen (`TIX_Staff_Push` → `apns_send` mit Bundle), direkte `send_push`-Aufrufe. Android/FCM setzte nie eine Zahl.
+- Aktion `tix_apns_payload($payload, $tokens, $topic)` vor dem Versand (nur Beobachtung).
+- **Test:** `test-push-badge-wp` (7). App-Teil (Zahl beim Zurückkehren neu setzen) ist Sache des App-Chats.
+

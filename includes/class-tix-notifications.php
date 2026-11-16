@@ -731,14 +731,14 @@ class TIX_Notifications {
         foreach (self::tokens() as $t => $meta) {
             if (intval($meta['user'] ?? 0) === intval($user_id)) $tokens[] = $t;
         }
-        return $tokens ? self::send_push($tokens, $title, $body, $data) : 0;
+        return $tokens ? self::send_push($tokens, $title, $body, $data, 1) : 0; // nutzerbezogen: Zahl 1 (App zählt mit Konto)
     }
 
     /**
      * Sendet eine Push-Nachricht an die Geräte-Token: iPhone über APNs, Android über FCM (1.38.527).
      * Ohne eingerichteten Weg passiert für diese Geräte nichts (der In-App-Feed genügt dann).
      */
-    public static function send_push($tokens, $title, $body, $data = []) {
+    public static function send_push($tokens, $title, $body, $data = [], $badge = null) {
         if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return 0; // Schatten-Abruf: keine Pushes
         $tokens = array_values(array_unique(array_filter(array_map('strval', (array) $tokens))));
         if (!$tokens) return 0;
@@ -759,13 +759,13 @@ class TIX_Notifications {
                 update_option(self::OPT_TOKENS, $all, false);
             }
         }
-        if ($ios) $sent += self::send_apns($ios, $title, $body, $data);
+        if ($ios) $sent += self::send_apns($ios, $title, $body, $data, $badge);
         return $sent;
     }
 
     /** APNs-Versand (bisheriger Weg, unverändert). */
-    private static function send_apns($tokens, $title, $body, $data = []) {
-        $r = self::apns_send($tokens, $title, $body, $data);
+    private static function send_apns($tokens, $title, $body, $data = [], $badge = null) {
+        $r = self::apns_send($tokens, $title, $body, $data, null, $badge);
         if ($r['invalid']) {
             $all = self::tokens();
             foreach ($r['invalid'] as $t) unset($all[$t]);
@@ -778,23 +778,18 @@ class TIX_Notifications {
      * APNs mit wählbarem Bundle (`apns-topic`; Veranstalter-App, 1.38.574). Derselbe .p8-Schlüssel gilt für alle
      * Apps des Teams. → ['sent' => n, 'invalid' => [token]] (Aufrufer räumt seine Liste selbst auf)
      */
-    public static function apns_send($tokens, $title, $body, $data = [], $topic = null) {
+    public static function apns_send($tokens, $title, $body, $data = [], $topic = null, $badge = null) {
         $out = ['sent' => 0, 'invalid' => []];
         if (!$tokens || !self::apns_configured()) return $out;
+        $payload_arr = self::apns_payload($title, $body, $data, $badge);
+        do_action('tix_apns_payload', $payload_arr, (array) $tokens, $topic); // Beobachtung (Tests, Protokoll) – ändert nichts
 
         $jwt = self::apns_jwt();
         if (!$jwt) return $out;
 
         $c    = self::push_config();
         $host = $c['env'] === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
-        $payload = wp_json_encode([
-            'aps' => [
-                'alert' => ['title' => $title, 'body' => $body],
-                'sound' => 'default',
-                'badge' => 1,
-            ],
-            'data' => $data,
-        ]);
+        $payload = wp_json_encode($payload_arr);
 
         $sent    = 0;
         $invalid = [];
@@ -824,6 +819,17 @@ class TIX_Notifications {
             }
         }
         return ['sent' => $sent, 'invalid' => $invalid];
+    }
+
+    /**
+     * APNs-Inhalt (1.38.854, Hotfix rote 1): `badge` nur, wenn ausdrücklich übergeben – also nur bei nutzerbezogenen Hinweisen
+     * (push_user: Tickets, Support …, die App zählt sie mit Konto und setzt beim Lesen auf 0). Rundmails an alle, Geräte ohne Konto
+     * und Team-Mitteilungen (TIX_Staff_Push) setzen keine Zahl mehr – vorher stand fest 1 und blieb am App-Symbol stehen.
+     */
+    public static function apns_payload($title, $body, $data = [], $badge = null) {
+        $aps = ['alert' => ['title' => $title, 'body' => $body], 'sound' => 'default'];
+        if ($badge !== null) $aps['badge'] = max(0, intval($badge));
+        return ['aps' => $aps, 'data' => $data];
     }
 
     /** ES256-JWT für die APNs-Authentifizierung (10 min gecacht). */
