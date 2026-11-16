@@ -139,7 +139,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     if ($m === 'POST' && $p === '/customers') return $res(201, ['id' => $mstate['customer']]);
     if ($m === 'POST' && $p === '/payments') { $mstate['redirect'] = (string) ($b['redirectUrl'] ?? ''); $mstate['last_payment'] = $b; }
     if ($m === 'POST' && $p === '/payments') return $res(201, ['id' => 'tr_t' . count($mol), 'status' => 'open', '_links' => ['checkout' => ['href' => 'https://www.mollie.com/checkout/test']], 'metadata' => $b['metadata'] ?? []]);
-    if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0] + (!empty($mstate['kind']) ? ['kind' => $mstate['kind']] : [])]);
+    if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0] + (!empty($mstate['kind']) ? ['kind' => $mstate['kind']] : []) + (array) ($mstate['meta'] ?? []), 'amount' => ['value' => (string) ($mstate['amount'] ?? '0.00'), 'currency' => 'EUR']]);
     if ($m === 'GET' && strpos($p, '/mandates/') !== false) return $res(200, ['id' => 'mdt_t1', 'status' => 'valid', 'method' => 'creditcard', 'details' => ['cardFingerprint' => $mstate['fp']]]);
     if ($m === 'DELETE') return $res(204, []);
     return $res(404, []);
@@ -580,6 +580,74 @@ update_option('tix_trial_flow', 'mandate', false);
 $eq('Altbestand ohne data.flow = mandate', 'mandate', $T::flow_of((object) ['d' => []]));
 $wpdb->query($wpdb->prepare('DELETE FROM ' . TIX_Trial::t() . ' WHERE id IN (%d, %d)', $tn, $tq));
 if ($tc->license_id) $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $tc->license_id]);
+
+// ═══ 1.38.865: monatliche Zahlung ═══
+$eq('Monatspreis: gepflegt bzw. ÷ 10; Fälligkeit am gleichen Tag, kurzer Monat → letzter Tag; Ratennummer', [79.0, 99.5, '2027-02-28', '2027-03-31', 2, 3],
+    [$T::month_net_of(['max' => 5000, 'price' => 790]), $T::month_net_of(['max' => 5000, 'price' => 790, 'price_month' => 99.5]), $T::rate_due('2027-01-31T10:00:00+01:00', 2)->format('Y-m-d'), $T::rate_due('2027-01-31T10:00:00+01:00', 3)->format('Y-m-d'),
+     $T::rate_index('2027-01-31T10:00:00+01:00', (new DateTimeImmutable('2027-03-01 12:00', wp_timezone()))->getTimestamp()), $T::rate_index('2027-01-31T10:00:00+01:00', (new DateTimeImmutable('2027-03-31 12:00', wp_timezone()))->getTimestamp())]);
+$tr = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/trial/tiers'))->get_data();
+$eq('GET /public/trial/tiers: price_month und billing je Stufe', [true, ['year', 'month']], [isset($tr['tiers'][0]['price_month']) && $tr['tiers'][0]['price_month'] > 0, $tr['tiers'][0]['billing'] ?? null]);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
+$mtok = 'mtok' . wp_generate_password(20, false, false);
+$wpdb->insert(TIX_Trial::t(), ['kurz' => "mo-$sfx", 'status' => 'active', 'email' => "mo-$sfx@firma-test.de", 'email_hash' => hash('sha256', "mo-$sfx@firma-test.de"), 'company' => 'Monat GmbH', 'company_key' => 'monat' . $sfx,
+    'data' => wp_json_encode(['flow' => 'nopay', 'contact' => ['name' => 'Mo'], 'tier' => $tier, 'cancel_token' => $mtok, 'url' => "https://mo-$sfx.evendis.de"]), 'cancel_token_hash' => hash('sha256', $mtok),
+    'active_at' => current_time('mysql'), 'ends_at' => wp_date('Y-m-d H:i:s', time() + 5 * DAY_IN_SECONDS), 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+$tm = intval($wpdb->insert_id);
+[$st0, $d0] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'quartal', 'consents' => ['b2b' => true, 'contract' => true]], null);
+[$st, $d] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'month', 'consents' => ['b2b' => true, 'contract' => true]], null);
+$pmx = $T::price_month_of($tier);
+$lp = $mstate['last_payment'] ?? [];
+$eq('activate monatlich: falsche Zahlweise 400 billing; erste Monatsrate brutto, first, metadata billing month, Einwilligung monatlich', [400, 'billing', 200, 'month', number_format($pmx['gross'], 2, '.', ''), 'first', 'month', 'month', true],
+    [$st0, $d0['data']['field'] ?? '', $st, $d['billing'] ?? '', $lp['amount']['value'] ?? '', $lp['sequenceType'] ?? '', $lp['metadata']['billing'] ?? '', $T::get($tm)->d['activation']['consents']['billing'] ?? '', strpos((string) ($T::get($tm)->d['activation']['consents']['texts']['contract'] ?? ''), 'im Monat, 12 Monatsraten') !== false]);
+$cust = $T::get($tm)->mollie_customer_id;
+$mstate = array_merge($mstate, ['trial_id' => $tm, 'kind' => 'activate', 'pay_status' => 'paid', 'customer' => $cust, 'meta' => ['billing' => 'month'], 'amount' => number_format($pmx['gross'], 2, '.', '')]);
+$post('/public/trial/mollie-webhook', ['id' => (string) $T::get($tm)->d['activation']['payment_id']], null);
+$tmc = $T::get($tm);
+$eq('Zahlung monatlich: converted, billing month, Rate 1 bezahlt, Vertragsbeginn gesetzt', ['converted', 'month', 1, 'paid', true], [$tmc->status, $tmc->d['billing'] ?? '', intval($tmc->d['rates'][0]['n'] ?? 0), $tmc->d['rates'][0]['status'] ?? '', !empty($tmc->d['contract_start'])]);
+$x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/status'); $x->set_query_params(['token' => $mtok]); $sd = rest_do_request($x)->get_data();
+$eq('Status: billing month, price_month, nächste Rate 2 in einem Monat', ['month', $pmx['net'], 2, $T::rate_due($tmc->d['contract_start'], 2)->format('c')], [$sd['billing'] ?? '', $sd['price_month']['net'] ?? null, $sd['next_rate']['n'] ?? null, $sd['next_rate']['due'] ?? '']);
+// Rate 2 fällig → Abbuchung (Schalter an)
+update_option('tix_trial_auto_charge', '1', false);
+$wpdb->update(TIX_Trial::t(), ['mandate_status' => 'valid', 'mollie_mandate_id' => 'mdt_t1'], ['id' => $tm]);
+$due2 = $T::rate_due($tmc->d['contract_start'], 2)->getTimestamp();
+$T::rates_tick($T::get($tm), $due2 + 3600);
+$r2 = $T::get($tm)->d['rates'][1] ?? [];
+$lp = $mstate['last_payment'] ?? [];
+$eq('Rate 2: recurring über das Mandat, Betrag Monatspreis brutto, kind rate n 2', [2, 'recurring', number_format($pmx['gross'], 2, '.', ''), 'rate', 2, true], [intval($r2['n'] ?? 0), $lp['sequenceType'] ?? '', $lp['amount']['value'] ?? '', $lp['metadata']['kind'] ?? '', intval($lp['metadata']['n'] ?? 0), ($r2['payment_id'] ?? '') !== '']);
+$T::rates_tick($T::get($tm), $due2 + 7200);
+$eq('Keine doppelte Abbuchung derselben Rate', 2, count($T::get($tm)->d['rates']));
+// Rate 2 fehlgeschlagen
+$mstate = array_merge($mstate, ['kind' => 'rate', 'pay_status' => 'failed', 'meta' => ['n' => 2]]);
+$mc = count($mails);
+$post('/public/trial/mollie-webhook', ['id' => (string) $r2['payment_id']], null);
+$sd = rest_do_request($x)->get_data();
+$eq('Rate fehlgeschlagen: Mail „Rate nicht eingegangen“ mit Bezahl-Link, Status rate_overdue + pay_rate_url', [1, true, 2, true],
+    [count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Rate nicht eingegangen'; })), strpos((string) (array_slice($mails, $mc)[0]['message'] ?? ''), '/testen/rate-bezahlen/?token=' . $mtok) !== false, $sd['rate_overdue']['n'] ?? null, strpos((string) ($sd['pay_rate_url'] ?? ''), '/testen/rate-bezahlen/?token=') !== false]);
+// 14 Tage später → Pause (nicht löschen)
+$T::rates_tick($T::get($tm), $due2 + 15 * DAY_IN_SECONDS);
+$tp = $T::get($tm);
+$eq('14 Tage offen: pausiert (Auftrag pause), Status bleibt converted, kein Löschdatum', ['converted', true, true, null], [$tp->status, !empty($tp->d['rate_paused']), in_array('pause', (array) ($tp->d['server']['pending'] ?? []), true), $tp->delete_at]);
+// Jetzt bezahlen (oneoff) → bezahlt → resume
+[$st, $d] = $post('/public/trial/pay-rate', ['token' => $mtok], null);
+$lp = $mstate['last_payment'] ?? [];
+$mstate = array_merge($mstate, ['pay_status' => 'paid']);
+$post('/public/trial/mollie-webhook', ['id' => 'tr_oneoff' . $sfx], null);
+$tp = $T::get($tm);
+[$st2, $d2] = $post('/public/trial/pay-rate', ['token' => $mtok], null);
+$eq('pay-rate: oneoff-Checkout für Rate 2; bezahlt → Pause aufgehoben, Auftrag resume; danach nichts offen (409)', [200, 'oneoff', 2, 'paid', false, true, 409, 'tix_trial_no_rate_due'],
+    [$st, $lp['sequenceType'] ?? '', intval($d['rate']['n'] ?? 0), $tp->d['rates'][1]['status'] ?? '', !empty($tp->d['rate_paused']), in_array('resume', (array) ($tp->d['server']['pending'] ?? []), true), $st2, $d2['code'] ?? '']);
+// Hochstufung monatlich
+$tiers = TIX_Platform_Offers::catalog()['shop_tiers'];
+if (count($tiers) >= 2) {
+    $start = $tp->d['contract_start'];
+    $q = $T::upgrade_quote_month(intval($tiers[0]['max']), intval($tiers[1]['max']), $start, $T::rate_due($start, 3)->getTimestamp() + 10 * DAY_IN_SECONDS);
+    $diff = round($T::month_net_of($tiers[1]) - $T::month_net_of($tiers[0]), 2);
+    $eq('Hochstufung monatlich: Differenz der Monatspreise anteilig für den laufenden Monat', [$diff, true, round($diff * $q['remaining_days'] / $q['total_days'], 2)], [$q['diff_month'], $q['remaining_days'] > 0 && $q['remaining_days'] < $q['total_days'], $q['amount_net']]);
+}
+$eq('Altbestand ohne billing = year', 'year', $T::billing_of((object) ['d' => []]));
+unset($mstate['meta'], $mstate['amount'], $mstate['kind']);
+update_option('tix_trial_auto_charge', '0', false);
+$wpdb->delete(TIX_Trial::t(), ['id' => $tm]);
 
 // ═══ Aufräumen ═══
 remove_filter('pre_wp_mail', $cap, 1); remove_filter('pre_http_request', $mock, PHP_INT_MAX);

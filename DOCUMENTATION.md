@@ -7077,3 +7077,11 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `pause_ajax` (`admin_init`, 0): schreibende Kassen-AJAX-Aktionen (`PAUSE_AJAX`) → 423. `TIX_Native_Checkout::create_order` → `null` mit `last_error` `tix_paused`.
 - WP-CLI bleibt frei (`cli_free()`, Filter `tix_trial_pause_cli_free` nur für Tests).
 - **Test:** `test-trial-wp` (KK 27, Plattform 98).
+
+## 227. Eigener Shop: jährlich oder monatlich zahlen (ab 1.38.865)
+- Plan `uebergaben/plan-monatliche-zahlung-2026-11-17.md` („Schnittstelle Plugin“, „Plugin gebaut“), Vertrag `vertrag-testphase.md` → „Monatliche Zahlung“.
+- Katalog `shop_tiers[].price_month` (optional, `TIX_Platform_Offers` prüft die Zahl); `TIX_Trial::month_net_of`, `price_month_of`, `public_tiers` mit `price_month`/`billing`.
+- `rest_activate` mit `billing` (Einwilligung `CONSENT_B` bzw. `CONSENT_B_MONTH`), `activate_paid` setzt `billing`, `contract_start`, bei monatlicher Zahlung `rates[0]` und `invoice_rate(1)`.
+- `rates_tick` (stündlich, `converted` + `month`): fällige Rate recurring (`tix_trial_auto_charge`) bzw. Mail an den Vertrieb; offene Rate 14 Tage → `rate_paused` + Auftrag `pause`. Webhook `kind: rate` → `rate_paid` (Rechnung, ggf. `resume`) bzw. Mail „Rate nicht eingegangen“. `POST /public/trial/pay-rate` (oneoff).
+- `contract_tick`: Verlängerung monatlich ohne Jahresabbuchung. `record_usage` monatlich mit `upgrade_quote_month`. `billing_fields()` für Status, Studio-Liste, `/me.trial`.
+- **Test:** `test-trial-wp` (Plattform 110, KK 27).

@@ -495,7 +495,10 @@ class TIX_Platform_Offers {
         foreach (array_slice((array) ($in['shop_tiers'] ?? (self::catalog()['shop_tiers'] ?? $def['shop_tiers'])), 0, 10) as $t) {
             $mx = intval($t['max'] ?? 0); $pr = self::num($t['price'] ?? null, 0);
             if ($mx < 1 || $pr === null) return new WP_Error('tix_catalog_invalid', 'Staffel: Tickets und Preis angeben.', ['status' => 400, 'field' => 'shop_tiers']);
-            $tiers[] = ['max' => $mx, 'price' => $pr];
+            // Monatspreis (1.38.865): optional gepflegt, sonst Jahrespreis ÷ 10
+            $pm = (isset($t['price_month']) && $t['price_month'] !== '' && $t['price_month'] !== null) ? self::num($t['price_month'], 0) : null;
+            if (isset($t['price_month']) && $t['price_month'] !== '' && $t['price_month'] !== null && $pm === null) return new WP_Error('tix_catalog_invalid', 'Staffel: Monatspreis als Zahl angeben.', ['status' => 400, 'field' => 'shop_tiers']);
+            $tiers[] = ['max' => $mx, 'price' => $pr] + ($pm !== null ? ['price_month' => $pm] : []);
         }
         usort($tiers, function ($a, $b) { return $a['max'] <=> $b['max']; });
         $out['shop_tiers'] = $tiers;
