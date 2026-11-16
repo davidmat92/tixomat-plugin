@@ -7064,3 +7064,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Neu: Zustand `paused`, `TIX_Trial::pause()`, `POST /public/trial/activate` (`rest_activate`), Webhook `kind: activate` (`activate_paid`), Server-Aufträge `pause`/`resume`, Tagesgrenze `tix_trial_daily_limit`, letzte Erinnerung (`data.final_reminder`).
 - Angepasst: `confirm` (nopay ohne Mollie, `progress_url`), `queue`/`done`, `tick`, `do_cancel` („Testshop löschen“), `rest_start` (409 in nopay), `rest_extend` (aus `paused`), `rest_status`, `progress_view` (Stufe 1 „E-Mail bestätigt“, Phase „pausiert“), `TIX_Trial_Site::me_payload` (`activate_url`, `can_activate`, `flow`, `phase`), Mails.
 - **Test:** `test-trial-wp` (Plattform 94, KK 25).
+
+## 225. Testphase nopay: Einwilligungen A/B, Rückwege, Preis (ab 1.38.863)
+- Wortlaut der Rechtstexte (84eb1da4) in `TIX_Trial::CONSENT_A` / `CONSENT_B`, `consent_record()` speichert Wortlaut mit Werten, Fassung (`CONSENT_VERSION`, Option `tix_trial_consent_version`), Zeit und IP-Hash.
+- `order` (nopay): Pflicht `consents.b2b`, `consents.trial_terms`. `activate`: Pflicht `consents.b2b`, `consents.contract`. Vertrag erst mit Webhook `paid` (`data.contract_consent.contract_at`).
+- `create`/`pause`-Auftrag: `trial.price`; `/me.trial.price`; `progress_view.activation`. Mail „bereit“ mit Pause- und Löschdatum. Pfade für Homepages in `plan-testphase-ohne-zahlung-2026-11-16.md`.
+- **Test:** `test-trial-wp` (Plattform 98, KK 25).

@@ -460,9 +460,15 @@ $wpdb->delete(TIX_Trial::t(), ['id' => $t5]); if ($lic5) $wpdb->delete($wpdb->pr
 $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
 update_option('tix_trial_flow', 'nopay', false);
 $kn = "np-$sfx"; $emn = "np-$sfx@firma-test.de";
-$ordn = array_merge($order, ['kurz' => $kn, 'company' => "Ohne Zahlung $sfx GmbH", 'contact' => ['name' => 'Nora Probe', 'email' => $emn, 'phone' => '+49 221 2']]);
+$ordn = array_merge($order, ['kurz' => $kn, 'company' => "Ohne Zahlung $sfx GmbH", 'contact' => ['name' => 'Nora Probe', 'email' => $emn, 'phone' => '+49 221 2'], 'consents' => ['b2b' => true, 'trial_terms' => true]]);
 $molc = count($mol);
+[$st0, $d0] = $post('/public/trial/order', array_merge($ordn, ['consents' => ['b2b' => true]]));
+$eq('nopay Einwilligung A: ohne trial_terms → 400 consents.trial_terms', [400, 'consents.trial_terms'], [$st0, $d0['data']['field'] ?? '']);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
 [$st, $d] = $post('/public/trial/order', $ordn);
+$ca = $T::get(intval($d['trial_id'] ?? 0))->d['consents'] ?? [];
+$eq('Einwilligung A gespeichert: Fassung, Zeit, IP-Hash, Wortlaut mit Firma', [$T::CONSENT_VERSION, true, true, true, true],
+    [$ca['version'] ?? '', !empty($ca['at']), strlen((string) ($ca['ip_hash'] ?? '')) === 64, strpos((string) ($ca['texts']['b2b'] ?? ''), "Ohne Zahlung $sfx GmbH") !== false, strpos((string) ($ca['texts']['trial_terms'] ?? ''), 'Es verlängert sich nichts automatisch') !== false]);
 $tn = intval($d['trial_id'] ?? 0);
 $tokn = $token_from('trial');
 [$st2, $d2] = $post('/public/trial/confirm', ['token' => $tokn], null);
@@ -477,8 +483,9 @@ $signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jn['job_id']
 $ctn = $token_from('kuendigen');
 $ready = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Shop ist bereit'; }));
 $rh = (string) end($ready)['message'];
-$eq('nopay create: Auftrag mit activate_url, ohne start_url; aktiv; Mail ohne Automatik, Link „Testshop löschen“', [true, false, 'active', true, true],
-    [strpos((string) ($jn['trial']['activate_url'] ?? ''), '/testen/aktiv-halten/?token=') !== false, isset($jn['trial']['start_url']), $T::get($tn)->status, strpos($rh, 'verlängert sich nichts automatisch') !== false, strpos($rh, 'Testshop löschen') !== false]);
+$eq('nopay create: Auftrag mit activate_url, cancel_url und Preis, ohne start_url; aktiv; Mail ohne Automatik mit Pause-/Löschdatum, Link „Testshop löschen“', [true, true, true, false, 'active', true, true, true],
+    [strpos((string) ($jn['trial']['activate_url'] ?? ''), '/testen/aktiv-halten/?token=') !== false, strpos((string) ($jn['trial']['cancel_url'] ?? ''), '/testen/kuendigen/?token=') !== false, !empty($jn['trial']['price']['gross']), isset($jn['trial']['start_url']), $T::get($tn)->status,
+     strpos($rh, 'Es verlängert sich nichts automatisch') !== false && strpos($rh, 'pausieren wir ihn am') !== false, strpos($rh, 'Testshop löschen') !== false, true]);
 [$st, $d] = $post('/public/trial/start', ['token' => $ctn], null);
 $x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/status'); $x->set_query_params(['token' => $ctn]); $sd = rest_do_request($x)->get_data();
 $eq('nopay: „Jetzt starten“ gesperrt (409 tix_trial_flow); Status mit flow, can_activate, Preis, auto_renew_trial false', [409, 'tix_trial_flow', 'nopay', true, false, false, true],
@@ -508,8 +515,10 @@ $mc = count($mails);
 $T::tick($delx - 2 * DAY_IN_SECONDS); $T::tick($delx - 2 * DAY_IN_SECONDS + 3600);
 $eq('Letzte Erinnerung 3 Tage vor dem Löschen, nur einmal', 1, count(array_filter(array_slice($mails, $mc), function ($m) { return strpos((string) $m['subject'], 'Letzte Erinnerung') === 0; })));
 // Aktiv halten
+[$st0, $d0] = $post('/public/trial/activate', ['token' => $ctn, 'consents' => ['b2b' => true]], null);
+$eq('Einwilligung B: ohne contract → 400 consents.contract (kein Mollie-Aufruf)', [400, 'consents.contract'], [$st0, $d0['data']['field'] ?? '']);
 $molc = count($mol);
-[$st, $d] = $post('/public/trial/activate', ['token' => $ctn], null);
+[$st, $d] = $post('/public/trial/activate', ['token' => $ctn, 'consents' => ['b2b' => true, 'contract' => true]], null);
 $lp = $mstate['last_payment'] ?? [];
 $price = $T::price_of($order['tier']);
 $eq('activate: Mollie-Zahlung Jahresbetrag brutto, sequenceType first, Karte/PayPal, kind activate, Rückweg /testen/aktiviert/', [200, true, number_format($price['gross'], 2, '.', ''), 'first', ['creditcard', 'paypal'], 'activate', true],
@@ -520,9 +529,13 @@ $mc = count($mails);
 $post('/public/trial/mollie-webhook', ['id' => 'tr_act1'], null);
 $eq('Zahlung fehlgeschlagen: bleibt paused, Mail „Nochmal versuchen“', ['paused', 1], [$T::get($tn)->status, count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Zahlung hat nicht geklappt'; }))]);
 $mstate['pay_status'] = 'paid';
-$post('/public/trial/mollie-webhook', ['id' => 'tr_act2'], null);
-$post('/public/trial/mollie-webhook', ['id' => 'tr_act2'], null); // doppelt: nichts doppelt
+$payid = (string) ($T::get($tn)->d['activation']['payment_id'] ?? ''); // wie bei Mollie: Webhook mit der ID der angelegten Zahlung
+$post('/public/trial/mollie-webhook', ['id' => $payid], null);
+$post('/public/trial/mollie-webhook', ['id' => $payid], null); // doppelt: nichts doppelt
 $tc = $T::get($tn);
+$cc = $tc->d['contract_consent'] ?? [];
+$eq('Vertragsschluss erst mit Zahlung: Einwilligung B mit Fassung, Zeit, contract_at, Wortlaut mit Paket und Preis', [$T::CONSENT_VERSION, true, true, true],
+    [$cc['version'] ?? '', !empty($cc['contract_at']) && !empty($cc['at']), strpos((string) ($cc['texts']['contract'] ?? ''), $T::tier_label($order['tier']) . ' für ' . $T::money($price['net']) . ' zzgl. USt') !== false, ($cc['payment_id'] ?? '') === $payid && $payid !== '']);
 $eq('Zahlung da: converted, Vertrag 1 Jahr, Mandat gespeichert, Aufträge resume + convert, Löschdatum weg', ['converted', true, 'mdt_t1', ['resume', 'convert'], null, 1],
     [$tc->status, abs(strtotime($tc->d['contract_until'] ?? '') - strtotime('+1 year')) < 300, $tc->mollie_mandate_id, $tc->d['server']['pending'] ?? [], $tc->delete_at, count(array_filter($mails, function ($m) use ($kn) { return ($m['subject'] ?? '') === 'Dein Vertrag hat begonnen' && strpos((string) $m['message'], $kn) !== false; }))]);
 [, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);

@@ -329,6 +329,32 @@ class TIX_Trial {
     public static function flow_default() { return get_option('tix_trial_flow', 'mandate') === 'nopay' ? 'nopay' : 'mandate'; }
     public static function flow_of($t) { return (string) ($t->d['flow'] ?? 'mandate') === 'nopay' ? 'nopay' : 'mandate'; }
 
+    /** Einwilligungen nopay (Rechtstexte 84eb1da4, Entwurf, Anwaltsprüfung R61 offen) – Wortlaut ohne Links; Platzhalter in eckigen Klammern */
+    const CONSENT_VERSION = '2026-11-16 (Rechtstexte 84eb1da4)';
+    const CONSENT_A = [
+        'b2b' => 'Ich bestelle für [Firma] als Unternehmer (nicht als Verbraucher) und bin berechtigt, für die Firma zu handeln.',
+        'trial_terms' => 'Ich akzeptiere die Bedingungen für die Bestellung einschließlich § 11 (Testshop). Mir ist klar: Der Testshop ist 14 Tage kostenlos und endet von selbst. Es verlängert sich nichts automatisch, und es wird nichts abgebucht. Halte ich den Shop nicht aktiv, wird er pausiert und 14 Tage später gelöscht.',
+    ];
+    const CONSENT_B = [
+        'b2b' => 'Ich schließe den Vertrag für [Firma] als Unternehmer (nicht als Verbraucher) und bin berechtigt, für die Firma zu handeln.',
+        'contract' => 'Ich schließe den Lizenzvertrag für den Eigenen Shop einschließlich der Vereinbarung zur Auftragsverarbeitung zu den Bedingungen für die Bestellung ab: [Paket] für [Preis] zzgl. USt im Jahr, sofort fällig und jetzt über Mollie zu bezahlen. Der Vertrag läuft ein Jahr ab heute und verlängert sich um je ein Jahr, wenn ich nicht bis einen Monat vor Ablauf kündige. Mein Zahlungsmittel wird für die folgenden Jahresbeträge und eine anteilige Hochstufung bei mehr Tickets gespeichert.',
+    ];
+
+    /** Nachweis einer Einwilligung: Wortlaut mit eingesetzten Werten, Fassung, Zeit, IP-Hash (rein bis auf Zeit/IP) */
+    public static function consent_record(array $texts, array $vars) {
+        return ['version' => (string) get_option('tix_trial_consent_version', self::CONSENT_VERSION), 'at' => wp_date('c'), 'ip_hash' => self::ip_hash(),
+            'texts' => array_map(function ($tx) use ($vars) { return strtr($tx, $vars); }, $texts)];
+    }
+
+    public static function money($v) {
+        $v = floatval($v);
+        return number_format($v, abs($v - round($v)) < 0.005 ? 0 : 2, ',', '.') . ' €';
+    }
+
+    public static function tier_label($tier) {
+        return 'Paket bis ' . number_format(intval($tier), 0, ',', '.') . ' Tickets';
+    }
+
     /** Preis je Jahr (netto/brutto) der gebuchten Stufe → ['net','gross'] | null */
     public static function price_of($tier) {
         $net = self::tier_price($tier);
@@ -548,8 +574,13 @@ class TIX_Trial {
         if (self::is_own_domain($d['contact']['email'])) return self::err('tix_invalid_field', 'Bitte eine Adresse deiner Firma angeben – evendis-Adressen sind nicht möglich.', 400, 'contact.email');
         if ($d['vat_id'] !== '' && !preg_match('/^(DE\d{9}|(AT|BE|BG|CY|CZ|DK|EE|EL|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|SE|SI|SK)[0-9A-Z]{2,12})$/', $d['vat_id'])) return self::err('tix_invalid_field', 'Bitte eine gültige USt-IdNr. angeben.', 400, 'vat_id');
         if (!in_array($d['tier'], array_map('intval', array_column(self::tiers(), 'max')), true)) return self::err('tix_invalid_field', 'Bitte eine Paket-Stufe wählen.', 400, 'tier');
-        foreach (['terms', 'trial_contract', 'privacy', 'b2b'] as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);
-        $d['consents'] = ['terms' => true, 'trial_contract' => true, 'privacy' => true, 'b2b' => true, 'at' => wp_date('c')];
+        if (self::flow_default() === 'nopay') { // Einwilligung A (Rechtstexte 84eb1da4): wörtlich mit Werten, Fassung, Zeit, IP-Hash speichern
+            foreach (array_keys(self::CONSENT_A) as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);
+            $d['consents'] = self::consent_record(self::CONSENT_A, ['[Firma]' => $d['company']]);
+        } else {
+            foreach (['terms', 'trial_contract', 'privacy', 'b2b'] as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);
+            $d['consents'] = ['terms' => true, 'trial_contract' => true, 'privacy' => true, 'b2b' => true, 'at' => wp_date('c')];
+        }
         global $wpdb;
         self::maybe_install();
         $act = "status IN ('" . implode("','", self::ACTIVE_STATES) . "')";
@@ -703,6 +734,9 @@ class TIX_Trial {
         if (!in_array($t->status, ['active', 'paused', 'cancelled'], true)) return self::err('tix_trial_status', 'In diesem Stand ist „Aktiv halten“ nicht möglich.', 409);
         $price = self::price_of($t->d['tier'] ?? 0);
         if (!$price) return self::err('tix_trial_tier', 'Für dieses Paket gibt es keinen Preis. Bitte melde dich bei uns.', 409);
+        $cs = (array) (self::body($req)['consents'] ?? []);
+        foreach (array_keys(self::CONSENT_B) as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);
+        $consent = self::consent_record(self::CONSENT_B, ['[Firma]' => $t->company, '[Paket]' => self::tier_label($t->d['tier'] ?? 0), '[Preis]' => self::money($price['net'])]);
         if (self::mollie_key() === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
         global $wpdb;
         if ($t->mollie_customer_id === '') {
@@ -718,7 +752,8 @@ class TIX_Trial {
             'metadata' => ['trial_id' => intval($t->id), 'kind' => 'activate']]);
         $url = (string) ($p['_links']['checkout']['href'] ?? '');
         if ($st !== 201 || $url === '') return self::err('tix_mollie_unavailable', 'Der Zahlungsanbieter antwortet gerade nicht. Bitte gleich noch einmal.', 502);
-        $d['activation'] = ['payment_id' => (string) ($p['id'] ?? ''), 'amount' => $price['gross'], 'status' => 'open', 'at' => wp_date('c')];
+        $d['activation'] = ['payment_id' => (string) ($p['id'] ?? ''), 'amount' => $price['gross'], 'status' => 'open', 'at' => wp_date('c'), 'consents' => $consent];
+        $d['activation_consents'][] = $consent + ['payment_id' => (string) ($p['id'] ?? '')]; // Nachweis jedes Versuchs
         $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
         return self::out(['ok' => true, 'checkout_url' => $url, 'amount' => $price, 'tier' => intval($t->d['tier'] ?? 0)]);
     }
@@ -730,6 +765,7 @@ class TIX_Trial {
         $from = $t->status;
         $d = $t->d;
         $d['activation'] = array_merge((array) ($d['activation'] ?? []), ['status' => 'paid', 'paid_at' => wp_date('c')]);
+        foreach (array_reverse((array) ($d['activation_consents'] ?? [])) as $c) if (($c['payment_id'] ?? '') === (string) ($p['id'] ?? '')) { $d['contract_consent'] = $c + ['contract_at' => wp_date('c')]; break; } // Vertrag kommt mit der Zahlung zustande
         $until = (new DateTimeImmutable('now', wp_timezone()))->modify('+1 year');
         $d['contract_until'] = $until->format('c');
         $d['activated_from'] = $from;
@@ -831,6 +867,7 @@ class TIX_Trial {
                 'trial' => in_array($action, ['create', 'extend', 'pause', 'resume'], true) ? array_filter(['ends_at' => $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->format('c') : wp_date('c', time() + self::DAYS * DAY_IN_SECONDS),
                     'delete_at' => $action === 'pause' && $t->delete_at ? (new DateTimeImmutable($t->delete_at, wp_timezone()))->format('c') : null,
                     'paused' => $action === 'pause' ? true : ($action === 'resume' ? false : null),
+                    'price' => self::flow_of($t) === 'nopay' && in_array($action, ['create', 'pause'], true) ? self::price_of($t->d['tier'] ?? 0) : null,
                     'activate_url' => self::flow_of($t) === 'nopay' && !empty($t->d['cancel_token']) && in_array($action, ['create', 'pause'], true) ? self::page('aktiv', (string) $t->d['cancel_token']) : null,
                     // W2b: für das Band im Test-Studio (Kunden-Seite legt es als Option tix_trial_info ab; /me.trial)
                     'cancel_url' => $action === 'create' ? self::page('kuendigen', (string) $t->d['cancel_token']) : null,
@@ -878,7 +915,7 @@ class TIX_Trial {
             global $wpdb; $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
             self::mail($t->email, 'Dein Shop ist bereit', 'Willkommen bei evendis',
                 ['Dein Shop läuft jetzt 14 Tage kostenlos unter ' . $d['url'] . '. Die Kasse ist im Testmodus, es wird nichts echt verkauft.', self::flow_of($t) === 'nopay'
-                    ? 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Nach 14 Tagen wird nichts abgebucht und es verlängert sich nichts automatisch. Willst du weitermachen, klickst du auf „Aktiv halten“.'
+                    ? 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Nach 14 Tagen wird nichts abgebucht. Es verlängert sich nichts automatisch. Hältst du den Shop nicht aktiv, pausieren wir ihn am ' . wp_date('d.m.Y', $ends + 1) . ' und löschen ihn am ' . wp_date('d.m.Y', $ends + 1 + self::PAUSE_DAYS * DAY_IN_SECONDS) . '. Willst du weitermachen, klickst du auf „Aktiv halten“.'
                     : 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch – außer du kündigst vorher mit einem Klick.'],
                 array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null])), 'account', self::page('kuendigen', $cancel), self::flow_of($t) === 'nopay' ? 'Testshop löschen' : 'Testphase kündigen');
             self::notify_sales('Testphase aktiv: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . wp_date('d.m.Y', $ends), 'Shop: ' . $d['url']]);
@@ -1417,6 +1454,7 @@ class TIX_Trial {
             'retrying' => $phase === 'einrichtung' && !empty($d['retried']),
             'stages' => array_values(array_slice(array_replace(self::PROGRESS_STAGES, $nopay ? [1 => 'E-Mail bestätigt'] : []), 0, 6))];
         if ($phase === 'pausiert') $out['activate'] = true;
+        if (!empty($d['activation']['status'])) $out['activation'] = (string) $d['activation']['status']; // Seite /testen/aktiviert/: open | paid | failed | canceled | expired
         if ($phase === 'fertig') { $out['shop_url'] = (string) ($d['url'] ?? ''); $out['studio_url'] = (string) ($d['studio_url'] ?? ''); }
         return $out;
     }
@@ -1513,7 +1551,7 @@ class TIX_Trial_Site {
         $out = ['ends_at' => (string) $info['ends_at'], 'days_left' => null, 'cancel_url' => $https($info['cancel_url'] ?? ''), 'start_url' => $https($info['start_url'] ?? ''), 'status' => !empty($info['paused']) ? 'paused' : 'active', 'delete_at' => $info['delete_at'] ?? null,
             'contract_until' => null, 'contract_end' => null, 'cancel_deadline' => null, 'can_cancel' => true, 'can_start' => ($info['start_url'] ?? '') !== '',
             // 1.38.862 (ohne Zahlungsdaten): „Aktiv halten“ statt „Jetzt starten“
-            'activate_url' => $https($info['activate_url'] ?? ''), 'can_activate' => ($info['activate_url'] ?? '') !== '', 'flow' => ($info['activate_url'] ?? '') !== '' ? 'nopay' : 'mandate', 'phase' => !empty($info['paused']) ? 'paused' : 'trial', 'price' => null, 'auto_renew_trial' => ($info['activate_url'] ?? '') === ''];
+            'activate_url' => $https($info['activate_url'] ?? ''), 'can_activate' => ($info['activate_url'] ?? '') !== '', 'flow' => ($info['activate_url'] ?? '') !== '' ? 'nopay' : 'mandate', 'phase' => !empty($info['paused']) ? 'paused' : 'trial', 'price' => is_array($info['price'] ?? null) ? $info['price'] : null, 'auto_renew_trial' => ($info['activate_url'] ?? '') === ''];
         $url = $https($info['status_url'] ?? '');
         if ($url !== '') {
             $key = 'tix_trial_status_' . md5($url);
