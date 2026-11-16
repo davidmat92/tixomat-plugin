@@ -23,7 +23,8 @@ class TIX_Trial {
     const SKEW = 300;
     const REMINDER_DAYS = [7, 12, 13];
     const MOLLIE = 'https://api.mollie.com/v2';
-    const ACTIVE_STATES = ['requested', 'confirmed', 'queued', 'provisioning', 'active', 'failed'];
+    const ACTIVE_STATES = ['requested', 'confirmed', 'queued', 'provisioning', 'active', 'failed', 'paused'];
+    const PAUSE_DAYS = 14; // nopay: nach dem Pausieren bis zum Löschen (1.38.862)
     const FREE_STATES = ['expired', 'rejected', 'payment_failed', 'deleted'];
     /** x = genau, x* = beginnt mit, *x* = enthält (angeglichen an ops/kunden-hetzner/lib/sperrliste.py + testphase.py) */
     const BLOCKED_DEFAULT = ['www', 'mail', 'smtp', 'imap', 'ftp', 'api', 'app', 'apps', 'studio', 'admin', 'root', 'demo*', 'test*', 'staging*', 'dev*', 'veranstalter',
@@ -324,6 +325,16 @@ class TIX_Trial {
         return null;
     }
 
+    /** Ablauf (1.38.862): nopay = ohne Zahlungsdaten, „Aktiv halten“ mit Zahlung; mandate = bisher (0-€-Mandat, Übergang an Tag 14). */
+    public static function flow_default() { return get_option('tix_trial_flow', 'mandate') === 'nopay' ? 'nopay' : 'mandate'; }
+    public static function flow_of($t) { return (string) ($t->d['flow'] ?? 'mandate') === 'nopay' ? 'nopay' : 'mandate'; }
+
+    /** Preis je Jahr (netto/brutto) der gebuchten Stufe → ['net','gross'] | null */
+    public static function price_of($tier) {
+        $net = self::tier_price($tier);
+        return $net ? ['net' => round($net, 2), 'gross' => round($net * 1.19, 2), 'currency' => 'EUR', 'interval' => 'year'] : null;
+    }
+
     /** Inhaber-Adresse auf evendis.de bzw. *.evendis.de – der Kunden-Server lehnt sie ab (ops/kunden-hetzner/lib/testphase.py), also schon hier (1.38.855) */
     public static function is_own_domain($email) {
         $e = strtolower(trim((string) $email));
@@ -353,11 +364,11 @@ class TIX_Trial {
      * Mail der Testphase (ab 1.38.858 nach User-Fund): nur der erste Knopf ist Hauptaktion (rot, klein), weitere als Umriss-Knopf;
      * Kündigen nie als Knopf, sondern als kleiner Textlink unter dem Text ($cancel_url).
      */
-    private static function mail($to, $subject, $title, array $paras, array $buttons = [], $kind = 'account', $cancel_url = '') {
+    private static function mail($to, $subject, $title, array $paras, array $buttons = [], $kind = 'account', $cancel_url = '', $cancel_label = 'Testphase kündigen') {
         $h = '';
         foreach ($paras as $p) $h .= '<p>' . esc_html($p) . '</p>';
         foreach (array_values($buttons) as $i => [$label, $url]) $h .= class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::button($label, $url, $i === 0 ? 'compact' : 'outline') : '<p><a href="' . esc_url($url) . '">' . esc_html($label) . '</a></p>';
-        if ($cancel_url !== '') $h .= '<p class="tm-muted" style="margin:16px 0 0;font-size:13px;line-height:18px;color:#6B7280;text-align:center;">Du willst doch nicht? <a href="' . esc_url($cancel_url) . '" style="color:#6B7280;text-decoration:underline;">Testphase kündigen</a></p>';
+        if ($cancel_url !== '') $h .= '<p class="tm-muted" style="margin:16px 0 0;font-size:13px;line-height:18px;color:#6B7280;text-align:center;">Du willst doch nicht? <a href="' . esc_url($cancel_url) . '" style="color:#6B7280;text-decoration:underline;">' . esc_html($cancel_label) . '</a></p>';
         if (class_exists('TIX_Mail_Layout')) return TIX_Mail_Layout::send($to, $subject, ['title' => $title, 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => $kind], ['customer' => false]);
         return wp_mail($to, $subject, $h, ['Content-Type: text/html; charset=UTF-8']);
     }
@@ -372,8 +383,9 @@ class TIX_Trial {
     }
 
     /** Mail-Links (mit den Homepages abgestimmt): Basis tix_trial_site_url, feste Pfade; Rückweg von Mollie: tix_trial_return_url */
-    const PATHS = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/', 'starten' => '/testen/starten/', 'neu' => '/testen/'];
+    const PATHS = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/', 'starten' => '/testen/starten/', 'neu' => '/testen/', 'aktiv' => '/testen/aktiv-halten/'];
     private static function page($kind, $token = '') {
+        if ($kind === 'activated') return add_query_arg('trial', rawurlencode($token), (string) get_option('tix_trial_activate_return_url', '') ?: 'https://demo.evendis.de/testen/aktiviert/');
         if ($kind === 'mandate') return add_query_arg('trial', rawurlencode($token), (string) get_option('tix_trial_return_url', '') ?: 'https://demo.evendis.de/testen/fertig/');
         $base = untrailingslashit((string) get_option('tix_trial_site_url', '') ?: 'https://demo.evendis.de');
         $url = $base . (self::PATHS[$kind] ?? '/');
@@ -405,6 +417,7 @@ class TIX_Trial {
         // W2b: Stand für das Band im Test-Studio und „Jetzt starten“ (Verwaltungs-Token aus tix_trial_info der Kunden-Seite)
         register_rest_route(self::NS, '/public/trial/status', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_status'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/public/trial/start', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_start'], 'permission_callback' => $pub]);
+        register_rest_route(self::NS, '/public/trial/activate', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_activate'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/trial/(?P<id>\d+)/invoices/(?P<n>\d+)/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_invoice_pdf'], 'permission_callback' => $staff]);
         // Server (signiert)
         register_rest_route(self::NS, '/trial/queue', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_queue'], 'permission_callback' => $signed]);
@@ -544,6 +557,12 @@ class TIX_Trial {
         if ($wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . self::t() . " WHERE $act AND (email_hash = %s OR ip_hash = %s" . ($ck !== '' ? ' OR company_key = %s' : '') . ')', ...array_values(array_filter([$eh, $ih, $ck], 'strlen'))))) {
             return self::err('tix_trial_exists', 'Es gibt schon eine laufende Testphase für diese Angaben. Bitte melde dich bei uns, wenn du Hilfe brauchst.', 409);
         }
+        $d['flow'] = self::flow_default();
+        if ($d['flow'] === 'nopay') { // Missbrauchsschutz ohne Karte: Tagesgrenze plattformweit (1.38.862)
+            $lim = max(1, intval(get_option('tix_trial_daily_limit', 20)));
+            if (intval($wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . self::t() . ' WHERE created_at >= %s', wp_date('Y-m-d') . ' 00:00:00'))) >= $lim)
+                return self::err('tix_trial_daily_limit', 'Heute sind schon sehr viele Testphasen gestartet. Bitte versuche es morgen noch einmal oder schreib uns.', 429, null, ['retry_after' => DAY_IN_SECONDS]);
+        }
         if ($e = self::email_limit($d['contact']['email'])) return $e;
         $token = wp_generate_password(40, false, false);
         $d['history'] = [['at' => wp_date('c'), 'from' => null, 'to' => 'requested', 'by' => 'customer']];
@@ -552,7 +571,7 @@ class TIX_Trial {
         $id = intval($wpdb->insert_id);
         if (!$id) return self::err('tix_trial_failed', 'Die Bestellung konnte nicht gespeichert werden.', 500);
         self::mail($d['contact']['email'], 'Bitte bestätige deine Testphase', 'Fast geschafft',
-            ['Hallo ' . strtok($d['contact']['name'], ' ') . ', bitte bestätige deine E-Mail-Adresse. Danach hinterlegst du ein Zahlungsmittel (es wird nichts abgebucht) und wir richten deinen Shop unter ' . $kurz . '.evendis.de ein.', 'Der Link gilt 24 Stunden.'],
+            ['Hallo ' . strtok($d['contact']['name'], ' ') . ', bitte bestätige deine E-Mail-Adresse. ' . ($d['flow'] === 'nopay' ? 'Danach richten wir deinen Shop unter ' . $kurz . '.evendis.de ein – ohne Zahlungsdaten.' : 'Danach hinterlegst du ein Zahlungsmittel (es wird nichts abgebucht) und wir richten deinen Shop unter ' . $kurz . '.evendis.de ein.'), 'Der Link gilt 24 Stunden.'],
             [['E-Mail bestätigen', self::page('trial', $token)]]);
         return self::out(['ok' => true, 'status' => 'confirm_sent', 'trial_id' => $id], 202);
     }
@@ -577,6 +596,10 @@ class TIX_Trial {
         if (!$row) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
         $t = self::get($row->id);
         if (!in_array($t->status, ['requested', 'confirmed'], true) || strtotime($t->created_at) + self::TOKEN_TTL < current_time('timestamp')) return self::err('tix_token_expired', 'Dieser Link ist abgelaufen oder wurde schon benutzt.', 410);
+        if (self::flow_of($t) === 'nopay') { // ohne Zahlungsdaten: E-Mail bestätigt → gleich einrichten (1.38.862)
+            $ptok = self::to_queued($t, [], 'customer');
+            return self::out(['ok' => true, 'status' => 'queued', 'trial_id' => intval($t->id), 'progress_url' => self::progress_url($t->id, $ptok)]);
+        }
         if (self::mollie_key() === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
         if ($t->status === 'requested') $t = self::set($t, 'confirmed', [], null, 'customer');
         if ($t->mollie_customer_id === '') {
@@ -612,6 +635,26 @@ class TIX_Trial {
             $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
             return self::out(['ok' => true]);
         }
+        if ($t && ($p['metadata']['kind'] ?? '') === 'activate' && ($p['customerId'] ?? '') === $t->mollie_customer_id) { // „Aktiv halten“ (1.38.862)
+            $stt = sanitize_key((string) ($p['status'] ?? ''));
+            if (in_array($stt, ['failed', 'canceled', 'expired'], true) && in_array($t->status, ['active', 'paused', 'cancelled'], true)) {
+                global $wpdb;
+                $d = $t->d; $d['activation'] = array_merge((array) ($d['activation'] ?? []), ['status' => $stt]);
+                $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
+                self::mail($t->email, 'Zahlung hat nicht geklappt', 'Das hat nicht geklappt', ['Die Zahlung für deinen Shop ' . $t->kurz . '.evendis.de wurde nicht abgeschlossen. Es wurde nichts abgebucht. Du kannst es einfach noch einmal versuchen.'],
+                    !empty($d['cancel_token']) ? [['Nochmal versuchen', self::page('aktiv', (string) $d['cancel_token'])]] : []);
+                return self::out(['ok' => true]);
+            }
+            $mid = (string) ($p['mandateId'] ?? '');
+            if ($stt !== 'paid') return self::out(['ok' => true]);
+            $cols = [];
+            if ($mid !== '') {
+                [$ms, $m] = self::mollie('GET', '/customers/' . $t->mollie_customer_id . '/mandates/' . $mid);
+                if ($ms === 200) $cols = ['mollie_mandate_id' => $mid, 'mandate_method' => sanitize_key((string) ($m['method'] ?? '')), 'mandate_status' => sanitize_key((string) ($m['status'] ?? ''))];
+            }
+            self::activate_paid($t, $p, $cols);
+            return self::out(['ok' => true]);
+        }
         if (!$t || ($p['customerId'] ?? '') !== $t->mollie_customer_id || !in_array($t->status, ['confirmed', 'payment_failed'], true)) return self::out(['ok' => true]);
         $status = (string) ($p['status'] ?? '');
         if (in_array($status, ['failed', 'canceled', 'expired'], true)) {
@@ -633,12 +676,76 @@ class TIX_Trial {
             self::mail($t->email, 'Testphase nicht möglich', 'Das geht leider nicht', ['Mit diesem Zahlungsmittel läuft schon eine Testphase. Melde dich gern bei uns, wenn du Fragen hast.']);
             return self::out(['ok' => true]);
         }
-        $d = $t->d; $ptok = self::issue_progress($d);
-        $t = self::set($t, 'queued', $cols, $d);
-        self::mail($t->email, 'Dein Testshop wird eingerichtet', 'Zahlungsmittel bestätigt',
-            ['Danke! Dein Zahlungsmittel ist hinterlegt, abgebucht wurde nichts. Wir richten jetzt deinen Testshop ' . $t->kurz . '.evendis.de ein – das dauert etwa 10 Minuten.', 'Sobald er fertig ist, bekommst du eine zweite Mail mit deinem Zugang.'],
-            [['Fortschritt ansehen', self::progress_url($t->id, $ptok)]]);
+        self::to_queued($t, $cols, 'system');
         return self::out(['ok' => true]);
+    }
+
+    /** → queued mit Fortschritts-Token und Mail „Dein Testshop wird eingerichtet“; gibt den Token zurück */
+    private static function to_queued($t, array $cols, $by) {
+        $d = $t->d; $ptok = self::issue_progress($d);
+        $t = self::set($t, 'queued', $cols, $d, $by);
+        $nopay = self::flow_of($t) === 'nopay';
+        self::mail($t->email, 'Dein Testshop wird eingerichtet', $nopay ? 'E-Mail bestätigt' : 'Zahlungsmittel bestätigt',
+            [($nopay ? 'Danke! Deine E-Mail-Adresse ist bestätigt.' : 'Danke! Dein Zahlungsmittel ist hinterlegt, abgebucht wurde nichts.') . ' Wir richten jetzt deinen Testshop ' . $t->kurz . '.evendis.de ein – das dauert etwa 10 Minuten.', 'Sobald er fertig ist, bekommst du eine zweite Mail mit deinem Zugang.'],
+            [['Fortschritt ansehen', self::progress_url($t->id, $ptok)]]);
+        return $ptok;
+    }
+
+    // ── nopay: „Aktiv halten“ (1.38.862) ──
+
+    /** POST /public/trial/activate {token} → Mollie-Checkout über den Jahresbetrag (sequenceType first, speichert das Mandat für die Verlängerung) */
+    public static function rest_activate(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_activate', 20, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429);
+        $t = self::by_token((string) (self::body($req)['token'] ?? ''));
+        if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
+        if ($t->status === 'converted') return self::out(['ok' => true, 'status' => 'converted', 'contract_until' => $t->d['contract_until'] ?? null]);
+        if (self::flow_of($t) !== 'nopay') return self::err('tix_trial_flow', 'Diese Testphase geht von selbst in den Vertrag über.', 409);
+        if (!in_array($t->status, ['active', 'paused', 'cancelled'], true)) return self::err('tix_trial_status', 'In diesem Stand ist „Aktiv halten“ nicht möglich.', 409);
+        $price = self::price_of($t->d['tier'] ?? 0);
+        if (!$price) return self::err('tix_trial_tier', 'Für dieses Paket gibt es keinen Preis. Bitte melde dich bei uns.', 409);
+        if (self::mollie_key() === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
+        global $wpdb;
+        if ($t->mollie_customer_id === '') {
+            [$st, $c] = self::mollie('POST', '/customers', ['name' => $t->d['contact']['name'] ?? '', 'email' => $t->email, 'metadata' => ['trial_id' => intval($t->id), 'kurz' => $t->kurz]]);
+            if ($st !== 201 || empty($c['id'])) return self::err('tix_mollie_unavailable', 'Der Zahlungsanbieter antwortet gerade nicht. Bitte gleich noch einmal.', 502);
+            $wpdb->update(self::t(), ['mollie_customer_id' => (string) $c['id']], ['id' => $t->id]);
+            $t = self::get($t->id);
+        }
+        $d = $t->d; $ptok = self::issue_progress($d);
+        [$st, $p] = self::mollie('POST', '/payments', ['amount' => ['currency' => 'EUR', 'value' => number_format($price['gross'], 2, '.', '')], 'customerId' => $t->mollie_customer_id, 'sequenceType' => 'first',
+            'method' => ['creditcard', 'paypal'], 'description' => 'evendis Eigener Shop ' . $t->kurz . ' – 1. Vertragsjahr',
+            'redirectUrl' => add_query_arg('p', rawurlencode($ptok), self::page('activated', (string) $t->id)), 'webhookUrl' => rest_url(self::NS . '/public/trial/mollie-webhook'),
+            'metadata' => ['trial_id' => intval($t->id), 'kind' => 'activate']]);
+        $url = (string) ($p['_links']['checkout']['href'] ?? '');
+        if ($st !== 201 || $url === '') return self::err('tix_mollie_unavailable', 'Der Zahlungsanbieter antwortet gerade nicht. Bitte gleich noch einmal.', 502);
+        $d['activation'] = ['payment_id' => (string) ($p['id'] ?? ''), 'amount' => $price['gross'], 'status' => 'open', 'at' => wp_date('c')];
+        $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
+        return self::out(['ok' => true, 'checkout_url' => $url, 'amount' => $price, 'tier' => intval($t->d['tier'] ?? 0)]);
+    }
+
+    /** Zahlung „Aktiv halten“ eingegangen → Vertrag (converted), aus paused mit Auftrag resume */
+    private static function activate_paid($t, array $p, array $cols) {
+        if (!in_array($t->status, ['active', 'paused', 'cancelled'], true)) return $t; // schon erledigt (Webhook doppelt) oder gelöscht
+        global $wpdb;
+        $from = $t->status;
+        $d = $t->d;
+        $d['activation'] = array_merge((array) ($d['activation'] ?? []), ['status' => 'paid', 'paid_at' => wp_date('c')]);
+        $until = (new DateTimeImmutable('now', wp_timezone()))->modify('+1 year');
+        $d['contract_until'] = $until->format('c');
+        $d['activated_from'] = $from;
+        unset($d['paused_at']);
+        $pend = array_values(array_diff((array) ($d['server']['pending'] ?? []), ['pause']));
+        $d['server']['pending'] = array_values(array_unique(array_merge($pend, $from === 'paused' ? ['resume', 'convert'] : ['convert'])));
+        $t = self::set($t, 'converted', $cols + ['converted_at' => self::now(), 'delete_at' => null, 'cancelled_at' => null], $d, 'customer');
+        if ($t->license_id) $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => $until->format('Y-m-d')], ['id' => $t->license_id]);
+        $price = self::tier_price($d['tier'] ?? 0);
+        $inv = self::invoice_year(self::get($t->id), $price, new DateTimeImmutable('now', wp_timezone()), $until);
+        if ($inv) { $t = self::get($t->id); $d = $t->d; $last = count((array) ($d['invoices'] ?? [])) - 1; if ($last >= 0) { $d['invoices'][$last]['paid_at'] = wp_date('c'); $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]); } }
+        self::mail($t->email, 'Dein Vertrag hat begonnen', 'Schön, dass du dabei bist',
+            ['Danke für deine Zahlung! Dein Shop ' . $t->kurz . '.evendis.de bleibt aktiv' . ($from === 'paused' ? ' und ist in wenigen Minuten wieder online' : '') . '. Dein Vertrag läuft bis ' . $until->format('d.m.Y') . ' und verlängert sich um je ein Jahr, wenn du nicht bis einen Monat vorher kündigst.',
+             'Damit deine Kasse echt verkauft, trage im Studio deine Auszahlungsdaten und deine Rechtstexte ein. Die Rechnung bekommst du per Mail.']);
+        self::notify_sales('Testshop aktiv gehalten: ' . $t->kurz, ['Firma: ' . $t->company, 'Bezahlt: ' . number_format(floatval($p['amount']['value'] ?? 0), 2, ',', '.') . ' €', 'Vorher: ' . $from, $inv ? 'Rechnung ' . $inv['number'] : 'Rechnung: nicht automatisch – bitte ausstellen.']);
+        return self::get($t->id);
     }
 
     // ── Server: signierte Abholung ──
@@ -678,7 +785,7 @@ class TIX_Trial {
         self::maybe_install();
         $limit = max(1, min(10, intval($req->get_param('limit') ?: 5)));
         $now = self::now();
-        $rows = $wpdb->get_results($wpdb->prepare('SELECT id FROM ' . self::t() . " WHERE status IN ('queued','provisioning','deleting') OR (status = 'cancelled' AND delete_at <= %s) OR (status IN ('active','converted') AND data LIKE %s) ORDER BY id ASC LIMIT 50", $now, '%"pending":["%'));
+        $rows = $wpdb->get_results($wpdb->prepare('SELECT id FROM ' . self::t() . " WHERE status IN ('queued','provisioning','deleting') OR (status IN ('cancelled','paused') AND delete_at <= %s) OR (status IN ('active','converted','paused','cancelled') AND data LIKE %s) ORDER BY id ASC LIMIT 50", $now, '%"pending":["%'));
         $jobs = [];
         foreach ($rows as $r) {
             if (count($jobs) >= $limit) break;
@@ -686,8 +793,8 @@ class TIX_Trial {
             $job = (array) ($t->d['job'] ?? []);
             $pending = array_values((array) ($t->d['server']['pending'] ?? []));
             if (in_array($t->status, ['queued', 'provisioning'], true)) $action = 'create';
-            elseif (in_array($t->status, ['cancelled', 'deleting'], true)) $action = 'delete';
-            elseif ($pending) $action = $pending[0]; // extend | convert – Status bleibt
+            elseif ($t->status === 'deleting' || (in_array($t->status, ['cancelled', 'paused'], true) && $t->delete_at && $t->delete_at <= $now)) $action = 'delete';
+            elseif ($pending) $action = $pending[0]; // extend | convert | pause | resume – Status bleibt
             else continue;
             if (($job['action'] ?? '') === $action && intval($job['until'] ?? 0) > time()) continue; // gesperrt (30 min)
             $d = $t->d;
@@ -713,7 +820,7 @@ class TIX_Trial {
                 }
             }
             $t = self::set($t, $action === 'create' ? 'provisioning' : ($action === 'delete' ? 'deleting' : $t->status), [], $d, 'server');
-            if ($action === 'extend' || $action === 'convert') {
+            if (in_array($action, ['extend', 'convert', 'pause', 'resume'], true)) {
                 $L = $t->license_id && class_exists('TIX_License_Server') ? TIX_License_Server::get($t->license_id) : null;
                 $lic = $L ? ['valid_until' => (string) $L->valid_until] : null; // Schlüssel hat der Server schon
             }
@@ -721,11 +828,14 @@ class TIX_Trial {
                 'job_id' => $jid, 'trial_id' => intval($t->id), 'action' => $action, 'kurz' => $t->kurz, 'profile' => 'test', 'license' => $lic,
                 'site' => $action === 'create' ? ['name' => $t->d['shop_name'], 'color' => $t->d['color'], 'logo_url' => $t->d['logo_url'], 'noindex' => true, 'layout' => (string) ($t->d['profile'] ?? 'festival')]
                     : ($action === 'convert' ? ['noindex' => false] : null),
-                'trial' => in_array($action, ['create', 'extend'], true) ? array_filter(['ends_at' => $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->format('c') : wp_date('c', time() + self::DAYS * DAY_IN_SECONDS),
+                'trial' => in_array($action, ['create', 'extend', 'pause', 'resume'], true) ? array_filter(['ends_at' => $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->format('c') : wp_date('c', time() + self::DAYS * DAY_IN_SECONDS),
+                    'delete_at' => $action === 'pause' && $t->delete_at ? (new DateTimeImmutable($t->delete_at, wp_timezone()))->format('c') : null,
+                    'paused' => $action === 'pause' ? true : ($action === 'resume' ? false : null),
+                    'activate_url' => self::flow_of($t) === 'nopay' && !empty($t->d['cancel_token']) && in_array($action, ['create', 'pause'], true) ? self::page('aktiv', (string) $t->d['cancel_token']) : null,
                     // W2b: für das Band im Test-Studio (Kunden-Seite legt es als Option tix_trial_info ab; /me.trial)
                     'cancel_url' => $action === 'create' ? self::page('kuendigen', (string) $t->d['cancel_token']) : null,
-                    'start_url' => $action === 'create' ? self::page('starten', (string) $t->d['cancel_token']) : null,
-                    'status_url' => $action === 'create' ? add_query_arg('token', rawurlencode((string) $t->d['cancel_token']), rest_url(self::NS . '/public/trial/status')) : null]) : null,
+                    'start_url' => $action === 'create' && self::flow_of($t) !== 'nopay' ? self::page('starten', (string) $t->d['cancel_token']) : null,
+                    'status_url' => $action === 'create' ? add_query_arg('token', rawurlencode((string) $t->d['cancel_token']), rest_url(self::NS . '/public/trial/status')) : null], function ($v) { return $v !== null; }) : null, // false bleibt (paused: false bei resume)
                 'owner' => $action === 'create' ? ['name' => $t->d['contact']['name'], 'email' => $t->email, 'company' => $t->company, 'address' => $t->d['address'], 'vat_id' => $t->d['vat_id']] : null,
                 'checkout' => $action === 'create' ? ['mode' => 'test'] : ($action === 'convert' ? ['mode' => 'live_allowed'] : null),
                 'issued_at' => wp_date('c'), 'expires_at' => wp_date('c', time() + self::JOB_LOCK),
@@ -738,11 +848,11 @@ class TIX_Trial {
         $t = self::get(intval($req['id']));
         $b = (array) $req->get_json_params();
         $job = $t ? (array) ($t->d['job'] ?? []) : [];
-        $okstate = ['create' => ['provisioning'], 'delete' => ['deleting'], 'extend' => ['active', 'converted', 'cancelled'], 'convert' => ['converted', 'active']];
+        $okstate = ['create' => ['provisioning'], 'delete' => ['deleting'], 'extend' => ['active', 'converted', 'cancelled', 'paused'], 'convert' => ['converted', 'active'], 'pause' => ['paused', 'cancelled', 'active'], 'resume' => ['converted', 'active', 'paused', 'cancelled']];
         if (!$t || empty($job['id']) || ($b['job_id'] ?? '') !== $job['id'] || !in_array($t->status, $okstate[$job['action']] ?? [], true)) return self::err('tix_trial_job_mismatch', 'Auftrag passt nicht zum Stand.', 409);
         $d = $t->d; unset($d['job']);
         $ok = !empty($b['ok']);
-        if (in_array($job['action'], ['extend', 'convert'], true)) { // Status bleibt; nur die Server-Aufgabe ist erledigt
+        if (in_array($job['action'], ['extend', 'convert', 'pause', 'resume'], true)) { // Status bleibt; nur die Server-Aufgabe ist erledigt
             if ($ok) { $d['server']['pending'] = array_values(array_diff((array) ($d['server']['pending'] ?? []), [$job['action']])); unset($d['server']['error']); }
             else { $d['server']['error'] = mb_substr(sanitize_text_field((string) ($b['error'] ?? 'unbekannt')), 0, 500); self::notify_sales('Server-Auftrag ' . $job['action'] . ' fehlgeschlagen: ' . $t->kurz, ['Fehler: ' . $d['server']['error'], 'Der Auftrag wird nach 30 Minuten erneut ausgegeben.']); }
             if (!$ok) $d['job'] = $job; // gesperrt lassen, danach neu ausgeben
@@ -767,8 +877,10 @@ class TIX_Trial {
             $d = $t->d; $d['cancel_token'] = $cancel; // Klartext nur für Mails (Ein-Klick-Link), nie in einer API-Antwort
             global $wpdb; $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
             self::mail($t->email, 'Dein Shop ist bereit', 'Willkommen bei evendis',
-                ['Dein Shop läuft jetzt 14 Tage kostenlos unter ' . $d['url'] . '. Die Kasse ist im Testmodus, es wird nichts echt verkauft.', 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch – außer du kündigst vorher mit einem Klick.'],
-                array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null])), 'account', self::page('kuendigen', $cancel));
+                ['Dein Shop läuft jetzt 14 Tage kostenlos unter ' . $d['url'] . '. Die Kasse ist im Testmodus, es wird nichts echt verkauft.', self::flow_of($t) === 'nopay'
+                    ? 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Nach 14 Tagen wird nichts abgebucht und es verlängert sich nichts automatisch. Willst du weitermachen, klickst du auf „Aktiv halten“.'
+                    : 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch – außer du kündigst vorher mit einem Klick.'],
+                array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null])), 'account', self::page('kuendigen', $cancel), self::flow_of($t) === 'nopay' ? 'Testshop löschen' : 'Testphase kündigen');
             self::notify_sales('Testphase aktiv: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . wp_date('d.m.Y', $ends), 'Shop: ' . $d['url']]);
             return self::signed_out(['ok' => true, 'status' => 'active']);
         }
@@ -776,7 +888,7 @@ class TIX_Trial {
         if ($t->mollie_mandate_id !== '' && self::mollie_key() !== '') { self::mollie('DELETE', '/customers/' . $t->mollie_customer_id . '/mandates/' . $t->mollie_mandate_id); self::mollie('DELETE', '/customers/' . $t->mollie_customer_id); }
         unset($d['cancel_token']);
         self::set($t, 'deleted', ['mandate_status' => 'revoked'], $d, 'server');
-        self::mail($t->email, 'Dein Testshop wurde gelöscht', 'Alles erledigt', ['Wie angekündigt haben wir deinen Testshop ' . $t->kurz . '.evendis.de mit allen Daten gelöscht und das hinterlegte Zahlungsmittel freigegeben. Danke fürs Ausprobieren!']);
+        self::mail($t->email, 'Dein Testshop wurde gelöscht', 'Alles erledigt', ['Wie angekündigt haben wir deinen Testshop ' . $t->kurz . '.evendis.de mit allen Daten gelöscht' . ($t->mollie_mandate_id !== '' ? ' und das hinterlegte Zahlungsmittel freigegeben' : '') . '. Danke fürs Ausprobieren!']);
         return self::signed_out(['ok' => true, 'status' => 'deleted']);
     }
 
@@ -798,17 +910,55 @@ class TIX_Trial {
             $t = self::get($id);
             $d = $t->d;
             $ends = $ts($t->ends_at);
+            $nopay = self::flow_of($t) === 'nopay';
             foreach (self::reminders_due($ts($t->active_at), array_map('intval', (array) ($d['reminders_sent'] ?? [])), $now) as $day) {
                 $left = max(0, (int) ceil(($ends - $now) / DAY_IN_SECONDS));
+                if ($nopay) {
+                    self::mail($t->email, 'Deine Testphase endet am ' . wp_date('d.m.Y', $ends), 'Willst du weitermachen?',
+                        ['Deine Testphase für ' . $t->kurz . '.evendis.de endet am ' . wp_date('d.m.Y', $ends) . ' (noch ' . $left . ' ' . ($left === 1 ? 'Tag' : 'Tage') . ').', 'Es verlängert sich nichts automatisch. Willst du deinen Shop behalten, klickst du auf „Aktiv halten“ und bezahlst das erste Jahr. Sonst pausieren wir den Shop nach Ablauf und löschen ihn 14 Tage später.'],
+                        !empty($d['cancel_token']) ? [['Aktiv halten', self::page('aktiv', (string) $d['cancel_token'])]] : [], 'account', !empty($d['cancel_token']) ? self::page('kuendigen', (string) $d['cancel_token']) : '', 'Testshop löschen');
+                    $d['reminders_sent'][] = $day;
+                    continue;
+                }
                 self::mail($t->email, 'Deine Testphase endet am ' . wp_date('d.m.Y', $ends), 'Noch ' . $left . ' ' . ($left === 1 ? 'Tag' : 'Tage') . ' Testphase',
                     ['Deine Testphase für ' . $t->kurz . '.evendis.de endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch.', 'Möchtest du nicht weitermachen, kündige einfach mit einem Klick – dein Shop wird dann nach 3 Tagen gelöscht.'],
                     array_values(array_filter([!empty($d['studio_url']) ? ['Jetzt starten', $d['studio_url']] : null])), 'account', !empty($d['cancel_token']) ? self::page('kuendigen', (string) $d['cancel_token']) : '');
                 $d['reminders_sent'][] = $day;
             }
             if (($d['reminders_sent'] ?? []) !== ($t->d['reminders_sent'] ?? [])) { $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]); $t = self::get($t->id); }
-            if ($ends && $now > $ends) self::convert($t, 'system');
+            if ($ends && $now > $ends) { if ($nopay) self::pause($t, $now); else self::convert($t, 'system'); }
+        }
+        // nopay: pausierte Shops – letzte Erinnerung 3 Tage vor dem Löschen (das Löschen selbst holt der Server über die Abholung)
+        foreach ($wpdb->get_col("SELECT id FROM " . self::t() . " WHERE status = 'paused'") as $id) {
+            $t = self::get($id);
+            $del = $ts($t->delete_at);
+            if (!$del || !empty($t->d['final_reminder']) || $now < $del - 3 * DAY_IN_SECONDS || $now >= $del) continue;
+            $d = $t->d; $d['final_reminder'] = wp_date('c', $now);
+            $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
+            self::mail($t->email, 'Letzte Erinnerung: dein Shop wird am ' . wp_date('d.m.Y', $del) . ' gelöscht', 'Letzte Erinnerung',
+                ['Dein pausierter Shop ' . $t->kurz . '.evendis.de wird am ' . wp_date('d.m.Y', $del) . ' mit allen Daten gelöscht.', 'Willst du ihn behalten, klickst du auf „Aktiv halten“ – dann ist er sofort wieder online.'],
+                !empty($d['cancel_token']) ? [['Aktiv halten', self::page('aktiv', (string) $d['cancel_token'])]] : []);
         }
         foreach ($wpdb->get_col("SELECT id FROM " . self::t() . " WHERE status = 'converted'") as $id) self::contract_tick(self::get($id), $now);
+    }
+
+    /** nopay: Testphase vorbei, nicht aktiv gehalten → pausiert, Löschen nach PAUSE_DAYS, Auftrag pause (1.38.862) */
+    public static function pause($t, $now = null) {
+        if ($t->status !== 'active' || self::flow_of($t) !== 'nopay') return $t;
+        global $wpdb;
+        $now = $now ?? time();
+        $ends = $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->getTimestamp() : $now;
+        $del = max($ends, $now) + self::PAUSE_DAYS * DAY_IN_SECONDS;
+        $d = $t->d;
+        $d['paused_at'] = wp_date('c', $now);
+        $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['resume']), ['pause'])));
+        $t = self::set($t, 'paused', ['delete_at' => wp_date('Y-m-d H:i:s', $del)], $d, 'system');
+        if ($t->license_id) $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => wp_date('Y-m-d', $del)], ['id' => $t->license_id]);
+        self::mail($t->email, 'Testphase beendet – dein Shop ist pausiert', 'Dein Shop ist pausiert',
+            ['Deine 14 Tage sind um. Wir haben deinen Shop ' . $t->kurz . '.evendis.de pausiert: Er ist offline, die Kasse ist aus, dein Studio kannst du weiter ansehen. Abgebucht wurde nichts.', 'Willst du weitermachen, klickst du auf „Aktiv halten“ – dann ist dein Shop sofort wieder da. Sonst löschen wir ihn am ' . wp_date('d.m.Y', $del) . ' mit allen Daten.'],
+            !empty($d['cancel_token']) ? [['Aktiv halten', self::page('aktiv', (string) $d['cancel_token'])]] : []);
+        self::notify_sales('Testshop pausiert: ' . $t->kurz, ['Firma: ' . $t->company, 'Löschung am ' . wp_date('d.m.Y', $del)]);
+        return $t;
     }
 
     /** Übergang in den Vertrag (Tag 14, nicht gekündigt) */
@@ -1069,11 +1219,14 @@ class TIX_Trial {
     private static function do_cancel($t, $by) {
         if ($t->status === 'cancelled') return self::out(['ok' => true, 'status' => 'cancelled', 'delete_at' => wp_date('c', strtotime($t->delete_at))]);
         if ($t->status === 'converted') return self::err('tix_trial_converted', 'Die Testphase ist schon in den Vertrag übergegangen. Die Kündigung richtet sich nach dem Vertrag.', 409);
-        if (!in_array($t->status, ['active', 'queued', 'provisioning', 'failed'], true)) return self::err('tix_trial_status', 'In diesem Stand ist keine Kündigung möglich.', 409);
+        if (!in_array($t->status, ['active', 'queued', 'provisioning', 'failed', 'paused'], true)) return self::err('tix_trial_status', 'In diesem Stand ist keine Kündigung möglich.', 409);
         $del = time() + self::DELETE_AFTER_DAYS * DAY_IN_SECONDS;
-        $d = $t->d; unset($d['cancel_token'], $d['job']);
+        if ($t->status === 'paused' && $t->delete_at) $del = min($del, (new DateTimeImmutable($t->delete_at, wp_timezone()))->getTimestamp());
+        $d = $t->d; unset($d['job']);
+        if (self::flow_of($t) !== 'nopay') unset($d['cancel_token']); // nopay: „Aktiv halten“ geht bis zum Löschen
         $t = self::set($t, 'cancelled', ['cancelled_at' => self::now(), 'delete_at' => wp_date('Y-m-d H:i:s', $del, wp_timezone())], $d, $by);
-        self::mail($t->email, 'Deine Testphase ist gekündigt', 'Gekündigt', ['Deine Testphase für ' . $t->kurz . '.evendis.de ist gekündigt. Am ' . wp_date('d.m.Y', $del) . ' löschen wir den Shop mit allen Daten und geben das Zahlungsmittel frei. Es wird nichts abgebucht.']);
+        if (self::flow_of($t) === 'nopay') self::mail($t->email, 'Dein Testshop wird gelöscht', 'Löschung bestätigt', ['Wie gewünscht löschen wir deinen Testshop ' . $t->kurz . '.evendis.de am ' . wp_date('d.m.Y', $del) . ' mit allen Daten. Es wird nichts abgebucht.']);
+        else self::mail($t->email, 'Deine Testphase ist gekündigt', 'Gekündigt', ['Deine Testphase für ' . $t->kurz . '.evendis.de ist gekündigt. Am ' . wp_date('d.m.Y', $del) . ' löschen wir den Shop mit allen Daten und geben das Zahlungsmittel frei. Es wird nichts abgebucht.']);
         self::notify_sales('Testphase gekündigt: ' . $t->kurz, ['Firma: ' . $t->company, 'Löschung am ' . wp_date('d.m.Y', $del)]);
         return self::out(['ok' => true, 'status' => 'cancelled', 'delete_at' => wp_date('c', $del)]);
     }
@@ -1149,6 +1302,20 @@ class TIX_Trial {
             'cancel_deadline' => $cu ? (new DateTimeImmutable($cu))->modify('-1 month')->format('c') : null,
             'can_cancel' => $t->status === 'active' || ($t->status === 'converted' && empty($t->d['contract_end']) && $cu && time() <= (new DateTimeImmutable($cu))->modify('-1 month')->getTimestamp()),
             'can_start' => $t->status === 'active'];
+        // 1.38.862: Ablauf ohne Zahlungsdaten
+        $nopay = self::flow_of($t) === 'nopay';
+        $out['flow'] = $nopay ? 'nopay' : 'mandate';
+        $out['auto_renew_trial'] = !$nopay;
+        if ($t->status === 'paused') $out['phase'] = 'paused';
+        elseif (in_array($t->status, ['cancelled', 'deleting', 'deleted'], true)) $out['phase'] = 'deleting';
+        if ($nopay) {
+            $out['can_start'] = false;
+            $out['can_cancel'] = in_array($t->status, ['active', 'paused'], true);
+            $out['can_activate'] = in_array($t->status, ['active', 'paused', 'cancelled'], true);
+            $out['activate_url'] = $out['can_activate'] ? self::page('aktiv', (string) $req->get_param('token')) : null;
+            $out['price'] = self::price_of($t->d['tier'] ?? 0);
+            $out['paused_at'] = $t->d['paused_at'] ?? null;
+        } else { $out['can_activate'] = false; $out['activate_url'] = null; }
         $r = self::out($out);
         $r->header('Cache-Control', 'private, max-age=60');
         return $r;
@@ -1160,6 +1327,7 @@ class TIX_Trial {
         $t = self::by_token((string) (self::body($req)['token'] ?? ''));
         if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
         if ($t->status === 'converted') return self::out(['ok' => true, 'status' => 'converted', 'contract_until' => $t->d['contract_until'] ?? null]);
+        if (self::flow_of($t) === 'nopay') return self::err('tix_trial_flow', 'Zum Weitermachen bitte „Aktiv halten“ nutzen.', 409);
         if ($t->status !== 'active') return self::err('tix_trial_status', 'In diesem Stand ist kein Start möglich.', 409);
         $t = self::convert($t, 'customer');
         return self::out(['ok' => true, 'status' => $t->status, 'contract_until' => $t->d['contract_until'] ?? null]);
@@ -1174,6 +1342,7 @@ class TIX_Trial {
             'tier' => intval($t->d['tier'] ?? 0), 'active_at' => $t->active_at ? (new DateTimeImmutable($t->active_at, $tz))->format('c') : null, 'ends_at' => $ends ? $ends->format('c') : null,
             'days_left' => $ends && $t->status === 'active' ? max(0, (int) floor(($ends->getTimestamp() - time()) / DAY_IN_SECONDS)) : null, // volle Tage; 0 = letzter Tag
             'cancelled_at' => $t->cancelled_at ? (new DateTimeImmutable($t->cancelled_at, $tz))->format('c') : null, 'delete_at' => $t->delete_at ? (new DateTimeImmutable($t->delete_at, $tz))->format('c') : null,
+            'flow' => self::flow_of($t), 'paused_at' => $t->d['paused_at'] ?? null, 'activation' => $t->d['activation'] ?? null,
             'url' => (string) ($t->d['url'] ?? ''), 'extended_days' => intval($t->d['extended_days'] ?? 0), 'error' => (string) ($t->d['error'] ?? ''),
             'mandate' => ['method' => $t->mandate_method ?: null, 'status' => $t->mandate_status ?: null], 'charge' => $t->d['charge'] ?? null,
             'contract_until' => $t->d['contract_until'] ?? null, 'contract_end' => $t->d['contract_end'] ?? null,
@@ -1203,11 +1372,15 @@ class TIX_Trial {
         $days = intval((self::body($req)['days'] ?? 0));
         if ($days < 1 || $days > 14) return self::err('tix_invalid_field', '1 bis 14 Tage.', 400, 'days');
         if (!empty($t->d['extended_days'])) return self::err('tix_trial_extended', 'Die Testphase wurde schon verlängert.', 409);
-        if ($t->status !== 'active') return self::err('tix_trial_status', 'Nur laufende Testphasen lassen sich verlängern.', 409);
+        if (!in_array($t->status, ['active', 'paused'], true)) return self::err('tix_trial_status', 'Nur laufende oder pausierte Testphasen lassen sich verlängern.', 409);
         $d = $t->d; $d['extended_days'] = $days;
-        $d['server']['pending'] = array_values(array_unique(array_merge((array) ($d['server']['pending'] ?? []), ['extend'])));
-        $ends = (new DateTimeImmutable($t->ends_at, wp_timezone()))->modify("+$days days");
-        $t = self::set($t, 'active', ['ends_at' => $ends->format('Y-m-d H:i:s')], $d, 'user:' . get_current_user_id());
+        $base = new DateTimeImmutable($t->ends_at, wp_timezone());
+        if ($t->status === 'paused') { $now = new DateTimeImmutable('now', wp_timezone()); if ($base < $now) $base = $now->setTime(23, 59, 59); } // aus der Pause: ab heute
+        $ends = $base->modify("+$days days");
+        $add = $t->status === 'paused' ? ['resume', 'extend'] : ['extend'];
+        $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), $t->status === 'paused' ? ['pause'] : []), $add)));
+        unset($d['paused_at'], $d['final_reminder']);
+        $t = self::set($t, 'active', ['ends_at' => $ends->format('Y-m-d H:i:s'), 'delete_at' => null], $d, 'user:' . get_current_user_id());
         if ($t->license_id) { global $wpdb; $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => $ends->format('Y-m-d')], ['id' => $t->license_id]); }
         return self::out(['ok' => true, 'trial' => self::view($t)]);
     }
@@ -1227,10 +1400,13 @@ class TIX_Trial {
             : (in_array($status, ['active', 'converted'], true) ? 'fertig' : (in_array($status, ['failed', 'payment_failed', 'rejected'], true) ? 'fehler' : 'beendet')));
         $pr = (array) ($d['progress'] ?? []);
         $stage = null; $label = '';
-        if ($phase === 'wartet') $label = 'Zahlungsmittel wird bestätigt';
+        $nopay = (string) ($d['flow'] ?? '') === 'nopay';
+        if ($status === 'paused') $phase = 'pausiert';
+        if ($phase === 'wartet') $label = $nopay ? 'E-Mail wird bestätigt' : 'Zahlungsmittel wird bestätigt';
+        elseif ($phase === 'pausiert') $label = 'Dein Shop ist pausiert – aktiv halten, damit er weiterläuft.';
         elseif ($phase === 'einrichtung') { // nie zurück: max(gespeicherte Stufe, Stufe des letzten Schritts, Grundstufe)
             $stage = min(6, max($status === 'provisioning' ? 2 : 1, intval($d['progress_stage'] ?? 0), $status === 'provisioning' ? intval(self::PROGRESS_STEPS[$pr['step'] ?? ''] ?? 0) : 0));
-            $label = self::PROGRESS_STAGES[$stage];
+            $label = $stage === 1 && $nopay ? 'E-Mail bestätigt' : self::PROGRESS_STAGES[$stage];
         }
         elseif ($phase === 'fertig') { $stage = 7; $label = 'Dein Shop ist fertig'; }
         elseif ($phase === 'fehler') $label = $status === 'failed' ? 'Bei der Einrichtung hakt es – wir kümmern uns und melden uns per Mail.' : 'Das Zahlungsmittel wurde nicht bestätigt.';
@@ -1239,7 +1415,8 @@ class TIX_Trial {
             'index' => $status === 'provisioning' && isset($pr['index']) ? intval($pr['index']) : null, 'total' => $status === 'provisioning' && isset($pr['total']) ? intval($pr['total']) : null,
             'percent' => $phase === 'fertig' ? 100 : ($phase === 'einrichtung' || $phase === 'fehler' ? intval($d['progress_pct'] ?? 0) : 0),
             'retrying' => $phase === 'einrichtung' && !empty($d['retried']),
-            'stages' => array_values(array_slice(self::PROGRESS_STAGES, 0, 6))];
+            'stages' => array_values(array_slice(array_replace(self::PROGRESS_STAGES, $nopay ? [1 => 'E-Mail bestätigt'] : []), 0, 6))];
+        if ($phase === 'pausiert') $out['activate'] = true;
         if ($phase === 'fertig') { $out['shop_url'] = (string) ($d['url'] ?? ''); $out['studio_url'] = (string) ($d['studio_url'] ?? ''); }
         return $out;
     }
@@ -1333,8 +1510,10 @@ class TIX_Trial_Site {
         if (!is_array($info) || empty($info['ends_at']) || TIX_Trial::multi()) return null;
         if (!$user || !($user->has_cap('manage_options') || in_array('tix_organizer', (array) $user->roles, true))) return null;
         $https = function ($u) { $u = (string) $u; return preg_match('#^https://#', $u) ? esc_url_raw($u) : ''; };
-        $out = ['ends_at' => (string) $info['ends_at'], 'days_left' => null, 'cancel_url' => $https($info['cancel_url'] ?? ''), 'start_url' => $https($info['start_url'] ?? ''), 'status' => 'active', 'delete_at' => null,
-            'contract_until' => null, 'contract_end' => null, 'cancel_deadline' => null, 'can_cancel' => true, 'can_start' => true];
+        $out = ['ends_at' => (string) $info['ends_at'], 'days_left' => null, 'cancel_url' => $https($info['cancel_url'] ?? ''), 'start_url' => $https($info['start_url'] ?? ''), 'status' => !empty($info['paused']) ? 'paused' : 'active', 'delete_at' => $info['delete_at'] ?? null,
+            'contract_until' => null, 'contract_end' => null, 'cancel_deadline' => null, 'can_cancel' => true, 'can_start' => ($info['start_url'] ?? '') !== '',
+            // 1.38.862 (ohne Zahlungsdaten): „Aktiv halten“ statt „Jetzt starten“
+            'activate_url' => $https($info['activate_url'] ?? ''), 'can_activate' => ($info['activate_url'] ?? '') !== '', 'flow' => ($info['activate_url'] ?? '') !== '' ? 'nopay' : 'mandate', 'phase' => !empty($info['paused']) ? 'paused' : 'trial', 'price' => null, 'auto_renew_trial' => ($info['activate_url'] ?? '') === ''];
         $url = $https($info['status_url'] ?? '');
         if ($url !== '') {
             $key = 'tix_trial_status_' . md5($url);
@@ -1344,7 +1523,7 @@ class TIX_Trial_Site {
                 $st = !is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200 ? (json_decode((string) wp_remote_retrieve_body($r), true) ?: []) : [];
                 set_transient($key, $st, 5 * MINUTE_IN_SECONDS);
             }
-            foreach (['status', 'ends_at', 'days_left', 'delete_at', 'contract_until', 'contract_end', 'cancel_deadline', 'can_cancel', 'can_start'] as $k) if (array_key_exists($k, $st) && $st[$k] !== null) $out[$k] = $st[$k];
+            foreach (['status', 'phase', 'ends_at', 'days_left', 'delete_at', 'contract_until', 'contract_end', 'cancel_deadline', 'can_cancel', 'can_start', 'can_activate', 'activate_url', 'flow', 'price', 'auto_renew_trial'] as $k) if (array_key_exists($k, $st) && $st[$k] !== null) $out[$k] = $st[$k];
         }
         if ($out['days_left'] === null) { $e = strtotime($out['ends_at']); $out['days_left'] = $e ? max(0, (int) floor(($e - time()) / DAY_IN_SECONDS)) : null; }
         return $out;

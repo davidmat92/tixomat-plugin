@@ -7057,3 +7057,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Demo_Shop::seed_content('club')` ruft `seed_website('club')` auf (Ergebnis `seeded.website` = 1). Veröffentlicht wird `tix_website` mit Vorlage `club` und den Abschnitten `TIX_Demo_Shop::CLUB_SECTIONS`: die Club-Vorgabe von marken-web, nur `highlights` ganz nach vorn (wie kitchenklub.de). Entwurf weg, Revalidate der Domain.
 - Bei jedem Reset neu, damit Änderungen von Demo-Besuchern die Nacht nicht überstehen. Openair-Demo unberührt.
 - **Test:** `test-demo-shop-wp` (KK): Highlights zuerst, Reset stellt wieder her, Openair-Reset lässt die Einstellung stehen.
+
+## 224. Testphase ohne Zahlungsdaten, „Aktiv halten“, Pausieren (ab 1.38.862)
+- User-Entscheid 16.11.: kein Zahlungsmittel beim Start, keine automatische Verlängerung, Tag 15 pausiert, 14 Tage später gelöscht, „Aktiv halten“ mit Mollie-Zahlung des Jahresbetrags. Plan `uebergaben/plan-testphase-ohne-zahlung-2026-11-16.md`, Vertrag `vertrag-testphase.md` → „Ablauf ohne Zahlungsdaten“.
+- Schalter `tix_trial_flow` (`mandate` | `nopay`), je Testphase `data.flow`; `flow_of()`, `flow_default()`, `price_of()`.
+- Neu: Zustand `paused`, `TIX_Trial::pause()`, `POST /public/trial/activate` (`rest_activate`), Webhook `kind: activate` (`activate_paid`), Server-Aufträge `pause`/`resume`, Tagesgrenze `tix_trial_daily_limit`, letzte Erinnerung (`data.final_reminder`).
+- Angepasst: `confirm` (nopay ohne Mollie, `progress_url`), `queue`/`done`, `tick`, `do_cancel` („Testshop löschen“), `rest_start` (409 in nopay), `rest_extend` (aus `paused`), `rest_status`, `progress_view` (Stufe 1 „E-Mail bestätigt“, Phase „pausiert“), `TIX_Trial_Site::me_payload` (`activate_url`, `can_activate`, `flow`, `phase`), Mails.
+- **Test:** `test-trial-wp` (Plattform 94, KK 25).

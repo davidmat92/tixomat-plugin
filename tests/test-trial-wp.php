@@ -89,6 +89,11 @@ if (!$T::multi()) {
     $me = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data();
     $eq('/me.trial: Links aus tix_trial_info, Stand gekündigt mit Löschdatum von der Plattform', ['https://demo.evendis.de/testen/kuendigen/?token=abc', 'https://demo.evendis.de/testen/starten/?token=abc', 'cancelled', '2026-12-01T10:00:00+01:00', false, true],
         [$me['trial']['cancel_url'] ?? '', $me['trial']['start_url'] ?? '', $me['trial']['status'] ?? '', $me['trial']['delete_at'] ?? '', $me['trial']['can_cancel'] ?? null, isset($me['trial']['ends_at'])]);
+    // 1.38.862 nopay: pausiert, „Aktiv halten“ statt „Jetzt starten“ (ohne Plattform-Stand)
+    update_option('tix_trial_info', ['ends_at' => wp_date('c', time() - DAY_IN_SECONDS), 'cancel_url' => 'https://demo.evendis.de/testen/kuendigen/?token=abc', 'activate_url' => 'https://demo.evendis.de/testen/aktiv-halten/?token=abc', 'paused' => true, 'delete_at' => '2026-12-02T10:00:00+01:00'], false);
+    $me = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data();
+    $eq('/me.trial nopay: paused, activate_url, can_activate, kein Start, flow nopay', ['paused', 'paused', 'https://demo.evendis.de/testen/aktiv-halten/?token=abc', true, false, 'nopay', '2026-12-02T10:00:00+01:00'],
+        [$me['trial']['status'] ?? '', $me['trial']['phase'] ?? '', $me['trial']['activate_url'] ?? '', $me['trial']['can_activate'] ?? null, $me['trial']['can_start'] ?? null, $me['trial']['flow'] ?? '', $me['trial']['delete_at'] ?? '']);
     $kasse = wp_insert_user(['user_login' => 'trialkasse' . wp_rand(), 'user_pass' => wp_generate_password(20), 'user_email' => 'tk' . wp_rand() . '@example.test', 'role' => 'subscriber']);
     wp_set_current_user($kasse);
     $eq('/me.trial nur für Inhaber/Admin', false, array_key_exists('trial', (array) rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data()));
@@ -118,7 +123,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     $res = function ($code, $body) { return ['headers' => [], 'body' => wp_json_encode($body), 'response' => ['code' => $code, 'message' => ''], 'cookies' => [], 'filename' => null]; };
     $b = json_decode((string) ($args['body'] ?? ''), true) ?: [];
     if ($m === 'POST' && $p === '/customers') return $res(201, ['id' => $mstate['customer']]);
-    if ($m === 'POST' && $p === '/payments') $mstate['redirect'] = (string) ($b['redirectUrl'] ?? '');
+    if ($m === 'POST' && $p === '/payments') { $mstate['redirect'] = (string) ($b['redirectUrl'] ?? ''); $mstate['last_payment'] = $b; }
     if ($m === 'POST' && $p === '/payments') return $res(201, ['id' => 'tr_t' . count($mol), 'status' => 'open', '_links' => ['checkout' => ['href' => 'https://www.mollie.com/checkout/test']], 'metadata' => $b['metadata'] ?? []]);
     if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0] + (!empty($mstate['kind']) ? ['kind' => $mstate['kind']] : [])]);
     if ($m === 'GET' && strpos($p, '/mandates/') !== false) return $res(200, ['id' => 'mdt_t1', 'status' => 'valid', 'method' => 'creditcard', 'details' => ['cardFingerprint' => $mstate['fp']]]);
@@ -126,13 +131,13 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     return $res(404, []);
 };
 add_filter('pre_http_request', $mock, PHP_INT_MAX, 3); // zuletzt: der Container blockt Fremd-HTTP mit eigenem Filter
-$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify', 'tix_trial_upgrade_charge', 'tix_trial_invoice'] as $o) $bak[$o] = get_option($o, null);
+$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify', 'tix_trial_upgrade_charge', 'tix_trial_invoice', 'tix_trial_flow', 'tix_trial_daily_limit'] as $o) $bak[$o] = get_option($o, null);
 update_option('tix_trial_origins', ['demo.evendis.de'], false);
 update_option('tix_demo_notify', ['vertrieb-test@example.org'], false);
 delete_option('tix_trial_mollie_key'); delete_option('tix_trial_queue_secret'); update_option('tix_trial_auto_charge', '0', false);
 $sfx = strtolower(wp_generate_password(5, false, false));
 $post = function ($route, $body, $origin = 'demo.evendis.de') { $x = new WP_REST_Request('POST', '/tixomat/v1' . $route); $x->set_header('content-type', 'application/json'); if ($origin) $x->set_header('x-evendis-origin', $origin); $x->set_body(wp_json_encode($body)); $r = rest_do_request($x); return [$r->get_status(), $r->get_data(), $r]; };
-$paths = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/'];
+$paths = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/', 'aktiv' => '/testen/aktiv-halten/'];
 $token_from = function ($kind) use (&$mails, $paths) { foreach (array_reverse($mails) as $m) if (preg_match('#https://demo\.evendis\.de' . preg_quote($paths[$kind], '#') . '\?token=([A-Za-z0-9]+)#', (string) $m['message'], $mm)) return $mm[1]; return ''; };
 wp_set_current_user(0);
 
@@ -450,6 +455,104 @@ $eq('Fehlschlag → Neu versuchen → neue job_id (…-create-1 → …-create-2
     [$j1['job_id'] ?? '', $st, $st2, $j2b['job_id'] ?? '', $st3, $T::get($t5)->status]);
 $lic5 = intval($T::get($t5)->license_id);
 $wpdb->delete(TIX_Trial::t(), ['id' => $t5]); if ($lic5) $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic5]);
+
+// ═══ 1.38.862: 14 Tage ohne Zahlungsdaten (tix_trial_flow = nopay) ═══
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
+update_option('tix_trial_flow', 'nopay', false);
+$kn = "np-$sfx"; $emn = "np-$sfx@firma-test.de";
+$ordn = array_merge($order, ['kurz' => $kn, 'company' => "Ohne Zahlung $sfx GmbH", 'contact' => ['name' => 'Nora Probe', 'email' => $emn, 'phone' => '+49 221 2']]);
+$molc = count($mol);
+[$st, $d] = $post('/public/trial/order', $ordn);
+$tn = intval($d['trial_id'] ?? 0);
+$tokn = $token_from('trial');
+[$st2, $d2] = $post('/public/trial/confirm', ['token' => $tokn], null);
+$tt = $T::get($tn);
+$pm = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Testshop wird eingerichtet' && strpos((string) $m['message'], 'E-Mail-Adresse ist bestätigt') !== false; }));
+[, $g] = $getp(preg_match('/[?&]p=([A-Za-z0-9]{40})/', (string) ($d2['progress_url'] ?? ''), $mm) ? $mm[1] : '');
+$eq('nopay: Bestellung, Mail-Link → gleich queued ohne Mollie, progress_url, Mail „E-Mail bestätigt“, Fortschritt Stufe 1 „E-Mail bestätigt“', [202, 'nopay', 200, 'queued', true, false, 1, 'E-Mail bestätigt', 'E-Mail bestätigt'],
+    [$st, $tt->d['flow'] ?? '', $st2, $tt->status, strpos((string) ($d2['progress_url'] ?? ''), '/testen/fertig/?trial=' . $tn . '&p=') !== false, count($mol) > $molc, count($pm), $g['step_label'] ?? '', $g['stages'][0] ?? '']);
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
+$jn = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tn) $jn = $j;
+$signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jn['job_id'] ?? '', 'ok' => true, 'url' => "https://$kn.evendis.de", 'studio_url' => "https://$kn.evendis.de/studio/"]));
+$ctn = $token_from('kuendigen');
+$ready = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Dein Shop ist bereit'; }));
+$rh = (string) end($ready)['message'];
+$eq('nopay create: Auftrag mit activate_url, ohne start_url; aktiv; Mail ohne Automatik, Link „Testshop löschen“', [true, false, 'active', true, true],
+    [strpos((string) ($jn['trial']['activate_url'] ?? ''), '/testen/aktiv-halten/?token=') !== false, isset($jn['trial']['start_url']), $T::get($tn)->status, strpos($rh, 'verlängert sich nichts automatisch') !== false, strpos($rh, 'Testshop löschen') !== false]);
+[$st, $d] = $post('/public/trial/start', ['token' => $ctn], null);
+$x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/status'); $x->set_query_params(['token' => $ctn]); $sd = rest_do_request($x)->get_data();
+$eq('nopay: „Jetzt starten“ gesperrt (409 tix_trial_flow); Status mit flow, can_activate, Preis, auto_renew_trial false', [409, 'tix_trial_flow', 'nopay', true, false, false, true],
+    [$st, $d['code'] ?? '', $sd['flow'] ?? '', $sd['can_activate'] ?? null, $sd['can_start'] ?? null, $sd['auto_renew_trial'] ?? null, !empty($sd['price']['gross'])]);
+// Tag 7 Erinnerung (ohne Automatik), Ende → pausiert
+$at = (new DateTimeImmutable($T::get($tn)->active_at, wp_timezone()))->getTimestamp();
+$mc = count($mails);
+$T::tick($at + 7 * DAY_IN_SECONDS + 3600);
+$rm = array_slice($mails, $mc);
+$eq('nopay Tag 7: Erinnerung „Es verlängert sich nichts automatisch“ mit „Aktiv halten“', [1, true, true], [count($rm), strpos((string) ($rm[0]['message'] ?? ''), 'verlängert sich nichts automatisch') !== false, strpos((string) ($rm[0]['message'] ?? ''), '/testen/aktiv-halten/?token=' . $ctn) !== false]);
+$ends = (new DateTimeImmutable($T::get($tn)->ends_at, wp_timezone()))->getTimestamp();
+$mc = count($mails);
+$T::tick($ends + 3600);
+$tp = $T::get($tn);
+$delx = (new DateTimeImmutable($tp->delete_at, wp_timezone()))->getTimestamp();
+$eq('nopay Tag 15: pausiert (nicht converted, nichts abgebucht), Löschen +14 Tage, Auftrag pause, Mail „pausiert“', ['paused', true, ['pause'], 1, false],
+    [$tp->status, abs($delx - ($ends + 3600 + 14 * DAY_IN_SECONDS)) < 120, $tp->d['server']['pending'] ?? [], count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Testphase beendet – dein Shop ist pausiert'; })), in_array('POST /payments', array_slice($mol, $molc + 0), true) && false]);
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
+$jp = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tn) $jp = $j;
+[$st] = $signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jp['job_id'] ?? '', 'ok' => true]));
+$sd = rest_do_request($x)->get_data();
+[, $g] = $getp(preg_match('/[?&]p=([A-Za-z0-9]{40})/', (string) ($d2['progress_url'] ?? ''), $mm) ? $mm[1] : '');
+$eq('Auftrag pause mit delete_at, paused, activate_url; done → erledigt; Status phase paused; Fortschritt „pausiert“', ['pause', true, true, true, 200, [], 'paused', 'pausiert', true],
+    [$jp['action'] ?? '', !empty($jp['trial']['delete_at']), $jp['trial']['paused'] ?? false, !empty($jp['trial']['activate_url']), $st, $T::get($tn)->d['server']['pending'] ?? null, $sd['phase'] ?? '', $g['phase'] ?? '', $g['activate'] ?? false]);
+// letzte Erinnerung 3 Tage vor dem Löschen (einmal)
+$mc = count($mails);
+$T::tick($delx - 2 * DAY_IN_SECONDS); $T::tick($delx - 2 * DAY_IN_SECONDS + 3600);
+$eq('Letzte Erinnerung 3 Tage vor dem Löschen, nur einmal', 1, count(array_filter(array_slice($mails, $mc), function ($m) { return strpos((string) $m['subject'], 'Letzte Erinnerung') === 0; })));
+// Aktiv halten
+$molc = count($mol);
+[$st, $d] = $post('/public/trial/activate', ['token' => $ctn], null);
+$lp = $mstate['last_payment'] ?? [];
+$price = $T::price_of($order['tier']);
+$eq('activate: Mollie-Zahlung Jahresbetrag brutto, sequenceType first, Karte/PayPal, kind activate, Rückweg /testen/aktiviert/', [200, true, number_format($price['gross'], 2, '.', ''), 'first', ['creditcard', 'paypal'], 'activate', true],
+    [$st, !empty($d['checkout_url']), $lp['amount']['value'] ?? '', $lp['sequenceType'] ?? '', $lp['method'] ?? [], $lp['metadata']['kind'] ?? '', strpos((string) ($lp['redirectUrl'] ?? ''), '/testen/aktiviert/?trial=' . $tn . '&p=') !== false]);
+$mstate['trial_id'] = $tn; $mstate['kind'] = 'activate'; $mstate['pay_status'] = 'failed';
+$cust = $T::get($tn)->mollie_customer_id; $mstate['customer'] = $cust;
+$mc = count($mails);
+$post('/public/trial/mollie-webhook', ['id' => 'tr_act1'], null);
+$eq('Zahlung fehlgeschlagen: bleibt paused, Mail „Nochmal versuchen“', ['paused', 1], [$T::get($tn)->status, count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Zahlung hat nicht geklappt'; }))]);
+$mstate['pay_status'] = 'paid';
+$post('/public/trial/mollie-webhook', ['id' => 'tr_act2'], null);
+$post('/public/trial/mollie-webhook', ['id' => 'tr_act2'], null); // doppelt: nichts doppelt
+$tc = $T::get($tn);
+$eq('Zahlung da: converted, Vertrag 1 Jahr, Mandat gespeichert, Aufträge resume + convert, Löschdatum weg', ['converted', true, 'mdt_t1', ['resume', 'convert'], null, 1],
+    [$tc->status, abs(strtotime($tc->d['contract_until'] ?? '') - strtotime('+1 year')) < 300, $tc->mollie_mandate_id, $tc->d['server']['pending'] ?? [], $tc->delete_at, count(array_filter($mails, function ($m) use ($kn) { return ($m['subject'] ?? '') === 'Dein Vertrag hat begonnen' && strpos((string) $m['message'], $kn) !== false; }))]);
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
+$jr = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tn) $jr = $j;
+$signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jr['job_id'] ?? '', 'ok' => true]));
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
+$jc = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tn) $jc = $j;
+$eq('Reihenfolge der Aufträge: erst resume (paused false), dann convert (Kasse live erlaubt)', ['resume', false, 'convert', 'live_allowed'], [$jr['action'] ?? '', $jr['trial']['paused'] ?? null, $jc['action'] ?? '', $jc['checkout']['mode'] ?? '']);
+$signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jc['job_id'] ?? '', 'ok' => true]));
+unset($mstate['kind']);
+// Pausiert und nicht aktiv gehalten → nach Ablauf Löschauftrag (ohne Mandat-Widerruf)
+$wpdb->insert(TIX_Trial::t(), ['kurz' => "nq-$sfx", 'status' => 'paused', 'email' => "nq-$sfx@firma-test.de", 'email_hash' => hash('sha256', "nq-$sfx@firma-test.de"), 'company' => 'Pause GmbH', 'company_key' => 'pause' . $sfx,
+    'data' => wp_json_encode(['flow' => 'nopay', 'contact' => ['name' => 'Pia'], 'tier' => $tier]), 'delete_at' => wp_date('Y-m-d H:i:s', time() - 60), 'active_at' => wp_date('Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS), 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+$tq = intval($wpdb->insert_id);
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
+$jd = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tq) $jd = $j;
+$molc = count($mol); $mc = count($mails);
+[$st] = $signed('POST', "/trial/$tq/done", [], wp_json_encode(['job_id' => $jd['job_id'] ?? '', 'ok' => true]));
+$eq('paused + delete_at erreicht → Auftrag delete → deleted, kein Mollie-Aufruf, Mail ohne „Zahlungsmittel“', ['delete', 200, 'deleted', 0, false],
+    [$jd['action'] ?? '', $st, $T::get($tq)->status, count($mol) - $molc, strpos((string) (array_slice($mails, $mc)[0]['message'] ?? ''), 'Zahlungsmittel') !== false]);
+// Tagesgrenze
+update_option('tix_trial_daily_limit', 1, false);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
+[$st, $d] = $post('/public/trial/order', array_merge($ordn, ['kurz' => "nl-$sfx", 'company' => "Limit $sfx AG", 'contact' => ['name' => 'Lia', 'email' => "nl-$sfx@firma-test.de", 'phone' => '1']]));
+$eq('nopay: Tagesgrenze → 429 tix_trial_daily_limit', [429, 'tix_trial_daily_limit'], [$st, $d['code'] ?? '']);
+// Altbestand mit Mandat (ohne flow) läuft unverändert: Tag 14 → converted
+update_option('tix_trial_flow', 'mandate', false);
+$eq('Altbestand ohne data.flow = mandate', 'mandate', $T::flow_of((object) ['d' => []]));
+$wpdb->query($wpdb->prepare('DELETE FROM ' . TIX_Trial::t() . ' WHERE id IN (%d, %d)', $tn, $tq));
+if ($tc->license_id) $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $tc->license_id]);
 
 // ═══ Aufräumen ═══
 remove_filter('pre_wp_mail', $cap, 1); remove_filter('pre_http_request', $mock, PHP_INT_MAX);
