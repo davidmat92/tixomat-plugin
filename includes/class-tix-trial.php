@@ -285,7 +285,7 @@ class TIX_Trial {
     }
 
     /** Mail-Links (mit den Homepages abgestimmt): Basis tix_trial_site_url, feste Pfade; Rückweg von Mollie: tix_trial_return_url */
-    const PATHS = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/', 'neu' => '/testen/'];
+    const PATHS = ['demo' => '/zugang/bestaetigen/', 'trial' => '/testen/bestaetigen/', 'kuendigen' => '/testen/kuendigen/', 'starten' => '/testen/starten/', 'neu' => '/testen/'];
     private static function page($kind, $token = '') {
         if ($kind === 'mandate') return add_query_arg('trial', rawurlencode($token), (string) get_option('tix_trial_return_url', '') ?: 'https://demo.evendis.de/testen/fertig/');
         $base = untrailingslashit((string) get_option('tix_trial_site_url', '') ?: 'https://demo.evendis.de');
@@ -315,6 +315,10 @@ class TIX_Trial {
         register_rest_route(self::NS, '/public/trial/confirm', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_confirm'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/public/trial/mollie-webhook', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_webhook'], 'permission_callback' => $pub]);
         register_rest_route(self::NS, '/public/trial/cancel', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_cancel_token'], 'permission_callback' => $pub]);
+        // W2b: Stand für das Band im Test-Studio und „Jetzt starten“ (Verwaltungs-Token aus tix_trial_info der Kunden-Seite)
+        register_rest_route(self::NS, '/public/trial/status', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_status'], 'permission_callback' => $pub]);
+        register_rest_route(self::NS, '/public/trial/start', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_start'], 'permission_callback' => $pub]);
+        register_rest_route(self::NS, '/trial/(?P<id>\d+)/invoices/(?P<n>\d+)/pdf', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_invoice_pdf'], 'permission_callback' => $staff]);
         // Server (signiert)
         register_rest_route(self::NS, '/trial/queue', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_queue'], 'permission_callback' => $signed]);
         register_rest_route(self::NS, "/trial/$id/done", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_done'], 'permission_callback' => $signed]);
@@ -503,6 +507,16 @@ class TIX_Trial {
         [$st, $p] = self::mollie('GET', '/payments/' . $pid); // nie dem Inhalt der Anfrage vertrauen
         $tid = intval($p['metadata']['trial_id'] ?? 0);
         $t = $st === 200 && $tid ? self::get($tid) : null;
+        if ($t && ($p['metadata']['kind'] ?? '') === 'contract' && ($p['customerId'] ?? '') === $t->mollie_customer_id) { // Jahresbetrag (W2b): Stand der Abbuchung, Rechnung bezahlt
+            global $wpdb;
+            $d = $t->d; $stt = sanitize_key((string) ($p['status'] ?? ''));
+            foreach ((array) ($d['charges'] ?? []) as $i => $c) if (($c['payment_id'] ?? '') === $pid) $d['charges'][$i]['status'] = $stt;
+            if (($d['charge']['payment_id'] ?? '') === $pid) $d['charge']['status'] = $stt;
+            if ($stt === 'paid' && !empty($d['invoices'])) { $last = count($d['invoices']) - 1; if (empty($d['invoices'][$last]['paid_at'])) $d['invoices'][$last]['paid_at'] = wp_date('c'); }
+            if (in_array($stt, ['failed', 'canceled', 'expired'], true)) self::notify_sales('Abbuchung fehlgeschlagen: ' . $t->kurz, ['Firma: ' . $t->company, 'Zahlung ' . $pid . ': ' . $stt]);
+            $wpdb->update(self::t(), ['data' => wp_json_encode($d), 'updated_at' => self::now()], ['id' => $t->id]);
+            return self::out(['ok' => true]);
+        }
         if (!$t || ($p['customerId'] ?? '') !== $t->mollie_customer_id || !in_array($t->status, ['confirmed', 'payment_failed'], true)) return self::out(['ok' => true]);
         $status = (string) ($p['status'] ?? '');
         if (in_array($status, ['failed', 'canceled', 'expired'], true)) {
@@ -590,6 +604,10 @@ class TIX_Trial {
                 }
                 $L = $t->license_id && class_exists('TIX_License_Server') ? TIX_License_Server::get($t->license_id) : null;
                 $lic = $L ? ['key' => (string) $L->license_key, 'valid_until' => (string) $L->valid_until] : null;
+                if (empty($d['cancel_token'])) { // ein Verwaltungs-Token je Testphase: Kündigen, Starten, Stand (W2b)
+                    $d['cancel_token'] = wp_generate_password(40, false, false);
+                    $wpdb->update(self::t(), ['cancel_token_hash' => hash('sha256', $d['cancel_token'])], ['id' => $t->id]);
+                }
             }
             $t = self::set($t, $action === 'create' ? 'provisioning' : ($action === 'delete' ? 'deleting' : $t->status), [], $d, 'server');
             if ($action === 'extend' || $action === 'convert') {
@@ -600,7 +618,11 @@ class TIX_Trial {
                 'job_id' => $jid, 'trial_id' => intval($t->id), 'action' => $action, 'kurz' => $t->kurz, 'profile' => 'test', 'license' => $lic,
                 'site' => $action === 'create' ? ['name' => $t->d['shop_name'], 'color' => $t->d['color'], 'logo_url' => $t->d['logo_url'], 'noindex' => true, 'layout' => (string) ($t->d['profile'] ?? 'festival')]
                     : ($action === 'convert' ? ['noindex' => false] : null),
-                'trial' => in_array($action, ['create', 'extend'], true) ? ['ends_at' => $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->format('c') : wp_date('c', time() + self::DAYS * DAY_IN_SECONDS)] : null,
+                'trial' => in_array($action, ['create', 'extend'], true) ? array_filter(['ends_at' => $t->ends_at ? (new DateTimeImmutable($t->ends_at, wp_timezone()))->format('c') : wp_date('c', time() + self::DAYS * DAY_IN_SECONDS),
+                    // W2b: für das Band im Test-Studio (Kunden-Seite legt es als Option tix_trial_info ab; /me.trial)
+                    'cancel_url' => $action === 'create' ? self::page('kuendigen', (string) $t->d['cancel_token']) : null,
+                    'start_url' => $action === 'create' ? self::page('starten', (string) $t->d['cancel_token']) : null,
+                    'status_url' => $action === 'create' ? add_query_arg('token', rawurlencode((string) $t->d['cancel_token']), rest_url(self::NS . '/public/trial/status')) : null]) : null,
                 'owner' => $action === 'create' ? ['name' => $t->d['contact']['name'], 'email' => $t->email, 'company' => $t->company, 'address' => $t->d['address'], 'vat_id' => $t->d['vat_id']] : null,
                 'checkout' => $action === 'create' ? ['mode' => 'test'] : ($action === 'convert' ? ['mode' => 'live_allowed'] : null),
                 'issued_at' => wp_date('c'), 'expires_at' => wp_date('c', time() + self::JOB_LOCK),
@@ -636,7 +658,7 @@ class TIX_Trial {
             $d['url'] = esc_url_raw((string) ($b['url'] ?? 'https://' . $t->kurz . '.evendis.de'));
             $d['studio_url'] = esc_url_raw((string) ($b['studio_url'] ?? ''));
             $invite = preg_match('#^https://#', (string) ($b['invite_url'] ?? '')) ? esc_url_raw((string) $b['invite_url']) : ''; // einmalig, 24 h – nur in die Mail, nie speichern
-            $cancel = wp_generate_password(40, false, false);
+            $cancel = (string) ($d['cancel_token'] ?? '') ?: wp_generate_password(40, false, false); // Verwaltungs-Token aus der Abholung
             $t = self::set($t, 'active', ['active_at' => wp_date('Y-m-d H:i:s', $now), 'ends_at' => wp_date('Y-m-d H:i:s', $ends), 'cancel_token_hash' => hash('sha256', $cancel)], $d, 'server');
             if ($t->license_id && class_exists('TIX_License_Server')) { global $wpdb; $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => wp_date('Y-m-d', $ends)], ['id' => $t->license_id]); }
             $d = $t->d; $d['cancel_token'] = $cancel; // Klartext nur für Mails (Ein-Klick-Link), nie in einer API-Antwort
@@ -690,8 +712,7 @@ class TIX_Trial {
     public static function convert($t, $by = 'system') {
         if ($t->status !== 'active') return $t;
         global $wpdb;
-        $d = $t->d;
-        unset($d['cancel_token']);
+        $d = $t->d; // Verwaltungs-Token bleibt: Vertragskündigung durch den Kunden (W2b)
         // Vertrag (User 16.11.): 1 Jahr ab Übergang, verlängert sich um je 1 Jahr, Kündigung bis 1 Monat vor Ablauf
         $until = (new DateTimeImmutable('now', wp_timezone()))->modify('+1 year');
         $d['contract_until'] = $until->format('c');
@@ -701,11 +722,13 @@ class TIX_Trial {
         $price = null;
         foreach (self::tiers() as $x) if (intval($x['max']) === intval($d['tier'] ?? 0)) $price = floatval($x['price']);
         $charge = self::charge_year($t, $price, '1. Vertragsjahr');
+        $inv = self::invoice_year(self::get($t->id), $price, new DateTimeImmutable('now', wp_timezone()), $until);
         self::mail($t->email, 'Dein Vertrag hat begonnen', 'Schön, dass du dabei bist',
             ['Deine Testphase ist vorbei, dein Vertrag für ' . $t->kurz . '.evendis.de hat begonnen' . ($price ? ' (' . number_format($price, 0, ',', '.') . ' € im Jahr zzgl. MwSt.)' : '') . '.',
              'Damit deine Kasse echt verkauft, trage im Studio deine Auszahlungsdaten und deine Rechtstexte ein. Die Rechnung bekommst du per Mail.']);
         self::notify_sales('Testphase in Vertrag übergegangen: ' . $t->kurz, ['Firma: ' . $t->company, 'Stufe: bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets' . ($price ? ', ' . number_format($price, 0, ',', '.') . ' €/Jahr' : ''),
-            $charge ? 'Abbuchung: ' . $charge['status'] . ' (' . number_format($charge['amount'], 2, ',', '.') . ' €)' : 'Abbuchung: nicht automatisch (Schalter aus) – bitte Rechnung/Abbuchung auslösen.']);
+            $charge ? 'Abbuchung: ' . $charge['status'] . ' (' . number_format($charge['amount'], 2, ',', '.') . ' €)' : 'Abbuchung: nicht automatisch (Schalter aus) – bitte auslösen.',
+            $inv ? 'Rechnung ' . $inv['number'] . ' verschickt.' : 'Rechnung: nicht automatisch (Schalter tix_trial_invoice aus bzw. Rechnungsangaben unvollständig) – bitte ausstellen.']);
         return self::get($t->id);
     }
 
@@ -745,19 +768,122 @@ class TIX_Trial {
         if ($t->license_id) $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => $next->format('Y-m-d')], ['id' => $t->license_id]);
         $price = self::tier_price($d['tier'] ?? 0);
         $charge = self::charge_year(self::get($t->id), $price, 'Vertragsjahr bis ' . $next->format('d.m.Y'));
+        $inv = self::invoice_year(self::get($t->id), $price, $until->setTimezone(wp_timezone()), $next);
         self::mail($t->email, 'Dein Vertrag wurde verlängert', 'Ein weiteres Jahr', ['Dein Vertrag für ' . $t->kurz . '.evendis.de läuft jetzt bis ' . $next->format('d.m.Y') . '.' . ($price ? ' Jahresbetrag: ' . number_format($price, 0, ',', '.') . ' € zzgl. MwSt.' : '')]);
-        if (!$charge) self::notify_sales('Vertrag verlängert: ' . $t->kurz, ['Bis ' . $next->format('d.m.Y'), 'Abbuchung: nicht automatisch (Schalter aus) – bitte Rechnung/Abbuchung auslösen.']);
+        if (!$charge || !$inv) self::notify_sales('Vertrag verlängert: ' . $t->kurz, ['Bis ' . $next->format('d.m.Y'), $charge ? 'Abbuchung: ' . $charge['status'] : 'Abbuchung: nicht automatisch – bitte auslösen.', $inv ? 'Rechnung ' . $inv['number'] : 'Rechnung: nicht automatisch – bitte ausstellen.']);
     }
 
     public static function rest_contract_cancel(WP_REST_Request $req) {
         $t = self::load($req); if (is_wp_error($t)) return $t;
+        return self::contract_cancel($t, 'user:' . get_current_user_id());
+    }
+
+    /** Vertrag kündigen (bis 1 Monat vor Ablauf) – Vertrieb oder Kunde (Link mit Verwaltungs-Token) */
+    private static function contract_cancel($t, $by) {
         if ($t->status !== 'converted' || empty($t->d['contract_until'])) return self::err('tix_trial_status', 'Nur laufende Verträge lassen sich kündigen.', 409);
         $until = new DateTimeImmutable($t->d['contract_until']);
+        if (!empty($t->d['contract_end'])) return self::out(['ok' => true, 'status' => 'converted', 'contract_end' => $t->d['contract_end'], 'trial' => self::view($t)]); // schon gekündigt
         if (time() > $until->modify('-1 month')->getTimestamp()) return self::err('tix_trial_notice', 'Die Kündigungsfrist (1 Monat vor Ablauf) ist vorbei. Der Vertrag verlängert sich um ein Jahr.', 409, null, ['contract_until' => $t->d['contract_until']]);
         $d = $t->d; $d['contract_end'] = $t->d['contract_until'];
-        $t = self::set($t, 'converted', [], $d, 'user:' . get_current_user_id());
+        $t = self::set($t, 'converted', [], $d, $by);
         self::mail($t->email, 'Deine Kündigung', 'Kündigung bestätigt', ['Dein Vertrag für ' . $t->kurz . '.evendis.de endet am ' . $until->setTimezone(wp_timezone())->format('d.m.Y') . '. Bis dahin läuft dein Shop normal weiter.']);
-        return self::out(['ok' => true, 'trial' => self::view($t)]);
+        self::notify_sales('Vertrag gekündigt: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . $until->setTimezone(wp_timezone())->format('d.m.Y'), 'Durch: ' . $by]);
+        return self::out(['ok' => true, 'status' => 'converted', 'contract_end' => $d['contract_end'], 'trial' => self::view($t)]);
+    }
+
+    // ── Rechnung je Vertragsjahr (W2b, nur mit Schalter tix_trial_invoice = 1) ──
+
+    /** Rechnung festschreiben (Nummernkreis VT im Zähler der Rechnungen, Aussteller „site“), per Mail mit PDF → Beleg | null */
+    public static function invoice_year($t, $price, DateTimeImmutable $from, DateTimeImmutable $to) {
+        if (get_option('tix_trial_invoice', '0') !== '1' || !$price || !class_exists('TIX_Invoices')) return null;
+        $iss = TIX_Invoices::issuer('site');
+        if (empty($iss['complete'])) return null; // Angaben unvollständig → Vertrieb stellt aus
+        global $wpdb;
+        $d = $t->d;
+        $country = strtoupper((string) ($d['address']['country'] ?? 'DE'));
+        $rc = $country !== 'DE' && (string) ($d['vat_id'] ?? '') !== ''; // Leistungsempfänger im EU-Ausland mit USt-IdNr.
+        $rate = $rc ? 0.0 : floatval($iss['tax_rate'] ?? 19);
+        $net = round(floatval($price), 2);
+        $vat = round($net * $rate / 100, 2);
+        $doc = ['number' => '', 'date' => current_time('Y-m-d'), 'period' => ['from' => $from->format('Y-m-d'), 'to' => $to->modify('-1 day')->format('Y-m-d')],
+            'issuer' => ['name' => (string) $iss['name'], 'lines' => array_values((array) $iss['address_lines']), 'vat_id' => (string) $iss['vat_id'], 'tax_id' => (string) $iss['tax_id']],
+            'customer' => ['company' => $t->company, 'name' => (string) ($d['contact']['name'] ?? ''), 'address' => $d['address'] ?? [], 'vat_id' => (string) ($d['vat_id'] ?? ''), 'email' => $t->email],
+            'lines' => [['text' => 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets im Jahr, Vertragsjahr ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y'), 'net' => $net]],
+            'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2), 'reverse_charge' => $rc, 'paid_at' => null];
+        $c = TIX_Invoices::counters_table();
+        $y = intval(current_time('Y'));
+        $code = (string) ($iss['code'] ?? '');
+        $wpdb->query('START TRANSACTION');
+        $wpdb->query($wpdb->prepare("INSERT IGNORE INTO $c (issuer_key, series, year, last) VALUES ('site', 'VT', %d, 0)", $y));
+        $last = $wpdb->get_var($wpdb->prepare("SELECT last FROM $c WHERE issuer_key = 'site' AND series = 'VT' AND year = %d FOR UPDATE", $y));
+        if ($last === null) { $wpdb->query('ROLLBACK'); return null; }
+        $seq = intval($last) + 1;
+        $doc['number'] = 'RV-' . ($code !== '' ? $code . '-' : '') . $y . '-' . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
+        $t2 = self::get($t->id); $d2 = $t2->d; $d2['invoices'][] = $doc;
+        $ok1 = $wpdb->query($wpdb->prepare("UPDATE $c SET last = %d WHERE issuer_key = 'site' AND series = 'VT' AND year = %d", $seq, $y));
+        $ok2 = $wpdb->update(self::t(), ['data' => wp_json_encode($d2), 'updated_at' => self::now()], ['id' => $t->id]);
+        if ($ok1 === false || $ok2 === false) { $wpdb->query('ROLLBACK'); return null; }
+        $wpdb->query('COMMIT');
+        // Mail mit PDF
+        $file = trailingslashit(get_temp_dir()) . 'Rechnung-' . $doc['number'] . '.pdf';
+        $bytes = self::invoice_pdf($doc);
+        if ($bytes) file_put_contents($file, $bytes);
+        $h = '<p>' . esc_html('anbei deine Rechnung ' . $doc['number'] . ' über ' . number_format($doc['gross'], 2, ',', '.') . ' € für das Vertragsjahr ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y') . '.') . '</p>'
+            . '<p>' . esc_html($t->mandate_status === 'valid' ? 'Der Betrag wird über dein hinterlegtes Zahlungsmittel abgebucht.' : 'Bitte überweise den Betrag innerhalb von 14 Tagen.') . '</p>';
+        if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($t->email, 'Rechnung ' . $doc['number'], ['title' => 'Deine Rechnung', 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => 'account'], ['customer' => false, 'attachments' => $bytes ? [$file] : []]);
+        else wp_mail($t->email, 'Rechnung ' . $doc['number'], $h, ['Content-Type: text/html; charset=UTF-8'], $bytes ? [$file] : []);
+        if ($bytes) @unlink($file);
+        return $doc;
+    }
+
+    /** PDF aus dem festgeschriebenen Beleg (schlicht, wie die Gutschrift) */
+    public static function invoice_pdf(array $d) {
+        if (!class_exists('TIX_Simple_PDF') && defined('TIXOMAT_PATH')) require_once TIXOMAT_PATH . 'includes/class-tix-event-report.php';
+        if (!class_exists('TIX_PDFA') && !class_exists('TIX_Simple_PDF')) return null;
+        $W = 595; $H = 842; $M = 50;
+        $pdf = class_exists('TIX_PDFA') && TIX_PDFA::available() ? new TIX_PDFA($W, $H, $M, 40) : new TIX_Simple_PDF($W, $H, $M, 40);
+        if (method_exists($pdf, 'set_meta')) $pdf->set_meta(['title' => 'Rechnung ' . $d['number'], 'author' => (string) $d['issuer']['name']]);
+        $eur = function ($v) { return number_format(floatval($v), 2, ',', '.') . ' EUR'; };
+        $rt = function ($x, $y, $s, $size) use ($pdf) { $w = method_exists($pdf, 'width') ? $pdf->width($s, $size) : strlen($s) * $size * 0.5; $pdf->text(round($x - $w, 2), $y, $s); };
+        $pdf->add_page();
+        $y = $H - 60;
+        $pdf->set_color(0, 0, 0);
+        $pdf->set_font('Helvetica', 9); $pdf->text($M, $y, trim($d['issuer']['name'] . ' · ' . implode(' · ', $d['issuer']['lines']), ' ·')); $y -= 30;
+        $pdf->set_font('Helvetica', 10);
+        $a = (array) $d['customer']['address'];
+        foreach (array_filter([$d['customer']['company'], $d['customer']['name'], $a['street'] ?? '', trim(($a['zip'] ?? '') . ' ' . ($a['city'] ?? '')), ($a['country'] ?? 'DE') !== 'DE' ? ($a['country'] ?? '') : '']) as $l) { $pdf->text($M, $y, $l); $y -= 13; }
+        if ($d['customer']['vat_id'] !== '') { $pdf->text($M, $y, 'USt-IdNr.: ' . $d['customer']['vat_id']); $y -= 13; }
+        $y -= 20;
+        $pdf->set_font('Helvetica-Bold', 16); $pdf->text($M, $y, 'Rechnung ' . $d['number']); $y -= 20;
+        $pdf->set_font('Helvetica', 10);
+        $pdf->text($M, $y, 'Rechnungsdatum: ' . wp_date('d.m.Y', strtotime($d['date'] . ' 12:00:00')) . '   ·   Leistungszeitraum: ' . wp_date('d.m.Y', strtotime($d['period']['from'] . ' 12:00:00')) . ' – ' . wp_date('d.m.Y', strtotime($d['period']['to'] . ' 12:00:00'))); $y -= 26;
+        $pdf->set_font('Helvetica-Bold', 9); $pdf->text($M, $y, 'Leistung'); $rt($W - $M, $y, 'Betrag netto', 9); $y -= 14;
+        $pdf->set_font('Helvetica', 9);
+        foreach ($d['lines'] as $l) { foreach (explode("
+", wordwrap($l['text'], 80, "
+", true)) as $k => $tl) { $pdf->text($M, $y, $tl); if ($k === 0) $rt($W - $M, $y, $eur($l['net']), 9); $y -= 12; } }
+        $y -= 8;
+        $pdf->set_font('Helvetica', 10);
+        $pdf->text(330, $y, 'Summe netto'); $rt($W - $M, $y, $eur($d['net']), 10); $y -= 14;
+        if (empty($d['reverse_charge'])) { $pdf->text(330, $y, 'zzgl. USt ' . rtrim(rtrim(number_format($d['vat_rate'], 1, ',', ''), '0'), ',') . ' %'); $rt($W - $M, $y, $eur($d['vat']), 10); $y -= 14; }
+        $pdf->set_font('Helvetica-Bold', 11); $pdf->text(330, $y, 'Rechnungsbetrag'); $rt($W - $M, $y, $eur($d['gross']), 11); $y -= 30;
+        $pdf->set_font('Helvetica', 9);
+        $notes = [];
+        if (!empty($d['reverse_charge'])) $notes[] = 'Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge). USt-IdNr. des Leistungsempfängers: ' . $d['customer']['vat_id'] . '.';
+        $notes[] = 'Jahresbetrag im Voraus. Aussteller: ' . $d['issuer']['name'] . ($d['issuer']['vat_id'] !== '' ? ' · USt-IdNr. ' . $d['issuer']['vat_id'] : ($d['issuer']['tax_id'] !== '' ? ' · St.-Nr. ' . $d['issuer']['tax_id'] : ''));
+        foreach ($notes as $n) foreach (explode("
+", wordwrap($n, 105, "
+", true)) as $l) { $pdf->text($M, $y, $l); $y -= 12; }
+        return $pdf->output();
+    }
+
+    public static function rest_invoice_pdf(WP_REST_Request $req) {
+        $t = self::load($req); if (is_wp_error($t)) return $t;
+        $doc = ((array) ($t->d['invoices'] ?? []))[intval($req['n'])] ?? null;
+        if (!$doc) return self::err('tix_trial_invoice_unknown', 'Rechnung nicht gefunden.', 404);
+        $b = self::invoice_pdf($doc);
+        if (!$b) return self::err('tix_pdf_unavailable', 'PDF gerade nicht möglich.', 500);
+        return self::out(['ok' => true, 'filename' => 'Rechnung-' . $doc['number'] . '.pdf', 'mime' => 'application/pdf', 'number' => $doc['number'], 'paid_at' => $doc['paid_at'], 'data' => base64_encode($b)]);
     }
 
     // ── Kündigen ──
@@ -781,7 +907,47 @@ class TIX_Trial {
         self::maybe_install();
         $id = $token !== '' ? $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . self::t() . ' WHERE cancel_token_hash = %s', hash('sha256', $token))) : null;
         if (!$id) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
-        return self::do_cancel(self::get($id), 'customer');
+        $t = self::get($id);
+        if ($t->status === 'converted') return self::contract_cancel($t, 'customer'); // W2b: derselbe Link kündigt den Vertrag (Frist 1 Monat)
+        return self::do_cancel($t, 'customer');
+    }
+
+    private static function by_token($token) {
+        global $wpdb;
+        self::maybe_install();
+        $id = $token !== '' ? $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . self::t() . ' WHERE cancel_token_hash = %s', hash('sha256', (string) $token))) : null;
+        return $id ? self::get($id) : null;
+    }
+
+    /** GET /public/trial/status?token= → Stand fürs Band (keine Personendaten) */
+    public static function rest_status(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_status', 120, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429);
+        $t = self::by_token((string) $req->get_param('token'));
+        if (!$t) return self::err('tix_token_unknown', 'Nicht bekannt.', 404);
+        $tz = wp_timezone();
+        $iso = function ($v) use ($tz) { return $v ? (new DateTimeImmutable($v, $tz))->format('c') : null; };
+        $ends = $t->ends_at ? new DateTimeImmutable($t->ends_at, $tz) : null;
+        $cu = $t->d['contract_until'] ?? null;
+        $out = ['ok' => true, 'status' => $t->status, 'phase' => in_array($t->status, ['converted'], true) ? 'contract' : 'trial',
+            'ends_at' => $ends ? $ends->format('c') : null, 'days_left' => $ends && $t->status === 'active' ? max(0, (int) floor(($ends->getTimestamp() - time()) / DAY_IN_SECONDS)) : null,
+            'delete_at' => $iso($t->delete_at), 'contract_until' => $cu, 'contract_end' => $t->d['contract_end'] ?? null,
+            'cancel_deadline' => $cu ? (new DateTimeImmutable($cu))->modify('-1 month')->format('c') : null,
+            'can_cancel' => $t->status === 'active' || ($t->status === 'converted' && empty($t->d['contract_end']) && $cu && time() <= (new DateTimeImmutable($cu))->modify('-1 month')->getTimestamp()),
+            'can_start' => $t->status === 'active'];
+        $r = self::out($out);
+        $r->header('Cache-Control', 'private, max-age=60');
+        return $r;
+    }
+
+    /** POST /public/trial/start {token} → „Jetzt starten“: Vertrag beginnt sofort */
+    public static function rest_start(WP_REST_Request $req) {
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_start', 20, HOUR_IN_SECONDS)) return self::err('tix_rate_limited', 'Zu viele Anfragen.', 429);
+        $t = self::by_token((string) (self::body($req)['token'] ?? ''));
+        if (!$t) return self::err('tix_token_unknown', 'Dieser Link ist nicht bekannt.', 404);
+        if ($t->status === 'converted') return self::out(['ok' => true, 'status' => 'converted', 'contract_until' => $t->d['contract_until'] ?? null]);
+        if ($t->status !== 'active') return self::err('tix_trial_status', 'In diesem Stand ist kein Start möglich.', 409);
+        $t = self::convert($t, 'customer');
+        return self::out(['ok' => true, 'status' => $t->status, 'contract_until' => $t->d['contract_until'] ?? null]);
     }
 
     // ── Studio ──
@@ -795,7 +961,8 @@ class TIX_Trial {
             'cancelled_at' => $t->cancelled_at ? (new DateTimeImmutable($t->cancelled_at, $tz))->format('c') : null, 'delete_at' => $t->delete_at ? (new DateTimeImmutable($t->delete_at, $tz))->format('c') : null,
             'url' => (string) ($t->d['url'] ?? ''), 'extended_days' => intval($t->d['extended_days'] ?? 0), 'error' => (string) ($t->d['error'] ?? ''),
             'mandate' => ['method' => $t->mandate_method ?: null, 'status' => $t->mandate_status ?: null], 'charge' => $t->d['charge'] ?? null,
-            'contract_until' => $t->d['contract_until'] ?? null, 'contract_end' => $t->d['contract_end'] ?? null, 'server_pending' => array_values((array) ($t->d['server']['pending'] ?? [])), 'server_error' => $t->d['server']['error'] ?? null, 'created_at' => (new DateTimeImmutable($t->created_at, $tz))->format('c')];
+            'contract_until' => $t->d['contract_until'] ?? null, 'contract_end' => $t->d['contract_end'] ?? null,
+            'invoices' => array_map(function ($i) { return ['number' => $i['number'], 'date' => $i['date'], 'gross' => $i['gross'], 'paid_at' => $i['paid_at'] ?? null]; }, array_values((array) ($t->d['invoices'] ?? []))), 'server_pending' => array_values((array) ($t->d['server']['pending'] ?? [])), 'server_error' => $t->d['server']['error'] ?? null, 'created_at' => (new DateTimeImmutable($t->created_at, $tz))->format('c')];
     }
 
     public static function rest_list(WP_REST_Request $req) {
@@ -887,6 +1054,34 @@ class TIX_Trial_Site {
         $s['paypal_sandbox'] = 1;
         $s['bank_transfer_enabled'] = 0;
         return $s;
+    }
+
+    /**
+     * /me.trial für das Band im Test-Studio (Format des Studios: {ends_at, days_left, cancel_url, start_url, status, delete_at}).
+     * Quelle: Option tix_trial_info (vom Server aus dem Auftrag create: ends_at, cancel_url, start_url, status_url), Stand live von der
+     * Plattform (status_url, 5 min zwischengespeichert). Nur Inhaber/Admin; sonst null.
+     */
+    public static function me_payload($user) {
+        $info = get_option('tix_trial_info', null);
+        if (is_string($info)) $info = json_decode($info, true);
+        if (!is_array($info) || empty($info['ends_at']) || TIX_Trial::multi()) return null;
+        if (!$user || !($user->has_cap('manage_options') || in_array('tix_organizer', (array) $user->roles, true))) return null;
+        $https = function ($u) { $u = (string) $u; return preg_match('#^https://#', $u) ? esc_url_raw($u) : ''; };
+        $out = ['ends_at' => (string) $info['ends_at'], 'days_left' => null, 'cancel_url' => $https($info['cancel_url'] ?? ''), 'start_url' => $https($info['start_url'] ?? ''), 'status' => 'active', 'delete_at' => null,
+            'contract_until' => null, 'contract_end' => null, 'cancel_deadline' => null, 'can_cancel' => true, 'can_start' => true];
+        $url = $https($info['status_url'] ?? '');
+        if ($url !== '') {
+            $key = 'tix_trial_status_' . md5($url);
+            $st = get_transient($key);
+            if (!is_array($st)) {
+                $r = wp_remote_get($url, ['timeout' => 5]);
+                $st = !is_wp_error($r) && intval(wp_remote_retrieve_response_code($r)) === 200 ? (json_decode((string) wp_remote_retrieve_body($r), true) ?: []) : [];
+                set_transient($key, $st, 5 * MINUTE_IN_SECONDS);
+            }
+            foreach (['status', 'ends_at', 'days_left', 'delete_at', 'contract_until', 'contract_end', 'cancel_deadline', 'can_cancel', 'can_start'] as $k) if (array_key_exists($k, $st) && $st[$k] !== null) $out[$k] = $st[$k];
+        }
+        if ($out['days_left'] === null) { $e = strtotime($out['ends_at']); $out['days_left'] = $e ? max(0, (int) floor(($e - time()) / DAY_IN_SECONDS)) : null; }
+        return $out;
     }
 
     public static function guard($result, $server, $request) {

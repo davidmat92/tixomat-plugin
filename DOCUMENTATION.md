@@ -6977,3 +6977,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - **Reiner Kern:** `kurz_check`, `sig`, `res_sig`, `reminders_due`, `ends_at`, `is_disposable`, `company_key`.
 - **Test:** `test-trial-wp` (48 Plattform, 11 Einzel-Seite).
 
+## 213. Testphase W2b: Band, Starten, Kündigen durch den Kunden, Rechnung je Vertragsjahr (ab 1.38.850)
+- **Vertrag:** `uebergaben/vertrag-testphase.md` (Abschnitt „W2b“).
+- Verwaltungs-Token je Testphase; Auftrag `create` mit `trial {ends_at, cancel_url, start_url, status_url}` → Kunden-Seite `tix_trial_info` → `/me.trial` (`TIX_Trial_Site::me_payload`, Stand live über `status_url`, 5 min Cache).
+- `GET /public/trial/status`, `POST /public/trial/start`; `POST /public/trial/cancel` kündigt nach dem Übergang den Vertrag (Frist 1 Monat, sonst 409 `tix_trial_notice`).
+- Rechnung je Vertragsjahr (`invoice_year`, Serie `VT`, `RV-…`, Aussteller `site`, PDF per Mail, Schalter `tix_trial_invoice`), Zahlungseingang über den Webhook (`metadata.kind = contract`), Studio `GET /trial/{id}/invoices/{n}/pdf`.
+- **Test:** `test-trial-wp` (53 Plattform, 13 Einzel-Seite).
+

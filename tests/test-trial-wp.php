@@ -42,6 +42,24 @@ if (!$T::multi()) {
     update_option('tix_trial_instance', '0', false);
     $eq('Nach dem Übergang (Option 0): keine Sperre mehr', 'live_abc', TIX_Trial_Site::filter_settings(['mollie_api_key' => 'live_abc'])['mollie_api_key']);
     wp_set_current_user(0);
+    // W2b: /me.trial für das Band (Format des Studios), Stand live von der Plattform
+    $binfo = get_option('tix_trial_info', null);
+    $surl = 'https://veranstalter.evendis.de/wp-json/tixomat/v1/public/trial/status?token=abc' . wp_rand();
+    update_option('tix_trial_info', ['ends_at' => wp_date('c', time() + 5 * DAY_IN_SECONDS), 'cancel_url' => 'https://demo.evendis.de/testen/kuendigen/?token=abc', 'start_url' => 'https://demo.evendis.de/testen/starten/?token=abc', 'status_url' => $surl], false);
+    $smock = function ($pre, $args, $url) use ($surl) { if ($url !== $surl) return $pre; return ['headers' => [], 'body' => wp_json_encode(['ok' => true, 'status' => 'cancelled', 'days_left' => null, 'delete_at' => '2026-12-01T10:00:00+01:00', 'can_cancel' => false]), 'response' => ['code' => 200, 'message' => ''], 'cookies' => [], 'filename' => null]; };
+    add_filter('pre_http_request', $smock, PHP_INT_MAX, 3);
+    wp_set_current_user($adm);
+    $me = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data();
+    $eq('/me.trial: Links aus tix_trial_info, Stand gekündigt mit Löschdatum von der Plattform', ['https://demo.evendis.de/testen/kuendigen/?token=abc', 'https://demo.evendis.de/testen/starten/?token=abc', 'cancelled', '2026-12-01T10:00:00+01:00', false, true],
+        [$me['trial']['cancel_url'] ?? '', $me['trial']['start_url'] ?? '', $me['trial']['status'] ?? '', $me['trial']['delete_at'] ?? '', $me['trial']['can_cancel'] ?? null, isset($me['trial']['ends_at'])]);
+    $kasse = wp_insert_user(['user_login' => 'trialkasse' . wp_rand(), 'user_pass' => wp_generate_password(20), 'user_email' => 'tk' . wp_rand() . '@example.test', 'role' => 'subscriber']);
+    wp_set_current_user($kasse);
+    $eq('/me.trial nur für Inhaber/Admin', false, array_key_exists('trial', (array) rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/me'))->get_data()));
+    require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($kasse);
+    remove_filter('pre_http_request', $smock, PHP_INT_MAX);
+    delete_transient('tix_trial_status_' . md5($surl));
+    if ($binfo === null) delete_option('tix_trial_info'); else update_option('tix_trial_info', $binfo, false);
+    wp_set_current_user(0);
     if ($bi === null) delete_option('tix_trial_instance'); else update_option('tix_trial_instance', $bi, false);
     if ($bu === null) delete_option('tix_trial_until'); else update_option('tix_trial_until', $bu, false);
     echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen)\n";
@@ -64,7 +82,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     $b = json_decode((string) ($args['body'] ?? ''), true) ?: [];
     if ($m === 'POST' && $p === '/customers') return $res(201, ['id' => $mstate['customer']]);
     if ($m === 'POST' && $p === '/payments') return $res(201, ['id' => 'tr_t' . count($mol), 'status' => 'open', '_links' => ['checkout' => ['href' => 'https://www.mollie.com/checkout/test']], 'metadata' => $b['metadata'] ?? []]);
-    if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0]]);
+    if ($m === 'GET' && strpos($p, '/payments/') === 0) return $res(200, ['id' => substr($p, 10), 'status' => $mstate['pay_status'], 'customerId' => $mstate['customer'], 'mandateId' => 'mdt_t1', 'metadata' => ['trial_id' => $mstate['trial_id'] ?? 0] + (!empty($mstate['kind']) ? ['kind' => $mstate['kind']] : [])]);
     if ($m === 'GET' && strpos($p, '/mandates/') !== false) return $res(200, ['id' => 'mdt_t1', 'status' => 'valid', 'method' => 'creditcard', 'details' => ['cardFingerprint' => $mstate['fp']]]);
     if ($m === 'DELETE') return $res(204, []);
     return $res(404, []);
@@ -196,13 +214,35 @@ $T::tick($at + 7 * DAY_IN_SECONDS + 60);
 $eq('Tag 7: Erinnerung mit Kündigen-Link (einmal)', [1, [7]], [count($mails) - $mc, $T::get($tid)->d['reminders_sent'] ?? []]);
 $T::tick($at + 7 * DAY_IN_SECONDS + 120);
 $eq('Erinnerung nicht doppelt', [7], $T::get($tid)->d['reminders_sent'] ?? []);
+// W2b: Stand fürs Band, Token aus dem Auftrag create = Token der Mails
+$stt = rest_do_request((function () use ($ctok) { $x = new WP_REST_Request('GET', '/tixomat/v1/public/trial/status'); $x->set_query_params(['token' => $ctok]); return $x; })());
+$eq('Stand per Token: active, Tage, kündbar, startbar, keine Personendaten; Auftrag create trug cancel/start/status_url', [200, 'active', 'trial', true, true, false, true],
+    [$stt->get_status(), $stt->get_data()['status'] ?? '', $stt->get_data()['phase'] ?? '', $stt->get_data()['can_cancel'] ?? null, $stt->get_data()['can_start'] ?? null, strpos(wp_json_encode($stt->get_data()), '@') !== false,
+     strpos((string) ($job['trial']['cancel_url'] ?? ''), '/testen/kuendigen/?token=' . $ctok) !== false && strpos((string) ($job['trial']['start_url'] ?? ''), '/testen/starten/?token=' . $ctok) !== false && strpos((string) ($job['trial']['status_url'] ?? ''), 'token=' . $ctok) !== false]);
+// Rechnung + Abbuchung mit Schaltern (Aussteller-Angaben ggf. für den Test ergänzen)
+$set_bak = get_option('tix_settings', []);
+$set = is_array($set_bak) ? $set_bak : [];
+foreach (['invoice_company_name' => 'evendis Test GmbH', 'invoice_company_address' => "Teststr. 1\n50667 Köln", 'invoice_company_ust_id' => 'DE123456789'] as $k => $v) if (trim((string) ($set[$k] ?? '')) === '') $set[$k] = $v;
+update_option('tix_settings', $set);
+update_option('tix_trial_invoice', '1', false); update_option('tix_trial_auto_charge', '1', false);
+$mstate['kind'] = 'contract';
 $end = (new DateTimeImmutable($T::get($tid)->ends_at, wp_timezone()))->getTimestamp();
+$mc = count($mails);
 $T::tick($end + 60);
 $t = $T::get($tid);
-$eq('Nach dem Ende nicht gekündigt → converted, Lizenz +1 Jahr, ohne Schalter keine Abbuchung', ['converted', true, null, false],
-    [$t->status, $t->license_id && TIX_License_Server::get($t->license_id)->valid_until > wp_date('Y-m-d', strtotime('+300 days')), $t->d['charge'] ?? null, in_array('POST /payments', array_slice($mol, -3), true) && false]);
-[$st, $d] = $post('/public/trial/cancel', ['token' => $ctok], null);
-$eq('Kündigen nach dem Übergang → 409', [409, 'tix_trial_converted'], [$st, $d['code'] ?? '']);
+$inv = $t->d['invoices'][0] ?? [];
+$price = 0.0; foreach (TIX_Platform_Offers::catalog()['shop_tiers'] as $x) if (intval($x['max']) === $tier) $price = floatval($x['price']);
+$eq('Übergang: converted, Lizenz +1 Jahr, Abbuchung Jahresbetrag brutto über das Mandat, Rechnung RV-… netto + 19 % per Mail mit PDF', ['converted', true, round($price * 1.19, 2), true, $price, round($price * 1.19, 2), true],
+    [$t->status, $t->license_id && TIX_License_Server::get($t->license_id)->valid_until > wp_date('Y-m-d', strtotime('+300 days')), $t->d['charge']['amount'] ?? null,
+     (bool) preg_match('/^RV-([A-Z0-9]+-)?\d{4}-\d{4}$/', (string) ($inv['number'] ?? '')), floatval($inv['net'] ?? 0), floatval($inv['gross'] ?? 0),
+     (bool) array_filter(array_slice($mails, $mc), function ($m) use ($inv) { return strpos((string) $m['subject'], (string) ($inv['number'] ?? 'x')) !== false && !empty($m['attachments']); })]);
+$pid = (string) ($t->d['charge']['payment_id'] ?? '');
+$post('/public/trial/mollie-webhook', ['id' => $pid], null);
+$eq('Webhook der Abbuchung (bezahlt) → Rechnung bezahlt, Abbuchung paid', [true, 'paid'], [!empty($T::get($tid)->d['invoices'][0]['paid_at']), $T::get($tid)->d['charge']['status'] ?? '']);
+wp_set_current_user($adm);
+$pr = rest_do_request(new WP_REST_Request('GET', "/tixomat/v1/trial/$tid/invoices/0/pdf"));
+$eq('Studio: Rechnungs-PDF abrufbar', [200, '%PDF'], [$pr->get_status(), substr(base64_decode((string) ($pr->get_data()['data'] ?? '')), 0, 4)]);
+wp_set_current_user(0);
 $cu = $T::get($tid)->d['contract_until'] ?? '';
 $eq('Vertrag: 1 Jahr ab Übergang, Server-Auftrag convert offen', [true, ['convert']], [abs(strtotime($cu) - strtotime('+1 year')) < 3 * DAY_IN_SECONDS, $T::get($tid)->d['server']['pending'] ?? []]);
 [$st, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
@@ -211,15 +251,28 @@ $eq('Auftrag convert: indexierbar, Kasse live erlaubt, Lizenz bis Vertragsende',
     [$jc['action'] ?? '', $jc['site']['noindex'] ?? null, $jc['checkout']['mode'] ?? '', (string) ($jc['license']['valid_until'] ?? '')]);
 [$st] = $signed('POST', "/trial/$tid/done", [], wp_json_encode(['job_id' => $jc['job_id'] ?? '', 'ok' => true]));
 $eq('done convert → erledigt', [200, []], [$st, $T::get($tid)->d['server']['pending'] ?? []]);
-wp_set_current_user($adm);
 $T::contract_tick($T::get($tid), strtotime($cu) + 60);
 $cu2 = $T::get($tid)->d['contract_until'] ?? '';
-$eq('Ablauf ohne Kündigung → +1 Jahr', [true, 'converted'], [abs(strtotime($cu2) - strtotime($cu . ' +1 year')) < 2 * DAY_IN_SECONDS, $T::get($tid)->status]);
-[$st, $d] = $post("/trial/$tid/contract-cancel", [], null);
-$eq('Vertrag kündigen (mehr als 1 Monat vorher) → contract_end = Vertragsende', [200, $cu2], [$st, $d['trial']['contract_end'] ?? '']);
+$eq('Ablauf ohne Kündigung → +1 Jahr, zweite Rechnung', [true, 'converted', 2], [abs(strtotime($cu2) - strtotime($cu . ' +1 year')) < 2 * DAY_IN_SECONDS, $T::get($tid)->status, count($T::get($tid)->d['invoices'] ?? [])]);
+// W2b: Kunde kündigt den Vertrag über denselben Link
+[$st, $d] = $post('/public/trial/cancel', ['token' => $ctok], null);
+$eq('Kündigen-Link nach dem Übergang kündigt den Vertrag (Frist ok) → contract_end = Vertragsende', [200, $cu2], [$st, $d['contract_end'] ?? '']);
+[$st2, $d2] = $post('/public/trial/cancel', ['token' => $ctok], null);
+$eq('Zweiter Klick: gleich, keine zweite Kündigung', [200, $cu2], [$st2, $d2['contract_end'] ?? '']);
 $T::contract_tick($T::get($tid), strtotime($cu2) + 60);
 $eq('Ende eines gekündigten Vertrags → cancelled, Löschauftrag sofort', ['cancelled', true], [$T::get($tid)->status, (new DateTimeImmutable($T::get($tid)->delete_at, wp_timezone()))->getTimestamp() <= time() + 60]);
-wp_set_current_user(0);
+update_option('tix_settings', $set_bak); delete_option('tix_trial_invoice'); update_option('tix_trial_auto_charge', '0', false);
+// Frist vorbei: dritte Testphase (Vertrag läuft in 2 Wochen ab) – „Jetzt starten“ und Fristprüfung
+$wpdb->insert(TIX_Trial::t(), ['kurz' => "tr-$sfx", 'status' => 'active', 'email' => "w2c-$sfx@firma-test.de", 'email_hash' => hash('sha256', "w2c-$sfx@firma-test.de"), 'company' => 'Drei GmbH', 'company_key' => 'drei' . $sfx,
+    'data' => wp_json_encode(['contact' => ['name' => 'Ida'], 'tier' => $tier, 'cancel_token' => 'stok' . $sfx]), 'cancel_token_hash' => hash('sha256', 'stok' . $sfx),
+    'active_at' => current_time('mysql'), 'ends_at' => wp_date('Y-m-d H:i:s', time() + 10 * DAY_IN_SECONDS), 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+$t3 = intval($wpdb->insert_id);
+[$st, $d] = $post('/public/trial/start', ['token' => 'stok' . $sfx], null);
+$eq('„Jetzt starten“ → Vertrag beginnt sofort (converted, Auftrag convert)', [200, 'converted', ['convert']], [$st, $d['status'] ?? '', $T::get($t3)->d['server']['pending'] ?? []]);
+$d3 = $T::get($t3)->d; $d3['contract_until'] = wp_date('c', time() + 14 * DAY_IN_SECONDS); $wpdb->update(TIX_Trial::t(), ['data' => wp_json_encode($d3)], ['id' => $t3]);
+[$st, $d] = $post('/public/trial/cancel', ['token' => 'stok' . $sfx], null);
+$eq('Kündigung weniger als 1 Monat vor Ablauf → 409 tix_trial_notice', [409, 'tix_trial_notice'], [$st, $d['code'] ?? '']);
+$wpdb->delete(TIX_Trial::t(), ['id' => $t3]);
 
 // ═══ Zweite Testphase: kündigen und löschen ═══
 global $wpdb;

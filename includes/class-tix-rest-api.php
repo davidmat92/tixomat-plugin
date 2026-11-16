@@ -870,6 +870,8 @@ class TIX_REST_API {
             $out['modules_locked'] = TIX_Plan::locked_for_me();
         }
         if (class_exists('TIX_License_Stage')) $out['license'] = TIX_License_Stage::payload();
+        // Testphase (W2b, vertrag-testphase.md): Band im Test-Studio des Kunden – nur auf Test-Seiten mit tix_trial_info, nur Inhaber/Admin
+        if (class_exists('TIX_Trial_Site') && ($tr = TIX_Trial_Site::me_payload($user))) $out['trial'] = $tr;
         // Mehr-Veranstalter-Modus: Veranstalter (Name, Status, Inhaber?) zusätzlich
         if ($multi) {
             $out['multi_organizer'] = true;
