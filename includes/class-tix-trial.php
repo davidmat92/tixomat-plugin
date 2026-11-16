@@ -672,10 +672,14 @@ class TIX_Trial {
             elseif ($pending) $action = $pending[0]; // extend | convert – Status bleibt
             else continue;
             if (($job['action'] ?? '') === $action && intval($job['until'] ?? 0) > time()) continue; // gesperrt (30 min)
-            $n = intval($job['n'] ?? 0) + (empty($job['id']) || ($job['action'] ?? '') !== $action ? 1 : 0);
-            $jid = 'trl-' . $t->id . '-' . $action . '-' . max(1, $n);
             $d = $t->d;
-            $d['job'] = ['id' => $jid, 'action' => $action, 'n' => max(1, $n), 'until' => time() + self::JOB_LOCK];
+            if (!empty($job['id']) && ($job['action'] ?? '') === $action) { $jid = $job['id']; $n = max(1, intval($job['n'] ?? 1)); } // Sperre abgelaufen ohne done: derselbe Auftrag noch einmal
+            else { // neuer Auftrag (auch nach done/„Neu versuchen“) → neue job_id; der Kunden-Dienst zählt Versuche je job_id (1.38.856)
+                $n = self::next_job_seq($d, $job);
+                $d['job_seq'] = $n;
+                $jid = 'trl-' . $t->id . '-' . $action . '-' . $n;
+            }
+            $d['job'] = ['id' => $jid, 'action' => $action, 'n' => $n, 'until' => time() + self::JOB_LOCK];
             $lic = null;
             if ($action === 'create') {
                 if (!$t->license_id && class_exists('TIX_License_Server')) {
@@ -1157,6 +1161,13 @@ class TIX_Trial {
         $t = self::load($req); if (is_wp_error($t)) return $t;
         if ($t->status !== 'active') return self::err('tix_trial_status', 'Nur laufende Testphasen lassen sich überführen.', 409);
         return self::out(['ok' => true, 'trial' => self::view(self::convert($t, 'user:' . get_current_user_id()))]);
+    }
+
+    /** Laufende Nummer der Server-Aufträge je Testphase; done/retry/cancel löschen sie nie. Ältere Einträge ohne job_seq: über schon ausgegebene Aufträge (Verlauf) hinaus zählen. */
+    public static function next_job_seq(array $d, array $job = []) {
+        $base = intval($d['job_seq'] ?? 0);
+        if (!isset($d['job_seq'])) foreach ((array) ($d['history'] ?? []) as $h) if (in_array($h['to'] ?? '', ['provisioning', 'deleting'], true)) $base++;
+        return max($base, intval($job['n'] ?? 0)) + 1;
     }
 
     public static function rest_retry(WP_REST_Request $req) {

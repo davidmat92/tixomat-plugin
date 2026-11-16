@@ -388,6 +388,26 @@ if ($kb === null) delete_option('tix_trial_mollie_key'); else update_option('tix
 update_option('tix_settings', $sb);
 wp_set_current_user(0);
 
+// ═══ 1.38.856: „Neu versuchen“ gibt eine neue job_id aus (Kunden-Dienst zählt Versuche je job_id) ═══
+$eq('job_seq: zählt weiter, Altbestand über den Verlauf hinaus, nie unter job.n', [4, 2, 6],
+    [$T::next_job_seq(['job_seq' => 3]), $T::next_job_seq(['history' => [['to' => 'queued'], ['to' => 'provisioning']]]), $T::next_job_seq(['job_seq' => 2], ['n' => 5])]);
+$wpdb->insert(TIX_Trial::t(), ['kurz' => "tf-$sfx", 'status' => 'queued', 'email' => "w2f-$sfx@firma-test.de", 'email_hash' => hash('sha256', "w2f-$sfx@firma-test.de"), 'company' => 'Fünf GmbH', 'company_key' => 'fuenf' . $sfx,
+    'data' => wp_json_encode(['contact' => ['name' => 'Fe'], 'shop_name' => 'Fünf', 'color' => '#FC2F55', 'logo_url' => '', 'address' => ['street' => 'A 1', 'zip' => '50667', 'city' => 'Köln', 'country' => 'DE'], 'vat_id' => '', 'tier' => $tier]),
+    'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+$t5 = intval($wpdb->insert_id);
+$pick = function ($d) use ($t5) { foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $t5) return $j; return null; };
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]); $j1 = $pick($d);
+[$st] = $signed('POST', "/trial/$t5/done", [], wp_json_encode(['job_id' => $j1['job_id'] ?? '', 'ok' => false, 'error' => 'technik']));
+wp_set_current_user($adm);
+[$st2] = $post("/trial/$t5/retry", [], null);
+wp_set_current_user(0);
+[, $d] = $signed('GET', '/trial/queue', ['limit' => 10]); $j2b = $pick($d);
+[$st3] = $signed('POST', "/trial/$t5/done", [], wp_json_encode(['job_id' => $j1['job_id'] ?? '', 'ok' => true]));
+$eq('Fehlschlag → Neu versuchen → neue job_id (…-create-1 → …-create-2), alte job_id danach 409', ["trl-$t5-create-1", 200, 200, "trl-$t5-create-2", 409, 'provisioning'],
+    [$j1['job_id'] ?? '', $st, $st2, $j2b['job_id'] ?? '', $st3, $T::get($t5)->status]);
+$lic5 = intval($T::get($t5)->license_id);
+$wpdb->delete(TIX_Trial::t(), ['id' => $t5]); if ($lic5) $wpdb->delete($wpdb->prefix . 'tix_licenses', ['id' => $lic5]);
+
 // ═══ Aufräumen ═══
 remove_filter('pre_wp_mail', $cap, 1); remove_filter('pre_http_request', $mock, PHP_INT_MAX);
 $lic = intval($T::get($tid)->license_id);

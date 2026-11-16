@@ -7009,3 +7009,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Trial::is_own_domain($email)` (rein); `POST /public/trial/order` antwortet dann 400 `tix_invalid_field`, `field: contact.email`, „Bitte eine Adresse deiner Firma angeben – evendis-Adressen sind nicht möglich.“ Es wird nichts angelegt.
 - `check-subdomain` prüft keine E-Mail; der W1-Demo-Zugang (`/public/demo-access/request`) bleibt unverändert.
 - **Test:** `test-trial-wp` (Plattform 68, KK 21).
+
+## 218. Testphase: „Neu versuchen“ gibt eine neue job_id aus (ab 1.38.856)
+- Der Kunden-Dienst führt Zustand und Versuchszähler je `job_id`; nach `POST /trial/{id}/retry` kam bisher wieder `…-create-1` → sofort „technik“.
+- Dauerhafter Zähler `data.job_seq` je Testphase (über alle Aktionen). Jeder neu ausgegebene Auftrag bekommt `trl-<id>-<aktion>-<job_seq>`; done/retry/cancel löschen ihn nie. Wiederholung nach abgelaufener Sperre ohne `done` behält die `job_id`.
+- Altbestand ohne `job_seq` startet hinter den im Verlauf ausgegebenen Aufträgen (`provisioning`/`deleting`). Reine Funktion `TIX_Trial::next_job_seq($d, $job)`.
+- **Test:** `test-trial-wp` (Plattform 70, KK 21).
