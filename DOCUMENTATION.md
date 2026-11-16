@@ -7052,3 +7052,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - **Live:** `TIX_Go_Live::checklist()` hat den Punkt `demo_data` (`required: false`). `rest_request(action live)` → 409 `tix_demo_data_present {counts}`, außer `keep_demo_data: true`.
 - **Umzug nach evendis-api:** Kennzeichnung und Option ziehen mit, gleiche Routen und Antwortformen. Kern ohne WP: `fingerprint`, Lösch-Auswahl, `go_live_check`.
 - **Test:** `test-demo-seed-wp` (KK 14, Plattform 1).
+
+## 223. Club-Demo: Startseite mit Highlights zuerst (ab 1.38.861)
+- `TIX_Demo_Shop::seed_content('club')` ruft `seed_website('club')` auf (Ergebnis `seeded.website` = 1). Veröffentlicht wird `tix_website` mit Vorlage `club` und den Abschnitten `TIX_Demo_Shop::CLUB_SECTIONS`: die Club-Vorgabe von marken-web, nur `highlights` ganz nach vorn (wie kitchenklub.de). Entwurf weg, Revalidate der Domain.
+- Bei jedem Reset neu, damit Änderungen von Demo-Besuchern die Nacht nicht überstehen. Openair-Demo unberührt.
+- **Test:** `test-demo-shop-wp` (KK): Highlights zuerst, Reset stellt wieder her, Openair-Reset lässt die Einstellung stehen.

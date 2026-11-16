@@ -452,7 +452,32 @@ class TIX_Demo_Shop {
         $out['notifications'] = self::seed_notifications($vorlage, $keys);
         $out['app_content'] = self::seed_app_content($vorlage);
         $out['raffles'] = count(get_posts(['post_type' => 'event', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => '_tix_raffle_enabled', 'meta_value' => '1', 'suppress_filters' => true]));
+        $out['website'] = self::seed_website($vorlage);
         return $out;
+    }
+
+    /** Startseite der Club-Demo wie kitchenklub.de: Highlights ganz oben, sonst die Club-Vorgabe von marken-web (1.38.861).
+     * Wird bei jedem Seed/Reset neu veröffentlicht, damit Änderungen von Demo-Besuchern die Nacht nicht überstehen. Openair bleibt unberührt. */
+    const CLUB_SECTIONS = ['highlights', 'stage', 'live_now', 'next', 'presale', 'service', 'tips', 'raffles', 'about', 'gallery', 'music',
+        'loyalty', 'giftcards', 'wallet', 'u16', 'awareness', 'faq', 'sponsors', 'newsletter', 'app_banner'];
+
+    public static function seed_website($vorlage) {
+        if ($vorlage !== 'club' || !class_exists('TIX_Website')) return 0;
+        $w = TIX_Website::clean(['template' => 'club', 'sections' => array_map(function ($k) { return ['key' => $k, 'enabled' => true]; }, self::CLUB_SECTIONS)]);
+        if (is_wp_error($w)) return 0;
+        $o = get_option(TIX_Website::OPTION, []);
+        $o = (is_array($o) ? $o : []) + ['history' => []];
+        $o['published'] = $w;
+        $o['draft'] = null;
+        $o['published_at'] = current_time('c');
+        $o['updated_at'] = (string) round(microtime(true) * 1000);
+        $o['updated_by'] = 0;
+        update_option(TIX_Website::OPTION, $o, false);
+        if (class_exists('TIX_Web_Revalidate') && method_exists('TIX_Website', 'domain')) {
+            $d = (array) TIX_Website::domain();
+            foreach (array_filter([$d['live_host'] ?? '', $d['preview_host'] ?? '']) as $h) TIX_Web_Revalidate::touch_domain($h);
+        }
+        return 1;
     }
 
     // ═══════════════ Mehr Inhalt (1.38.847, User 15.11.: „lebendiger, orientiere dich an Kitchen und Mallorca“) ═══════════════

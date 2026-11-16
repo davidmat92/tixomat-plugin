@@ -337,6 +337,7 @@ if ($phase === 'on') {
     $pl = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/events'))->get_data();
     t_eq('Demo-Events erscheinen in der öffentlichen Liste (Homepage)', true, intval($pl['count'] ?? 0) > 0);
     t_eq('Zugänge bleiben', [true, true, true], [(bool) get_userdata($pa), (bool) get_userdata($pb), (bool) get_userdata($sales)]);
+    $wbak = get_option('tix_website', null);
     $rc = TIX_Demo_Shop::run('reset', 'club');
     $titles = array_map('get_the_title', get_posts(['post_type' => 'event', 'post_status' => 'any', 'posts_per_page' => -1, 'fields' => 'ids']));
     t_eq('Vorlage club: Club-Events, kein Festival', [true, false], [in_array('Neon Night', $titles, true), in_array(TIX_Demo_Content::OPENAIR_TITLE, $titles, true)]);
@@ -360,11 +361,23 @@ if ($phase === 'on') {
         [$rc['seeded']['tips'] ?? 0, $rc['seeded']['notifications'] ?? 0, count((array) (TIX_App_Config::stored()['home']['tiles'] ?? [])), TIX_App_Config::stored()['home']['hashtag'] ?? '', array_keys((array) (TIX_App_Config::stored()['pages'] ?? []))]);
     t_eq('club: Neue Abende auf ihrem Wochentag (Brunch = Sonntag, Ü16 = Freitag)', ['0', '5'], array_map(function ($t) use ($cids) { foreach ($cids as $id) if (html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8') === $t) return wp_date('w', strtotime(get_post_meta($id, '_tix_date_start', true) . ' 12:00')); return ''; }, ['Sunday Beats & Brunch', 'Ü16 Freitag – Teens Night']));
     t_eq('Vorlage gemerkt', 'club', TIX_Demo_Shop::vorlage());
+    // 1.38.861: Startseite der Club-Demo wie kitchenklub.de – Highlights ganz oben, übersteht jeden Reset
+    $pw = function () { wp_cache_flush(); $d = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/public/website'))->get_data(); return $d; };
+    $wd = $pw();
+    $keys = array_column((array) ($wd['website']['sections'] ?? []), 'key');
+    t_eq('club: Website veröffentlicht, Vorlage club, Highlights zuerst, dann Bühne und „Jetzt live“', [1, 'published', 'club', ['highlights', 'stage', 'live_now']],
+        [$rc['seeded']['website'] ?? 0, $wd['website']['source'] ?? '', $wd['website']['template'] ?? '', array_slice($keys, 0, 3)]);
+    $o = get_option('tix_website'); $o['published']['sections'] = array_reverse($o['published']['sections']); update_option('tix_website', $o, false); // Demo-Besucher ändert die Reihenfolge
+    TIX_Demo_Shop::run('reset', 'club');
+    t_eq('club: Reset stellt die Reihenfolge wieder her', 'highlights', array_column((array) ($pw()['website']['sections'] ?? []), 'key')[0] ?? '');
+    $wclub = get_option('tix_website');
     list($st, $d) = t_rest('POST', '/demo-access/reset', ['vorlage' => 'quatsch']);
     t_eq('falsche Vorlage → 400', 400, $st);
     wp_set_current_user($sales);
     list($st, $d) = t_rest('POST', '/demo-access/reset', ['vorlage' => 'openair']);
     t_eq('Vertriebler setzt zurück (200, last_reset, studio, home)', [200, true, 'https://studio.' . $host . '/', home_url('/')], [$st, !empty($d['last_reset']), $d['studio'] ?? '', $d['home'] ?? '']);
+    t_eq('openair: Website-Einstellung bleibt unberührt', wp_json_encode($wclub), wp_json_encode(get_option('tix_website')));
+    if ($wbak === null) delete_option('tix_website'); else update_option('tix_website', $wbak, false);
     wp_set_current_user($admin);
 
     // ── 6. Kasse ──
