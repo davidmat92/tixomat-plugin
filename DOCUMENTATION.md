@@ -6984,3 +6984,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Rechnung je Vertragsjahr (`invoice_year`, Serie `VT`, `RV-…`, Aussteller `site`, PDF per Mail, Schalter `tix_trial_invoice`), Zahlungseingang über den Webhook (`metadata.kind = contract`), Studio `GET /trial/{id}/invoices/{n}/pdf`.
 - **Test:** `test-trial-wp` (53 Plattform, 13 Einzel-Seite).
 
+## 214. Testphase W2c: mehr Tickets als im Paket – sofort anteilig hochstufen (ab 1.38.851)
+- **Vertrag:** `uebergaben/vertrag-testphase.md` (Abschnitt „W2c“).
+- Kunden-Seite: `TIX_Trial_Site::usage_params()` hängt `tickets_count`/`tickets_since` an die Lizenzprüfung (`TIX_License::check_inner`); Zählung `tickets_since()` in `{prefix}tixomat_tickets` (valid/used, ohne Freitickets außer mit `tix_trial_count_free`).
+- Lizenz-Server: Aktion `tix_license_checked`; `TIX_Trial::on_license_checked` → `record_usage` → `upgrade_quote` (rein) → Stufe, `upgrades[]`, Mails, Rechnung (`issue_invoice`, Schalter `tix_trial_invoice`), Abbuchung (Schalter `tix_trial_upgrade_charge`, Vorgabe aus).
+- **Test:** `test-trial-wp` (59 Plattform, 20 Einzel-Seite); Lizenz-Tests unverändert.
+

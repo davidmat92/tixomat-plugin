@@ -118,6 +118,7 @@ class TIX_License {
             'headers' => ['Accept' => 'application/json'],
             'body'    => ['key' => $key, 'site' => home_url(), 'version' => TIXOMAT_VERSION, 'wp' => (string) $wp_version, 'php' => PHP_VERSION,
                           'mode' => self::mode(), 'last_event_date' => class_exists('TIX_License_Stage') ? (string) TIX_License_Stage::last_event_date() : '']
+                          + (class_exists('TIX_Trial_Site') ? TIX_Trial_Site::usage_params() : []) // W2c: verkaufte Tickets im Vertragsjahr (nur mit Laufzeitende)
                           + (class_exists('TIX_Owner_Access') ? TIX_Owner_Access::check_params() : []),
         ]);
         $code = is_wp_error($res) ? 0 : intval(wp_remote_retrieve_response_code($res));

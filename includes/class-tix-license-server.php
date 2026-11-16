@@ -469,6 +469,7 @@ class TIX_License_Server {
                 $wpdb->update(self::t('tix_licenses'), ['last_event_date' => $reported], ['id' => $lic->id]);
                 $lic->last_event_date = $reported;
             }
+            do_action('tix_license_checked', $lic, $req); // W2c: Testphase/Vertrag liest gemeldete Ticketzahlen (TIX_Trial::on_license_checked)
             $stage = self::stage_for($lic, $reported);
             $out += [
                 'stage'           => $stage,

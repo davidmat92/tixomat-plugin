@@ -23,6 +23,12 @@ $eq('Erinnerungen Tag 7/12/13 (je einmal)', [[], [7], [12, 13], []], [$T::remind
 $eq('Ende: Tag 14, 23:59:59 Berlin (mit Verlängerung +3)', ['2026-11-30 23:59:59', '2026-12-03 23:59:59'],
     [(new DateTimeImmutable('@' . $T::ends_at($a, 0, new DateTimeZone('Europe/Berlin'))))->setTimezone(new DateTimeZone('Europe/Berlin'))->format('Y-m-d H:i:s'),
      (new DateTimeImmutable('@' . $T::ends_at($a, 3, new DateTimeZone('Europe/Berlin'))))->setTimezone(new DateTimeZone('Europe/Berlin'))->format('Y-m-d H:i:s')]);
+$tq = [['max' => 5000, 'price' => 790], ['max' => 10000, 'price' => 1690]];
+$y0 = 1794819600; $y1 = $y0 + 365 * 86400; $mid = $y0 + (int) (182.5 * 86400);
+$q = $T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $mid);
+$eq('Hochstufen anteilig: 6.000 > 5.000 → 10.000, Differenz 900 €/Jahr × 183/365 Tage = 451,23 €', [10000, false, 900.0, 183, 365, 451.23], [$q['to_tier'], $q['on_request'], $q['diff_year'], $q['remaining_days'], $q['total_days'], $q['amount_net']]);
+$eq('Paket reicht → kein Hochstufen; über der Staffel → auf Anfrage', [null, true, null], [$T::upgrade_quote(4000, 5000, $tq, $y0, $y1, $mid), $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['on_request'], $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['amount_net']]);
+$eq('Am letzten Tag: anteilig 1 Tag; nach Ablauf 0 €', [round(900 / 365, 2), 0.0], [$T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 - 3600)['amount_net'], $T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 + 10)['amount_net']]);
 $eq('Wegwerf-Adressen und Firmen-Schlüssel', [true, true, false, 'musterevents', 'musterevents'], [$T::is_disposable('a@mailinator.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@x.yopmail.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@firma.de', $T::DISPOSABLE_DEFAULT), $T::company_key('Muster Events GmbH'), $T::company_key('muster events UG (haftungsbeschränkt)')]);
 
 if (!$T::multi()) {
@@ -42,6 +48,27 @@ if (!$T::multi()) {
     update_option('tix_trial_instance', '0', false);
     $eq('Nach dem Übergang (Option 0): keine Sperre mehr', 'live_abc', TIX_Trial_Site::filter_settings(['mollie_api_key' => 'live_abc'])['mollie_api_key']);
     wp_set_current_user(0);
+    // W2c: Zählung für die Lizenzprüfung (bezahlte Tickets valid/used im Vertragsjahr)
+    global $wpdb;
+    $tt = $wpdb->prefix . TIX_Ticket_DB::TABLE_SUFFIX;
+    $since = wp_date('Y-m-d', time() - 10 * DAY_IN_SECONDS);
+    $base = TIX_Trial_Site::tickets_since($since);
+    $mk = function ($code, $price, $status) use ($wpdb, $tt) { $wpdb->insert($tt, ['ticket_code' => $code, 'event_id' => 999999, 'ticket_price' => $price, 'ticket_status' => $status, 'created_at' => current_time('mysql')]); };
+    $cx = 'W2C' . strtoupper(wp_generate_password(6, false, false));
+    $mk($cx . 'A', 25, 'valid'); $mk($cx . 'B', 0, 'valid'); $mk($cx . 'C', 25, 'cancelled'); $mk($cx . 'D', 25, 'resold'); $mk($cx . 'E', 25, 'used');
+    $eq('Zählung: bezahlt valid/used (+2), ohne Freiticket, Storno und Weiterverkauft', 2, TIX_Trial_Site::tickets_since($since) - $base);
+    update_option('tix_trial_count_free', '1', false);
+    $eq('Mit tix_trial_count_free auch Freitickets (+3)', 3, TIX_Trial_Site::tickets_since($since) - $base);
+    delete_option('tix_trial_count_free');
+    $lsb = get_option('tix_license_status', null);
+    update_option('tix_license_status', array_merge(is_array($lsb) ? $lsb : [], ['expires_at' => wp_date('Y-m-d', time() + 200 * DAY_IN_SECONDS)]), false);
+    update_option('tix_trial_instance', '0', false);
+    $up = TIX_Trial_Site::usage_params();
+    $eq('Lizenzprüfung meldet Tickets seit Laufzeitende − 1 Jahr', [wp_date('Y-m-d', time() - 165 * DAY_IN_SECONDS), true], [$up['tickets_since'] ?? '', isset($up['tickets_count'])]);
+    update_option('tix_trial_instance', '1', false);
+    $eq('In der Testphase keine Meldung', [], TIX_Trial_Site::usage_params());
+    if ($lsb === null) delete_option('tix_license_status'); else update_option('tix_license_status', $lsb, false);
+    $wpdb->query($wpdb->prepare("DELETE FROM $tt WHERE ticket_code LIKE %s", $cx . '%'));
     // W2b: /me.trial für das Band (Format des Studios), Stand live von der Plattform
     $binfo = get_option('tix_trial_info', null);
     $surl = 'https://veranstalter.evendis.de/wp-json/tixomat/v1/public/trial/status?token=abc' . wp_rand();
@@ -88,7 +115,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     return $res(404, []);
 };
 add_filter('pre_http_request', $mock, PHP_INT_MAX, 3); // zuletzt: der Container blockt Fremd-HTTP mit eigenem Filter
-$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify'] as $o) $bak[$o] = get_option($o, null);
+$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify', 'tix_trial_upgrade_charge', 'tix_trial_invoice'] as $o) $bak[$o] = get_option($o, null);
 update_option('tix_trial_origins', ['demo.evendis.de'], false);
 update_option('tix_demo_notify', ['vertrieb-test@example.org'], false);
 delete_option('tix_trial_mollie_key'); delete_option('tix_trial_queue_secret'); update_option('tix_trial_auto_charge', '0', false);
@@ -273,6 +300,35 @@ $d3 = $T::get($t3)->d; $d3['contract_until'] = wp_date('c', time() + 14 * DAY_IN
 [$st, $d] = $post('/public/trial/cancel', ['token' => 'stok' . $sfx], null);
 $eq('Kündigung weniger als 1 Monat vor Ablauf → 409 tix_trial_notice', [409, 'tix_trial_notice'], [$st, $d['code'] ?? '']);
 $wpdb->delete(TIX_Trial::t(), ['id' => $t3]);
+// ═══ W2c: Lizenzprüfung meldet mehr Tickets → sofort hochstufen ═══
+$tiers_c = TIX_Platform_Offers::catalog()['shop_tiers']; usort($tiers_c, function ($a, $b) { return $a['max'] <=> $b['max']; });
+if (count($tiers_c) >= 2) {
+    $low = intval($tiers_c[0]['max']); $high = intval($tiers_c[1]['max']); $top = intval(end($tiers_c)['max']);
+    $wpdb->insert(TIX_Trial::t(), ['kurz' => "tu-$sfx", 'status' => 'converted', 'email' => "w2u-$sfx@firma-test.de", 'email_hash' => hash('sha256', "w2u-$sfx@firma-test.de"), 'company' => 'Vier GmbH', 'company_key' => 'vier' . $sfx,
+        'data' => wp_json_encode(['contact' => ['name' => 'Uli'], 'tier' => $low, 'address' => ['street' => 'X 1', 'zip' => '50667', 'city' => 'Köln', 'country' => 'DE'], 'contract_until' => wp_date('c', time() + 182 * DAY_IN_SECONDS)]),
+        'mollie_customer_id' => 'cst_t1', 'mollie_mandate_id' => 'mdt_t1', 'mandate_status' => 'valid', 'license_id' => 987654, 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
+    $t4 = intval($wpdb->insert_id);
+    update_option('tix_trial_invoice', '1', false); update_option('tix_trial_upgrade_charge', '1', false);
+    $set = is_array($set_bak) ? $set_bak : []; foreach (['invoice_company_name' => 'evendis Test GmbH', 'invoice_company_address' => "Teststr. 1\n50667 Köln", 'invoice_company_ust_id' => 'DE123456789'] as $k => $v) if (trim((string) ($set[$k] ?? '')) === '') $set[$k] = $v; update_option('tix_settings', $set);
+    $mc = count($mails); $molc = count($mol);
+    $rq = new WP_REST_Request('POST', '/tixomat/v1/license/check'); $rq->set_param('tickets_count', (string) ($low + 1)); $rq->set_param('tickets_since', wp_date('Y-m-d', time() - 183 * DAY_IN_SECONDS));
+    do_action('tix_license_checked', (object) ['id' => 987654], $rq);
+    $u4 = $T::get($t4)->d;
+    $eq('Lizenzprüfung meldet ' . ($low + 1) . ' Tickets → sofort Stufe ' . $high . ', Differenz anteilig, Rechnung + Abbuchung (Schalter an), Mails an Kunde und Vertrieb',
+        [$high, $low + 1, true, true, true, true, true],
+        [intval($u4['tier'] ?? 0), intval($u4['usage']['tickets'] ?? 0), ($u4['upgrades'][0]['amount_net'] ?? 0) > 0, (bool) preg_match('/^RV-/', (string) ($u4['upgrades'][0]['invoice'] ?? '')), in_array('POST /payments', array_slice($mol, $molc), true),
+         (bool) array_filter(array_slice($mails, $mc), function ($m) { return strpos((string) $m['subject'], 'hochgestuft') !== false && $m['to'] !== 'vertrieb-test@example.org'; }),
+         (bool) array_filter(array_slice($mails, $mc), function ($m) { return $m['to'] === 'vertrieb-test@example.org' || (is_array($m['to']) && in_array('vertrieb-test@example.org', $m['to'], true)); })]);
+    do_action('tix_license_checked', (object) ['id' => 987654], $rq);
+    $eq('Gleiche Meldung noch einmal → kein zweites Hochstufen', 1, count($T::get($t4)->d['upgrades'] ?? []));
+    $rq->set_param('tickets_count', (string) ($top + 1));
+    $mc = count($mails);
+    do_action('tix_license_checked', (object) ['id' => 987654], $rq);
+    do_action('tix_license_checked', (object) ['id' => 987654], $rq);
+    $eq('Über der größten Stufe → „auf Anfrage“ einmal gemeldet, Stufe bleibt', [true, $high, 1], [!empty($T::get($t4)->d['usage_on_request']), intval($T::get($t4)->d['tier']), count(array_filter(array_slice($mails, $mc), function ($m) { return strpos((string) $m['subject'], 'Mehr Tickets') !== false; }))]);
+    update_option('tix_trial_upgrade_charge', '0', false); delete_option('tix_trial_invoice'); update_option('tix_settings', $set_bak);
+    $wpdb->delete(TIX_Trial::t(), ['id' => $t4]);
+}
 
 // ═══ Zweite Testphase: kündigen und löschen ═══
 global $wpdb;

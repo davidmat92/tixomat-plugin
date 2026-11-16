@@ -35,6 +35,7 @@ class TIX_Trial {
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('tix_trial_tick', [__CLASS__, 'tick']);
+        add_action('tix_license_checked', [__CLASS__, 'on_license_checked'], 10, 2);
         add_action('init', function () {
             if (self::multi() && !wp_next_scheduled('tix_trial_tick')) wp_schedule_event(time() + 600, 'hourly', 'tix_trial_tick');
         }, 31);
@@ -91,6 +92,22 @@ class TIX_Trial {
         if ($dom === '') return false;
         foreach ($list as $l) { $l = strtolower(trim((string) $l)); if ($l !== '' && ($dom === $l || substr($dom, -strlen('.' . $l)) === '.' . $l)) return true; }
         return false;
+    }
+
+    /**
+     * Anteiliges Hochstufen (W2c, User 16.11.: sofort, Differenz anteilig für die Restlaufzeit) → array
+     * {to_tier|null, on_request, diff_year, remaining_days, total_days, amount_net} ; null, wenn die Stufe reicht.
+     */
+    public static function upgrade_quote($tickets, $tier_max, array $tiers, $from_ts, $until_ts, $now) {
+        usort($tiers, function ($a, $b) { return $a['max'] <=> $b['max']; });
+        if ($tickets <= $tier_max) return null;
+        $old = null; $new = null;
+        foreach ($tiers as $x) { if (intval($x['max']) === intval($tier_max)) $old = floatval($x['price']); if ($new === null && $tickets <= intval($x['max'])) $new = $x; }
+        if ($new === null) return ['to_tier' => null, 'on_request' => true, 'diff_year' => null, 'remaining_days' => null, 'total_days' => null, 'amount_net' => null];
+        $total = max(1, (int) round(($until_ts - $from_ts) / 86400));
+        $rest = max(0, min($total, (int) ceil(($until_ts - $now) / 86400)));
+        $diff = round(floatval($new['price']) - floatval($old ?? 0), 2);
+        return ['to_tier' => intval($new['max']), 'on_request' => false, 'diff_year' => $diff, 'remaining_days' => $rest, 'total_days' => $total, 'amount_net' => round(max(0, $diff) * $rest / $total, 2)];
     }
 
     /** Firma normalisiert (Grenze je Firma) */
@@ -791,11 +808,86 @@ class TIX_Trial {
         return self::out(['ok' => true, 'status' => 'converted', 'contract_end' => $d['contract_end'], 'trial' => self::view($t)]);
     }
 
+    // ── W2c: Ticketzahl je Vertrag und anteiliges Hochstufen ──
+
+    /** Lizenzprüfung einer Kunden-Seite: gemeldete Tickets im Vertragsjahr speichern und ggf. hochstufen */
+    public static function on_license_checked($lic, $req) {
+        if (!self::multi() || !$lic) return;
+        $count = $req->get_param('tickets_count');
+        $since = (string) $req->get_param('tickets_since');
+        if ($count === null || $count === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $since)) return;
+        global $wpdb;
+        self::maybe_install();
+        $id = $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . self::t() . " WHERE license_id = %d AND status = 'converted' ORDER BY id DESC LIMIT 1", intval($lic->id)));
+        if (!$id) return;
+        self::record_usage(self::get($id), max(0, intval($count)), $since, time());
+    }
+
+    /** Zählung speichern; Paket überschritten → sofort hochstufen (anteilig), über der Staffel → Anfrage */
+    public static function record_usage($t, $count, $since, $now) {
+        if (!$t || $t->status !== 'converted' || empty($t->d['contract_until'])) return $t;
+        global $wpdb;
+        $d = $t->d;
+        $d['usage'] = ['tickets' => $count, 'since' => $since, 'at' => wp_date('c', $now)];
+        $tier = intval($d['tier'] ?? 0);
+        $until = (new DateTimeImmutable($d['contract_until']))->getTimestamp();
+        $from = (new DateTimeImmutable($d['contract_until']))->modify('-1 year')->getTimestamp();
+        $q = self::upgrade_quote($count, $tier, self::tiers(), $from, $until, $now);
+        if (!$q) { $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]); return self::get($t->id); }
+        if ($q['on_request']) {
+            if (empty($d['usage_on_request'])) {
+                $d['usage_on_request'] = wp_date('c', $now);
+                self::mail($t->email, 'Mehr Tickets als in deinem Paket', 'Glückwunsch zu so vielen Tickets', ['Du hast in diesem Vertragsjahr schon ' . number_format($count, 0, ',', '.') . ' Tickets verkauft – mehr als unsere größte Paket-Stufe. Wir melden uns mit einem individuellen Angebot.']);
+                self::notify_sales('Paket überschritten (auf Anfrage): ' . $t->kurz, ['Firma: ' . $t->company, 'Tickets im Vertragsjahr: ' . $count, 'Größte Stufe überschritten – individuelles Angebot nötig.']);
+            }
+            $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
+            return self::get($t->id);
+        }
+        $old = $tier;
+        $d['tier'] = $q['to_tier'];
+        $up = ['at' => wp_date('c', $now), 'from_tier' => $old, 'to_tier' => $q['to_tier'], 'tickets' => $count, 'diff_year' => $q['diff_year'], 'remaining_days' => $q['remaining_days'],
+            'total_days' => $q['total_days'], 'amount_net' => $q['amount_net'], 'charge' => null, 'invoice' => null];
+        $d['upgrades'][] = $up;
+        $t = self::set($t, 'converted', [], $d, 'system');
+        $idx = count($d['upgrades']) - 1;
+        // Rechnung (Schalter tix_trial_invoice) und Abbuchung (eigener Schalter tix_trial_upgrade_charge, Kasse/Geld per Button)
+        $inv = $q['amount_net'] > 0 ? self::issue_invoice($t, $q['amount_net'], 'Hochstufung Eigener Shop ' . $t->kurz . '.evendis.de von ' . number_format($old, 0, ',', '.') . ' auf ' . number_format($q['to_tier'], 0, ',', '.')
+            . ' Tickets im Jahr, anteilig ' . $q['remaining_days'] . ' von ' . $q['total_days'] . ' Tagen', new DateTimeImmutable('@' . $now), new DateTimeImmutable('@' . $until)) : null;
+        $charge = null;
+        if ($q['amount_net'] > 0 && get_option('tix_trial_upgrade_charge', '0') === '1' && $t->mandate_status === 'valid' && self::mollie_key() !== '') {
+            $gross = round($q['amount_net'] * 1.19, 2);
+            [$st, $p] = self::mollie('POST', '/payments', ['amount' => ['currency' => 'EUR', 'value' => number_format($gross, 2, '.', '')], 'customerId' => $t->mollie_customer_id, 'mandateId' => $t->mollie_mandate_id,
+                'sequenceType' => 'recurring', 'description' => 'evendis Hochstufung ' . $t->kurz . ' auf ' . $q['to_tier'] . ' Tickets (anteilig)', 'metadata' => ['trial_id' => intval($t->id), 'kind' => 'contract']]);
+            $charge = ['status' => $st === 201 ? (string) ($p['status'] ?? 'open') : 'error', 'payment_id' => (string) ($p['id'] ?? ''), 'amount' => $gross, 'label' => 'Hochstufung', 'at' => wp_date('c', $now)];
+        }
+        $t = self::get($t->id); $d = $t->d;
+        $d['upgrades'][$idx]['invoice'] = $inv ? $inv['number'] : null;
+        $d['upgrades'][$idx]['charge'] = $charge;
+        if ($charge) $d['charges'][] = $charge;
+        $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
+        $newp = self::tier_price($q['to_tier']);
+        self::mail($t->email, 'Dein Paket wurde hochgestuft', 'Mehr Tickets – größeres Paket', [
+            'Du hast in diesem Vertragsjahr schon ' . number_format($count, 0, ',', '.') . ' Tickets verkauft – mehr als in deinem Paket (bis ' . number_format($old, 0, ',', '.') . ' Tickets). Wir haben dein Paket deshalb auf bis ' . number_format($q['to_tier'], 0, ',', '.') . ' Tickets hochgestuft' . ($newp ? ' (' . number_format($newp, 0, ',', '.') . ' € im Jahr zzgl. MwSt.)' : '') . '.',
+            'Für die restlichen ' . $q['remaining_days'] . ' Tage dieses Vertragsjahrs berechnen wir nur die Differenz anteilig: ' . number_format($q['amount_net'], 2, ',', '.') . ' € zzgl. MwSt.' . ($charge ? ' Der Betrag wird über dein hinterlegtes Zahlungsmittel abgebucht.' : '')]);
+        self::notify_sales('Paket hochgestuft: ' . $t->kurz, ['Firma: ' . $t->company, 'Tickets im Vertragsjahr: ' . $count, 'Stufe ' . $old . ' → ' . $q['to_tier'] . ', anteilig ' . number_format($q['amount_net'], 2, ',', '.') . ' € netto (' . $q['remaining_days'] . '/' . $q['total_days'] . ' Tage)',
+            $inv ? 'Rechnung ' . $inv['number'] : 'Rechnung: nicht automatisch – bitte ausstellen.', $charge ? 'Abbuchung: ' . $charge['status'] : 'Abbuchung: nicht automatisch (Schalter tix_trial_upgrade_charge aus) – bitte auslösen.']);
+        return self::get($t->id);
+    }
+
     // ── Rechnung je Vertragsjahr (W2b, nur mit Schalter tix_trial_invoice = 1) ──
 
     /** Rechnung festschreiben (Nummernkreis VT im Zähler der Rechnungen, Aussteller „site“), per Mail mit PDF → Beleg | null */
     public static function invoice_year($t, $price, DateTimeImmutable $from, DateTimeImmutable $to) {
-        if (get_option('tix_trial_invoice', '0') !== '1' || !$price || !class_exists('TIX_Invoices')) return null;
+        if (!$price) return null;
+        $d = $t->d;
+        return self::issue_invoice($t, round(floatval($price), 2), 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets im Jahr, Vertragsjahr ' . $from->setTimezone(wp_timezone())->format('d.m.Y') . ' – ' . $to->setTimezone(wp_timezone())->modify('-1 day')->format('d.m.Y'), $from, $to);
+    }
+
+    /** Beleg festschreiben (Serie VT, Aussteller site) und per Mail mit PDF schicken → Beleg | null */
+    public static function issue_invoice($t, $net, $text, DateTimeImmutable $from, DateTimeImmutable $to) {
+        if (get_option('tix_trial_invoice', '0') !== '1' || !$net || !class_exists('TIX_Invoices')) return null;
+        $from = $from->setTimezone(wp_timezone()); $to = $to->setTimezone(wp_timezone());
+        $price = $net;
         $iss = TIX_Invoices::issuer('site');
         if (empty($iss['complete'])) return null; // Angaben unvollständig → Vertrieb stellt aus
         global $wpdb;
@@ -808,7 +900,7 @@ class TIX_Trial {
         $doc = ['number' => '', 'date' => current_time('Y-m-d'), 'period' => ['from' => $from->format('Y-m-d'), 'to' => $to->modify('-1 day')->format('Y-m-d')],
             'issuer' => ['name' => (string) $iss['name'], 'lines' => array_values((array) $iss['address_lines']), 'vat_id' => (string) $iss['vat_id'], 'tax_id' => (string) $iss['tax_id']],
             'customer' => ['company' => $t->company, 'name' => (string) ($d['contact']['name'] ?? ''), 'address' => $d['address'] ?? [], 'vat_id' => (string) ($d['vat_id'] ?? ''), 'email' => $t->email],
-            'lines' => [['text' => 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets im Jahr, Vertragsjahr ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y'), 'net' => $net]],
+            'lines' => [['text' => $text, 'net' => $net]],
             'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2), 'reverse_charge' => $rc, 'paid_at' => null];
         $c = TIX_Invoices::counters_table();
         $y = intval(current_time('Y'));
@@ -828,7 +920,7 @@ class TIX_Trial {
         $file = trailingslashit(get_temp_dir()) . 'Rechnung-' . $doc['number'] . '.pdf';
         $bytes = self::invoice_pdf($doc);
         if ($bytes) file_put_contents($file, $bytes);
-        $h = '<p>' . esc_html('anbei deine Rechnung ' . $doc['number'] . ' über ' . number_format($doc['gross'], 2, ',', '.') . ' € für das Vertragsjahr ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y') . '.') . '</p>'
+        $h = '<p>' . esc_html('anbei deine Rechnung ' . $doc['number'] . ' über ' . number_format($doc['gross'], 2, ',', '.') . ' € für den Zeitraum ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y') . '.') . '</p>'
             . '<p>' . esc_html($t->mandate_status === 'valid' ? 'Der Betrag wird über dein hinterlegtes Zahlungsmittel abgebucht.' : 'Bitte überweise den Betrag innerhalb von 14 Tagen.') . '</p>';
         if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($t->email, 'Rechnung ' . $doc['number'], ['title' => 'Deine Rechnung', 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => 'account'], ['customer' => false, 'attachments' => $bytes ? [$file] : []]);
         else wp_mail($t->email, 'Rechnung ' . $doc['number'], $h, ['Content-Type: text/html; charset=UTF-8'], $bytes ? [$file] : []);
@@ -962,7 +1054,8 @@ class TIX_Trial {
             'url' => (string) ($t->d['url'] ?? ''), 'extended_days' => intval($t->d['extended_days'] ?? 0), 'error' => (string) ($t->d['error'] ?? ''),
             'mandate' => ['method' => $t->mandate_method ?: null, 'status' => $t->mandate_status ?: null], 'charge' => $t->d['charge'] ?? null,
             'contract_until' => $t->d['contract_until'] ?? null, 'contract_end' => $t->d['contract_end'] ?? null,
-            'invoices' => array_map(function ($i) { return ['number' => $i['number'], 'date' => $i['date'], 'gross' => $i['gross'], 'paid_at' => $i['paid_at'] ?? null]; }, array_values((array) ($t->d['invoices'] ?? []))), 'server_pending' => array_values((array) ($t->d['server']['pending'] ?? [])), 'server_error' => $t->d['server']['error'] ?? null, 'created_at' => (new DateTimeImmutable($t->created_at, $tz))->format('c')];
+            'invoices' => array_map(function ($i) { return ['number' => $i['number'], 'date' => $i['date'], 'gross' => $i['gross'], 'paid_at' => $i['paid_at'] ?? null]; }, array_values((array) ($t->d['invoices'] ?? []))),
+            'usage' => $t->d['usage'] ?? null, 'upgrades' => array_values((array) ($t->d['upgrades'] ?? [])), 'usage_on_request' => $t->d['usage_on_request'] ?? null, 'server_pending' => array_values((array) ($t->d['server']['pending'] ?? [])), 'server_error' => $t->d['server']['error'] ?? null, 'created_at' => (new DateTimeImmutable($t->created_at, $tz))->format('c')];
     }
 
     public static function rest_list(WP_REST_Request $req) {
@@ -1082,6 +1175,27 @@ class TIX_Trial_Site {
         }
         if ($out['days_left'] === null) { $e = strtotime($out['ends_at']); $out['days_left'] = $e ? max(0, (int) floor(($e - time()) / DAY_IN_SECONDS)) : null; }
         return $out;
+    }
+
+    /**
+     * W2c: verkaufte Tickets im laufenden Vertragsjahr für die Lizenzprüfung → ['tickets_count', 'tickets_since'] | []
+     * Vertragsjahr = Laufzeitende der Lizenz − 1 Jahr. Gezählt: Tickets valid/used (ohne storniert/weiterverkauft), ohne Freitickets
+     * (Option tix_trial_count_free = 1 zählt sie mit). Nicht während der Testphase.
+     */
+    public static function usage_params() {
+        if (TIX_Trial::multi() || self::on() || !class_exists('TIX_License')) return [];
+        $exp = (string) (TIX_License::status()['expires_at'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}/', $exp)) return [];
+        $since = (new DateTimeImmutable(substr($exp, 0, 10), wp_timezone()))->modify('-1 year')->format('Y-m-d');
+        return ['tickets_count' => self::tickets_since($since), 'tickets_since' => $since];
+    }
+
+    public static function tickets_since($since) {
+        global $wpdb;
+        if (!class_exists('TIX_Ticket_DB') || !TIX_Ticket_DB::table_exists()) return 0;
+        $t = $wpdb->prefix . TIX_Ticket_DB::TABLE_SUFFIX; // {prefix}tixomat_tickets
+        $free = get_option('tix_trial_count_free', '0') === '1' ? '' : ' AND ticket_price > 0';
+        return intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE created_at >= %s AND ticket_status IN ('valid','used')$free", $since . ' 00:00:00')));
     }
 
     public static function guard($result, $server, $request) {
