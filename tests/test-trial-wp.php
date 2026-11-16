@@ -29,6 +29,7 @@ $q = $T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $mid);
 $eq('Hochstufen anteilig: 6.000 > 5.000 → 10.000, Differenz 900 €/Jahr × 183/365 Tage = 451,23 €', [10000, false, 900.0, 183, 365, 451.23], [$q['to_tier'], $q['on_request'], $q['diff_year'], $q['remaining_days'], $q['total_days'], $q['amount_net']]);
 $eq('Paket reicht → kein Hochstufen; über der Staffel → auf Anfrage', [null, true, null], [$T::upgrade_quote(4000, 5000, $tq, $y0, $y1, $mid), $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['on_request'], $T::upgrade_quote(12000, 5000, $tq, $y0, $y1, $mid)['amount_net']]);
 $eq('Am letzten Tag: anteilig 1 Tag; nach Ablauf 0 €', [round(900 / 365, 2), 0.0], [$T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 - 3600)['amount_net'], $T::upgrade_quote(6000, 5000, $tq, $y0, $y1, $y1 + 10)['amount_net']]);
+$eq('evendis-Adressen (auch Subdomains, Großschreibung) erkannt, ähnliche Domains nicht', [true, true, true, false, false], [$T::is_own_domain('max@evendis.de'), $T::is_own_domain('a@mail.evendis.de'), $T::is_own_domain(' Max@EVENDIS.DE '), $T::is_own_domain('a@notevendis.de'), $T::is_own_domain('a@evendis.de.example.com')]);
 $eq('Wegwerf-Adressen und Firmen-Schlüssel', [true, true, false, 'musterevents', 'musterevents'], [$T::is_disposable('a@mailinator.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@x.yopmail.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@firma.de', $T::DISPOSABLE_DEFAULT), $T::company_key('Muster Events GmbH'), $T::company_key('muster events UG (haftungsbeschränkt)')]);
 
 if (!$T::multi()) {
@@ -164,6 +165,11 @@ $order = ['kurz' => $kurz, 'shop_name' => 'Test Club', 'company' => "Testphase $
 [$st, $d] = $post('/public/trial/order', array_merge($order, ['tier' => 777]));
 [$st2, $d2] = $post('/public/trial/order', array_merge($order, ['consents' => ['terms' => true]]));
 $eq('Bestellung: falsche Stufe 400 tier, fehlende Zustimmung 400 consents.trial_contract', [400, 'tier', 400, 'consents.trial_contract'], [$st, $d['data']['field'] ?? '', $st2, $d2['data']['field'] ?? '']);
+[$st, $d] = $post('/public/trial/order', array_merge($order, ['contact' => array_merge($order['contact'], ['email' => "w2-$sfx@evendis.de"])]));
+[$st2, $d2] = $post('/public/trial/order', array_merge($order, ['contact' => array_merge($order['contact'], ['email' => "w2-$sfx@team.evendis.de"])]));
+$eq('Bestellung mit evendis-Adresse (auch Subdomain): 400 tix_invalid_field contact.email, nichts angelegt', [400, 'tix_invalid_field', 'contact.email', 400, true, true],
+    [$st, $d['code'] ?? '', $d['data']['field'] ?? '', $st2, strpos($d['message'] ?? '', 'evendis-Adressen sind nicht möglich') !== false, $T::kurz_check($kurz, [], $T::taken())['ok']]);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_tix\\_app\\_rl\\_trial\\_order%' OR option_name LIKE '\\_transient\\_timeout\\_tix\\_app\\_rl\\_trial\\_order%'"); wp_cache_flush(); // IP-Grenze 5/h nicht durch die Prüfungen oben verbrauchen
 [$st, $d] = $post('/public/trial/order', $order);
 $tid = intval($d['trial_id'] ?? 0); $mstate['trial_id'] = $tid;
 $tok2 = $token_from('trial');

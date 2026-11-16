@@ -318,6 +318,12 @@ class TIX_Trial {
         return null;
     }
 
+    /** Inhaber-Adresse auf evendis.de bzw. *.evendis.de – der Kunden-Server lehnt sie ab (ops/kunden-hetzner/lib/testphase.py), also schon hier (1.38.855) */
+    public static function is_own_domain($email) {
+        $e = strtolower(trim((string) $email));
+        return substr($e, -11) === '@evendis.de' || substr($e, -11) === '.evendis.de';
+    }
+
     private static function body(WP_REST_Request $req) {
         $b = $req->get_json_params();
         return is_array($b) ? $b : (array) $req->get_body_params();
@@ -513,6 +519,7 @@ class TIX_Trial {
         foreach (['shop_name' => $d['shop_name'], 'company' => $d['company'], 'contact.name' => $d['contact']['name'], 'contact.phone' => $d['contact']['phone'],
             'address.street' => $d['address']['street'], 'address.zip' => $d['address']['zip'], 'address.city' => $d['address']['city']] as $f => $v) if ($v === '') return self::err('tix_invalid_field', 'Bitte dieses Feld ausfüllen.', 400, $f);
         if ($e = self::email_ok($d['contact']['email'])) { $e->add_data(array_merge($e->get_error_data(), ['field' => 'contact.email'])); return $e; }
+        if (self::is_own_domain($d['contact']['email'])) return self::err('tix_invalid_field', 'Bitte eine Adresse deiner Firma angeben – evendis-Adressen sind nicht möglich.', 400, 'contact.email');
         if ($d['vat_id'] !== '' && !preg_match('/^(DE\d{9}|(AT|BE|BG|CY|CZ|DK|EE|EL|ES|FI|FR|HR|HU|IE|IT|LT|LU|LV|MT|NL|PL|PT|RO|SE|SI|SK)[0-9A-Z]{2,12})$/', $d['vat_id'])) return self::err('tix_invalid_field', 'Bitte eine gültige USt-IdNr. angeben.', 400, 'vat_id');
         if (!in_array($d['tier'], array_map('intval', array_column(self::tiers(), 'max')), true)) return self::err('tix_invalid_field', 'Bitte eine Paket-Stufe wählen.', 400, 'tier');
         foreach (['terms', 'trial_contract', 'privacy', 'b2b'] as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);

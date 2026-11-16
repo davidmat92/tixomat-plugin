@@ -7003,3 +7003,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Aktion `tix_apns_payload($payload, $tokens, $topic)` vor dem Versand (nur Beobachtung).
 - **Test:** `test-push-badge-wp` (7). App-Teil (Zahl beim Zurückkehren neu setzen) ist Sache des App-Chats.
 
+
+## 217. Testphase: keine evendis-Adressen als Inhaber (ab 1.38.855)
+- Der Kunden-Server (`ops/kunden-hetzner/lib/testphase.py`) lehnt `owner.email` auf `@evendis.de` / `*.evendis.de` ab; Probe #1 scheiterte daran erst beim Anlegen.
+- `TIX_Trial::is_own_domain($email)` (rein); `POST /public/trial/order` antwortet dann 400 `tix_invalid_field`, `field: contact.email`, „Bitte eine Adresse deiner Firma angeben – evendis-Adressen sind nicht möglich.“ Es wird nichts angelegt.
+- `check-subdomain` prüft keine E-Mail; der W1-Demo-Zugang (`/public/demo-access/request`) bleibt unverändert.
+- **Test:** `test-trial-wp` (Plattform 68, KK 21).
