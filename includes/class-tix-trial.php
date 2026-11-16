@@ -335,10 +335,11 @@ class TIX_Trial {
         'b2b' => 'Ich bestelle für [Firma] als Unternehmer (nicht als Verbraucher) und bin berechtigt, für die Firma zu handeln.',
         'trial_terms' => 'Ich akzeptiere die Bedingungen für die Bestellung einschließlich § 11 (Testshop). Mir ist klar: Der Testshop ist 14 Tage kostenlos und endet von selbst. Es verlängert sich nichts automatisch, und es wird nichts abgebucht. Halte ich den Shop nicht aktiv, wird er pausiert und 14 Tage später gelöscht.',
     ];
-    /** Einwilligung B monatlich – Entwurf nach Plan (17.11.); wird durch den Wortlaut des Rechtstexte-Chats ersetzt */
+    /** Einwilligung B (Rechtstexte Fassung 3 vom 17.11., jährlich unverändert, monatlich neu) – Wortlaut ohne Links */
+    const CONSENT_B_VERSION = '2026-11-17 (Rechtstexte Fassung 3)';
     const CONSENT_B_MONTH = [
         'b2b' => 'Ich schließe den Vertrag für [Firma] als Unternehmer (nicht als Verbraucher) und bin berechtigt, für die Firma zu handeln.',
-        'contract' => 'Ich schließe den Lizenzvertrag für den Eigenen Shop einschließlich der Vereinbarung zur Auftragsverarbeitung zu den Bedingungen für die Bestellung ab: [Paket] für [Preis] zzgl. USt im Monat, 12 Monatsraten je Vertragsjahr, die erste Rate sofort fällig und jetzt über Mollie zu bezahlen. Der Vertrag läuft ein Jahr ab heute und verlängert sich um je ein Jahr, wenn ich nicht bis einen Monat vor Ablauf kündige. Mein Zahlungsmittel wird für die folgenden Monatsraten und eine anteilige Hochstufung bei mehr Tickets gespeichert.',
+        'contract' => 'Ich schließe den Lizenzvertrag für den Eigenen Shop einschließlich der Vereinbarung zur Auftragsverarbeitung zu den Bedingungen für die Bestellung ab: [Paket] für [Monatspreis] zzgl. USt im Monat, 12 Monatsraten je Vertragsjahr; die erste Rate ist sofort fällig und jetzt über Mollie zu bezahlen, jede weitere jeweils einen Monat später. Der Vertrag läuft ein Jahr ab heute und verlängert sich um je ein Jahr, wenn ich nicht bis einen Monat vor Ablauf kündige; monatlich kündigen kann ich nicht. Mein Zahlungsmittel wird für die folgenden Monatsraten und eine anteilige Hochstufung bei mehr Tickets gespeichert.',
     ];
     const CONSENT_B = [
         'b2b' => 'Ich schließe den Vertrag für [Firma] als Unternehmer (nicht als Verbraucher) und bin berechtigt, für die Firma zu handeln.',
@@ -346,8 +347,8 @@ class TIX_Trial {
     ];
 
     /** Nachweis einer Einwilligung: Wortlaut mit eingesetzten Werten, Fassung, Zeit, IP-Hash (rein bis auf Zeit/IP) */
-    public static function consent_record(array $texts, array $vars) {
-        return ['version' => (string) get_option('tix_trial_consent_version', self::CONSENT_VERSION), 'at' => wp_date('c'), 'ip_hash' => self::ip_hash(),
+    public static function consent_record(array $texts, array $vars, $version = null) {
+        return ['version' => (string) ($version ?? get_option('tix_trial_consent_version', self::CONSENT_VERSION)), 'at' => wp_date('c'), 'ip_hash' => self::ip_hash(),
             'texts' => array_map(function ($tx) use ($vars) { return strtr($tx, $vars); }, $texts)];
     }
 
@@ -714,10 +715,11 @@ class TIX_Trial {
             if ($stt === 'paid') { self::rate_paid($t, $pid, $n); return self::out(['ok' => true]); }
             if (in_array($stt, ['failed', 'canceled', 'expired'], true) && ($t->d['rates'][$i]['status'] ?? '') !== 'paid' && ($t->d['rates'][$i]['payment_id'] ?? '') === $pid) {
                 global $wpdb;
-                $d = $t->d; $d['rates'][$i]['status'] = $stt; $d['rates'][$i]['failed_at'] = wp_date('c');
+                $pause = time() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS; // § 11 Abs. 7: 14 Tage nach der Aufforderung
+                $d = $t->d; $d['rates'][$i]['status'] = $stt; $d['rates'][$i]['failed_at'] = wp_date('c'); if (empty($d['rates'][$i]['pause_at'])) $d['rates'][$i]['pause_at'] = wp_date('c', $pause);
+                $pause = (new DateTimeImmutable($d['rates'][$i]['pause_at']))->getTimestamp();
                 $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
-                $pause = (new DateTimeImmutable($d['rates'][$i]['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS;
-                self::mail($t->email, 'Rate nicht eingegangen', 'Monatsrate offen', ['Die Monatsrate ' . $n . ' für ' . $t->kurz . '.evendis.de konnte nicht abgebucht werden. Bitte bezahle sie bis ' . wp_date('d.m.Y', $pause) . ' – sonst pausieren wir deinen Shop, bis die Rate da ist. Gelöscht wird nichts.'],
+                self::mail($t->email, 'Zahlung fehlgeschlagen', 'Monatsrate offen', ['Die Monatsrate ' . $n . ' für ' . $t->kurz . '.evendis.de konnte nicht abgebucht werden. Bitte bezahle sie bis ' . wp_date('d.m.Y', $pause) . '. Ist sie bis dahin nicht da, pausieren wir deinen Shop, bis die Zahlung eingeht. Der Shop wird nicht gelöscht.'],
                     !empty($d['cancel_token']) ? [['Jetzt bezahlen', self::page('rate', (string) $d['cancel_token'])]] : []);
                 self::notify_sales('Monatsrate fehlgeschlagen: ' . $t->kurz, ['Firma: ' . $t->company, 'Rate ' . $n . ': ' . $stt, 'Pause ab ' . wp_date('d.m.Y', $pause)]);
             }
@@ -795,8 +797,11 @@ class TIX_Trial {
         if (!$price) return self::err('tix_trial_tier', 'Für dieses Paket gibt es keinen Preis. Bitte melde dich bei uns.', 409);
         $cs = (array) (self::body($req)['consents'] ?? []);
         $ctexts = $billing === 'month' ? self::CONSENT_B_MONTH : self::CONSENT_B;
+        // Wechsel der Zahlweise setzt die Häkchen zurück: schickt die Seite die Zahlweise der Häkchen mit, muss sie passen
+        if (isset($cs['billing']) && (string) $cs['billing'] !== $billing) return self::err('tix_invalid_field', 'Die Zahlweise wurde geändert – bitte die Häkchen neu setzen.', 400, 'consents.contract');
         foreach (array_keys($ctexts) as $k) if (empty($cs[$k])) return self::err('tix_invalid_field', 'Bitte bestätigen.', 400, 'consents.' . $k);
-        $consent = self::consent_record($ctexts, ['[Firma]' => $t->company, '[Paket]' => self::tier_label($t->d['tier'] ?? 0), '[Preis]' => self::money($price['net'])]) + ['billing' => $billing];
+        $consent = self::consent_record($ctexts, ['[Firma]' => $t->company, '[Paket]' => self::tier_label($t->d['tier'] ?? 0), '[Preis]' => self::money($billing === 'month' ? (self::price_of($t->d['tier'] ?? 0)['net'] ?? 0) : $price['net']), '[Monatspreis]' => self::money($price['net'])],
+            (string) get_option('tix_trial_consent_version_b', self::CONSENT_B_VERSION)) + ['billing' => $billing];
         if (self::mollie_key() === '') return self::err('tix_trial_payment_off', 'Die Zahlung ist gerade nicht eingerichtet. Bitte versuche es später noch einmal.', 503);
         global $wpdb;
         if ($t->mollie_customer_id === '') {
@@ -844,8 +849,7 @@ class TIX_Trial {
             $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]);
             $inv = self::invoice_rate(self::get($t->id), 1);
         } else {
-            $inv = self::invoice_year(self::get($t->id), $price, new DateTimeImmutable('now', wp_timezone()), $until);
-            if ($inv) { $t = self::get($t->id); $d = $t->d; $last = count((array) ($d['invoices'] ?? [])) - 1; if ($last >= 0) { $d['invoices'][$last]['paid_at'] = wp_date('c'); $wpdb->update(self::t(), ['data' => wp_json_encode($d)], ['id' => $t->id]); } }
+            $inv = self::invoice_year(self::get($t->id), $price, new DateTimeImmutable('now', wp_timezone()), $until, ['paid_at' => wp_date('c'), 'paid_via' => 'Mollie (Karte/PayPal)']);
         }
         $t = self::get($t->id); $d = $t->d;
         self::mail($t->email, 'Dein Vertrag hat begonnen', 'Schön, dass du dabei bist',
@@ -1204,7 +1208,7 @@ class TIX_Trial {
         $idx = count($d['upgrades']) - 1;
         // Rechnung (Schalter tix_trial_invoice) und Abbuchung (eigener Schalter tix_trial_upgrade_charge, Kasse/Geld per Button)
         $inv = $q['amount_net'] > 0 ? self::issue_invoice($t, $q['amount_net'], 'Hochstufung Eigener Shop ' . $t->kurz . '.evendis.de von ' . number_format($old, 0, ',', '.') . ' auf ' . number_format($q['to_tier'], 0, ',', '.')
-            . ' Tickets im Jahr, anteilig ' . $q['remaining_days'] . ' von ' . $q['total_days'] . ' Tagen' . (($q['billing'] ?? '') === 'month' ? ' des laufenden Monats (ab der nächsten Rate gilt der neue Monatspreis)' : ''), new DateTimeImmutable('@' . $now), new DateTimeImmutable('@' . $until)) : null;
+            . ' Tickets im Jahr, anteilig ' . $q['remaining_days'] . ' von ' . $q['total_days'] . ' Tagen' . (($q['billing'] ?? '') === 'month' ? ' des laufenden Monats (ab der nächsten Rate gilt der neue Monatspreis)' : ''), new DateTimeImmutable('@' . $now), new DateTimeImmutable('@' . $until), ['kind' => 'upgrade']) : null;
         $charge = null;
         if ($q['amount_net'] > 0 && get_option('tix_trial_upgrade_charge', '0') === '1' && $t->mandate_status === 'valid' && self::mollie_key() !== '') {
             $gross = round($q['amount_net'] * 1.19, 2);
@@ -1239,10 +1243,10 @@ class TIX_Trial {
     // ── Rechnung je Vertragsjahr (W2b, nur mit Schalter tix_trial_invoice = 1) ──
 
     /** Rechnung festschreiben (Nummernkreis VT im Zähler der Rechnungen, Aussteller „site“), per Mail mit PDF → Beleg | null */
-    public static function invoice_year($t, $price, DateTimeImmutable $from, DateTimeImmutable $to) {
+    public static function invoice_year($t, $price, DateTimeImmutable $from, DateTimeImmutable $to, array $opt = []) {
         if (!$price) return null;
         $d = $t->d;
-        return self::issue_invoice($t, round(floatval($price), 2), 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets im Jahr, Vertragsjahr ' . $from->setTimezone(wp_timezone())->format('d.m.Y') . ' – ' . $to->setTimezone(wp_timezone())->modify('-1 day')->format('d.m.Y'), $from, $to);
+        return self::issue_invoice($t, round(floatval($price), 2), 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets im Jahr, Vertragsjahr ' . $from->setTimezone(wp_timezone())->format('d.m.Y') . ' – ' . $to->setTimezone(wp_timezone())->modify('-1 day')->format('d.m.Y'), $from, $to, $opt + ['kind' => 'year']);
     }
 
     /** Rechnung zu Monatsrate n (bezahlt) → Beleg | null; merkt die Nummer an der Rate */
@@ -1251,7 +1255,8 @@ class TIX_Trial {
         if ($i === null || empty($d['contract_start'])) return null;
         $r = $d['rates'][$i];
         $from = self::rate_due($d['contract_start'], $n); $to = self::rate_due($d['contract_start'], $n + 1);
-        $inv = self::issue_invoice($t, round(floatval($r['net'] ?? 0), 2), 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets, Monatsrate ' . intval($n) . ', Zeitraum ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y'), $from, $to);
+        $inv = self::issue_invoice($t, round(floatval($r['net'] ?? 0), 2), 'Eigener Shop ' . $t->kurz . '.evendis.de – Paket bis ' . number_format(intval($d['tier'] ?? 0), 0, ',', '.') . ' Tickets, Monatsrate ' . intval($n) . ', Zeitraum ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y'), $from, $to,
+            ['kind' => 'month', 'paid_at' => $r['paid_at'] ?? null, 'paid_via' => !empty($r['paid_at']) ? 'Mollie (Karte/PayPal)' : '']);
         if ($inv) {
             global $wpdb;
             $t = self::get($t->id); $d = $t->d; $i = self::rate_pos($d, $n);
@@ -1299,11 +1304,12 @@ class TIX_Trial {
         }
         // Pause nach 14 Tagen offener (fehlgeschlagener) Rate – nie löschen
         $o = self::rate_open($d);
-        if ($o && in_array($o['status'], ['failed', 'canceled', 'expired', 'error'], true) && empty($d['rate_paused']) && $now >= (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS) {
+        $pause_ts = $o ? (!empty($o['pause_at']) ? (new DateTimeImmutable($o['pause_at']))->getTimestamp() : (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS) : 0;
+        if ($o && in_array($o['status'], ['failed', 'canceled', 'expired', 'error'], true) && empty($d['rate_paused']) && $now >= $pause_ts) {
             $d['rate_paused'] = wp_date('c', $now);
             $d['server']['pending'] = array_values(array_unique(array_merge(array_diff((array) ($d['server']['pending'] ?? []), ['resume']), ['pause'])));
             self::set($t, 'converted', [], $d, 'system');
-            self::mail($t->email, 'Dein Shop ist pausiert', 'Rate offen – Shop pausiert', ['Die Monatsrate ' . intval($o['n']) . ' für ' . $t->kurz . '.evendis.de ist seit 14 Tagen offen. Wir haben deinen Shop deshalb pausiert. Gelöscht wird nichts.', 'Sobald die Rate bezahlt ist, ist dein Shop in wenigen Minuten wieder online.'],
+            self::mail($t->email, 'Dein Shop ist pausiert', 'Zahlung offen – Shop pausiert', ['Die Monatsrate ' . intval($o['n']) . ' für ' . $t->kurz . '.evendis.de ist trotz Aufforderung noch offen. Wir haben deinen Shop deshalb pausiert. Der Shop wird nicht gelöscht; Laufzeit und Zahlungspflicht laufen weiter.', 'Sobald die Rate bezahlt ist, ist dein Shop in wenigen Minuten wieder online.'],
                 !empty($d['cancel_token']) ? [['Jetzt bezahlen', self::page('rate', (string) $d['cancel_token'])]] : []);
             self::notify_sales('Shop wegen offener Rate pausiert: ' . $t->kurz, ['Firma: ' . $t->company, 'Rate ' . intval($o['n']) . ' fällig seit ' . wp_date('d.m.Y', (new DateTimeImmutable($o['due']))->getTimestamp())]);
         }
@@ -1334,7 +1340,7 @@ class TIX_Trial {
             $end = !empty($d['contract_end']) ? (new DateTimeImmutable($d['contract_end']))->getTimestamp() : 0;
             $pm = self::price_month_of($d['tier'] ?? 0);
             if (!$end || $due->getTimestamp() < $end) $next = ['n' => $n, 'due' => $due->format('c'), 'amount' => ['net' => $pm['net'] ?? null, 'gross' => $pm['gross'] ?? null]];
-            if ($o = self::rate_open($d)) $over = ['n' => intval($o['n']), 'due' => $o['due'], 'since' => $o['failed_at'] ?? $o['at'] ?? null, 'pause_at' => wp_date('c', (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS), 'amount' => ['net' => floatval($o['net']), 'gross' => floatval($o['gross'])]];
+            if ($o = self::rate_open($d)) $over = ['n' => intval($o['n']), 'due' => $o['due'], 'since' => $o['failed_at'] ?? $o['at'] ?? null, 'pause_at' => $o['pause_at'] ?? wp_date('c', (new DateTimeImmutable($o['due']))->getTimestamp() + self::RATE_PAUSE_DAYS * DAY_IN_SECONDS), 'amount' => ['net' => floatval($o['net']), 'gross' => floatval($o['gross'])]];
         }
         return ['billing' => $t->status === 'converted' ? self::billing_of($t) : null, 'price' => self::price_of($d['tier'] ?? 0), 'price_month' => self::price_month_of($d['tier'] ?? 0), 'next_rate' => $next, 'rate_overdue' => $over,
             'pay_rate_url' => $over && $token !== '' ? self::page('rate', $token) : null, 'paused' => $t->status === 'paused' || !empty($d['rate_paused'])];
@@ -1360,7 +1366,7 @@ class TIX_Trial {
     }
 
     /** Beleg festschreiben (Serie VT, Aussteller site) und per Mail mit PDF schicken → Beleg | null */
-    public static function issue_invoice($t, $net, $text, DateTimeImmutable $from, DateTimeImmutable $to) {
+    public static function issue_invoice($t, $net, $text, DateTimeImmutable $from, DateTimeImmutable $to, array $opt = []) {
         if (get_option('tix_trial_invoice', '0') !== '1' || !$net || !class_exists('TIX_Invoices')) return null;
         $from = $from->setTimezone(wp_timezone()); $to = $to->setTimezone(wp_timezone());
         $price = $net;
@@ -1374,10 +1380,12 @@ class TIX_Trial {
         $net = round(floatval($price), 2);
         $vat = round($net * $rate / 100, 2);
         $doc = ['number' => '', 'date' => current_time('Y-m-d'), 'period' => ['from' => $from->format('Y-m-d'), 'to' => $to->modify('-1 day')->format('Y-m-d')],
-            'issuer' => ['name' => (string) $iss['name'], 'lines' => array_values((array) $iss['address_lines']), 'vat_id' => (string) $iss['vat_id'], 'tax_id' => (string) $iss['tax_id']],
+            'issuer' => ['name' => (string) $iss['name'], 'lines' => array_values((array) $iss['address_lines']), 'vat_id' => (string) $iss['vat_id'], 'tax_id' => (string) $iss['tax_id'], 'tax_id_follows' => (string) ($iss['tax_id_follows'] ?? ''),
+                'email' => (string) ($iss['email'] ?? ''), 'phone' => (string) ($iss['phone'] ?? ''), 'managing_director' => (string) ($iss['managing_director'] ?? ''), 'register' => (string) ($iss['register'] ?? ''), 'footer' => (string) ($iss['footer'] ?? '')],
+            'kind' => in_array($opt['kind'] ?? 'year', ['year', 'month', 'upgrade'], true) ? ($opt['kind'] ?? 'year') : 'year', 'paid_via' => (string) ($opt['paid_via'] ?? ''),
             'customer' => ['company' => $t->company, 'name' => (string) ($d['contact']['name'] ?? ''), 'address' => $d['address'] ?? [], 'vat_id' => (string) ($d['vat_id'] ?? ''), 'email' => $t->email],
             'lines' => [['text' => $text, 'net' => $net]],
-            'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2), 'reverse_charge' => $rc, 'paid_at' => null];
+            'net' => $net, 'vat_rate' => $rate, 'vat' => $vat, 'gross' => round($net + $vat, 2), 'reverse_charge' => $rc, 'paid_at' => $opt['paid_at'] ?? null];
         $c = TIX_Invoices::counters_table();
         $y = intval(current_time('Y'));
         $code = (string) ($iss['code'] ?? '');
@@ -1397,7 +1405,7 @@ class TIX_Trial {
         $bytes = self::invoice_pdf($doc);
         if ($bytes) file_put_contents($file, $bytes);
         $h = '<p>' . esc_html('anbei deine Rechnung ' . $doc['number'] . ' über ' . number_format($doc['gross'], 2, ',', '.') . ' € für den Zeitraum ' . $from->format('d.m.Y') . ' – ' . $to->modify('-1 day')->format('d.m.Y') . '.') . '</p>'
-            . '<p>' . esc_html($t->mandate_status === 'valid' ? 'Der Betrag wird über dein hinterlegtes Zahlungsmittel abgebucht.' : 'Bitte überweise den Betrag innerhalb von 14 Tagen.') . '</p>';
+            . '<p>' . esc_html(!empty($doc['paid_at']) ? 'Der Betrag ist bereits bezahlt.' : ($t->mandate_status === 'valid' ? 'Der Betrag wird über dein hinterlegtes Zahlungsmittel abgebucht.' : 'Bitte überweise den Betrag innerhalb von 14 Tagen.')) . '</p>';
         if (class_exists('TIX_Mail_Layout')) TIX_Mail_Layout::send($t->email, 'Rechnung ' . $doc['number'], ['title' => 'Deine Rechnung', 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => 'account'], ['customer' => false, 'attachments' => $bytes ? [$file] : []]);
         else wp_mail($t->email, 'Rechnung ' . $doc['number'], $h, ['Content-Type: text/html; charset=UTF-8'], $bytes ? [$file] : []);
         if ($bytes) @unlink($file);
@@ -1438,10 +1446,27 @@ class TIX_Trial {
         $pdf->set_font('Helvetica', 9);
         $notes = [];
         if (!empty($d['reverse_charge'])) $notes[] = 'Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge). USt-IdNr. des Leistungsempfängers: ' . $d['customer']['vat_id'] . '.';
-        $notes[] = 'Jahresbetrag im Voraus. Aussteller: ' . $d['issuer']['name'] . ($d['issuer']['vat_id'] !== '' ? ' · USt-IdNr. ' . $d['issuer']['vat_id'] : ($d['issuer']['tax_id'] !== '' ? ' · St.-Nr. ' . $d['issuer']['tax_id'] : ''));
+        $kind = (string) ($d['kind'] ?? 'year');
+        $notes[] = $kind === 'month' ? 'Monatsrate im Voraus.' : ($kind === 'upgrade' ? 'Anteilige Differenz wegen Hochstufung.' : 'Jahresbetrag im Voraus.');
+        if (!empty($d['paid_at'])) $notes[] = 'Bezahlt am ' . wp_date('d.m.Y', strtotime((string) $d['paid_at'])) . (($d['paid_via'] ?? '') !== '' ? ' über ' . $d['paid_via'] : '') . '. Bitte nicht noch einmal überweisen.';
         foreach ($notes as $n) foreach (explode("
 ", wordwrap($n, 105, "
 ", true)) as $l) { $pdf->text($M, $y, $l); $y -= 12; }
+        // Fußzeile: Pflichtangaben des Ausstellers (§ 14 UStG, § 35a GmbHG)
+        $is = $d['issuer'];
+        $tax = ($is['vat_id'] ?? '') !== '' ? 'USt-IdNr.: ' . $is['vat_id'] : (($is['tax_id'] ?? '') !== '' ? 'Steuernummer: ' . $is['tax_id'] : (($is['tax_id_follows'] ?? '') === 'tax_number' ? 'Steuernummer: folgt' : (($is['tax_id_follows'] ?? '') === 'vat_id' ? 'USt-IdNr.: folgt' : '')));
+        if (($is['vat_id'] ?? '') !== '' && ($is['tax_id'] ?? '') !== '') $tax .= ' · Steuernummer: ' . $is['tax_id'];
+        $foot = array_values(array_filter([
+            trim($is['name'] . ' · ' . implode(' · ', (array) $is['lines']), ' ·'),
+            implode(' · ', array_filter([($is['managing_director'] ?? '') !== '' ? 'Geschäftsführung: ' . $is['managing_director'] : '', $is['register'] ?? '', $tax])),
+            implode(' · ', array_filter([$is['email'] ?? '', $is['phone'] ?? ''])),
+            (string) ($is['footer'] ?? ''),
+        ]));
+        $pdf->set_font('Helvetica', 7.5); $pdf->set_color(0.35, 0.35, 0.35); // Farbwerte 0–1
+        $fy = 40 + 11 * count($foot);
+        foreach ($foot as $fl) foreach (explode("
+", wordwrap($fl, 130, "
+", true)) as $l) { $pdf->text($M, $fy, $l); $fy -= 11; }
         return $pdf->output();
     }
 

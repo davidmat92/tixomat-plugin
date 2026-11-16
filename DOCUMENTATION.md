@@ -7085,3 +7085,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `rates_tick` (stündlich, `converted` + `month`): fällige Rate recurring (`tix_trial_auto_charge`) bzw. Mail an den Vertrieb; offene Rate 14 Tage → `rate_paused` + Auftrag `pause`. Webhook `kind: rate` → `rate_paid` (Rechnung, ggf. `resume`) bzw. Mail „Rate nicht eingegangen“. `POST /public/trial/pay-rate` (oneoff).
 - `contract_tick`: Verlängerung monatlich ohne Jahresabbuchung. `record_usage` monatlich mit `upgrade_quote_month`. `billing_fields()` für Status, Studio-Liste, `/me.trial`.
 - **Test:** `test-trial-wp` (Plattform 110, KK 27).
+
+## 228. Einwilligung B Fassung 3, Zahlungsaufforderung, Rechnungs-PDF mit Pflichtangaben (ab 1.38.866)
+- `CONSENT_B` / `CONSENT_B_MONTH` nach Rechtstexte Fassung 3 (17.11.), Fassung `CONSENT_B_VERSION` (Option `tix_trial_consent_version_b`); gespeichert mit Werten ([Preis]/[Monatspreis]) und `billing`. `consents.billing` muss zu `billing` passen (sonst 400 `consents.contract`).
+- Monatsrate fehlgeschlagen: `rates[].pause_at` = Aufforderung + 14 Tage; Mail „Zahlung fehlgeschlagen“ mit Datum und „Der Shop wird nicht gelöscht.“.
+- `issue_invoice(…, $opt)` mit `kind` (`year`|`month`|`upgrade`), `paid_at`, `paid_via`; `invoice_pdf` druckt Art, „Bezahlt am …“ und eine Fußzeile mit Pflichtangaben (Geschäftsführung, Register, Steuernummer/USt-IdNr. oder „folgt“, Kontakt, `invoice_footer_text`).
+- Prüfliste: `uebergaben/pruefliste-rechnungen-testphase-2026-11-17.md`.
+- **Test:** `test-trial-wp` (Plattform 113, KK 27).

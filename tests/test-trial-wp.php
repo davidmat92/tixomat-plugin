@@ -548,7 +548,7 @@ $post('/public/trial/mollie-webhook', ['id' => $payid], null);
 $post('/public/trial/mollie-webhook', ['id' => $payid], null); // doppelt: nichts doppelt
 $tc = $T::get($tn);
 $cc = $tc->d['contract_consent'] ?? [];
-$eq('Vertragsschluss erst mit Zahlung: Einwilligung B mit Fassung, Zeit, contract_at, Wortlaut mit Paket und Preis', [$T::CONSENT_VERSION, true, true, true],
+$eq('Vertragsschluss erst mit Zahlung: Einwilligung B mit Fassung, Zeit, contract_at, Wortlaut mit Paket und Preis', [$T::CONSENT_B_VERSION, true, true, true],
     [$cc['version'] ?? '', !empty($cc['contract_at']) && !empty($cc['at']), strpos((string) ($cc['texts']['contract'] ?? ''), $T::tier_label($order['tier']) . ' für ' . $T::money($price['net']) . ' zzgl. USt') !== false, ($cc['payment_id'] ?? '') === $payid && $payid !== '']);
 $eq('Zahlung da: converted, Vertrag 1 Jahr, Mandat gespeichert, Aufträge resume + convert, Löschdatum weg', ['converted', true, 'mdt_t1', ['resume', 'convert'], null, 1],
     [$tc->status, abs(strtotime($tc->d['contract_until'] ?? '') - strtotime('+1 year')) < 300, $tc->mollie_mandate_id, $tc->d['server']['pending'] ?? [], $tc->delete_at, count(array_filter($mails, function ($m) use ($kn) { return ($m['subject'] ?? '') === 'Dein Vertrag hat begonnen' && strpos((string) $m['message'], $kn) !== false; }))]);
@@ -594,8 +594,12 @@ $wpdb->insert(TIX_Trial::t(), ['kurz' => "mo-$sfx", 'status' => 'active', 'email
     'active_at' => current_time('mysql'), 'ends_at' => wp_date('Y-m-d H:i:s', time() + 5 * DAY_IN_SECONDS), 'created_at' => current_time('mysql'), 'updated_at' => current_time('mysql')]);
 $tm = intval($wpdb->insert_id);
 [$st0, $d0] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'quartal', 'consents' => ['b2b' => true, 'contract' => true]], null);
-[$st, $d] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'month', 'consents' => ['b2b' => true, 'contract' => true]], null);
+[$stb, $db] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'month', 'consents' => ['b2b' => true, 'contract' => true, 'billing' => 'year']], null);
+$eq('Häkchen zur anderen Zahlweise gesetzt (consents.billing ≠ billing) → 400, neu bestätigen', [400, 'consents.contract'], [$stb, $db['data']['field'] ?? '']);
+[$st, $d] = $post('/public/trial/activate', ['token' => $mtok, 'billing' => 'month', 'consents' => ['b2b' => true, 'contract' => true, 'billing' => 'month']], null);
 $pmx = $T::price_month_of($tier);
+$cb = $T::get($tm)->d['activation']['consents'] ?? [];
+$eq('Einwilligung B monatlich: Fassung 3, Wortlaut mit Monatspreis, billing gespeichert', [$T::CONSENT_B_VERSION, true, 'month'], [$cb['version'] ?? '', strpos((string) ($cb['texts']['contract'] ?? ''), $T::money($pmx['net']) . ' zzgl. USt im Monat') !== false, $cb['billing'] ?? '']);
 $lp = $mstate['last_payment'] ?? [];
 $eq('activate monatlich: falsche Zahlweise 400 billing; erste Monatsrate brutto, first, metadata billing month, Einwilligung monatlich', [400, 'billing', 200, 'month', number_format($pmx['gross'], 2, '.', ''), 'first', 'month', 'month', true],
     [$st0, $d0['data']['field'] ?? '', $st, $d['billing'] ?? '', $lp['amount']['value'] ?? '', $lp['sequenceType'] ?? '', $lp['metadata']['billing'] ?? '', $T::get($tm)->d['activation']['consents']['billing'] ?? '', strpos((string) ($T::get($tm)->d['activation']['consents']['texts']['contract'] ?? ''), 'im Monat, 12 Monatsraten') !== false]);
@@ -621,8 +625,8 @@ $mstate = array_merge($mstate, ['kind' => 'rate', 'pay_status' => 'failed', 'met
 $mc = count($mails);
 $post('/public/trial/mollie-webhook', ['id' => (string) $r2['payment_id']], null);
 $sd = rest_do_request($x)->get_data();
-$eq('Rate fehlgeschlagen: Mail „Rate nicht eingegangen“ mit Bezahl-Link, Status rate_overdue + pay_rate_url', [1, true, 2, true],
-    [count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Rate nicht eingegangen'; })), strpos((string) (array_slice($mails, $mc)[0]['message'] ?? ''), '/testen/rate-bezahlen/?token=' . $mtok) !== false, $sd['rate_overdue']['n'] ?? null, strpos((string) ($sd['pay_rate_url'] ?? ''), '/testen/rate-bezahlen/?token=') !== false]);
+$eq('Rate fehlgeschlagen: Mail „Zahlung fehlgeschlagen“ (Pausen-Datum, „Der Shop wird nicht gelöscht.“) mit Bezahl-Link, Status rate_overdue + pay_rate_url', [1, true, 2, true],
+    [count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Zahlung fehlgeschlagen' && strpos((string) $m['message'], 'Der Shop wird nicht gelöscht.') !== false; })), strpos((string) (array_slice($mails, $mc)[0]['message'] ?? ''), '/testen/rate-bezahlen/?token=' . $mtok) !== false, $sd['rate_overdue']['n'] ?? null, strpos((string) ($sd['pay_rate_url'] ?? ''), '/testen/rate-bezahlen/?token=') !== false]);
 // 14 Tage später → Pause (nicht löschen)
 $T::rates_tick($T::get($tm), $due2 + 15 * DAY_IN_SECONDS);
 $tp = $T::get($tm);
@@ -645,6 +649,13 @@ if (count($tiers) >= 2) {
     $eq('Hochstufung monatlich: Differenz der Monatspreise anteilig für den laufenden Monat', [$diff, true, round($diff * $q['remaining_days'] / $q['total_days'], 2)], [$q['diff_month'], $q['remaining_days'] > 0 && $q['remaining_days'] < $q['total_days'], $q['amount_net']]);
 }
 $eq('Altbestand ohne billing = year', 'year', $T::billing_of((object) ['d' => []]));
+// Rechnungs-PDF: Art, bezahlt, Pflichtangaben in der Fußzeile
+$docx = ['number' => 'RV-EV-2026-0001', 'date' => '2026-11-17', 'period' => ['from' => '2026-11-17', 'to' => '2026-12-16'], 'kind' => 'month', 'paid_at' => '2026-11-17T10:00:00+01:00', 'paid_via' => 'Mollie (Karte/PayPal)',
+    'issuer' => ['name' => 'Beispiel UG', 'lines' => ['Musterstraße 1', '12345 Musterstadt'], 'vat_id' => '', 'tax_id' => '', 'tax_id_follows' => 'tax_number', 'email' => 'hallo@example.test', 'phone' => '', 'managing_director' => 'Max Muster', 'register' => 'Amtsgericht Musterstadt HRB 1', 'footer' => 'Bank: Beispielbank'],
+    'customer' => ['company' => 'Kunde GmbH', 'name' => 'Kim', 'address' => ['street' => 'Weg 1', 'zip' => '50667', 'city' => 'Köln', 'country' => 'DE'], 'vat_id' => '', 'email' => 'k@example.test'],
+    'lines' => [['text' => 'Eigener Shop – Monatsrate 1', 'net' => 79.0]], 'net' => 79.0, 'vat_rate' => 19.0, 'vat' => 15.01, 'gross' => 94.01, 'reverse_charge' => false];
+$pdfb = (string) $T::invoice_pdf($docx);
+$eq('Rechnungs-PDF entsteht (Monatsrate, bezahlt, Fußzeile)', [true, true], [strpos($pdfb, '%PDF') === 0, strlen($pdfb) > 1000]);
 unset($mstate['meta'], $mstate['amount'], $mstate['kind']);
 update_option('tix_trial_auto_charge', '0', false);
 $wpdb->delete(TIX_Trial::t(), ['id' => $tm]);
