@@ -106,6 +106,14 @@ if (!$T::multi()) {
     $eq('pausiert: Studio-Schreiben und Kasse 423 tix_paused mit Text, Bestellung im Kern gesperrt; Lesen und Anmelden frei', [423, 'tix_paused', true, 423, 200, true, null, 'tix_paused'],
         [$s1, $d1['code'] ?? '', strpos((string) ($d1['message'] ?? ''), 'Testphase beendet – Shop pausiert') === 0, $s2, $s3, $s4 !== 423, $oid, is_wp_error($err) ? $err->get_error_code() : '']);
     remove_filter('tix_trial_pause_cli_free', '__return_false');
+    // 1.38.868: Testshop bekommt die Lizenz mit ausdrücklicher Liste → erster Abgleich schaltet die Website ein; „alle“ ohne Liste wie bisher nicht (Bestand)
+    $wb = [get_option(TIX_Website::OPT_LIC_STATE, null), get_option(TIX_Website::OPT_ENABLED, null)];
+    delete_option(TIX_Website::OPT_LIC_STATE); update_option(TIX_Website::OPT_ENABLED, '0', false);
+    $r1 = TIX_Website::sync_license(['valid' => true, 'modules' => TIX_Modules::keys(), 'modules_v' => TIX_Modules::VERSION]); $e1 = get_option(TIX_Website::OPT_ENABLED);
+    delete_option(TIX_Website::OPT_LIC_STATE); update_option(TIX_Website::OPT_ENABLED, '0', false);
+    $r2 = TIX_Website::sync_license(['valid' => true, 'modules' => null]); $e2 = get_option(TIX_Website::OPT_ENABLED);
+    $eq('Erster Abgleich: Liste mit website → Website an; „alle“ ohne Liste (Bestand) unverändert aus', ['on', '1', null, '0'], [$r1, $e1, $r2, $e2]);
+    foreach ([TIX_Website::OPT_LIC_STATE, TIX_Website::OPT_ENABLED] as $i => $o) { if ($wb[$i] === null) delete_option($o); else update_option($o, $wb[$i], false); }
     // 1.38.867: Zahlweise fürs nächste Vertragsjahr über die Kunden-Seite (leitet mit dem Token an die Plattform)
     update_option('tix_trial_info', ['ends_at' => wp_date('c', time() - DAY_IN_SECONDS), 'status_url' => 'https://veranstalter.evendis.de/wp-json/tixomat/v1/public/trial/status?token=tokXYZ123'], false);
     $seen_bn = null;
@@ -261,6 +269,9 @@ $hd = $resp->get_headers();
 $eq('Abholung: Auftrag create mit Testlizenz, noindex, Kasse Test, Layout club; Antwort an die Nonce gebunden', [200, 'create', true, true, 'test', 'club', $nonce, true],
     [$st, $job['action'] ?? '', !empty($job['license']['key']), $job['site']['noindex'] ?? false, $job['checkout']['mode'] ?? '', $job['site']['layout'] ?? '', $hd['X-Evendis-Nonce'] ?? '',
      hash_equals(TIX_Trial::res_sig((string) get_option('tix_trial_queue_secret'), $hd['X-Evendis-Ts'] ?? '', $nonce, wp_json_encode($d)), (string) ($hd['X-Evendis-Sig'] ?? ''))]);
+$lm = TIX_License_Server::license_modules(TIX_License_Server::get($T::get($tid)->license_id));
+$eq('Testlizenz mit ausdrücklicher Modulliste inkl. website (alle Module); Kunden-Seite schaltet die Website beim ersten Abgleich ein', [true, true, 'on'],
+    [is_array($lm) && in_array('website', $lm, true), is_array($lm) && count($lm) === count(TIX_Modules::keys()), TIX_Website::license_state(['valid' => true, 'modules' => $lm, 'modules_v' => TIX_Modules::VERSION])]);
 $eq('Kein Zahlungsdatum im Auftrag', false, strpos(wp_json_encode($job), 'mdt_') !== false || strpos(wp_json_encode($job), 'cst_') !== false);
 [$st] = $signed('GET', '/trial/queue', ['limit' => 5], '', null, null, $nonce);
 $eq('Gleiche Nonce zweimal → 401', 401, $st);

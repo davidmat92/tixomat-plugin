@@ -7098,3 +7098,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `billing_next`: `POST /public/trial/billing-next {token, billing}` (Plattform), `TIX_Trial_Site` `POST /trial/billing-next {billing}` (Kunden-Seite, `perm_brand`, Token aus `tix_trial_info.status_url`, auch im pausierten Shop). `contract_tick` wendet die Zahlweise bei der Verlängerung an (Raten neu ab Vertragsbeginn, Archiv `rates_archive`).
 - „Steuernummer folgt“ für Testphasen-Rechnungen: `TIX_Invoices::save_config('site', … tax_id_follows => tax_number)` (Befehl in `uebergaben/plan-monatliche-zahlung-2026-11-17.md`).
 - **Test:** `test-trial-wp` (Plattform 119, KK 28).
+
+## 230. Testshop-Lizenz mit ausdrücklicher Modulliste inkl. Website (ab 1.38.868)
+- Befund Studio (Notiz `testshop-funde-2026-11-17.md`): Testlizenz ohne `modules` = „alle“ → `TIX_Website::sync_license` schaltet die Website beim ersten Abgleich nicht ein → Studio zeigt das Zusatzpaket.
+- `TIX_Trial` (Auftrag `create`) legt die Lizenz mit `modules = TIX_Modules::keys()` an: gleiche Rechte wie „alle“, aber ausdrücklich mit `website`. `sync_license` bleibt unverändert, Bestand mit „alle“ ändert sich nicht.
+- **Test:** `test-trial-wp` (Plattform 120, KK 29).

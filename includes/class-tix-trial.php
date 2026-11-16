@@ -934,7 +934,9 @@ class TIX_Trial {
             if ($action === 'create') {
                 if (!$t->license_id && class_exists('TIX_License_Server')) {
                     $l = TIX_License_Server::create(['customer' => $t->company . ' (Testphase ' . $t->kurz . ')', 'email' => $t->email, 'max_sites' => 1, 'enforce' => true,
-                        'valid_until' => wp_date('Y-m-d', time() + (self::DAYS + 1) * DAY_IN_SECONDS), 'note' => 'Testphase ' . $t->kurz . ' (TIX_Trial #' . $t->id . ')']);
+                        'valid_until' => wp_date('Y-m-d', time() + (self::DAYS + 1) * DAY_IN_SECONDS), 'note' => 'Testphase ' . $t->kurz . ' (TIX_Trial #' . $t->id . ')',
+                        // 1.38.868: ausdrückliche Modulliste (alle Module, inkl. Website) – beim Eigenen Shop gehört die Website dazu; „alle“ ohne Liste schaltet sie beim ersten Abgleich nicht ein
+                        'modules' => class_exists('TIX_Modules') ? TIX_Modules::keys() : null]);
                     if ($l) { $wpdb->update(self::t(), ['license_id' => intval($l->id)], ['id' => $t->id]); $t->license_id = intval($l->id); }
                 }
                 $L = $t->license_id && class_exists('TIX_License_Server') ? TIX_License_Server::get($t->license_id) : null;
