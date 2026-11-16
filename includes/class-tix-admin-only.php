@@ -126,7 +126,7 @@ class TIX_Admin_Only {
     public static function is_staff($user) {
         if (!$user || !$user->ID) return false;
         if (user_can($user, 'edit_posts')) return true;
-        return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness', 'tix_cashier', 'tix_promoter']);
+        return (bool) array_intersect((array) $user->roles, ['tix_organizer', 'tix_staff', 'tix_entrance', 'tix_dj', 'tix_awareness', 'tix_cashier', 'tix_promoter', 'tix_stamp_station']);
     }
 
     /** IDs der öffentlichen Seiten: Startseite, Liste aus der Option, Registrierung, Vertrag. */

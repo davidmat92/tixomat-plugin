@@ -7103,3 +7103,13 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Befund Studio (Notiz `testshop-funde-2026-11-17.md`): Testlizenz ohne `modules` = „alle“ → `TIX_Website::sync_license` schaltet die Website beim ersten Abgleich nicht ein → Studio zeigt das Zusatzpaket.
 - `TIX_Trial` (Auftrag `create`) legt die Lizenz mit `modules = TIX_Modules::keys()` an: gleiche Rechte wie „alle“, aber ausdrücklich mit `website`. `sync_license` bleibt unverändert, Bestand mit „alle“ ändert sich nicht.
 - **Test:** `test-trial-wp` (Plattform 120, KK 29).
+
+## 231. Stempel-Station: wechselnder QR-Code an der Wand (ab 1.38.869)
+- Plan und Schnittstelle: `uebergaben/plan-stempel-station-2026-11-17.md`.
+- **Rolle** `tix_stamp_station` „Stempel-Station (App)“, Cap `tix_app_stamp_station` (`TIX_REST_API::ensure_staff_role`). Außerdem `TIX_Team::APP_ROLES['station']`, `/me.app_role = station`, `TIX_Staff_Login_Code::ISSUABLE_ROLES`, `TIX_Admin_Only` (kein WP-Admin).
+- `TIX_Loyalty`:
+  - `GET /loyalty/station/token?device=`: `perm_station`. Jeder Aufruf ist ein Herzschlag (Transient 60 s, aktiv ≤ 30 s). Code `s1.<org>.<event>.<station>.<iat>.<sig>` (HMAC über Host, 15 s), `qr = evendis-stamp:<token>`, `refresh_in` 10.
+  - `POST /loyalty/claim {token}`: Signatur, Alter, Herzschlag, Prämien an, 1 Stempel je Event bzw. Tag. Ein Code-Stempel mit Event sperrt auch den Tag. Fehler `tix_station_token_invalid` (400), `_expired` (410), `_offline` (409), `tix_already_stamped` (409), `tix_loyalty_disabled` (403), `tix_rate_limited` (429).
+  - Option `station_events_only` (Seite `_tix_loyalty_station_events_only`, evendis je Veranstalter): Codes nur im Event-Fenster wie beim Musikwunsch (`station_event`), sonst 409 `tix_station_no_event` mit `next_event`.
+- Bisherige Wege (`/loyalty/token|scan|award|redeem`, Check-in) unverändert.
+- **Test:** `test-stamp-station-wp` (KK 12, Plattform 3).

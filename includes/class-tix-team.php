@@ -41,6 +41,7 @@ class TIX_Team {
         'entrance' => 'tix_entrance',
         'awareness' => 'tix_awareness',
         'cashier'  => 'tix_cashier',
+        'station'  => 'tix_stamp_station', // 1.38.869: Stempel-Station an der Wand
     ];
 
     /** Rollen-Liste für die Auswahl (App, evendis Studio). */
@@ -51,6 +52,7 @@ class TIX_Team {
             ['key' => 'cashier', 'label' => 'Kasse & Bar', 'hint' => 'Nur verkaufen (Abendkasse) und Guthaben abbuchen bzw. aufladen'],
             ['key' => 'awareness', 'label' => 'Awareness', 'hint' => 'Nur Awareness: Dienst und Hinweise'],
             ['key' => 'dj', 'label' => 'DJ', 'hint' => 'Nur Musikwunsch-Liste'],
+            ['key' => 'station', 'label' => 'Stempel-Station', 'hint' => 'Nur der wechselnde Stempel-Code an der Wand'],
         ];
     }
 
@@ -375,7 +377,7 @@ class TIX_Team {
         $by    = wp_get_current_user()->display_name;
         $needs = self::may_set_password($user);
         $code  = class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'issue_invite_code') ? TIX_App_Account::issue_invite_code($user->user_email, self::INVITE_TTL) : '';
-        $studio = class_exists('TIX_Studio') && TIX_Studio::active() && !in_array($role, ['dj', 'awareness'], true);
+        $studio = class_exists('TIX_Studio') && TIX_Studio::active() && !in_array($role, ['dj', 'awareness', 'station'], true);
         $url = $studio ? add_query_arg(['email' => $user->user_email], TIX_Studio::url('/passwort/')) : '';
         $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (string) (TIX_Studio::app_info()['name'] ?? '') : '';
         $body  = '<p style="font-size:17px;font-weight:700;margin:0 0 12px;">Du wurdest ins Team von ' . esc_html($team) . ' eingeladen</p>';
@@ -421,7 +423,7 @@ class TIX_Team {
         $team = self::team_name($org);
         $code = class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'issue_invite_code') ? TIX_App_Account::issue_invite_code($user->user_email, HOUR_IN_SECONDS) : '';
         if ($code === '') return false;
-        $studio = class_exists('TIX_Studio') && TIX_Studio::active() && !in_array($role, ['dj', 'awareness'], true);
+        $studio = class_exists('TIX_Studio') && TIX_Studio::active() && !in_array($role, ['dj', 'awareness', 'station'], true);
         $url = $studio ? add_query_arg(['email' => $user->user_email], TIX_Studio::url('/passwort/')) : '';
         $app = class_exists('TIX_Studio') && method_exists('TIX_Studio', 'app_info') ? (string) (TIX_Studio::app_info()['name'] ?? '') : '';
         $by  = wp_get_current_user()->display_name;

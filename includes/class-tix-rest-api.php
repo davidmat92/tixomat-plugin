@@ -142,6 +142,10 @@ class TIX_REST_API {
         if (!get_role('tix_dj')) {
             add_role('tix_dj', 'DJ (App)', ['read' => true, 'tix_app_dj' => true]);
         }
+        // Rolle „Stempel-Station (App)“ (1.38.869): zeigt nur den wechselnden Stempel-Code (GET /loyalty/station/token)
+        if (!get_role('tix_stamp_station')) {
+            add_role('tix_stamp_station', 'Stempel-Station (App)', ['read' => true, 'tix_app_stamp_station' => true]);
+        }
         // Rolle „Eingang (App)“: darf nur einchecken/scannen und die Namensliste
         // sehen (kein Zugriff auf Adressen, Bestellungen, Statistik, Kasse, Editor).
         // Rolle „Awareness (App)“: nur Awareness-Routen (Dienst, Hinweise) für die Events des eigenen Veranstalters
@@ -830,7 +834,7 @@ class TIX_REST_API {
     private static function app_role_key($user) {
         $roles = (array) $user->roles;
         if (in_array('administrator', $roles, true)) return 'admin_wp';
-        foreach (['admin' => 'tix_organizer', 'cashier' => 'tix_cashier', 'entrance' => 'tix_entrance', 'awareness' => 'tix_awareness', 'dj' => 'tix_dj', 'staff' => 'tix_staff'] as $k => $r) {
+        foreach (['admin' => 'tix_organizer', 'cashier' => 'tix_cashier', 'entrance' => 'tix_entrance', 'awareness' => 'tix_awareness', 'dj' => 'tix_dj', 'station' => 'tix_stamp_station', 'staff' => 'tix_staff'] as $k => $r) {
             if (in_array($r, $roles, true)) return $k;
         }
         return null;

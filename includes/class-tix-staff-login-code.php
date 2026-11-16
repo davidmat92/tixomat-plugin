@@ -39,7 +39,7 @@ class TIX_Staff_Login_Code {
     }
 
     /** Rollen, für die ein anderer einen Code erzeugen darf (Helfer ohne eigenen Bereich). Audit 2026-11-03 (H2). */
-    const ISSUABLE_ROLES = ['tix_entrance', 'tix_cashier', 'tix_dj', 'tix_awareness', 'tix_staff'];
+    const ISSUABLE_ROLES = ['tix_entrance', 'tix_cashier', 'tix_dj', 'tix_awareness', 'tix_staff', 'tix_stamp_station'];
     const NEVER_ROLES = ['administrator', 'tix_organizer', 'tix_sales'];
 
     /**
