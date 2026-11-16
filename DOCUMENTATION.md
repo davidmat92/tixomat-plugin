@@ -7028,3 +7028,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Mail_Layout::button($label, $url, $variant = 'primary')`: neu `compact` (rot, 16 px, 12×24 px, Breite nach Inhalt, mobil max. 100 %) und `outline` (Umriss). Eigene Klassen `tm-btn-sm`/`tm-btn-ol`, `normalize()` lässt sie in Ruhe; Dark Mode berücksichtigt. Vorgabe `primary` unverändert.
 - `TIX_Trial::mail(…, $cancel_url)`: erster Knopf `compact`, weitere `outline`; Kündigen nur als Textlink „Du willst doch nicht? Testphase kündigen“ (Zugangs-Mail, Erinnerungen).
 - **Test:** `test-trial-wp` (Plattform 79, KK 23).
+
+## 221. Fortschritt-Stufen nie zurück; Einladungs-Code überlebt einen Tippfehler (ab 1.38.859)
+- `TIX_Trial::PROGRESS_STEPS` mit 17 Server-Schritten (`beispiel` → 4, `verbindung`/`spiegel` → 6). `data.progress_stage` = höchste erreichte Stufe; `progress_view` nimmt max(gespeicherte Stufe, Stufe des Schritts, Grundstufe). Unbekannte Schritte behalten die Stufe.
+- `TIX_App_Account`: Codes speichern `ttl` (Login/Bestätigen 15 min, `issue_invite_code` die übergebene Laufzeit). `confirm_code` speichert nach einem Fehlversuch nur mit der echten Restzeit (`code_remaining($data, $now, $transient_expires)`, Altbestand ohne `ttl` über `_transient_timeout_*`); abgelaufen → `code_expired`. Grenze 5 Fehlversuche unverändert.
+- **Test:** `test-trial-wp`, `test-invite-code-wp`.

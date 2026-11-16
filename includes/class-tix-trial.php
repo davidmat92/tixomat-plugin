@@ -17,7 +17,8 @@ class TIX_Trial {
     const PROGRESS_TTL = 2 * DAY_IN_SECONDS;
     /** Fortschrittsseite (1.38.857): interne Schritte des Kunden-Dienstes → sichtbare Stufe 2–6 */
     const PROGRESS_STEPS = ['pruefen' => 2, 'env' => 2, 'dns' => 2, 'site' => 2, 'plugin' => 3, 'lizenz' => 3, 'studio' => 4, 'marke' => 4, 'betreiber' => 4, 'testphase' => 4,
-        'zugang' => 5, 'rechtstexte' => 5, 'probe' => 6, 'melden' => 6];
+        'beispiel' => 4,
+        'zugang' => 5, 'rechtstexte' => 5, 'verbindung' => 6, 'spiegel' => 6, 'probe' => 6, 'melden' => 6]; // 17 Schritte (1.38.859); unbekannte behalten die bisherige Stufe
     const PROGRESS_STAGES = [1 => 'Zahlungsmittel bestätigt', 2 => 'Adresse wird eingerichtet', 3 => 'Shop-System wird installiert', 4 => 'Studio und Design', 5 => 'Zugang und Rechtstexte', 6 => 'Letzte Prüfung', 7 => 'Fertig'];
     const SKEW = 300;
     const REMINDER_DAYS = [7, 12, 13];
@@ -1111,6 +1112,7 @@ class TIX_Trial {
         if ($step === '' || $total < 1 || $total > 100 || $index < 0 || $index > $total) return self::err('tix_invalid_field', 'step, index (0 … total) und total (1 … 100) angeben.', 400);
         $d = $t->d;
         $d['progress'] = ['job_id' => $job['id'], 'step' => $step, 'index' => $index, 'total' => $total, 'at' => wp_date('c')];
+        $d['progress_stage'] = max(intval($d['progress_stage'] ?? 0), intval(self::PROGRESS_STEPS[$step] ?? 0)); // Stufe fällt nie zurück, unbekannter Schritt behält sie
         $d['progress_pct'] = max(intval($d['progress_pct'] ?? 0), min(99, (int) floor($index * 100 / $total))); // 100 erst bei active
         $n = $wpdb->query($wpdb->prepare('UPDATE ' . self::t() . " SET data = %s WHERE id = %d AND status = 'provisioning' AND data = %s", wp_json_encode($d), $t->id, $t->data));
         return self::signed_out(['ok' => true, 'stored' => $n === 1]);
@@ -1226,7 +1228,10 @@ class TIX_Trial {
         $pr = (array) ($d['progress'] ?? []);
         $stage = null; $label = '';
         if ($phase === 'wartet') $label = 'Zahlungsmittel wird bestätigt';
-        elseif ($phase === 'einrichtung') { $stage = $status === 'provisioning' && isset(self::PROGRESS_STEPS[$pr['step'] ?? '']) ? self::PROGRESS_STEPS[$pr['step']] : ($status === 'provisioning' ? 2 : 1); $label = self::PROGRESS_STAGES[$stage]; }
+        elseif ($phase === 'einrichtung') { // nie zurück: max(gespeicherte Stufe, Stufe des letzten Schritts, Grundstufe)
+            $stage = min(6, max($status === 'provisioning' ? 2 : 1, intval($d['progress_stage'] ?? 0), $status === 'provisioning' ? intval(self::PROGRESS_STEPS[$pr['step'] ?? ''] ?? 0) : 0));
+            $label = self::PROGRESS_STAGES[$stage];
+        }
         elseif ($phase === 'fertig') { $stage = 7; $label = 'Dein Shop ist fertig'; }
         elseif ($phase === 'fehler') $label = $status === 'failed' ? 'Bei der Einrichtung hakt es – wir kümmern uns und melden uns per Mail.' : 'Das Zahlungsmittel wurde nicht bestätigt.';
         else $label = 'Diese Testphase ist beendet.';

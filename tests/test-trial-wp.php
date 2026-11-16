@@ -36,6 +36,9 @@ $eq('Fortschritt rein: Stufe aus internem Schritt, Prozent, Neuversuch, URLs ers
 $eq('Fortschritt rein: wartet / queued Stufe 1 / fertig 100 mit URLs / failed ohne Technik / gelöscht', ['wartet', 1, 0, 100, 'https://x.evendis.de', 'fehler', false, 'beendet'],
     [$T::progress_view('confirmed', [])['phase'], $T::progress_view('queued', [])['stage'], $T::progress_view('queued', [])['percent'], $T::progress_view('active', ['url' => 'https://x.evendis.de'])['percent'], $T::progress_view('active', ['url' => 'https://x.evendis.de'])['shop_url'],
      $T::progress_view('failed', ['error' => 'technik: geheim'])['phase'], strpos(wp_json_encode($T::progress_view('failed', ['error' => 'technik: geheim', 'progress_pct' => 40])), 'geheim') !== false, $T::progress_view('deleted', [])['phase']]);
+$eq('Neue Server-Schritte (17): beispiel → 4, verbindung/spiegel → 6; unbekannt behält die gespeicherte Stufe; nie zurück', [4, 6, 6, 5, 5, 17],
+    [$T::progress_view('provisioning', ['progress' => ['step' => 'beispiel']])['stage'], $T::progress_view('provisioning', ['progress' => ['step' => 'verbindung']])['stage'], $T::progress_view('provisioning', ['progress' => ['step' => 'spiegel']])['stage'],
+     $T::progress_view('provisioning', ['progress' => ['step' => 'neu_unbekannt'], 'progress_stage' => 5])['stage'], $T::progress_view('provisioning', ['progress' => ['step' => 'dns'], 'progress_stage' => 5])['stage'], count($T::PROGRESS_STEPS)]);
 $eq('Wegwerf-Adressen und Firmen-Schlüssel', [true, true, false, 'musterevents', 'musterevents'], [$T::is_disposable('a@mailinator.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@x.yopmail.com', $T::DISPOSABLE_DEFAULT), $T::is_disposable('a@firma.de', $T::DISPOSABLE_DEFAULT), $T::company_key('Muster Events GmbH'), $T::company_key('muster events UG (haftungsbeschränkt)')]);
 
 if (!$T::multi()) {
@@ -243,7 +246,7 @@ $eq('progress: falsche job_id 409, gültig gespeichert, unsinniger index 400; Se
     [$st, $st2, $d2['stored'] ?? null, $st3, $g['stage'] ?? null, $g['percent'] ?? null, $g['index'] ?? null, $g['total'] ?? null]);
 $signed('POST', "/trial/$tid/progress", [], wp_json_encode(['job_id' => $job['job_id'], 'step' => 'dns', 'index' => 2, 'total' => 14]));
 [, $g] = $getp($p2);
-$eq('progress: Balken fällt nie zurück (35 % bleibt bei kleinerem Index)', [35, 2], [$g['percent'] ?? null, $g['stage'] ?? null]);
+$eq('progress: Balken und Stufe fallen nie zurück (35 %, Stufe 3 bleibt bei dns)', [35, 3], [$g['percent'] ?? null, $g['stage'] ?? null]);
 [$st, $d] = $signed('POST', "/trial/$tid/done", [], wp_json_encode(['job_id' => 'falsch', 'ok' => true]));
 $eq('done mit falscher job_id → 409', [409, 'tix_trial_job_mismatch'], [$st, $d['code'] ?? '']);
 [$st, $d] = $signed('POST', "/trial/$tid/done", [], wp_json_encode(['job_id' => $job['job_id'], 'ok' => true, 'url' => "https://$kurz.evendis.de", 'studio_url' => "https://$kurz.evendis.de/studio/", 'invite_url' => "https://$kurz.evendis.de/einladung/abc123"]));

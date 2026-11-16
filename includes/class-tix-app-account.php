@@ -329,6 +329,7 @@ class TIX_App_Account {
             'hash'    => self::code_hash($code),
             'tries'   => 0,
             'created' => time(),
+            'ttl'     => self::CODE_TTL,
         ], self::CODE_TTL);
         return self::send_code_email($email, $code, $purpose, $has_account);
     }
@@ -339,8 +340,19 @@ class TIX_App_Account {
      */
     public static function issue_invite_code($email, $ttl) {
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        set_transient(self::code_key(sanitize_email($email), 'reset'), ['hash' => self::code_hash($code), 'tries' => 0, 'created' => time()], max(self::CODE_TTL, intval($ttl)));
+        $ttl = max(self::CODE_TTL, intval($ttl));
+        set_transient(self::code_key(sanitize_email($email), 'reset'), ['hash' => self::code_hash($code), 'tries' => 0, 'created' => time(), 'ttl' => $ttl], $ttl); // ttl mitspeichern: Fehlversuch kürzt nie (1.38.859)
         return $code;
+    }
+
+    /**
+     * Echte Restzeit eines Codes (rein): Laufzeit aus dem Code selbst (ttl, ab 1.38.859); ältere Codes ohne ttl über den Ablauf des Transients,
+     * sonst CODE_TTL. Nach einem Fehlversuch wird nur so lange weiter gespeichert – nie kürzer, nie länger.
+     */
+    public static function code_remaining(array $data, $now, $transient_expires = 0) {
+        if (!empty($data['ttl'])) return intval($data['created'] ?? $now) + intval($data['ttl']) - $now;
+        if ($transient_expires > 0) return intval($transient_expires) - $now;
+        return intval($data['created'] ?? $now) + self::CODE_TTL - $now;
     }
 
     /** Bestätigungscode nach der Registrierung (wird von POST /auth/register aufgerufen). */
@@ -478,8 +490,9 @@ class TIX_App_Account {
             return self::error('code_expired', 'Zu viele Fehlversuche – bitte einen neuen Code anfordern.');
         }
         if (!hash_equals((string) $data['hash'], self::code_hash($code))) {
-            $remaining = max(0, self::CODE_TTL - (time() - intval($data['created'] ?? time())));
-            set_transient($key, $data, max(60, $remaining));
+            $remaining = self::code_remaining($data, time(), wp_using_ext_object_cache() ? 0 : intval(get_option('_transient_timeout_' . $key, 0)));
+            if ($remaining <= 0) { delete_transient($key); return self::error('code_expired', 'Der Code ist abgelaufen – bitte einen neuen anfordern.'); }
+            set_transient($key, $data, $remaining);
             return self::error('code_invalid', 'Der Code ist nicht korrekt.');
         }
         delete_transient($key);
