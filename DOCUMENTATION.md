@@ -6990,3 +6990,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - Lizenz-Server: Aktion `tix_license_checked`; `TIX_Trial::on_license_checked` → `record_usage` → `upgrade_quote` (rein) → Stufe, `upgrades[]`, Mails, Rechnung (`issue_invoice`, Schalter `tix_trial_invoice`), Abbuchung (Schalter `tix_trial_upgrade_charge`, Vorgabe aus).
 - **Test:** `test-trial-wp` (59 Plattform, 20 Einzel-Seite); Lizenz-Tests unverändert.
 
+## 215. Testphase: Mollie-Schlüssel per Studio, Rückfall nur auf live_ (ab 1.38.853)
+- `TIX_Trial::mollie_source()` (eigener Schlüssel → live_-Schlüssel der Ticketkasse → keiner), `mollie_status()` ohne Schlüssel.
+- `GET|POST /platform/trial-settings` (Admin): nur schreiben, Prüfung bei Mollie vor dem Speichern, Änderungsprotokoll ohne Schlüssel.
+- **Test:** `test-trial-wp` (66 Plattform, 20 Einzel-Seite).
+

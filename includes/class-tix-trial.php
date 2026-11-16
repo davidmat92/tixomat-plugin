@@ -225,7 +225,60 @@ class TIX_Trial {
         return strlen($s) >= 32 ? $s : '';
     }
 
-    private static function mollie_key() { return trim((string) get_option('tix_trial_mollie_key', '')); }
+    /**
+     * Mollie-Schlüssel der Testphase (1.38.853): eigener Schlüssel (Studio „Plattform-Einstellungen“, nur schreiben) vor dem
+     * Schlüssel des Ticketverkaufs – Rückfall nur, wenn der ein live_-Schlüssel ist (ein test_-Schlüssel würde echte Kunden in eine
+     * Test-Kasse schicken, ohne echtes Mandat).
+     */
+    private static function mollie_key() { return self::mollie_source()['key']; }
+
+    /** → ['key' => string, 'source' => own|ticket|none] */
+    public static function mollie_source() {
+        $own = trim((string) get_option('tix_trial_mollie_key', ''));
+        if ($own !== '') return ['key' => $own, 'source' => 'own'];
+        $s = get_option('tix_settings', []);
+        $tk = is_array($s) ? trim((string) ($s['mollie_api_key'] ?? '')) : '';
+        if (preg_match('/^live_[A-Za-z0-9]{20,}$/', $tk)) return ['key' => $tk, 'source' => 'ticket'];
+        return ['key' => '', 'source' => 'none'];
+    }
+
+    /** Anzeige ohne Schlüssel: gesetzt, Quelle, live/test, letzte 4 Zeichen */
+    public static function mollie_status() {
+        $m = self::mollie_source();
+        $k = $m['key'];
+        $s = get_option('tix_settings', []);
+        $tk = is_array($s) ? trim((string) ($s['mollie_api_key'] ?? '')) : '';
+        return ['set' => $k !== '', 'source' => $m['source'], 'mode' => $k === '' ? null : (strpos($k, 'live_') === 0 ? 'live' : 'test'), 'ends_with' => $k === '' ? null : substr($k, -4),
+            'ticket_key' => $tk === '' ? 'none' : (strpos($tk, 'live_') === 0 ? 'live' : 'test'), 'checked_at' => get_option('tix_trial_mollie_checked', null) ?: null];
+    }
+
+    /** GET /platform/trial-settings → {ok, mollie: status} (Admin) */
+    public static function rest_settings_get(WP_REST_Request $req) {
+        return self::out(['ok' => true, 'mollie' => self::mollie_status()]);
+    }
+
+    /** POST /platform/trial-settings {mollie_key: "live_…|test_…" | "" (entfernen)} – nur schreiben; Schlüssel wird bei Mollie geprüft, nie ausgegeben */
+    public static function rest_settings_save(WP_REST_Request $req) {
+        $b = self::body($req);
+        if (!array_key_exists('mollie_key', $b)) return self::err('tix_invalid_field', 'Bitte einen Schlüssel angeben.', 400, 'mollie_key');
+        $k = trim((string) $b['mollie_key']);
+        if ($k === '') {
+            delete_option('tix_trial_mollie_key'); delete_option('tix_trial_mollie_checked');
+            if (class_exists('TIX_Customers')) TIX_Customers::audit('trial_mollie_key', 0, ['scope' => 'platform', 'oid' => 0], ['removed' => true]);
+            return self::out(['ok' => true, 'mollie' => self::mollie_status()]);
+        }
+        if (!preg_match('/^(live|test)_[A-Za-z0-9]{20,}$/', $k)) return self::err('tix_invalid_field', 'Das sieht nicht wie ein Mollie-API-Schlüssel aus (live_… bzw. test_…).', 400, 'mollie_key');
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('trial_mollie_save', 10, HOUR_IN_SECONDS, (string) get_current_user_id())) return self::err('tix_rate_limited', 'Zu viele Versuche. Bitte später noch einmal.', 429);
+        // Prüfen bei Mollie (Konto erreichbar, Schlüssel gültig), bevor er gespeichert wird
+        $r = wp_remote_get(self::MOLLIE . '/methods', ['timeout' => 10, 'headers' => ['Authorization' => 'Bearer ' . $k]]);
+        $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
+        if ($code === 401) return self::err('tix_trial_mollie_invalid', 'Mollie kennt diesen Schlüssel nicht.', 400, 'mollie_key');
+        if ($code !== 200) return self::err('tix_mollie_unavailable', 'Mollie antwortet gerade nicht. Bitte gleich noch einmal.', 502);
+        update_option('tix_trial_mollie_key', $k, false);
+        update_option('tix_trial_mollie_checked', wp_date('c'), false);
+        if (class_exists('TIX_Customers')) TIX_Customers::audit('trial_mollie_key', 0, ['scope' => 'platform', 'oid' => 0], ['mode' => strpos($k, 'live_') === 0 ? 'live' : 'test', 'ends_with' => substr($k, -4)]); // nie der Schlüssel
+        return self::out(['ok' => true, 'mollie' => self::mollie_status()]);
+    }
 
     private static function origins() {
         $o = get_option('tix_trial_origins', null);
@@ -343,6 +396,10 @@ class TIX_Trial {
         register_rest_route(self::NS, '/trial', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $staff]);
         foreach (['extend', 'convert', 'retry', 'cancel'] as $a) register_rest_route(self::NS, "/trial/$id/$a", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_' . $a], 'permission_callback' => $staff]);
         register_rest_route(self::NS, "/trial/$id/delete", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_delete'], 'permission_callback' => $admin]);
+        register_rest_route(self::NS, '/platform/trial-settings', [
+            ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_settings_get'], 'permission_callback' => $admin],
+            ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_settings_save'], 'permission_callback' => $admin],
+        ]);
         register_rest_route(self::NS, "/trial/$id/contract-cancel", ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_contract_cancel'], 'permission_callback' => $staff]);
     }
 

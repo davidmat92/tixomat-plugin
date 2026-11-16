@@ -351,6 +351,37 @@ $molc = count($mol);
 [$st, $d] = $signed('POST', "/trial/$t2/done", [], wp_json_encode(['job_id' => $j2['job_id'] ?? '', 'ok' => true]));
 $eq('done delete → deleted, Mandat bei Mollie widerrufen, Kunde gelöscht', [200, 'deleted', true, true], [$st, $T::get($t2)->status, in_array('DELETE /customers/cst_t2/mandates/mdt_t2', array_slice($mol, $molc), true), in_array('DELETE /customers/cst_t2', array_slice($mol, $molc), true)]);
 
+// ═══ 1.38.853: Mollie-Schlüssel der Testphase – Studio-Feld (nur schreiben) und Rückfall nur auf live_-Schlüssel des Ticketverkaufs ═══
+$kb = get_option('tix_trial_mollie_key', null); $sb = get_option('tix_settings', []);
+delete_option('tix_trial_mollie_key');
+$ss = is_array($sb) ? $sb : [];
+update_option('tix_settings', array_merge($ss, ['mollie_api_key' => 'test_ticketkasse1234567890abcdefgh']));
+$eq('Ticketverkauf mit test_-Schlüssel → kein Rückfall (keine Test-Kasse für echte Kunden)', ['none', false, 'test'], [$T::mollie_source()['source'], $T::mollie_status()['set'], $T::mollie_status()['ticket_key']]);
+update_option('tix_settings', array_merge($ss, ['mollie_api_key' => 'live_ticketkasse1234567890abcdefgh']));
+$eq('Ticketverkauf mit live_-Schlüssel → Rückfall, Anzeige ohne Schlüssel', ['ticket', true, 'live', 'efgh', false], [$T::mollie_source()['source'], $T::mollie_status()['set'], $T::mollie_status()['mode'], $T::mollie_status()['ends_with'], strpos(wp_json_encode($T::mollie_status()), 'live_ticketkasse') !== false]);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_tix\\_app\\_rl\\_trial\\_mollie%'"); wp_cache_flush();
+$mv = function ($pre, $args, $url) { if (strpos($url, 'https://api.mollie.com/v2/methods') !== 0) return $pre; $ok = strpos((string) ($args['headers']['Authorization'] ?? ''), 'gutergutergutergutergut') !== false;
+    return ['headers' => [], 'body' => '{}', 'response' => ['code' => $ok ? 200 : 401, 'message' => ''], 'cookies' => [], 'filename' => null]; };
+add_filter("pre_http_request", $mv, PHP_INT_MAX, 3); // nach dem allgemeinen Mollie-Mock (gleiche Priorität, später angemeldet)
+$ks = function ($b) { $x = new WP_REST_Request('POST', '/tixomat/v1/platform/trial-settings'); $x->set_header('content-type', 'application/json'); $x->set_body(wp_json_encode($b)); $r = rest_do_request($x); return [$r->get_status(), $r->get_data()]; };
+wp_set_current_user(0);
+[$st] = $ks(['mollie_key' => 'live_gutergutergutergutergut']);
+$eq('Ohne Anmeldung → 401/403', true, in_array($st, [401, 403], true));
+wp_set_current_user($adm);
+[$st, $d] = $ks(['mollie_key' => 'falsch']);
+[$st2, $d2] = $ks(['mollie_key' => 'live_unbekanntunbekanntunbekannt']);
+$eq('Format falsch → 400; Mollie kennt ihn nicht → 400 tix_trial_mollie_invalid; nichts gespeichert', [400, 400, 'tix_trial_mollie_invalid', ''], [$st, $st2, $d2['code'] ?? '', (string) get_option('tix_trial_mollie_key', '')]);
+[$st, $d] = $ks(['mollie_key' => 'live_gutergutergutergutergut']);
+$eq('Gültiger Schlüssel: gespeichert (vor dem Rückfall), Antwort nur gesetzt · live · endet auf', [200, true, 'own', 'live', 'rgut', false], [$st, $d['mollie']['set'] ?? null, $d['mollie']['source'] ?? '', $d['mollie']['mode'] ?? '', $d['mollie']['ends_with'] ?? '', strpos(wp_json_encode($d), 'gutergutergut') !== false]);
+$g = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/platform/trial-settings'))->get_data();
+$eq('GET zeigt nie den Schlüssel; Prüfzeit gesetzt', [false, true], [strpos(wp_json_encode($g), 'gutergutergut') !== false, !empty($g['mollie']['checked_at'])]);
+[$st, $d] = $ks(['mollie_key' => '']);
+$eq('Leer → entfernt, zurück auf Rückfall (live-Ticketkasse)', [200, 'ticket'], [$st, $d['mollie']['source'] ?? '']);
+remove_filter("pre_http_request", $mv, PHP_INT_MAX);
+if ($kb === null) delete_option('tix_trial_mollie_key'); else update_option('tix_trial_mollie_key', $kb, false);
+update_option('tix_settings', $sb);
+wp_set_current_user(0);
+
 // ═══ Aufräumen ═══
 remove_filter('pre_wp_mail', $cap, 1); remove_filter('pre_http_request', $mock, PHP_INT_MAX);
 $lic = intval($T::get($tid)->license_id);
