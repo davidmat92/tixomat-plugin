@@ -384,6 +384,7 @@ class TIX_Docs {
                 ['_tix_express_checkout', 'Express-Checkout f&uuml;r dieses Event aktiviert?', 'Ja/Nein (1/0)'],
                 ['_tix_abandoned_cart', 'Warenkorb-Recovery f&uuml;r dieses Event aktiviert?', 'Ja/Nein (1/0)'],
                 ['_tix_ticket_transfer', 'Ticket-Umschreibung f&uuml;r dieses Event aktiviert?', 'Ja/Nein (1/0)'],
+                ['_tix_ticket_transfer_hours', 'Frist f&uuml;r den Inhaberwechsel in Stunden vor Beginn', 'Zahl 1–168, leer = jederzeit'],
                 ['_tix_embed_enabled', 'Embed/Einbettung aktiviert?', 'Ja/Nein (1/0)'],
                 ['_tix_embed_domains', 'Erlaubte Domains f&uuml;r Einbettung', 'Text (komma-getrennt)'],
             ]);

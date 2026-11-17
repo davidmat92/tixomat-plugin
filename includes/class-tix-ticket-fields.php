@@ -380,16 +380,52 @@ class TIX_Ticket_Fields {
     // ═══════════════ Umschreiben, Löschen, Einlass ═══════════════
 
     /** Darf das Ticket umgeschrieben werden? (Regel des Events) → true | WP_Error */
-    public static function transfer_allowed($ticket_id) {
+    /**
+     * $owner_change (1.38.877): Inhaberwechsel – zusätzlich die Frist des Events (_tix_ticket_transfer_hours), es gilt die strengere.
+     * Ohne (Namenskorrektur personalisierter Tickets): nur die Regel der Ticket-Angaben, unverändert.
+     */
+    public static function transfer_allowed($ticket_id, $owner_change = false) {
         $eid = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
         $c = self::config($eid);
-        if (!self::active($c) || $c['transfer'] === 'allowed') return true;
-        if ($c['transfer'] === 'never') return new WP_Error('tix_transfer', 'Tickets dieses Events lassen sich nicht umschreiben.', ['status' => 403]);
-        $ds = (string) get_post_meta($eid, '_tix_date_start', true);
-        $ts = (string) get_post_meta($eid, '_tix_time_start', true);
-        try { $start = (new DateTime($ds . ' ' . ($ts ?: '00:00'), wp_timezone()))->getTimestamp(); } catch (\Throwable $e) { return true; }
-        if ($start - time() < $c['transfer_hours'] * HOUR_IN_SECONDS) return new WP_Error('tix_transfer', 'Umschreiben geht nur bis ' . $c['transfer_hours'] . ' Stunden vor Beginn.', ['status' => 403]);
+        $hours = self::effective_hours($c, $owner_change ? self::event_transfer_hours($eid) : 0);
+        if ($hours === null) return new WP_Error('tix_transfer', 'Tickets dieses Events lassen sich nicht umschreiben.', ['status' => 403]);
+        if ($hours === 0) return true;
+        $start = self::event_start_ts($eid);
+        if ($start === null) return true;
+        if (!self::within_hours($start, time(), $hours)) return new WP_Error('tix_transfer', 'Umschreiben geht nur bis ' . $hours . ' Stunden vor Beginn.', ['status' => 403]);
         return true;
+    }
+
+    /** Frist des Events für den Inhaberwechsel (Studio „Bis X Std. vor Beginn“), 0 = jederzeit */
+    public static function event_transfer_hours($event_id) {
+        return max(0, min(168, intval(get_post_meta(intval($event_id), '_tix_ticket_transfer_hours', true))));
+    }
+
+    /** Rein: wirksame Frist in Stunden aus Ticket-Angaben-Regel und Event-Frist; null = nie, 0 = jederzeit (strengere gewinnt) */
+    public static function effective_hours(array $c, $event_hours) {
+        $event_hours = max(0, intval($event_hours));
+        if (!self::active($c) || ($c['transfer'] ?? 'allowed') === 'allowed') return $event_hours;
+        if ($c['transfer'] === 'never') return null;
+        return max($event_hours, intval($c['transfer_hours'] ?? 24));
+    }
+
+    /** Rein: liegt $now mindestens $hours Stunden vor dem Beginn? */
+    public static function within_hours($start_ts, $now, $hours) {
+        return ($start_ts - $now) >= intval($hours) * HOUR_IN_SECONDS;
+    }
+
+    /** Beginn des Events als Zeitstempel (Zeitzone der Seite) oder null */
+    public static function event_start_ts($event_id) {
+        $ds = (string) get_post_meta($event_id, '_tix_date_start', true);
+        $ts = (string) get_post_meta($event_id, '_tix_time_start', true);
+        try { return (new DateTime($ds . ' ' . ($ts ?: '00:00'), wp_timezone()))->getTimestamp(); } catch (\Throwable $e) { return null; }
+    }
+
+    /** Für das Studio (nur lesend): strengere Regel aus den Ticket-Angaben (Bestand) oder null */
+    public static function transfer_rule($event_id) {
+        $c = self::config($event_id);
+        if (!self::active($c) || ($c['transfer'] ?? 'allowed') === 'allowed') return null;
+        return ['transfer' => $c['transfer'], 'transfer_hours' => intval($c['transfer_hours'] ?? 24)];
     }
 
     /** Neuer Inhaber: alte Antworten löschen (nicht übertragen), Inhaber-E-Mail des Kaufs entfällt */

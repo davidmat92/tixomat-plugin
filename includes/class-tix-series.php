@@ -308,7 +308,7 @@ class TIX_Series {
             '_tix_group_discount',
             '_tix_upsell_events', '_tix_upsell_disabled',
             '_tix_embed_enabled', '_tix_embed_domains',
-            '_tix_abandoned_cart', '_tix_express_checkout', '_tix_ticket_transfer',
+            '_tix_abandoned_cart', '_tix_express_checkout', '_tix_ticket_transfer', '_tix_ticket_transfer_hours',
         ];
 
         foreach ($copy_keys as $key) {

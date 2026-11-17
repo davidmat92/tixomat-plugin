@@ -438,6 +438,13 @@ class TIX_Event_Extras {
         return !empty($s['ticket_transfer_enabled']) && get_post_meta($id, '_tix_ticket_transfer', true) === '1';
     }
 
+    /** Wirksame Frist für den Inhaberwechsel in Stunden (1.38.877): 0 = jederzeit bzw. Umschreiben aus; strengere aus Event-Frist und Ticket-Angaben */
+    public static function ticket_transfer_hours($id) {
+        if (!self::ticket_transfer($id) || !class_exists('TIX_Ticket_Fields')) return 0;
+        $h = TIX_Ticket_Fields::effective_hours(TIX_Ticket_Fields::config($id), TIX_Ticket_Fields::event_transfer_hours($id));
+        return $h === null ? 0 : $h;
+    }
+
     /** Galerie-Bilder: [{url (large), thumb (medium_large)}] */
     public static function gallery($id) {
         $out = [];

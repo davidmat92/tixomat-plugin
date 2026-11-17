@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
  *   timetable       {times_tba, hidden, mode (times|tba|none, 1.38.782), stages[{name, color}], days{"JJJJ-MM-TT": [{time, end, stage, title, desc}]}} | null löscht
  *   low_stock       {mode: global|custom|manual|off, threshold, text}  (+ low_stock_global nur lesend)
  *   ticket_transfer bool  (+ ticket_transfer_available nur lesend: globaler Schalter)
+ *   ticket_transfer_hours int 0–168 (1.38.877, 0 = jederzeit; + ticket_transfer_rule nur lesend: strengere Regel der Ticket-Angaben oder null)
  *   ticket_sponsor  {image, image_id, link} | null löscht;  POST /events/{id}/sponsor-image (multipart `image`) → {image_id, image}
  *   (1.38.449)
  *   specials        {in_selector, in_checkout, items[{special_id, enabled, price_override, qty_override}]} + specials_catalog (nur lesend)
@@ -84,6 +85,9 @@ class TIX_Studio_Editor {
             'low_stock_global' => function_exists('tix_get_settings') ? intval(tix_get_settings('low_stock_threshold') ?? 10) : 10,
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',
             'ticket_transfer_available' => function_exists('tix_get_settings') && (bool) tix_get_settings('ticket_transfer_enabled'),
+            // 1.38.877: Frist für den Inhaberwechsel (0 = jederzeit) + Regel aus den Ticket-Angaben (Bestand, nur lesend)
+            'ticket_transfer_hours' => max(0, min(168, intval($m('_tix_ticket_transfer_hours')))),
+            'ticket_transfer_rule'  => ($id && class_exists('TIX_Ticket_Fields')) ? TIX_Ticket_Fields::transfer_rule($id) : null,
             'ticket_sponsor'  => ['image' => $simg, 'image_id' => $sid, 'link' => $m('_tix_ticket_sponsor_link')],
         ] + self::payload2($id);
     }
@@ -473,6 +477,12 @@ class TIX_Studio_Editor {
             $out['low_stock'] = $c;
         }
         if (array_key_exists('ticket_transfer', $body)) $out['ticket_transfer'] = !empty($body['ticket_transfer']);
+        if (array_key_exists('ticket_transfer_hours', $body)) {
+            $h = $body['ticket_transfer_hours'];
+            if ($h === null || $h === '') $h = 0;
+            if (!is_numeric($h) || intval($h) != $h || intval($h) < 0 || intval($h) > 168) return self::bad('ticket_transfer_hours', 'Frist zwischen 0 (jederzeit) und 168 Stunden.');
+            $out['ticket_transfer_hours'] = intval($h);
+        }
         // ── Ticket-Sponsor ──
         if (array_key_exists('ticket_sponsor', $body)) {
             $s = $body['ticket_sponsor'];
@@ -533,6 +543,10 @@ class TIX_Studio_Editor {
             if (isset($l['text'])) update_post_meta($post_id, '_tix_low_stock_text', $l['text']);
         }
         if (array_key_exists('ticket_transfer', $c)) update_post_meta($post_id, '_tix_ticket_transfer', $c['ticket_transfer'] ? '1' : '0');
+        if (array_key_exists('ticket_transfer_hours', $c)) {
+            if ($c['ticket_transfer_hours'] > 0) update_post_meta($post_id, '_tix_ticket_transfer_hours', $c['ticket_transfer_hours']);
+            else delete_post_meta($post_id, '_tix_ticket_transfer_hours');
+        }
         if (array_key_exists('ticket_sponsor', $c)) {
             $s = $c['ticket_sponsor'];
             if ($s === null) {

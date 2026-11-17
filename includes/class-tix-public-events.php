@@ -317,6 +317,7 @@ class TIX_Public_Events {
                 // Sponsoren-Liste (1.38.793): eigene des Events bzw. der Seite/des Veranstalters, Spiegel/Kopie: der Quelle
                 $out['sponsors']        = class_exists('TIX_Sponsor_Logos') ? TIX_Sponsor_Logos::event_public($id) : null;
                 $out['ticket_transfer'] = TIX_Event_Extras::ticket_transfer($id);
+                $out['ticket_transfer_hours'] = TIX_Event_Extras::ticket_transfer_hours($id); // 1.38.877
             }
             $out['raffle'] = class_exists('TIX_Raffle') ? TIX_Raffle::public_info($id) : null;
             // Barrierefreiheit (alle Seiten seit 1.38.455) + Erstattungsregel (1.38.410, nur Mehr-Veranstalter-Modus)
