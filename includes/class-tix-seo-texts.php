@@ -56,6 +56,11 @@ class TIX_SEO_Texts {
         ];
     }
 
+    /** Für das Studio (1.38.888): gespeicherte Städte-Texte */
+    public static function city_texts() { return self::cities(); }
+
+    public static function image_payload($id) { return self::image($id); }
+
     private static function cities() {
         $raw = get_option(self::OPTION_CITY, []);
         return is_array($raw) ? $raw : [];

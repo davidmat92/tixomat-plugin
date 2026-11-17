@@ -7305,3 +7305,10 @@ Vertrag: `uebergaben/vertrag-plattform-akte-w6-2026-11-17.md` (ENDGÜLTIGE FORM 
 - **P5:** `GET /platform/organizers/{id}/contract`, `…/contract/document`, `POST …/contract/addendum`.
 - **`TIX_Settlement::opt`** liest jetzt `get_option('tix_settings')` direkt statt über den Zwischenspeicher von `tix_get_settings()`. Damit wirken Studio-Änderungen im selben Aufruf (wichtig für SEPA).
 - **Test:** `test-w6a-platform-money-wp` (Plattform 33; Einzel-Seite 1: Routen liefern 404).
+
+## 247. Plattform-Akte W6b: Partner, Hervorheben, Städte-Texte, Mails, Sperren (ab 1.38.888)
+Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6b“. Klasse `TIX_Platform_Content`, nur Plattform-Admin.
+- **Routen:** `/platform/partners[/{id}[/approve]]` (ohne Schlüssel, kein Anlegen), `/platform/promoted`, `/platform/events/{id}/promote`, `/platform/city-texts[/{slug}]`, `/platform/weekly-mail[/test]`, `/platform/mail-follow`, `/platform/blocks`.
+- **Kleine Ergänzungen:** `TIX_Weekly_Mail::send_test/counts`, `TIX_Mail_Follow::active_count`, `TIX_SEO_Texts::city_texts/image_payload`.
+- **Protokoll:** Jede Änderung landet als `platform_*` in `tix_audit_log`.
+- **Test:** `test-w6b-platform-content-wp` (Plattform 23, Einzel-Seite 1).

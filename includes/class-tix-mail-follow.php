@@ -449,6 +449,13 @@ class TIX_Mail_Follow {
         add_submenu_page('tixomat', 'Folgen per E-Mail', 'Folgen per E-Mail', 'manage_options', 'tix-mail-follow', [__CLASS__, 'render']);
     }
 
+    /** Bestätigte Abos (Studio, 1.38.888) */
+    public static function active_count() {
+        global $wpdb;
+        self::maybe_install();
+        return intval($wpdb->get_var("SELECT COUNT(*) FROM " . self::t() . " WHERE status = 'active'"));
+    }
+
     public static function save_admin() {
         if (!current_user_can('manage_options')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_mail_follow');

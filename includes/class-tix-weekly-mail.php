@@ -296,6 +296,21 @@ class TIX_Weekly_Mail {
         add_submenu_page('tixomat', 'Wochenmail', 'Wochenmail', 'manage_options', 'tix-weekly-mail', [__CLASS__, 'render']);
     }
 
+    /** Test-Mail an eine Adresse (Studio: POST /platform/weekly-mail/test, 1.38.888) → bool */
+    public static function send_test($to, $city = '') {
+        $city = sanitize_text_field((string) $city);
+        return (bool) self::mail($to, '[Test] Was geht am Wochenende?', self::mail_html(self::weekend_events($city), $city, self::customer_base() . '/'), ['Content-Type: text/html; charset=UTF-8']);
+    }
+
+    /** Anmeldungen je Status (Studio) */
+    public static function counts() {
+        global $wpdb;
+        self::maybe_install();
+        $c = ['active' => 0, 'pending' => 0, 'unsubscribed' => 0];
+        foreach ((array) $wpdb->get_results("SELECT status, COUNT(*) AS n FROM " . self::t() . " GROUP BY status") as $r) if (isset($c[$r->status])) $c[$r->status] = intval($r->n);
+        return $c;
+    }
+
     public static function handle_admin() {
         if (!current_user_can('manage_options')) wp_die('Kein Zugriff.');
         check_admin_referer('tix_weekly_mail');
