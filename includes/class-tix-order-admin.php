@@ -2915,19 +2915,26 @@ window.addEventListener('load', function() {
         if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.']);
         $order_id = intval($_POST['order_id'] ?? 0);
         if (!$order_id) wp_send_json_error(['message' => 'Ungültige Bestellnummer.']);
+        $override_email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+        $r = self::send_bank_info($order_id, $override_email);
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        wp_send_json_success(['message' => 'Bank-Info an ' . $r . ' gesendet.']);
+    }
 
+    /**
+     * Bankverbindung an den Käufer senden (WP-Admin und Studio-Route, 1.38.879) → Empfänger-Adresse | WP_Error
+     */
+    public static function send_bank_info($order_id, $override_email = '') {
         global $wpdb;
         $order = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
+            "SELECT * FROM {$wpdb->prefix}tix_orders WHERE id = %d", intval($order_id)
         ));
-        if (!$order) wp_send_json_error(['message' => 'Bestellung nicht gefunden.']);
-
-        $override_email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+        if (!$order) return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         if ($override_email && !is_email($override_email)) {
-            wp_send_json_error(['message' => 'Ungültige E-Mail-Adresse.']);
+            return new WP_Error('tix_invalid_field', 'Ungültige E-Mail-Adresse.', ['status' => 400, 'field' => 'email']);
         }
         $to = $override_email ?: $order->billing_email;
-        if (!is_email($to)) wp_send_json_error(['message' => 'Keine gültige Empfänger-E-Mail.']);
+        if (!is_email($to)) return new WP_Error('tix_invalid_field', 'Keine gültige Empfänger-E-Mail.', ['status' => 400, 'field' => 'email']);
 
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $bank_holder = trim((string) ($s['bank_holder'] ?? ''));
@@ -2935,9 +2942,8 @@ window.addEventListener('load', function() {
         $bank_bic    = trim((string) ($s['bank_bic'] ?? ''));
         $bank_name   = trim((string) ($s['bank_name'] ?? ''));
         if ($bank_iban === '' || $bank_holder === '') {
-            wp_send_json_error(['message' => 'Bank-Daten fehlen in den Einstellungen (Zahlungsanbieter → Bankverbindung).']);
+            return new WP_Error('tix_bank_missing', 'Bank-Daten fehlen in den Einstellungen (Zahlungsanbieter → Bankverbindung).', ['status' => 400]);
         }
-
         $amount   = number_format(floatval($order->total), 2, ',', '.') . ' €';
         $purpose  = $order->order_number;
         $customer = trim(($order->billing_first_name ?? '') . ' ' . ($order->billing_last_name ?? ''));
@@ -2963,10 +2969,10 @@ window.addEventListener('load', function() {
         $subject = ($brand ? $brand . ' – ' : '') . 'Zahlungsinformationen für Bestellung ' . $order->order_number;
         $sent    = TIX_Customer_URL::mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
 
-        if (!$sent) wp_send_json_error(['message' => 'Mail-Versand fehlgeschlagen (wp_mail returned false).']);
+        if (!$sent) return new WP_Error('tix_mail_failed', 'Mail-Versand fehlgeschlagen.', ['status' => 500]);
 
         $note_suffix = $override_email && $override_email !== $order->billing_email ? ' an ' . $override_email : '';
         self::add_note($order_id, '🏦 Bankverbindungs-Mail versandt' . $note_suffix, 'email');
-        wp_send_json_success(['message' => 'Bank-Info an ' . $to . ' gesendet.']);
+        return $to;
     }
 }

@@ -3032,7 +3032,7 @@ class TIX_REST_API {
     /**
      * Aktuellen Preis einer Kategorie bestimmen (Phasen / Early Bird).
      */
-    private static function current_price($cat) {
+    public static function current_price($cat) { // public seit 1.38.879 (TIX_Order_Manual)
         $now    = current_time('Y-m-d');
         $phases = $cat['phases'] ?? [];
 

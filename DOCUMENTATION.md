@@ -7214,3 +7214,21 @@ Vertrag: `uebergaben/plan-umschreiben-frist-2026-11-17.md`. Rein additiv. User-E
 - **Umzug nach evendis-api:** Event-Feld `transfer_hours` neben `transfer_enabled`; reine Funktion `owner_transfer_allowed(event, ticket_fields_rule, start, now)`. Fixtures: hours 0/24/72 gegen ticket_fields never/until_hours 24/72 → strengere gewinnt; Namenskorrektur nur nach ticket_fields.
 - **1.38.878:** Speichern der Ticket-Angaben (`POST /events/{id}/ticket-fields`, `POST /organizer/ticket-fields-default`) ohne `transfer`/`transfer_hours` behält die bisher wirksame Regel (Event: eigene oder geerbte Vorgabe; Vorgabe: gespeicherte), kein Rückfall auf „allowed“. Reine Funktion `TIX_Ticket_Fields::keep_transfer($in, $prev)`. Event-Frist bis 720 h (`MAX_TRANSFER_HOURS`).
 - **Test:** `test-transfer-hours-wp` (28, mit globalem Schalter 31; Plattform und KK).
+
+## 240. Bestellungen von Hand im Studio (ab 1.38.879, WP-Admin-Restliste W1)
+Vertrag: `uebergaben/vertrag-bestellungen-von-hand.md`. Klasse `TIX_Order_Manual`. Rein additiv, nur REST.
+- **Routen:** `POST /orders/{id}/mark-paid`, `GET|POST /orders/{id}/notes`, `POST /orders/{id}/regenerate-tickets`, `POST /orders/{id}/send-bank-info`, `POST /orders/manual` (free | paid | transfer), `POST /tickets/{id}/status` (cancelled | valid).
+- **Bestell-Detail:** zusätzlich `order.notes[]` und `order.manual {can_mark_paid, can_send_bank_info, can_regenerate, tickets{id: {cancel, reactivate}}}`.
+- **Rechte:**
+  - Grundlage ist `TIX_App_Events::perm_money`, dazu Bestellung bzw. Event des eigenen Veranstalters.
+  - Auf evendis dürfen Vorkasse als bezahlt setzen, Bankdaten senden und Vorkasse von Hand nur Plattform-Admins.
+  - „paid“ von Hand gibt es auf evendis nicht. Veranstalter dürfen dort nur Freikarten anlegen.
+- **„Bezahlt“ von Hand** läuft über `update_order_status(..., 'completed', 'admin')`. Damit gelten dieselben Folgen wie bei einer Online-Zahlung.
+  - Erlaubt nur aus `on-hold`/`pending` und nur bei `bank`/`bacs`/`manual`.
+  - Eine Teilzahlung wird mit 409 abgelehnt. Die Team-Mail „Neue Bestellung“ geht nicht raus.
+- **Verlauf:** Jede Aktion schreibt eine Bestell-Notiz und einen Eintrag in `tix_audit_log` (`order_paid`, `order_manual`, `ticket_status`).
+- **Kundenmail abschalten:** Neues Transient `_tix_skip_customer_email_<id>`. Es unterdrückt die Kundenmail bei Abschluss und die Status-Mail; genutzt für `notify:false`.
+- **Bankdaten-Mail:** Steckt jetzt in `TIX_Order_Admin::send_bank_info($id, $email)`; die AJAX-Route im WP-Admin nutzt sie auch.
+- **Sichtbarkeit:** `TIX_App_Events::order_or_error` und `TIX_REST_API::current_price` sind jetzt public.
+- **Umzug nach evendis-api:** siehe Vertrag. Reine Funktionen `mark_paid_check`, `ticket_status_check`, `manual_kind_check`; Ereignis `order.paid` für Online und von Hand.
+- **Test:** `test-order-manual-wp` (42; mit eingerichteter Überweisung auf der Plattform 44; Plattform und KK).

@@ -849,7 +849,10 @@ class TIX_Emails {
             $extra = is_array($extra) ? array_merge($extra, [$note]) : ($extra !== '' ? [['type' => 'html', 'html' => $extra], $note] : [$note]);
         }
         $html = self::build_email_html($ctype, $order, $chead, $extra);
-        self::send_html_mail(
+        // Bestellung von Hand ohne Kundenmail (1.38.879, POST /orders/manual notify:false): nur dieser Versand entfällt
+        $skip_customer = get_transient('_tix_skip_customer_email_' . $order_id);
+        if ($skip_customer) delete_transient('_tix_skip_customer_email_' . $order_id);
+        else self::send_html_mail(
             $order->get_billing_email(),
             $brand_name . ' – ' . $chead,
             $html,
@@ -893,6 +896,9 @@ class TIX_Emails {
 
         // No email for pending status
         if ($new_status === 'pending') return;
+
+        // Bestellung von Hand ohne Kundenmail (1.38.879): auch keine Status-Mail
+        if (get_transient('_tix_skip_customer_email_' . $order_id)) return;
 
         // Stripe-Auto-Cleanup (Cron, ?cancelled=1, session.expired): keine Kunden-Mail —
         // der Kunde hat nie bezahlt und keine Bestellbestaetigung erhalten. Eine

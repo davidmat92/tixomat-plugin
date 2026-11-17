@@ -1254,7 +1254,7 @@ class TIX_App_Events {
     //  Bestellungen
     // ──────────────────────────────────────────
 
-    private static function order_or_error($id) {
+    public static function order_or_error($id) { // public seit 1.38.879 (TIX_Order_Manual)
         $order = class_exists('TIX_Order') ? TIX_Order::get(absint($id)) : null;
         if (!$order) return new WP_Error('not_found', 'Bestellung nicht gefunden.', ['status' => 404]);
         // Mehr-Veranstalter-Modus: alle Events der Bestellung müssen eigene sein
@@ -1351,6 +1351,9 @@ class TIX_App_Events {
                 ]))),
                 // Kassenfelder (1.38.875): {birthdate: JJJJ-MM-TT|null, age} oder null ohne Angabe
                 'extra_fields'   => class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::for_order($id) : null,
+                // Bestellungen von Hand (1.38.879): Verlauf + was von Hand geht
+                'notes'          => class_exists('TIX_Order_Manual') ? TIX_Order_Manual::notes($id) : [],
+                'manual'         => class_exists('TIX_Order_Manual') ? TIX_Order_Manual::detail_actions($id) : null,
                 'items'          => $items,
                 'tickets'        => $tickets,
                 // Rechnungen der Bestellung (1.38.487): Liste, senden über POST /invoices/{id}/send, nachholen über POST /orders/{id}/invoices/issue
