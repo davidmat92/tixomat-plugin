@@ -180,6 +180,7 @@ class TIX_Sale_Settings {
         $defaults = [];
         foreach (self::FIELDS as $area => $fields) foreach ($fields as $k => $def) $defaults[$area][$k] = $def[1];
         return ['ok' => true, 'scope' => (self::multi() && $org > 0) ? 'organizer' : 'site', 'organizer_id' => $org ?: null] + self::get($org)
+            + (class_exists('TIX_Site_Switches') ? ['site' => TIX_Site_Switches::payload('checkout'), 'site_editable' => TIX_Site_Switches::can_write()] : []) // W2 (1.38.882): ganze Seite
             + ['defaults' => $defaults, 'address_forced' => self::address_forced(), 'options' => ['checkout.phone_field' => self::FIELDS['checkout']['phone_field'][3], 'checkout.birthdate_field' => self::FIELDS['checkout']['birthdate_field'][3],
                 'pos.default_payment' => self::FIELDS['pos']['default_payment'][3], 'checkin.duplicate' => self::FIELDS['checkin']['duplicate'][3]]];
     }
@@ -193,8 +194,14 @@ class TIX_Sale_Settings {
     public static function rest_save(WP_REST_Request $req) {
         $org = self::org_of($req);
         if (self::multi() && !$org && !current_user_can('manage_options')) return new WP_Error('tix_organizer_required', 'Kein Veranstalter.', ['status' => 400]);
-        $clean = self::validate((array) $req->get_json_params());
+        $body = (array) $req->get_json_params();
+        // Werte der ganzen Seite (W2, 1.38.882): {site: {low_stock_threshold}}
+        $site = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($body, 'site') : null;
+        if (is_wp_error($site)) return $site;
+        unset($body['site']);
+        $clean = self::validate($body);
         if (isset($clean['error'])) return new WP_Error('tix_invalid_field', 'Ungültiger Wert: ' . $clean['error'] . '.', ['status' => 400, 'field' => $clean['error']]);
+        if ($site !== null) { $r = TIX_Site_Switches::save($site, 'checkout', 'site.'); if (is_wp_error($r)) return $r; }
         self::save($org, $clean);
         return self::rest_get($req);
     }

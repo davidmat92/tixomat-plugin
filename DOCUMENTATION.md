@@ -7242,3 +7242,17 @@ User-Entscheid 17.11.: Bei Kassenverkäufen gilt nur der Ticketpreis; Freikarten
 - Die Online-Kasse ist unverändert. Für die Abrechnung ändert sich nichts: Kassenverkäufe sind dort ohnehin nur Information.
 - KitchenKlub live (nur lesend): Alle 6 bisherigen Kassenbestellungen hatten keine Gebühr (total = Positionen). Die Kassenberichte ändern sich nicht.
 - **Test:** `test-pos-no-fee-wp` (4; der Lauf setzt vorher die Kundengebühr per Option).
+
+## 242. Funktionen der ganzen Seite im Studio (ab 1.38.882, WP-Admin-Restliste W2)
+Vertrag: `uebergaben/vertrag-funktionen-der-seite.md`. Klasse `TIX_Site_Switches`: eine Liste `DEFS`, ein reiner Prüfer `clean`, ein Schreiber `save`. Geschrieben werden nur die mitgeschickten Schlüssel, direkt in `tix_settings`. Rein additiv.
+- **V2 `/studio/features`:** GET liefert zusätzlich `site{key: {value, type, label, group, group_label, min?, max?, max_length?, hint?}}` und `site_editable`. POST `{site: {...}}`, allein oder zusammen mit `app_features`. 15 Schlüssel: Umschreiben, 1-Klick, Gemeinsam buchen, Extras, Tische, Warteliste, Spenden, Barcode, Upsell (3), Bewertung, Warenkorb-Erinnerung (3).
+- **V2b `/studio/checkout-settings`:** `site.low_stock_threshold` (0–999).
+- **V13 `/studio/invoice-config`:** `order_tax {enabled, rate, inclusive}` = `tax_enabled`/`tax_rate`/`tax_inclusive`. Das ist nicht der Satz des Rechnungsstellers (`tax_rate`).
+- **V15 `/support/mode`:**
+  - GET liefert `switches {enabled, chat_enabled, categories[]}`, `switches_editable` und `categories_custom`.
+  - POST `{switches}`; `mode` ist dann optional. Schreiben darf wie bisher nur der Admin.
+- **Rechte:** Auf evendis schreibt nur der Plattform-Admin (sonst 403 `tix_platform_only`). Auf Einzel-Seiten dürfen Admin und Inhaber.
+- **Fehler:** 400 `tix_invalid_field` mit Feld (`site.<key>`, `order_tax.<key>`, `switches.<key>`). Bei einem Fehler wird nichts geschrieben.
+- **Protokoll:** Jede Änderung landet in `tix_audit_log` als `site_settings` (alte → neue Werte).
+- **Umzug nach evendis-api:** Instanz-Felder mit denselben Schlüsseln; `clean` als reine Funktion mit Fixtures.
+- **Test:** `test-site-switches-wp` (24; Plattform und KK).

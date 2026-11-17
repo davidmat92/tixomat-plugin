@@ -1625,7 +1625,12 @@ class TIX_Invoices {
     public static function rest_config(WP_REST_Request $req) {
         $issuer = self::scope_issuer($req);
         if ($issuer === null) return self::err('rest_forbidden', 'Dieses Konto ist keinem Veranstalter zugeordnet.', 403);
-        return rest_ensure_response(self::config_payload($issuer));
+        return rest_ensure_response(self::config_payload($issuer) + self::order_tax_payload());
+    }
+
+    /** W2 (1.38.882): MwSt.-Ausweis der Bestellungen (tix_settings tax_*), ganze Seite */
+    private static function order_tax_payload() {
+        return class_exists('TIX_Site_Switches') ? ['order_tax' => TIX_Site_Switches::mapped_payload(TIX_Site_Switches::TAX_MAP), 'order_tax_editable' => TIX_Site_Switches::can_write()] : [];
     }
 
     /**
@@ -1641,6 +1646,16 @@ class TIX_Invoices {
         $admin = current_user_can('manage_options');
         $is_org = strpos($issuer, 'org:') === 0;
         $cfg = self::config($issuer);
+        // W2 (1.38.882): order_tax vorab prüfen, geschrieben wird zuletzt (nach company, das tix_settings ebenfalls schreibt)
+        $order_tax = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($p, 'order_tax') : null;
+        if (is_wp_error($order_tax)) return $order_tax;
+        if ($order_tax !== null) {
+            if (!TIX_Site_Switches::can_write()) return self::err('tix_platform_only', 'Das gilt für die ganze Plattform und stellt evendis ein.', 403, 'order_tax');
+            $keyed = [];
+            foreach ($order_tax as $api => $v) { if (!isset(TIX_Site_Switches::TAX_MAP[$api])) return self::err('tix_invalid_field', 'Unbekannte Einstellung: ' . $api . '.', 400, 'order_tax.' . $api); $keyed[TIX_Site_Switches::TAX_MAP[$api]] = $v; }
+            [$ok, $bad] = TIX_Site_Switches::clean($keyed, 'tax');
+            if ($ok === null) return self::err('tix_invalid_field', 'Ungültiger Wert.', 400, 'order_tax.' . array_search($bad, TIX_Site_Switches::TAX_MAP, true));
+        }
         if (array_key_exists('code', $p)) {
             $code = strtoupper(trim((string) $p['code']));
             if ($code !== '' && !preg_match('/^[A-Z0-9]{2,6}$/', $code)) return self::err('tix_invalid', 'Kürzel: 2–6 Zeichen A–Z/0–9.', 400, 'code');
@@ -1767,7 +1782,8 @@ class TIX_Invoices {
             update_option(self::OPT_ENABLED, filter_var($p['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
             if (self::enabled()) self::maybe_install();
         }
-        return rest_ensure_response(self::config_payload($issuer));
+        if ($order_tax !== null) { $r = TIX_Site_Switches::mapped_save($order_tax, TIX_Site_Switches::TAX_MAP, 'tax', 'order_tax.'); if (is_wp_error($r)) return $r; }
+        return rest_ensure_response(self::config_payload($issuer) + self::order_tax_payload());
     }
 }
 

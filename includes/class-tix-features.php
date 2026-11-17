@@ -411,7 +411,8 @@ class TIX_Features {
     }
 
     public static function rest_get(WP_REST_Request $req) {
-        $r = new WP_REST_Response(['ok' => true] + self::payload($req));
+        $site = class_exists('TIX_Site_Switches') ? ['site' => TIX_Site_Switches::payload('features'), 'site_editable' => TIX_Site_Switches::can_write()] : []; // W2 (1.38.882)
+        $r = new WP_REST_Response(['ok' => true] + self::payload($req) + $site);
         $r->header('Cache-Control', 'no-store');
         return $r;
     }
@@ -426,6 +427,16 @@ class TIX_Features {
     public static function rest_save(WP_REST_Request $req) {
         $b = $req->get_json_params();
         if (!is_array($b)) $b = $req->get_body_params();
+        // Seiten-Schalter (W2, 1.38.882): {site: {key: value}} – allein oder zusammen mit app_features
+        if (class_exists('TIX_Site_Switches') && is_array($b) && array_key_exists('site', $b)) {
+            $site = TIX_Site_Switches::input($b, 'site');
+            if (is_wp_error($site)) return $site;
+            $r = TIX_Site_Switches::save($site, 'features', 'site.');
+            if (is_wp_error($r)) return $r;
+            unset($b['site']);
+            $rest = array_diff_key($b, ['organizer' => 1, 'organizer_id' => 1]);
+            if (!$rest) return self::rest_get($req);
+        }
         $flat = self::from_flat(array_merge((array) $req->get_body_params(), (array) $b));
         $in = isset($b['app_features']) ? $b['app_features'] : (isset($b['features']) ? $b['features'] : ($flat ?: $b));
         if (is_string($in)) { $dec = json_decode($in, true); $in = is_array($dec) ? $dec : $in; }

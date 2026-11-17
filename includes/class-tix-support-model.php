@@ -918,11 +918,21 @@ class TIX_Support_Model {
     public static function rest_mode(WP_REST_Request $req) {
         $out = ['ok' => true, 'site_mode' => self::site_mode(), 'platform' => self::multi()];
         if (self::multi() && ($oid = TIX_App_Scope::organizer_id_for_user())) $out['organizer_mode'] = self::org_mode($oid);
+        // W2 (1.38.882): Support-Schalter der ganzen Seite
+        if (class_exists('TIX_Site_Switches')) $out += ['switches' => TIX_Site_Switches::mapped_payload(TIX_Site_Switches::SUPPORT_MAP), 'switches_editable' => current_user_can('manage_options'), 'categories_custom' => TIX_Site_Switches::categories_custom()];
         return rest_ensure_response($out);
     }
 
     /** POST /support/mode {mode[, organizer_id]} – nur Admin (Plattform je Veranstalter mit organizer_id). */
     public static function rest_mode_save(WP_REST_Request $req) {
+        // W2 (1.38.882): {switches: {enabled, chat_enabled, categories}}; mode dann optional
+        $sw = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input((array) $req->get_json_params(), 'switches') : null;
+        if (is_wp_error($sw)) return $sw;
+        if ($sw !== null) {
+            $r = TIX_Site_Switches::mapped_save($sw, TIX_Site_Switches::SUPPORT_MAP, 'support', 'switches.');
+            if (is_wp_error($r)) return $r;
+            if ($req->get_param('mode') === null) return self::rest_mode($req);
+        }
         $m = sanitize_key((string) $req->get_param('mode'));
         if (!in_array($m, self::MODES, true)) return self::bad('mode', 'Modus: evendis, self oder evendis_package.');
         $oid = intval($req->get_param('organizer_id'));
