@@ -4,6 +4,8 @@
 if (!defined('ABSPATH') || !method_exists('TIX_Promoter', 'resolve_code')) { echo "Plugin nötig\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function p4_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
+require_once __DIR__ . '/inc-voraussetzungen.php'; // 1.38.886: fehlende Voraussetzung = übersprungen statt rot
+function p4_peq($l, $e, $a) { $r = tix_t_promoter_reason(); if ($r !== '') { tix_t_skip($l, $r); return; } p4_eq($l, $e, $a); }
 function p4_rest($m, $r, array $b = []) { $q = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b && $m === 'GET') $q->set_query_params($b); elseif ($b) { $q->set_header('content-type', 'application/json'); $q->set_body(wp_json_encode($b)); } $res = rest_do_request($q); $d = $res->get_data(); return [$res->get_status(), $d, is_array($d) ? ($d['code'] ?? '') : '']; }
 global $wpdb;
 TIX_Order::create_tables(); TIX_Order_Attribution::maybe_create();
@@ -46,7 +48,7 @@ p4_eq('Suche ohne Event → 400', 400, $st);
 // ═══ Verkauf mit Promoter ═══
 [$st, $d] = $sale(['promoter_code' => "p4anna$sfx"]);
 $c1 = $com(intval($d['order_id'] ?? 0));
-p4_eq('Kassenverkauf mit Promoter-Code: Promoter in der Antwort, Provision 2 × 2 € als „pos“', [200, $pa, 1, 4.0, 'pos'],
+p4_peq('Kassenverkauf mit Promoter-Code: Promoter in der Antwort, Provision 2 × 2 € als „pos“', [200, $pa, 1, 4.0, 'pos'],
     [$st, $d['promoter']['id'] ?? 0, count($c1), floatval($c1[0]->a ?? 0), (string) ($c1[0]->attribution ?? '')]);
 [$st, $d] = $sale(['promoter_code' => "P4ANNA$sfx"]);
 p4_eq('Rabatt-Code im Promoter-Feld findet denselben Promoter', [200, $pa], [$st, $d['promoter']['id'] ?? 0]);
@@ -89,4 +91,4 @@ foreach (array_unique(array_filter($proms)) as $p) { $wpdb->delete(TIX_Promoter_
 foreach (array_unique(array_filter($posts)) as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);
-echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler\n";
+echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler" . tix_t_skip_suffix() . "\n";

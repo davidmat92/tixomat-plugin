@@ -5,6 +5,8 @@ $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur lokal!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function pp_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
+require_once __DIR__ . '/inc-voraussetzungen.php'; // 1.38.886: fehlende Voraussetzung = übersprungen statt rot
+function pp_meq($l, $e, $a) { $r = tix_t_mail_reason(); if ($r !== '') { tix_t_skip($l, $r); return; } pp_eq($l, $e, $a); }
 function pp_rest($m, $r, array $b = [], $tok = '') { $q = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($tok) $q->set_header('X-Tix-Promoter-Token', $tok); if ($b && $m === 'GET') $q->set_query_params($b); elseif ($b) { $q->set_header('content-type', 'application/json'); $q->set_body(wp_json_encode($b)); } $res = rest_do_request($q); $d = $res->get_data(); return [$res->get_status(), $d, is_array($d) ? ($d['code'] ?? '') : '']; }
 global $wpdb;
 TIX_Order::create_tables(); TIX_Order_Attribution::maybe_create();
@@ -119,11 +121,11 @@ if ($multi) { pp_eq('Plattform: Veranstalter Pflicht', [400, 'organizer_id'], [$
 $neo = $wpdb->get_row($wpdb->prepare("SELECT * FROM " . TIX_Promoter_DB::table_promoters() . " WHERE email = %s", "neo_$sfx@example.test")); if ($neo) $proms[] = intval($neo->id);
 // an den Promoter (seit 1.38.660 geht danach noch die Mitteilung an den Veranstalter raus)
 $neo_mail = []; foreach ($GLOBALS['pp_mails'] as $mm) if (in_array("neo_$sfx@example.test", (array) $mm['to'], true)) $neo_mail = $mm;
-pp_eq('Selbst-Anmeldung: wartet auf Freigabe, Mail mit Studio-Link', [200, 'pending', $org, true], [$st, $neo->status ?? '', intval($neo->organizer_id ?? -1), strpos(html_entity_decode((string) ($neo_mail['message'] ?? '')), 'studio.seite.test/promoter/anmelden/') !== false]);
+pp_meq('Selbst-Anmeldung: wartet auf Freigabe, Mail mit Studio-Link', [200, 'pending', $org, true], [$st, $neo->status ?? '', intval($neo->organizer_id ?? -1), strpos(html_entity_decode((string) ($neo_mail['message'] ?? '')), 'studio.seite.test/promoter/anmelden/') !== false]);
 preg_match('#letter-spacing:6px;[^>]*>(\d{6})<#', (string) ($neo_mail['message'] ?? ''), $nc);
 [$st, $nd] = pp_rest('POST', '/promoter/auth/confirm', ['email' => "neo_$sfx@example.test", 'code' => $nc[1] ?? '']);
 [$st, $nl] = pp_rest('GET', '/promoter/links', [], (string) ($nd['token'] ?? ''));
-pp_eq('Wartender Promoter kann sich anmelden, sieht aber keine Links', [200, true, []], [$st, $nl['pending'] ?? null, $nl['events'] ?? null]);
+pp_meq('Wartender Promoter kann sich anmelden, sieht aber keine Links', [200, true, []], [$st, $nl['pending'] ?? null, $nl['events'] ?? null]);
 $GLOBALS['pp_mails'] = [];
 wp_set_current_user($owner);
 [$st, $L1] = pp_rest('GET', '/organizer/promoters', ['status' => 'pending']);
@@ -146,4 +148,4 @@ if ($studio_before === null) delete_option('tix_studio_url'); else update_option
 foreach ($posts as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);
-echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler\n";
+echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler" . tix_t_skip_suffix() . "\n";

@@ -3,6 +3,8 @@
 if (!defined('ABSPATH') || !class_exists('TIX_Promoter_Notify') || !class_exists('TIX_Promoter_Material')) { echo "Plugin nötig\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function p2_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
+require_once __DIR__ . '/inc-voraussetzungen.php'; // 1.38.886: fehlende Voraussetzung = übersprungen statt rot
+function p2_meq($l, $e, $a) { $r = tix_t_mail_reason(); if ($r !== '') { tix_t_skip($l, $r); return; } p2_eq($l, $e, $a); }
 function p2_rest($m, $r, array $b = [], $tok = '') { $q = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($tok) $q->set_header('X-Tix-Promoter-Token', $tok); if ($b && $m === 'GET') $q->set_query_params($b); elseif ($b) { $q->set_header('content-type', 'application/json'); $q->set_body(wp_json_encode($b)); } $res = rest_do_request($q); $d = $res->get_data(); return [$res->get_status(), $d, is_array($d) ? ($d['code'] ?? '') : '']; }
 global $wpdb;
 TIX_Order::create_tables(); TIX_Promoter_DB::create_tables(); TIX_Promoter_DB::ensure_email_column(); TIX_Promoter_DB::ensure_org_column(); TIX_Promoter_DB::ensure_clicks_table(); TIX_Promoter_Portal::maybe_create();
@@ -37,15 +39,15 @@ TIX_Promoter_DB::assign_event(['promoter_id' => $pb, 'event_id' => $ev, 'commiss
 p2_eq('Zuteilung zu einem Entwurf: noch keine Mail', 0, count($mails($A, 'Neues Event')));
 wp_update_post(['ID' => $ev, 'post_status' => 'publish']);
 $m = $mails($A, 'Neues Event');
-p2_eq('Veröffentlichen: Mail „Neues Event“ mit Link inkl. Rabatt-Code und Provision', [1, true, true], [count($m), strpos((string) ($m[0]['message'] ?? ''), "coupon=P2ANNA$sfx") !== false, strpos((string) ($m[0]['message'] ?? ''), '2,00 €') !== false]);
+p2_meq('Veröffentlichen: Mail „Neues Event“ mit Link inkl. Rabatt-Code und Provision', [1, true, true], [count($m), strpos((string) ($m[0]['message'] ?? ''), "coupon=P2ANNA$sfx") !== false, strpos((string) ($m[0]['message'] ?? ''), '2,00 €') !== false]);
 p2_eq('Abbestellt: keine Mail', 0, count($mails($B, 'Neues Event')));
 TIX_Promoter_DB::assign_event(['promoter_id' => $pa, 'event_id' => $ev, 'commission_type' => 'fixed', 'commission_value' => 2, 'discount_type' => 'percent', 'discount_value' => 10, 'promo_code' => "P2ANNA$sfx", 'status' => 'active']);
 wp_update_post(['ID' => $ev, 'post_title' => "P2 Party $sfx neu"]);
-p2_eq('Erneutes Speichern bzw. Ändern: keine zweite Mail', 1, count($mails($A, 'Neues Event')));
+p2_meq('Erneutes Speichern bzw. Ändern: keine zweite Mail', 1, count($mails($A, 'Neues Event')));
 $GLOBALS['p2m'] = [];
 $ev2 = $mkev("Zweites $sfx", $org);
 TIX_Promoter_DB::assign_event(['promoter_id' => $pa, 'event_id' => $ev2, 'commission_type' => 'fixed', 'commission_value' => 1, 'status' => 'active']);
-p2_eq('Zuteilung zu veröffentlichtem Event: Mail (Plattform: schon beim Veröffentlichen)', 1, count($mails($A, 'Neues Event für dich: P2 Zweites')));
+p2_meq('Zuteilung zu veröffentlichtem Event: Mail (Plattform: schon beim Veröffentlichen)', 1, count($mails($A, 'Neues Event für dich: P2 Zweites')));
 TIX_Promoter_Notify::save_prefs($pb, ['event' => true]);
 // Veröffentlichen: Promoter mit „Alle Events“ bekommt die Mail einmal
 TIX_Promoter_DB::assign_event(['promoter_id' => $pb, 'event_id' => 0, 'commission_type' => 'percent', 'commission_value' => 5, 'status' => 'active']);
@@ -53,7 +55,7 @@ $draft = $mkev("Entwurf $sfx", $org, 'draft');
 p2_eq('Entwurf: noch keine Mail', 0, count($mails($B, 'Entwurf')));
 wp_update_post(['ID' => $draft, 'post_status' => 'publish']);
 wp_update_post(['ID' => $draft, 'post_title' => "P2 Entwurf $sfx neu"]);
-p2_eq('Veröffentlichen: Mail an Promoter mit „Alle Events“, nicht bei weiterem Speichern', 1, count($mails($B, 'Neues Event für dich: P2 Entwurf')));
+p2_meq('Veröffentlichen: Mail an Promoter mit „Alle Events“, nicht bei weiterem Speichern', 1, count($mails($B, 'Neues Event für dich: P2 Entwurf')));
 
 // ═══ 2. Verkauf (gesammelt), Auszahlung, Wochenbericht ═══
 $GLOBALS['p2m'] = [];
@@ -62,18 +64,18 @@ TIX_Promoter_DB::insert_commission(['promoter_id' => $pa, 'event_id' => $ev, 'or
 p2_eq('Verkauf: gesammelt, noch keine Mail', [0, true], [count($mails($A)), (bool) wp_next_scheduled(TIX_Promoter_Notify::CRON_FLUSH)]);
 TIX_Promoter_Notify::flush();
 $m = $mails($A, 'über deinen Link');
-p2_eq('Eine Mail für beide Verkäufe: 3 Tickets, +6,00 €, keine Käuferdaten', [1, true, false], [count($m), strpos((string) ($m[0]['subject'] ?? ''), '3 neue Tickets') !== false && strpos((string) ($m[0]['subject'] ?? ''), '6,00') !== false, strpos((string) ($m[0]['message'] ?? ''), '@example.test') !== false && strpos((string) $m[0]['message'], $A) === false && strpos((string) $m[0]['message'], 'kunde') !== false]);
+p2_meq('Eine Mail für beide Verkäufe: 3 Tickets, +6,00 €, keine Käuferdaten', [1, true, false], [count($m), strpos((string) ($m[0]['subject'] ?? ''), '3 neue Tickets') !== false && strpos((string) ($m[0]['subject'] ?? ''), '6,00') !== false, strpos((string) ($m[0]['message'] ?? ''), '@example.test') !== false && strpos((string) $m[0]['message'], $A) === false && strpos((string) $m[0]['message'], 'kunde') !== false]);
 $wpdb->update(TIX_Promoter_DB::table_commissions(), ['created_at' => gmdate('Y-m-d H:i:s', time() - 20 * DAY_IN_SECONDS)], ['promoter_id' => $pa]);
 update_post_meta($ev, '_tix_date_start', wp_date('Y-m-d', time() - 3 * DAY_IN_SECONDS));
 $po = TIX_Promoter_DB::create_payout(['promoter_id' => $pa, 'period_from' => '2000-01-01', 'period_to' => current_time('Y-m-d')]);
-p2_eq('Auszahlung vorbereitet → Mail', [true, 1], [(bool) $po, count($mails($A, 'vorbereitet'))]);
+p2_meq('Auszahlung vorbereitet → Mail', [true, 1], [(bool) $po, count($mails($A, 'vorbereitet'))]);
 TIX_Promoter_DB::mark_payout_paid(intval($po));
-p2_eq('Auszahlung überwiesen → Mail', 1, count($mails($A, 'unterwegs')));
+p2_meq('Auszahlung überwiesen → Mail', 1, count($mails($A, 'unterwegs')));
 update_post_meta($ev, '_tix_date_start', wp_date('Y-m-d', time() + 9 * DAY_IN_SECONDS));
 $wpdb->insert(TIX_Promoter_DB::table_clicks(), ['promoter_id' => $pb, 'visitor_id' => 'p2v' . $sfx, 'page_path' => '/', 'event_id' => $ev, 'referrer_host' => '', 'device_type' => 'mobile', 'click_date' => current_time('mysql')]);
 $GLOBALS['p2m'] = [];
 TIX_Promoter_Notify::weekly();
-p2_eq('Wochenbericht: Ben (Klick in dieser Woche) bekommt einen, mit Tipp', [1, true], [count($mails($B, 'Promoter-Woche')), strpos((string) ($mails($B, 'Promoter-Woche')[0]['message'] ?? ''), 'Tipp') !== false]);
+p2_meq('Wochenbericht: Ben (Klick in dieser Woche) bekommt einen, mit Tipp', [1, true], [count($mails($B, 'Promoter-Woche')), strpos((string) ($mails($B, 'Promoter-Woche')[0]['message'] ?? ''), 'Tipp') !== false]);
 TIX_Promoter_DB::update_promoter($pb, ['status' => 'inactive']);
 $GLOBALS['p2m'] = [];
 TIX_Promoter_Notify::weekly();
@@ -142,4 +144,4 @@ foreach (array_unique(array_filter($proms)) as $p) {
 foreach (array_unique(array_filter($posts)) as $p) { if (get_post_type($p) === 'attachment' && get_attached_file($p) && strpos((string) get_attached_file($p), 'wp-admin') !== false) { wp_delete_post($p, true); continue; } get_post_type($p) === 'attachment' ? wp_delete_attachment($p, true) : wp_delete_post($p, true); }
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);
-echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler\n";
+echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler" . tix_t_skip_suffix() . "\n";

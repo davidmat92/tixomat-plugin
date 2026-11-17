@@ -7285,3 +7285,11 @@ Vertrag: `uebergaben/vertrag-kleinkram-w4-2026-11-17.md`. Rein additiv.
 - **Tischplan:** `POST/DELETE /events/{id}/table-floor-plan`; im Editor `table_reservation.floor_plan`.
 - **S7:** `GET /events/{id}/edit` → `info_html` (das gespeicherte HTML, `wp_kses_post`).
 - **Test:** `test-w4-kleinkram-wp` (31 auf Plattform und KK).
+
+## 245. Tests: fehlende Voraussetzungen werden übersprungen (ab 1.38.886)
+- `tests/inc-voraussetzungen.php` enthält `tix_t_mail_reason()`, `tix_t_promoter_reason()`, `tix_t_skip()` und `tix_t_skip_suffix()`.
+- Prüfungen, die eine fehlende Voraussetzung brauchen, melden jetzt „skip … übersprungen: Grund“ statt rot zu werden. Die Schluss-Zeile nennt die Anzahl und den Grund.
+- Betroffene Tests:
+  - promoter-p2 (8 Mail-Prüfungen), promoter-audit (1) und promoter-portal (2): Die Demo-Instanz verwirft Mails.
+  - promoter-p4 (1 Provision an der Kasse): Das Promoter-Modul ist aus.
+- Mit der Voraussetzung laufen die Prüfungen wie bisher, zum Beispiel p4 mit Modul an: 11/11.

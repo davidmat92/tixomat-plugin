@@ -6,6 +6,8 @@ $h = (string) wp_parse_url(home_url(), PHP_URL_HOST);
 if (strpos($h, '.') !== false && stripos($h, 'localhost') === false && substr($h, -5) !== '.test') { echo "Nur lokal!\n"; return; }
 $GLOBALS['t_fails'] = 0; $GLOBALS['t_count'] = 0;
 function pa_eq($l, $e, $a) { $GLOBALS['t_count']++; if ($e === $a) { echo "ok    $l\n"; return; } $GLOBALS['t_fails']++; echo "FAIL  $l: erwartet " . var_export($e, true) . ", ist " . var_export($a, true) . "\n"; }
+require_once __DIR__ . '/inc-voraussetzungen.php'; // 1.38.886: fehlende Voraussetzung = übersprungen statt rot
+function pa_meq($l, $e, $a) { $r = tix_t_mail_reason(); if ($r !== '') { tix_t_skip($l, $r); return; } pa_eq($l, $e, $a); }
 function pa_rest($m, $r, array $b = []) { $q = new WP_REST_Request($m, '/tixomat/v1' . $r); if ($b && $m === 'GET') $q->set_query_params($b); elseif ($b) { $q->set_header('content-type', 'application/json'); $q->set_body(wp_json_encode($b)); } $res = rest_do_request($q); $d = $res->get_data(); return [$res->get_status(), $d, is_array($d) ? ($d['code'] ?? '') : '']; }
 global $wpdb;
 TIX_Order::create_tables(); TIX_Order_Attribution::maybe_create();
@@ -47,7 +49,7 @@ $P = $r['promoter'] ?? []; $pid = intval($P['id'] ?? 0); $proms[] = $pid;
 pa_eq('Anlegen: 201, Code erzeugt, Links mit ?ref=, Zugang verschickt', [201, true, true, true, true], [$st, (bool) preg_match('/^lisapromo\d+$/', $P['code'] ?? ''), strpos($P['links']['link'] ?? '', 'ref=' . ($P['code'] ?? 'x')) !== false, strpos($P['links']['qr_link'] ?? '', 'utm_medium=qr') !== false, $r['access_sent'] ?? false]);
 // seit 1.38.662 können vorher „Neues Event“-Mails an vorhandene Promoter rausgehen → Lisas Mail suchen
 $lisa = []; foreach ($GLOBALS['pa_mails'] as $mm) if ((array) $mm['to'] === ["lisa_$sfx@example.test"] || ($mm['to'] ?? '') === "lisa_$sfx@example.test") { $lisa = $mm; break; }
-pa_eq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [!empty($lisa), strpos(html_entity_decode((string) ($lisa['message'] ?? '')), '/promoter/anmelden/?t=') !== false]);
+pa_meq('Login-Mail an die Promoter-Adresse mit Magic-Link', [true, true], [!empty($lisa), strpos(html_entity_decode((string) ($lisa['message'] ?? '')), '/promoter/anmelden/?t=') !== false]);
 pa_eq('Promoter gehört dem Bereich', $org, intval($wpdb->get_var($wpdb->prepare("SELECT organizer_id FROM $tp WHERE id = %d", $pid))));
 [$st, $d, $code] = pa_rest('POST', '/organizer/promoters', ['name' => 'Doppelt', 'email' => "lisa_$sfx@example.test"]);
 pa_eq('Gleiche E-Mail zweimal → 409', [409, 'tix_promoter_exists'], [$st, $code]);
@@ -215,4 +217,4 @@ if ($coupons_before === null) delete_option('tix_coupons'); else update_option('
 foreach ($posts as $p) wp_delete_post($p, true);
 require_once ABSPATH . 'wp-admin/includes/user.php';
 foreach (array_unique(array_filter($users)) as $u) wp_delete_user($u);
-echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler\n";
+echo ($GLOBALS['t_fails'] ? 'FEHLER' : 'GRÜN') . " {$GLOBALS['t_count']} Prüfungen, {$GLOBALS['t_fails']} Fehler" . tix_t_skip_suffix() . "\n";
