@@ -79,7 +79,11 @@ class TIX_Event_Editor_Extras {
                 'max' => self::UPSELL_MAX],
             'embed' => ['enabled' => get_post_meta($eid, '_tix_embed_enabled', true) === '1', 'domains' => $dom, 'max' => self::DOMAINS_MAX],
             'express_checkout' => get_post_meta($eid, '_tix_express_checkout', true) === '1',
-            'waitlist_enabled' => get_post_meta($eid, '_tix_waitlist_enabled', true) === '1']
+            'waitlist_enabled' => get_post_meta($eid, '_tix_waitlist_enabled', true) === '1',
+            // W4 (1.38.885): Hinweis „Eintritt frei“, Warenkorb-Erinnerung je Event, Kopffarben des Gewinnspiels (alte Website)
+            'free_entry_note' => (string) get_post_meta($eid, '_tix_free_entry_note', true),
+            'abandoned_cart' => get_post_meta($eid, '_tix_abandoned_cart', true) === '1',
+            'raffle_header' => ['bg' => (string) get_post_meta($eid, '_tix_raffle_header_bg', true), 'color' => (string) get_post_meta($eid, '_tix_raffle_header_color', true)]]
             // Kassenfelder je Event (1.38.875): eigene Einstellung (inherit = Standard), wirksamer Wert, Standard
             + (class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::editor_payload($eid) : []);
     }
@@ -157,6 +161,21 @@ class TIX_Event_Editor_Extras {
         }
         if (array_key_exists('express_checkout', $b)) $out['_tix_express_checkout'] = !empty($b['express_checkout']) ? '1' : '0';
         if (array_key_exists('waitlist_enabled', $b)) $out['_tix_waitlist_enabled'] = !empty($b['waitlist_enabled']) ? '1' : '';
+        if (array_key_exists('free_entry_note', $b)) {
+            $v = trim(sanitize_text_field((string) $b['free_entry_note']));
+            if (mb_strlen($v) > 200) return self::bad('free_entry_note', 'Höchstens 200 Zeichen.');
+            $out['_tix_free_entry_note'] = $v;
+        }
+        if (array_key_exists('abandoned_cart', $b)) $out['_tix_abandoned_cart'] = !empty($b['abandoned_cart']) ? '1' : '0';
+        if (array_key_exists('raffle_header', $b)) {
+            if (!is_array($b['raffle_header'])) return self::bad('raffle_header', 'raffle_header als Objekt.');
+            foreach (['bg' => '_tix_raffle_header_bg', 'color' => '_tix_raffle_header_color'] as $k => $meta) {
+                if (!array_key_exists($k, $b['raffle_header'])) continue;
+                $c = trim((string) $b['raffle_header'][$k]);
+                if ($c !== '' && !preg_match('/^#[0-9a-fA-F]{6}$/', $c)) return self::bad('raffle_header.' . $k, 'Farbe als #rrggbb.');
+                $out[$meta] = strtolower($c);
+            }
+        }
         if (array_key_exists('checkout_fields', $b) && class_exists('TIX_Checkout_Fields')) {
             $cf = TIX_Checkout_Fields::clean_event_input($b['checkout_fields']);
             if (is_wp_error($cf)) return $cf;

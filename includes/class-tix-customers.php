@@ -42,6 +42,9 @@ class TIX_Customers {
             ]);
             register_rest_route(self::NS, $base . '/(?P<id>[ue][0-9a-f]{1,20})/delete', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_delete']] + $p);
             register_rest_route(self::NS, $base . '/(?P<id>[ue][0-9a-f]{1,20})/wallet', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_wallet']] + $p);
+            // W4 (1.38.885): Mail an den Kunden, Passwort-Link
+            register_rest_route(self::NS, $base . '/(?P<id>[ue][0-9a-f]{1,20})/mail', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_mail']] + $p);
+            register_rest_route(self::NS, $base . '/(?P<id>[ue][0-9a-f]{1,20})/password-link', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_password_link']] + $p);
         }
     }
 
@@ -588,6 +591,52 @@ class TIX_Customers {
         $after = TIX_Wallet_Balance::get_wallet(intval($w['id']));
         return rest_ensure_response(['ok' => true, 'customer_id' => $c['id'], 'transaction' => TIX_Wallet_Balance::tx_payload($tx, true),
             'balance' => TIX_Wallet_Balance::euro(intval($after['balance_paid']) + intval($after['balance_bonus'])), 'notified' => $notify && $cents > 0]);
+    }
+
+    // ═══════════════ Mail und Passwort-Link (W4, 1.38.885) ═══════════════
+
+    const MAIL_TAGS = ['p' => [], 'br' => [], 'strong' => [], 'b' => [], 'em' => [], 'i' => [], 'ul' => [], 'ol' => [], 'li' => [], 'a' => ['href' => true]];
+
+    /** POST /customers/{id}/mail {subject, message} – im Layout der Mail-Marke; Platzhalter {{first_name}}, {{last_name}}, {{email}} */
+    public static function rest_mail(WP_REST_Request $req) {
+        $sc = self::scope($req);
+        list($c) = self::find($req, $sc);
+        if (!$c) return self::err('tix_customer_missing', 'Kunde nicht gefunden.', 404);
+        $subject = trim(sanitize_text_field((string) $req->get_param('subject')));
+        $message = trim((string) $req->get_param('message'));
+        if ($subject === '' || mb_strlen($subject) > 150) return self::err('tix_invalid_field', 'Bitte einen Betreff mit höchstens 150 Zeichen.', 400, ['field' => 'subject']);
+        if ($message === '' || mb_strlen($message) > 10000) return self::err('tix_invalid_field', 'Bitte eine Nachricht mit höchstens 10.000 Zeichen.', 400, ['field' => 'message']);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('customer_mail', 20, 600)) return self::err('tix_rate_limit', 'Zu viele Mails – bitte kurz warten.', 429);
+        $u = $c['user_id'] ? get_userdata($c['user_id']) : null;
+        $email = $u ? (string) $u->user_email : (string) $c['email'];
+        if (!is_email($email)) return self::err('tix_no_email', 'Für diesen Kunden gibt es keine gültige E-Mail-Adresse.', 409);
+        $l = $c['last'] ?? null;
+        $first = $u && $u->first_name ? $u->first_name : (string) ($l->billing_first_name ?? '');
+        $last = $u && $u->last_name ? $u->last_name : (string) ($l->billing_last_name ?? '');
+        $rep = ['{{first_name}}' => $first, '{{last_name}}' => $last, '{{email}}' => $email];
+        $subject = strtr($subject, $rep);
+        $body = wp_kses(strtr($message, array_map('esc_html', $rep)), self::MAIL_TAGS);
+        if (!preg_match('#<(p|br|ul|ol)\b#i', $body)) $body = nl2br($body);
+        $html = class_exists('TIX_Emails') && method_exists('TIX_Emails', 'build_generic_email_html') ? TIX_Emails::build_generic_email_html($subject, $body) : '<html><body>' . $body . '</body></html>';
+        $brand = class_exists('TIX_Mail_Layout') ? (string) TIX_Mail_Layout::brand()['name'] : get_bloginfo('name');
+        $sent = class_exists('TIX_Customer_URL') ? TIX_Customer_URL::mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']) : wp_mail($email, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+        if (!$sent) return self::err('tix_mail_failed', 'Die Mail konnte nicht gesendet werden.', 500);
+        self::audit('customer_mail', $c['id'], $sc, ['subject_len' => mb_strlen($subject), 'chars' => mb_strlen(wp_strip_all_tags($body))]);
+        return rest_ensure_response(['ok' => true, 'email' => $email, 'brand' => $brand]);
+    }
+
+    /** POST /customers/{id}/password-link – gleiche Mail wie „Konto aktivieren“; nur Kunden mit Konto */
+    public static function rest_password_link(WP_REST_Request $req) {
+        $sc = self::scope($req);
+        list($c) = self::find($req, $sc);
+        if (!$c) return self::err('tix_customer_missing', 'Kunde nicht gefunden.', 404);
+        if (empty($c['user_id']) || !get_userdata($c['user_id'])) return self::err('tix_no_account', 'Dieser Kunde hat kein Konto – ein Passwort-Link geht nicht.', 409);
+        if (!class_exists('TIX_Account_Activation')) return self::err('tix_unavailable', 'Konto-Aktivierung nicht verfügbar.', 500);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('customer_pwlink', 10, 600)) return self::err('tix_rate_limit', 'Zu viele Anfragen – bitte kurz warten.', 429);
+        $oid = !empty($c['order_ids']) ? intval(max(array_map('intval', $c['order_ids']))) : 0;
+        if (!TIX_Account_Activation::trigger_activation(intval($c['user_id']), $oid)) return self::err('tix_mail_failed', 'Die Mail konnte nicht gesendet werden.', 500);
+        self::audit('customer_password_link', $c['id'], $sc, []);
+        return rest_ensure_response(['ok' => true]);
     }
 
     // ═══════════════ Änderungsprotokoll ═══════════════

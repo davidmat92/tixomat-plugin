@@ -1313,9 +1313,10 @@ class TIX_Native_Checkout {
         $req_mark      = function ($on) { return $on ? ' <abbr class="tix-co-req">*</abbr>' : ''; };
         $vat_text      = $s['vat_text_checkout'] ?? 'inkl. MwSt.';
         $btn_text      = $s['btn_text_checkout'] ?? 'Jetzt bestellen';
-        $terms_url     = $s['terms_url'] ?? '';
-        $privacy_url   = $s['privacy_url'] ?? '';
-        $revocation_url = $s['revocation_url'] ?? '';
+        // W4 (1.38.885): eigene URL, sonst veröffentlichter Rechtstext (/studio/legal)
+        $terms_url     = class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('terms') : ($s['terms_url'] ?? '');
+        $privacy_url   = class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('privacy') : ($s['privacy_url'] ?? '');
+        $revocation_url = class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('revocation') : ($s['revocation_url'] ?? '');
 
         // Gateways
         $gateways = [];

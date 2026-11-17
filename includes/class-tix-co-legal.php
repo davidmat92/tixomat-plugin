@@ -53,9 +53,9 @@ class TIX_Co_Legal {
             'name' => self::dec($name),
             'address' => (string) ($c['address'] ?? ''),
             'imprint_url' => (string) ($lg['imprint'] ?? '') ?: (string) ($s['imprint_url'] ?? ($s['impressum_url'] ?? '')),
-            'privacy_url' => (string) ($lg['privacy'] ?? '') ?: (string) ($s['privacy_url'] ?? ''),
-            'terms_url' => (string) ($lg['terms'] ?? '') ?: (string) ($s['terms_url'] ?? ''),
-            'revocation_url' => (string) ($s['revocation_url'] ?? ''),
+            'privacy_url' => (string) ($lg['privacy'] ?? '') ?: (class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('privacy') : (string) ($s['privacy_url'] ?? '')),
+            'terms_url' => (string) ($lg['terms'] ?? '') ?: (class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('terms') : (string) ($s['terms_url'] ?? '')),
+            'revocation_url' => class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('revocation') : (string) ($s['revocation_url'] ?? ''), // W4 (1.38.885)
             'host' => self::host_of(class_exists('TIX_Customer_URL') && TIX_Customer_URL::host() !== '' ? 'https://' . TIX_Customer_URL::host() : home_url()),
         ]);
     }

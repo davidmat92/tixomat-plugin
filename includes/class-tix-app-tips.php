@@ -584,6 +584,10 @@ class TIX_App_Tips {
         register_rest_route(self::NS, '/app/tips/(?P<id>\d+)/delete', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_delete'], 'permission_callback' => $admin,
         ]);
+        // W4 (1.38.885): gelöschte Tipps zurückholen (Liste: GET /app/tips?status=trash)
+        register_rest_route(self::NS, '/app/tips/(?P<id>\d+)/restore', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_restore'], 'permission_callback' => $admin,
+        ]);
         register_rest_route(self::NS, '/app/tips/(?P<id>\d+)/image', [
             'methods' => 'POST', 'callback' => [__CLASS__, 'rest_image'], 'permission_callback' => $admin,
         ]);
@@ -745,9 +749,10 @@ class TIX_App_Tips {
 
     /** GET /app/tips */
     public static function rest_admin_list(WP_REST_Request $req) {
+        $trash = (string) $req->get_param('status') === 'trash'; // W4 (1.38.885): Papierkorb
         $ids = get_posts([
             'post_type'        => self::CPT,
-            'post_status'      => ['publish', 'draft', 'pending', 'future', 'private'],
+            'post_status'      => $trash ? ['trash'] : ['publish', 'draft', 'pending', 'future', 'private'],
             'posts_per_page'   => 500,
             'fields'           => 'ids',
             'orderby'          => ['menu_order' => 'ASC', 'date' => 'DESC'],
@@ -821,6 +826,19 @@ class TIX_App_Tips {
         }
         self::flush();
         return rest_ensure_response(['ok' => true]);
+    }
+
+    /** POST /app/tips/{id}/restore – aus dem Papierkorb (vorheriger Status: Entwurf bzw. veröffentlicht, wie WordPress ihn gemerkt hat) */
+    public static function rest_restore(WP_REST_Request $req) {
+        $post = get_post(absint($req['id']));
+        if (!$post || $post->post_type !== self::CPT) return new WP_Error('tix_not_found', 'Tipp nicht gefunden.', ['status' => 404]);
+        if ($post->post_status !== 'trash') return new WP_Error('tix_not_trashed', 'Der Tipp ist nicht im Papierkorb.', ['status' => 409]);
+        $prev = (string) get_post_meta($post->ID, '_wp_trash_meta_status', true);
+        if (!wp_untrash_post($post->ID)) return new WP_Error('tix_tip_restore', 'Der Tipp konnte nicht zurückgeholt werden.', ['status' => 500]);
+        // WordPress setzt zurückgeholte Beiträge seit 5.6 auf Entwurf – den vorherigen Status wiederherstellen
+        if (in_array($prev, ['publish', 'draft', 'pending', 'future', 'private'], true) && get_post_status($post->ID) !== $prev) wp_update_post(['ID' => $post->ID, 'post_status' => $prev]);
+        self::flush();
+        return rest_ensure_response(['ok' => true, 'tip' => self::admin_payload($post->ID)]);
     }
 
     /** POST /app/tips/{id}/image (multipart `file`, `kind` = author|image) */

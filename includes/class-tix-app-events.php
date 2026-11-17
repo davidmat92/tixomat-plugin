@@ -236,6 +236,7 @@ class TIX_App_Events {
 
         $info = [];
         $markup = [];
+        $info_html = [];
         foreach (self::info_sections() as $sec) {
             $raw = $id ? get_post_meta($id, '_tix_info_' . $sec['key'], true) : '';
             if ($sec['type'] === 'number') {
@@ -243,6 +244,8 @@ class TIX_App_Events {
             } else {
                 $info[$sec['key']] = self::html_to_text($raw);
                 if (self::has_markup($raw)) $markup[] = $sec['key'];
+                // S7/W4 (1.38.885): gespeichertes HTML (bereinigt) für den Rich-Text-Editor des Studios
+                $info_html[$sec['key']] = $sec['type'] === 'text' ? '' : wp_kses_post((string) $raw);
             }
         }
 
@@ -320,6 +323,7 @@ class TIX_App_Events {
             'checkin_password'   => $m('_tix_checkin_password'),
             'info'               => $info,
             'info_markup'        => $markup,
+            'info_html'          => (object) $info_html, // S7/W4 (1.38.885): HTML je Info-Abschnitt (Speichern weiter über info, Server bereinigt)
             'categories'         => $cats,
             // Mengenrabatt (Staffeln „ab X Tickets Y %“)
             'group_discount'     => self::group_discount_of($id),

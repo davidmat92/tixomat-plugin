@@ -85,6 +85,7 @@ class TIX_Consent_Banner {
     private static function privacy_url() {
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
         $u = trim((string) ($s['privacy_url'] ?? ''));
+        if ($u === '' && class_exists('TIX_Studio_Legal')) return TIX_Studio_Legal::checkout_url('privacy'); // W4 (1.38.885)
         if ($u === '') return '';
         return preg_match('#^https?://#i', $u) ? $u : home_url($u);
     }

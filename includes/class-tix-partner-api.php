@@ -119,7 +119,7 @@ class TIX_Partner_API {
             'seller'         => (string) (tix_get_settings('syndication_site_name') ?: get_bloginfo('name')),
             'terms_url'      => (string) (($s['terms_url'] ?? '') ?: tix_get_settings('terms_url')),
             'privacy_url'    => (string) (($s['privacy_url'] ?? '') ?: tix_get_settings('privacy_url')),
-            'revocation_url' => (string) tix_get_settings('revocation_url'),
+            'revocation_url' => (string) (class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('revocation') : tix_get_settings('revocation_url')), // W4 (1.38.885)
             // 1.38.717: Verkäufer vollständig (Art. 246a EGBGB)
             'legal_name'     => (string) ($s['name'] ?? ''),
             'address'        => (string) ($s['address'] ?? ''),

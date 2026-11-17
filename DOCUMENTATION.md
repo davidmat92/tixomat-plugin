@@ -7269,3 +7269,19 @@ Vertrag: `uebergaben/vertrag-team-kasse-benachrichtigungen-2026-11-17.md`, Absch
   - Neu ist `POST /studio/invoice-config/test {key?}` → `{ok, message, company}`. Höchstens 10 Tests in 10 Minuten; der Schlüssel steht nie in der Antwort.
 - **Protokoll:** Jede Änderung der Benachrichtigungen landet als `org_notifications` in `tix_audit_log` (nur Anzahl und Arten, keine Adressen).
 - **Test:** `test-w3-team-notify-wp` (Plattform 24, KK 25). Lexoffice wird dabei per `pre_http_request` nachgestellt, es gibt keinen echten Aufruf.
+
+## 244. Kleinkram Event, Ort, Kunden im Studio (ab 1.38.885, WP-Admin-Restliste W4)
+Vertrag: `uebergaben/vertrag-kleinkram-w4-2026-11-17.md`. Rein additiv.
+- **V5:** `/locations[/{id}]` bekommt `capacity`, `transit`, `parking` und `listed`.
+- **V6:** `/events/{id}/extras` bekommt `free_entry_note` (auch öffentlich), `abandoned_cart` und `raffle_header{bg,color}`.
+- **V7:** `POST /events/{id}/series/drop-classic` entfernt die alte Termin-Regel. Die Kind-Events bleiben eigenständig erhalten.
+- **V8:** `TIX_Studio_Legal::checkout_link/checkout_url` – eine eigene URL in `tix_settings` gewinnt, sonst gilt der veröffentlichte Rechtstext.
+  - Genutzt von der nativen Kasse, dem Consent-Banner, `TIX_Co_Legal` und der Partner-API sowie über die Filter `tix_checkout_*_url` (Ticket-Mails).
+  - `GET /studio/legal` → `checkout_links`; neu `POST /studio/legal/checkout-links`.
+- **V9 Gutschein-Popup:** nicht gebaut, gibt es nur auf den alten WordPress-Seiten.
+- **V10:** `POST /customers/{id}/mail` (eingeschränktes HTML, Platzhalter, 20 Mails in 10 Minuten) und `POST /customers/{id}/password-link`. Beide schreiben ins Protokoll, ohne Inhalt.
+- **V11:** `TIX_Abandoned_Carts_REST`, `GET /organizer/abandoned-carts`. Auf evendis nur eigene Events.
+- **Tipps:** `GET /app/tips?status=trash` und `POST /app/tips/{id}/restore`.
+- **Tischplan:** `POST/DELETE /events/{id}/table-floor-plan`; im Editor `table_reservation.floor_plan`.
+- **S7:** `GET /events/{id}/edit` → `info_html` (das gespeicherte HTML, `wp_kses_post`).
+- **Test:** `test-w4-kleinkram-wp` (31 auf Plattform und KK).

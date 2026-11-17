@@ -59,6 +59,7 @@ class TIX_Event_Tools {
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_series_get'], 'permission_callback' => $ev],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_series_set'], 'permission_callback' => $ev],
         ]);
+        register_rest_route(self::NS, '/events/(?P<id>\d+)/series/drop-classic', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_series_drop_classic'], 'permission_callback' => $ev]); // W4 (1.38.885)
         register_rest_route(self::NS, '/events/(?P<id>\d+)/series/skip', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_series_skip'], 'permission_callback' => $ev]);
         register_rest_route(self::NS, '/events/(?P<id>\d+)/series/detach', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_series_detach'], 'permission_callback' => $ev]);
         $read = ['TIX_REST_API', 'check_organizer'];
@@ -118,6 +119,28 @@ class TIX_Event_Tools {
             'weekday' => ($ds = (string) get_post_meta($master, '_tix_date_start', true)) !== '' ? intval(date('N', strtotime($ds))) : null,
             'detached' => $parent ? get_post_meta($eid, TIX_Recurrence::META_DETACHED, true) === '1' : null,
             'classic_series' => (bool) $classic, 'occurrences' => $occ] + $lim;
+    }
+
+    /**
+     * POST /events/{id}/series/drop-classic (W4, 1.38.885): alte Termin-Regel (klassische Serie) entfernen. Die schon angelegten
+     * Termine bleiben als eigenständige Events (nichts wird gelöscht); danach geht die neue Serie (POST /events/{id}/series).
+     */
+    public static function rest_series_drop_classic(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!TIX_REST_API::user_can_access_event($eid)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        if ($e = self::shared_error($eid)) return $e;
+        $parent = intval(get_post_meta($eid, '_tix_series_parent', true));
+        if ($parent) return new WP_Error('tix_series_child', 'Das ist ein Termin der alten Serie – die Termin-Liste entfernst du am Hauptevent.', ['status' => 409, 'parent_id' => $parent]);
+        if (get_post_meta($eid, '_tix_series_enabled', true) !== '1') return new WP_Error('tix_series_none', 'Dieses Event hat keine alte Termin-Liste.', ['status' => 409]);
+        $children = get_post_meta($eid, '_tix_series_children', true);
+        $children = is_array($children) ? array_map('intval', $children) : [];
+        foreach ($children as $cid) { delete_post_meta($cid, '_tix_series_parent'); delete_post_meta($cid, '_tix_series_index'); }
+        foreach (['_tix_series_children', '_tix_series_mode', '_tix_series_pattern', '_tix_series_manual_dates'] as $k) delete_post_meta($eid, $k);
+        update_post_meta($eid, '_tix_series_enabled', '0');
+        if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
+        if (class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) TIX_Customers::audit('series_drop_classic', $eid, ['scope' => 'site', 'oid' => 0], ['detached' => count($children)]);
+        return rest_ensure_response(['ok' => true, 'detached' => count($children)] + ['series' => self::series_payload($eid)]);
     }
 
     public static function rest_series_get(WP_REST_Request $req) {

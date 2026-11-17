@@ -218,6 +218,8 @@ class TIX_Studio_Editor {
                 'enabled' => !empty($tr['enabled']), 'payment_mode' => (string) ($tr['payment_mode'] ?? 'on_site'), 'deposit_type' => (string) ($tr['deposit_type'] ?? 'percent'),
                 'deposit_value' => round(floatval($tr['deposit_value'] ?? 50), 2), 'info_text' => (string) ($tr['info_text'] ?? ''), 'show_in_checkout' => !empty($tr['show_in_checkout']),
                 'categories' => $tcats, 'has_floor_plan' => intval($tr['floor_plan_id'] ?? 0) > 0,
+                // W4 (1.38.885): Tischplan-Bild (POST/DELETE /events/{id}/table-floor-plan)
+                'floor_plan' => self::floor_plan_payload(intval($tr['floor_plan_id'] ?? 0)),
             ],
         ];
     }
@@ -576,6 +578,7 @@ class TIX_Studio_Editor {
     public static function register_routes() {
         $staff = ['TIX_REST_API', 'check_organizer'];
         register_rest_route(self::NS, '/events/(?P<id>\d+)/sponsor-image', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_sponsor_image'], 'permission_callback' => $staff]);
+        register_rest_route(self::NS, '/events/(?P<id>\d+)/table-floor-plan', ['methods' => 'POST, DELETE', 'callback' => [__CLASS__, 'rest_floor_plan'], 'permission_callback' => $staff]); // W4 (1.38.885)
         register_rest_route(self::NS, '/specials', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_specials'], 'permission_callback' => $staff],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_special_save'], 'permission_callback' => [__CLASS__, 'perm_location_write']],
@@ -707,9 +710,52 @@ class TIX_Studio_Editor {
             'last_used' => class_exists('TIX_Locations') ? TIX_Locations::last_used($lid) : null,
             'organizer_id' => intval($m('_tix_loc_organizer_id')) ?: null,
             'canonical_id' => class_exists('TIX_Locations') ? TIX_Locations::canonical_id($lid) : intval($lid),
+            // W4 (1.38.885): Kapazität, Anfahrt (hat Vorrang vor der des Veranstalters), in der App unter „Orte“
+            'capacity' => $m('_tix_loc_capacity') !== '' && is_numeric($m('_tix_loc_capacity')) ? intval($m('_tix_loc_capacity')) : null,
+            'transit'  => $m('_tix_loc_transit'),
+            'parking'  => $m('_tix_loc_parking'),
+            'listed'   => $m('_tix_loc_listed') === '1',
             // Seiten-Angaben am Ort (P6 1.38.804): Texte, Bild, Galerie, Öffnungszeiten, Kontakt – wie „Der Club“
             'page' => $with_page && class_exists('TIX_Club') && method_exists('TIX_Club', 'page_payload') ? array_diff_key((array) TIX_Club::page_payload($lid), array_flip(['location_id', 'name', 'address', 'zip', 'city'])) : null,
         ];
+    }
+
+    // ── Tischplan-Bild (W4, 1.38.885) ──
+
+    private static function floor_plan_payload($aid) {
+        if (!$aid || get_post_type($aid) !== 'attachment') return null;
+        $u = wp_get_attachment_image_url($aid, 'large') ?: wp_get_attachment_url($aid);
+        return $u ? ['id' => intval($aid), 'url' => (string) $u] : null;
+    }
+
+    /** POST /events/{id}/table-floor-plan (multipart image) – hochladen bzw. tauschen; DELETE – entfernen (Bild bleibt in der Mediathek) */
+    public static function rest_floor_plan(WP_REST_Request $req) {
+        $eid = absint($req['id']);
+        if (get_post_type($eid) !== 'event') return new WP_Error('not_found', 'Event nicht gefunden.', ['status' => 404]);
+        if (!TIX_REST_API::user_can_access_event($eid)) return new WP_Error('forbidden', 'Kein Zugriff auf dieses Event.', ['status' => 403]);
+        $tr = get_post_meta($eid, '_tix_table_reservation', true);
+        $tr = is_array($tr) ? $tr : [];
+        if ($req->get_method() === 'DELETE') {
+            unset($tr['floor_plan_id']);
+            update_post_meta($eid, '_tix_table_reservation', $tr);
+            return rest_ensure_response(['ok' => true, 'floor_plan' => null]);
+        }
+        $files = $req->get_file_params();
+        $file = $files['image'] ?? ($files['file'] ?? null);
+        if (empty($file['tmp_name'])) return self::bad('image', 'Kein Bild hochgeladen.');
+        if (!empty($file['error']) || intval($file['size'] ?? 0) > 15 * MB_IN_BYTES) return new WP_Error('too_large', 'Das Bild ist zu groß (höchstens 15 MB).', ['status' => 413, 'field' => 'image']);
+        $info = @getimagesize($file['tmp_name']);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return self::bad('image', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.');
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mime];
+        $aid = media_handle_sideload(['name' => 'tischplan-' . $eid . '-' . time() . '.' . $ext, 'tmp_name' => $file['tmp_name'], 'type' => $mime, 'size' => $file['size'] ?? 0], $eid, 'Tischplan');
+        if (is_wp_error($aid)) return new WP_Error('upload_failed', $aid->get_error_message(), ['status' => 500]);
+        $tr['floor_plan_id'] = intval($aid);
+        update_post_meta($eid, '_tix_table_reservation', $tr);
+        return rest_ensure_response(['ok' => true, 'floor_plan' => self::floor_plan_payload(intval($aid))]);
     }
 
     public static function perm_admin_only(WP_REST_Request $req) {
@@ -818,6 +864,9 @@ class TIX_Studio_Editor {
             $page_clean = TIX_Venues::clean_page_input($p['page'], 'tix_invalid_field', 10000);
             if (is_wp_error($page_clean)) { $d = (array) $page_clean->get_error_data(); if (!empty($d['field'])) $d['field'] = 'page.' . $d['field']; return new WP_Error($page_clean->get_error_code(), $page_clean->get_error_message(), $d); }
         }
+        // W4 (1.38.885): Kapazität, Anfahrt, Ortsliste
+        if (array_key_exists('capacity', $p) && $p['capacity'] !== null && $p['capacity'] !== '' && (!is_numeric($p['capacity']) || intval($p['capacity']) != $p['capacity'] || intval($p['capacity']) < 0 || intval($p['capacity']) > 200000)) return self::bad('capacity', 'Kapazität: ganze Zahl bis 200.000.');
+        foreach (['transit', 'parking'] as $k) if (array_key_exists($k, $p) && mb_strlen((string) $p[$k]) > 300) return self::bad($k, 'Höchstens 300 Zeichen.');
         foreach (['lat' => [-90, 90], 'lng' => [-180, 180]] as $k => $rng) {
             if (isset($p[$k]) && $p[$k] !== '' && $p[$k] !== null && (!is_numeric($p[$k]) || floatval($p[$k]) < $rng[0] || floatval($p[$k]) > $rng[1])) return self::bad($k, 'Ungültige Koordinate.');
         }
@@ -832,6 +881,9 @@ class TIX_Studio_Editor {
         foreach ($f as $k => $meta) {
             if (array_key_exists($k, $p)) update_post_meta($lid, $meta, mb_substr(sanitize_text_field((string) $p[$k]), 0, $k === 'address' ? 200 : 80));
         }
+        if (array_key_exists('capacity', $p)) { if ($p['capacity'] === null || $p['capacity'] === '') delete_post_meta($lid, '_tix_loc_capacity'); else update_post_meta($lid, '_tix_loc_capacity', (string) intval($p['capacity'])); }
+        foreach (['transit' => '_tix_loc_transit', 'parking' => '_tix_loc_parking'] as $k => $meta) if (array_key_exists($k, $p)) update_post_meta($lid, $meta, sanitize_textarea_field((string) $p[$k]));
+        if (array_key_exists('listed', $p)) update_post_meta($lid, '_tix_loc_listed', filter_var($p['listed'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0');
         if (isset($page_clean) && is_array($page_clean)) {
             foreach ($page_clean as $meta => $val) update_post_meta($lid, $meta, $val);
             foreach (array_merge(!empty($page_clean['_tix_loc_image_id']) ? [intval($page_clean['_tix_loc_image_id'])] : [], isset($page_clean['_tix_loc_gallery']) && class_exists('TIX_Venues') ? array_column(TIX_Venues::gallery($lid), 'id') : []) as $aid) {

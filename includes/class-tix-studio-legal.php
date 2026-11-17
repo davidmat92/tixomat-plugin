@@ -35,12 +35,70 @@ class TIX_Studio_Legal {
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
+        // W4 (1.38.885): Kasse/Tickets-Mail nehmen die veröffentlichten Rechtstexte, wenn keine eigene URL eingetragen ist
+        add_filter('tix_checkout_terms_url', function ($u) { return $u ?: self::page_url('agb'); }, 20);
+        add_filter('tix_checkout_privacy_url', function ($u) { $p = self::page_url('datenschutz'); return $p ?: $u; }, 20);
+        add_filter('tix_checkout_revocation_url', function ($u) { return $u ?: self::page_url('widerruf'); }, 20);
+    }
+
+    /** Kasse → Rechtstext: terms|privacy|revocation ↔ Schlüssel und tix_settings-Feld */
+    const CHECKOUT = ['terms' => ['agb', 'terms_url'], 'privacy' => ['datenschutz', 'privacy_url'], 'revocation' => ['widerruf', 'revocation_url']];
+
+    private static $urls = [];
+    private static $busy = false;
+
+    /** Öffentliche URL des veröffentlichten Rechtstexts oder '' (gemerkt je Aufruf; Schutz gegen Rückruf über site-config) */
+    public static function page_url($key) {
+        if (array_key_exists($key, self::$urls)) return self::$urls[$key];
+        if (self::$busy || !isset(self::DOCS[$key])) return '';
+        self::$busy = true;
+        try {
+            $p = self::page($key);
+            $u = $p && $p->post_status === 'publish' ? (string) get_permalink($p) : '';
+            if ($u !== '' && class_exists('TIX_Customer_URL')) $u = (string) TIX_Customer_URL::to($u);
+        } finally { self::$busy = false; }
+        return self::$urls[$key] = $u;
+    }
+
+    /** Link der Kasse: eigene URL (tix_settings) vor veröffentlichtem Rechtstext → [url, source own|page|''] */
+    public static function checkout_link($kind) {
+        if (!isset(self::CHECKOUT[$kind])) return ['', ''];
+        [$doc, $field] = self::CHECKOUT[$kind];
+        $s = get_option('tix_settings', []);
+        $own = trim((string) (is_array($s) ? ($s[$field] ?? '') : ''));
+        if ($own !== '') return [preg_match('#^https?://#i', $own) ? $own : home_url($own), 'own'];
+        $u = self::page_url($doc);
+        return [$u, $u !== '' ? 'page' : ''];
+    }
+
+    public static function checkout_url($kind) { return self::checkout_link($kind)[0]; }
+
+    private static function checkout_links_payload() {
+        $out = [];
+        foreach (array_keys(self::CHECKOUT) as $k) { [$u, $src] = self::checkout_link($k); $out[$k] = ['url' => $u ?: null, 'source' => $src]; }
+        return $out;
+    }
+
+    /** POST /studio/legal/checkout-links {terms?, privacy?, revocation?}: eigene URL (https://…) oder '' = aus dem Rechtstext */
+    public static function rest_checkout_links(WP_REST_Request $req) {
+        $b = (array) $req->get_json_params();
+        $s = get_option('tix_settings', []); $s = is_array($s) ? $s : [];
+        $set = [];
+        foreach ($b as $k => $v) {
+            if (!isset(self::CHECKOUT[$k])) return new WP_Error('tix_invalid_field', 'Unbekannter Link: ' . $k . '.', ['status' => 400, 'field' => (string) $k]);
+            $v = trim((string) $v);
+            if ($v !== '' && (!preg_match('#^https://[^\s/]+\.[^\s/]+#i', $v) || filter_var($v, FILTER_VALIDATE_URL) === false)) return new WP_Error('tix_invalid_field', 'Bitte eine vollständige Adresse mit https:// angeben.', ['status' => 400, 'field' => $k]);
+            $set[self::CHECKOUT[$k][1]] = $v === '' ? '' : esc_url_raw($v);
+        }
+        if ($set) { foreach ($set as $f => $v) $s[$f] = $v; update_option('tix_settings', $s); self::$urls = []; }
+        return rest_ensure_response(['ok' => true, 'checkout_links' => self::checkout_links_payload()]);
     }
 
     public static function routes() {
         $perm = [__CLASS__, 'perm'];
         $key = '(?P<key>impressum|datenschutz|agb|widerruf)';
         register_rest_route(self::NS, '/studio/legal', ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_list'], 'permission_callback' => $perm]);
+        register_rest_route(self::NS, '/studio/legal/checkout-links', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_checkout_links'], 'permission_callback' => $perm]); // W4 (1.38.885)
         register_rest_route(self::NS, '/studio/legal/' . $key, [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_get'], 'permission_callback' => $perm],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save'], 'permission_callback' => $perm],
@@ -215,7 +273,8 @@ class TIX_Studio_Legal {
     // ═══════════════ REST ═══════════════
 
     public static function rest_list(WP_REST_Request $req) {
-        $r = new WP_REST_Response(['ok' => true, 'items' => array_map(function ($k) { return self::item($k); }, array_keys(self::DOCS)), 'scope' => class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'platform' : 'site']);
+        $r = new WP_REST_Response(['ok' => true, 'items' => array_map(function ($k) { return self::item($k); }, array_keys(self::DOCS)), 'scope' => class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'platform' : 'site',
+            'checkout_links' => self::checkout_links_payload()]); // W4 (1.38.885)
         $r->header('Cache-Control', 'no-store');
         return $r;
     }
