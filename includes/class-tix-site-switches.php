@@ -5,9 +5,8 @@
  *
  * Eine Liste aller Schlüssel (DEFS), ein reiner Prüfer (clean), ein Schreiber in tix_settings (save, nur geänderte Schlüssel).
  * Ausgespielt über bestehende Routen:
- *   /studio/features         → site{…}, site_editable            (V2, Bereich 'features')
- *   /studio/checkout-settings → site{low_stock_threshold}        (V2b, Bereich 'checkout')
- *   /studio/invoice-config   → order_tax{enabled, rate, inclusive} (V13)
+ *   /studio/checkout-settings → features{<name>: {enabled, can_edit, hint, …}}, low_stock_threshold (V2, V2b; Form laut Studio-Vertrag)
+ *   /studio/invoice-config   → tax{enabled, inclusive, rate} – rate = bestehendes tax_rate (eine Quelle) (V13)
  *   /support/mode            → switches{enabled, chat_enabled, categories[]} (V15)
  * Rechte: Werte gelten für die ganze Seite. evendis: nur Plattform-Admin schreibt; Einzel-Seite: Admin und Inhaber (tix_organizer).
  */
@@ -17,28 +16,27 @@ class TIX_Site_Switches {
 
     /** key => [Bereich, Typ, Vorgabe, Bezeichnung, Gruppe, Extra] */
     const DEFS = [
-        'ticket_transfer_enabled'   => ['features', 'bool', 0, 'Ticket umschreiben', 'verkauf', ['hint' => 'Käufer dürfen Tickets auf eine andere Person umschreiben. Je Event zusätzlich einschalten.']],
-        'express_checkout_enabled'  => ['features', 'bool', 0, '1-Klick-Kauf', 'verkauf', ['hint' => 'Angemeldete Kunden kaufen mit einem Klick (gespeicherte Daten).']],
-        'group_booking'             => ['features', 'bool', 1, 'Gemeinsam buchen', 'verkauf', ['hint' => 'Eine Person bestellt, die Gruppe bezahlt einzeln.']],
-        'specials_enabled'          => ['features', 'bool', 0, 'Extras', 'verkauf', ['hint' => 'Zusatzartikel wie Getränkemarken oder Parkplatz zum Ticket.']],
-        'table_reservation_enabled' => ['features', 'bool', 0, 'Tischreservierung', 'verkauf', ['hint' => 'Tische mit Mindestverzehr. Je Event einstellen.']],
-        'waitlist_enabled'          => ['features', 'bool', 1, 'Warteliste', 'event_seite', ['hint' => 'Erinnerung zum Vorverkaufsstart und Warteliste bei ausverkauften Events.']],
-        'charity_enabled'           => ['features', 'bool', 0, 'Spenden-Hinweis', 'event_seite', ['hint' => 'Hinweis auf einen guten Zweck. Je Event einstellen.']],
-        'barcode_enabled'           => ['features', 'bool', 0, 'Barcode auf dem Ticket', 'event_seite', ['hint' => 'Zusätzlich zum QR-Code, für ältere Scanner.']],
-        'show_upsell'               => ['features', 'bool', 1, 'Ähnliche Events nach dem Kauf', 'nach_kauf', []],
-        'upsell_count'              => ['features', 'int', 3, 'Anzahl ähnlicher Events', 'nach_kauf', ['min' => 1, 'max' => 6]],
-        'upsell_heading'            => ['features', 'text', 'Das könnte dich auch interessieren', 'Überschrift ähnliche Events', 'nach_kauf', ['max_length' => 120]],
-        'feedback_enabled'          => ['features', 'bool', 1, 'Bewertung nach dem Event', 'nach_kauf', ['hint' => 'Sterne und Kommentar in der Mail nach dem Event.']],
-        'abandoned_cart_enabled'    => ['features', 'bool', 0, 'Erinnerung bei abgebrochenem Kauf', 'nach_kauf', ['hint' => 'Mail an Kunden, die die Kasse mit E-Mail-Adresse verlassen haben.']],
-        'abandoned_cart_delay'      => ['features', 'int', 30, 'Erinnerung nach (Minuten)', 'nach_kauf', ['min' => 5, 'max' => 1440]],
-        'abandoned_cart_subject'    => ['features', 'text', '', 'Betreff der Erinnerung', 'nach_kauf', ['max_length' => 150, 'hint' => 'Leer = Standard.']],
+        'ticket_transfer_enabled'   => ['checkout', 'bool', 0, 'Ticket umschreiben', 'verkauf', ['hint' => 'Käufer dürfen Tickets auf eine andere Person umschreiben. Je Event zusätzlich einschalten.']],
+        'express_checkout_enabled'  => ['checkout', 'bool', 0, '1-Klick-Kauf', 'verkauf', ['hint' => 'Angemeldete Kunden kaufen mit einem Klick (gespeicherte Daten).']],
+        'group_booking'             => ['checkout', 'bool', 1, 'Gemeinsam buchen', 'verkauf', ['hint' => 'Knopf „Gemeinsam buchen“ in der Ticketauswahl der Website (alte WordPress-Seiten; entfällt mit der neuen Marken-Website).']],
+        'specials_enabled'          => ['checkout', 'bool', 0, 'Extras', 'verkauf', ['hint' => 'Zusatzartikel wie Getränkemarken oder Parkplatz zum Ticket.']],
+        'table_reservation_enabled' => ['checkout', 'bool', 0, 'Tischreservierung', 'verkauf', ['hint' => 'Tische mit Mindestverzehr. Je Event einstellen.']],
+        'waitlist_enabled'          => ['checkout', 'bool', 1, 'Warteliste', 'event_seite', ['hint' => 'Erinnerung zum Vorverkaufsstart und Warteliste bei ausverkauften Events.']],
+        'charity_enabled'           => ['checkout', 'bool', 0, 'Spenden-Hinweis', 'event_seite', ['hint' => 'Hinweis auf einen guten Zweck. Je Event einstellen.']],
+        'show_upsell'               => ['checkout', 'bool', 1, 'Ähnliche Events nach dem Kauf', 'nach_kauf', []],
+        'upsell_count'              => ['checkout', 'int', 3, 'Anzahl ähnlicher Events', 'nach_kauf', ['min' => 1, 'max' => 6]],
+        'upsell_heading'            => ['checkout', 'text', 'Das könnte dich auch interessieren', 'Überschrift ähnliche Events', 'nach_kauf', ['max_length' => 80]],
+        'feedback_enabled'          => ['checkout', 'bool', 1, 'Bewertung nach dem Event', 'nach_kauf', ['hint' => 'Die Mail nach dem Event enthält eine Sterne-Bewertung mit Kommentar; Ergebnisse unter Statistik.']],
+        'abandoned_cart_enabled'    => ['checkout', 'bool', 0, 'Erinnerung bei abgebrochenem Kauf', 'nach_kauf', ['hint' => 'Mail an Kunden, die die Kasse mit E-Mail-Adresse verlassen haben.']],
+        'abandoned_cart_delay'      => ['checkout', 'int', 30, 'Erinnerung nach (Minuten)', 'nach_kauf', ['min' => 5, 'max' => 1440]],
+        'abandoned_cart_subject'    => ['checkout', 'text', '', 'Betreff der Erinnerung', 'nach_kauf', ['max_length' => 150, 'hint' => 'Leer = Standard.']],
         'low_stock_threshold'       => ['checkout', 'int', 10, '„Nur noch wenige Tickets“ ab', 'kasse', ['min' => 0, 'max' => 999, 'hint' => '0 = nie anzeigen. Je Event im Editor änderbar.']],
         'tax_enabled'               => ['tax', 'bool', 0, 'MwSt. in Bestellungen ausweisen', 'steuer', []],
-        'tax_rate'                  => ['tax', 'float', 19, 'MwSt.-Satz (%)', 'steuer', ['min' => 0, 'max' => 100]],
+        'tax_rate'                  => ['tax', 'float', 19, 'MwSt.-Satz (%)', 'steuer', ['min' => 0, 'max' => 30]],
         'tax_inclusive'             => ['tax', 'bool', 1, 'Preise enthalten MwSt.', 'steuer', ['hint' => 'Normalfall: Bruttopreise.']],
         'support_enabled'           => ['support', 'bool', 0, 'Kundenanfragen', 'support', []],
         'support_chat_enabled'      => ['support', 'bool', 0, 'Chat', 'support', []],
-        'support_categories'        => ['support', 'list', '', 'Themen', 'support', ['max_items' => 20, 'max_length' => 60, 'hint' => 'Leer = Standard-Themen.']],
+        'support_categories'        => ['support', 'list', '', 'Themen', 'support', ['max_items' => 12, 'max_length' => 40, 'hint' => 'Leer = Standard-Themen.']],
     ];
 
     const GROUPS = ['verkauf' => 'Verkauf', 'event_seite' => 'Event-Seite & Ticket', 'nach_kauf' => 'Nach dem Kauf', 'kasse' => 'Kasse', 'steuer' => 'Steuer', 'support' => 'Kundenservice'];
@@ -165,10 +163,65 @@ class TIX_Site_Switches {
         return $v;
     }
 
+    /** /studio/checkout-settings features: Name => [API-Feld => Schlüssel] (Studio-Vertrag 17.11.) */
+    const FEATURE_MAP = [
+        'ticket_transfer'   => ['enabled' => 'ticket_transfer_enabled'],
+        'table_reservation' => ['enabled' => 'table_reservation_enabled'],
+        'specials'          => ['enabled' => 'specials_enabled'],
+        'charity'           => ['enabled' => 'charity_enabled'],
+        'express_checkout'  => ['enabled' => 'express_checkout_enabled'],
+        'upsell'            => ['enabled' => 'show_upsell', 'count' => 'upsell_count', 'heading' => 'upsell_heading'],
+        'waitlist'          => ['enabled' => 'waitlist_enabled'],
+        'feedback'          => ['enabled' => 'feedback_enabled'],
+        'group_booking'     => ['enabled' => 'group_booking'],
+        'abandoned_cart'    => ['enabled' => 'abandoned_cart_enabled', 'delay_minutes' => 'abandoned_cart_delay', 'subject' => 'abandoned_cart_subject'],
+    ];
+
+    public static function features_payload() {
+        $s = self::raw(); $edit = self::can_write(); $out = [];
+        foreach (self::FEATURE_MAP as $name => $map) {
+            $main = self::DEFS[$map['enabled']];
+            $f = ['enabled' => self::value($map['enabled'], $s), 'can_edit' => $edit, 'label' => $main[3], 'group' => $main[4], 'group_label' => self::GROUPS[$main[4]] ?? $main[4]];
+            if (!empty($main[5]['hint'])) $f['hint'] = $main[5]['hint'];
+            foreach ($map as $api => $k) if ($api !== 'enabled') $f[$api] = self::value($k, $s);
+            if ($name === 'abandoned_cart') $f['delay_hours'] = round(self::value('abandoned_cart_delay', $s) / 60, 1);
+            if ($name === 'upsell') $f['limits'] = ['count' => [1, 6], 'heading' => 80];
+            if ($name === 'abandoned_cart') $f['limits'] = ['delay_minutes' => [5, 1440], 'delay_hours' => [1, 24], 'subject' => 150];
+            $out[$name] = $f;
+        }
+        return $out;
+    }
+
+    /** {name: {enabled?, count?, heading?, delay_minutes?|delay_hours?, subject?}} → true | WP_Error (Feld features.<name>.<api>) */
+    public static function features_save($in) {
+        if (!is_array($in)) return new WP_Error('tix_invalid_field', 'features: Objekt erwartet.', ['status' => 400, 'field' => 'features']);
+        $keyed = []; $where = [];
+        foreach ($in as $name => $vals) {
+            if (!isset(self::FEATURE_MAP[$name])) return new WP_Error('tix_invalid_field', 'Unbekannte Funktion: ' . $name . '.', ['status' => 400, 'field' => 'features.' . $name]);
+            if (!is_array($vals)) return new WP_Error('tix_invalid_field', 'features.' . $name . ': Objekt erwartet.', ['status' => 400, 'field' => 'features.' . $name]);
+            foreach ($vals as $api => $v) {
+                if ($name === 'abandoned_cart' && $api === 'delay_hours') {
+                    if (!is_numeric($v) || intval($v) != $v || intval($v) < 1 || intval($v) > 24) return new WP_Error('tix_invalid_field', 'Erinnerung nach 1 bis 24 Stunden.', ['status' => 400, 'field' => 'features.abandoned_cart.delay_hours']);
+                    $api = 'delay_minutes'; $v = intval($v) * 60;
+                }
+                if (in_array($api, ['can_edit', 'label', 'hint', 'group', 'group_label', 'limits'], true)) continue; // nur lesend, still übergehen
+                if (!isset(self::FEATURE_MAP[$name][$api])) return new WP_Error('tix_invalid_field', 'Unbekanntes Feld: ' . $name . '.' . $api . '.', ['status' => 400, 'field' => 'features.' . $name . '.' . $api]);
+                $k = self::FEATURE_MAP[$name][$api];
+                $keyed[$k] = $v; $where[$k] = 'features.' . $name . '.' . $api;
+            }
+        }
+        $r = self::save($keyed, 'checkout', '');
+        if (is_wp_error($r)) {
+            $d = (array) $r->get_error_data();
+            if (isset($d['field'], $where[$d['field']])) $r = new WP_Error($r->get_error_code(), $r->get_error_message(), ['field' => $where[$d['field']]] + $d);
+        }
+        return $r;
+    }
+
     /** /support/mode: {enabled, chat_enabled, categories} ↔ Schlüssel */
     const SUPPORT_MAP = ['enabled' => 'support_enabled', 'chat_enabled' => 'support_chat_enabled', 'categories' => 'support_categories'];
-    /** /studio/invoice-config order_tax: {enabled, rate, inclusive} ↔ Schlüssel */
-    const TAX_MAP = ['enabled' => 'tax_enabled', 'rate' => 'tax_rate', 'inclusive' => 'tax_inclusive'];
+    /** /studio/invoice-config tax: {enabled, inclusive, rate} ↔ Schlüssel. Einzel-Seite: rate und tax_rate des Ausstellers „site“ sind dieselbe Zahl (eine Quelle, beide Wege halten sie gleich) */
+    const TAX_MAP = ['enabled' => 'tax_enabled', 'inclusive' => 'tax_inclusive', 'rate' => 'tax_rate'];
 
     public static function mapped_payload(array $map) {
         $s = self::raw(); $out = [];

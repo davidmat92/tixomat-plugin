@@ -1628,9 +1628,11 @@ class TIX_Invoices {
         return rest_ensure_response(self::config_payload($issuer) + self::order_tax_payload());
     }
 
-    /** W2 (1.38.882): MwSt.-Ausweis der Bestellungen (tix_settings tax_*), ganze Seite */
+    /** W2 (1.38.882/883): MwSt.-Ausweis der Bestellungen (tix_settings tax_enabled/tax_inclusive), ganze Seite; Satz = tax_rate */
     private static function order_tax_payload() {
-        return class_exists('TIX_Site_Switches') ? ['order_tax' => TIX_Site_Switches::mapped_payload(TIX_Site_Switches::TAX_MAP), 'order_tax_editable' => TIX_Site_Switches::can_write()] : [];
+        if (!class_exists('TIX_Site_Switches')) return [];
+        // Satz = tax_rate der Seite (eine Quelle mit dem Rechnungssteller „site“)
+        return ['tax' => ['rate' => self::site_rate()] + TIX_Site_Switches::mapped_payload(TIX_Site_Switches::TAX_MAP), 'tax_editable' => TIX_Site_Switches::can_write()];
     }
 
     /**
@@ -1646,15 +1648,16 @@ class TIX_Invoices {
         $admin = current_user_can('manage_options');
         $is_org = strpos($issuer, 'org:') === 0;
         $cfg = self::config($issuer);
-        // W2 (1.38.882): order_tax vorab prüfen, geschrieben wird zuletzt (nach company, das tix_settings ebenfalls schreibt)
-        $order_tax = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($p, 'order_tax') : null;
+        // W2 (1.38.882/883): tax {enabled, inclusive} vorab prüfen, geschrieben wird zuletzt (nach company, das tix_settings ebenfalls schreibt)
+        $order_tax = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($p, 'tax') : null;
         if (is_wp_error($order_tax)) return $order_tax;
         if ($order_tax !== null) {
-            if (!TIX_Site_Switches::can_write()) return self::err('tix_platform_only', 'Das gilt für die ganze Plattform und stellt evendis ein.', 403, 'order_tax');
+            if (!TIX_Site_Switches::can_write()) return self::err('tix_platform_only', 'Das gilt für die ganze Plattform und stellt evendis ein.', 403, 'tax');
+            if (array_key_exists('rate', $order_tax) && array_key_exists('tax_rate', $p)) return self::err('tix_invalid_field', 'Bitte den Satz nur einmal angeben (tax.rate oder tax_rate).', 400, 'tax.rate');
             $keyed = [];
-            foreach ($order_tax as $api => $v) { if (!isset(TIX_Site_Switches::TAX_MAP[$api])) return self::err('tix_invalid_field', 'Unbekannte Einstellung: ' . $api . '.', 400, 'order_tax.' . $api); $keyed[TIX_Site_Switches::TAX_MAP[$api]] = $v; }
+            foreach ($order_tax as $api => $v) { if (!isset(TIX_Site_Switches::TAX_MAP[$api])) return self::err('tix_invalid_field', 'Unbekannte Einstellung: ' . $api . '.', 400, 'tax.' . $api); $keyed[TIX_Site_Switches::TAX_MAP[$api]] = $v; }
             [$ok, $bad] = TIX_Site_Switches::clean($keyed, 'tax');
-            if ($ok === null) return self::err('tix_invalid_field', 'Ungültiger Wert.', 400, 'order_tax.' . array_search($bad, TIX_Site_Switches::TAX_MAP, true));
+            if ($ok === null) return self::err('tix_invalid_field', 'Ungültiger Wert.', 400, 'tax.' . array_search($bad, TIX_Site_Switches::TAX_MAP, true));
         }
         if (array_key_exists('code', $p)) {
             $code = strtoupper(trim((string) $p['code']));
@@ -1782,7 +1785,17 @@ class TIX_Invoices {
             update_option(self::OPT_ENABLED, filter_var($p['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0', false);
             if (self::enabled()) self::maybe_install();
         }
-        if ($order_tax !== null) { $r = TIX_Site_Switches::mapped_save($order_tax, TIX_Site_Switches::TAX_MAP, 'tax', 'order_tax.'); if (is_wp_error($r)) return $r; }
+        if ($order_tax !== null) { $r = TIX_Site_Switches::mapped_save($order_tax, TIX_Site_Switches::TAX_MAP, 'tax', 'tax.'); if (is_wp_error($r)) return $r; }
+        // Eine Quelle (1.38.883, Einzel-Seite): Satz des Ausstellers „site“ = Satz der Bestellungen (tix_settings tax_rate), in beide Richtungen
+        if ($issuer === 'site') {
+            if (array_key_exists('tax_rate', $p) && $p['tax_rate'] !== null && $p['tax_rate'] !== '' && isset($cfg['tax_rate'])) {
+                $s2 = get_option('tix_settings', []); $s2 = is_array($s2) ? $s2 : [];
+                $s2['tax_rate'] = floatval($cfg['tax_rate']);
+                update_option('tix_settings', $s2);
+            } elseif (is_array($order_tax) && array_key_exists('rate', $order_tax)) {
+                $cfg2 = self::config('site'); $cfg2['tax_rate'] = round(floatval($order_tax['rate']), 2); self::save_config('site', $cfg2);
+            }
+        }
         return rest_ensure_response(self::config_payload($issuer) + self::order_tax_payload());
     }
 }

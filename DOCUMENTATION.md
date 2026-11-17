@@ -7243,16 +7243,16 @@ User-Entscheid 17.11.: Bei Kassenverkäufen gilt nur der Ticketpreis; Freikarten
 - KitchenKlub live (nur lesend): Alle 6 bisherigen Kassenbestellungen hatten keine Gebühr (total = Positionen). Die Kassenberichte ändern sich nicht.
 - **Test:** `test-pos-no-fee-wp` (4; der Lauf setzt vorher die Kundengebühr per Option).
 
-## 242. Funktionen der ganzen Seite im Studio (ab 1.38.882, WP-Admin-Restliste W2)
-Vertrag: `uebergaben/vertrag-funktionen-der-seite.md`. Klasse `TIX_Site_Switches`: eine Liste `DEFS`, ein reiner Prüfer `clean`, ein Schreiber `save`. Geschrieben werden nur die mitgeschickten Schlüssel, direkt in `tix_settings`. Rein additiv.
-- **V2 `/studio/features`:** GET liefert zusätzlich `site{key: {value, type, label, group, group_label, min?, max?, max_length?, hint?}}` und `site_editable`. POST `{site: {...}}`, allein oder zusammen mit `app_features`. 15 Schlüssel: Umschreiben, 1-Klick, Gemeinsam buchen, Extras, Tische, Warteliste, Spenden, Barcode, Upsell (3), Bewertung, Warenkorb-Erinnerung (3).
-- **V2b `/studio/checkout-settings`:** `site.low_stock_threshold` (0–999).
-- **V13 `/studio/invoice-config`:** `order_tax {enabled, rate, inclusive}` = `tax_enabled`/`tax_rate`/`tax_inclusive`. Das ist nicht der Satz des Rechnungsstellers (`tax_rate`).
-- **V15 `/support/mode`:**
-  - GET liefert `switches {enabled, chat_enabled, categories[]}`, `switches_editable` und `categories_custom`.
-  - POST `{switches}`; `mode` ist dann optional. Schreiben darf wie bisher nur der Admin.
-- **Rechte:** Auf evendis schreibt nur der Plattform-Admin (sonst 403 `tix_platform_only`). Auf Einzel-Seiten dürfen Admin und Inhaber.
-- **Fehler:** 400 `tix_invalid_field` mit Feld (`site.<key>`, `order_tax.<key>`, `switches.<key>`). Bei einem Fehler wird nichts geschrieben.
-- **Protokoll:** Jede Änderung landet in `tix_audit_log` als `site_settings` (alte → neue Werte).
-- **Umzug nach evendis-api:** Instanz-Felder mit denselben Schlüsseln; `clean` als reine Funktion mit Fixtures.
-- **Test:** `test-site-switches-wp` (24; Plattform und KK).
+## 242. Funktionen der ganzen Seite im Studio (ab 1.38.882, endgültig 1.38.883, WP-Admin-Restliste W2)
+Endgültiger Vertrag: `uebergaben/vertrag-funktionen-der-seite-2026-11-17.md`, Abschnitt „ENDGÜLTIGE FORM“. Der erste Entwurf (`site` in `/studio/features`) ist ersetzt. Klasse `TIX_Site_Switches`: `DEFS`, reiner Prüfer `clean`, Schreiber `save` (nur mitgeschickte Schlüssel, `tix_settings`).
+- **V2/V2b `/studio/checkout-settings`:**
+  - `features{ticket_transfer, table_reservation, specials, charity, express_checkout, upsell{count, heading}, waitlist, feedback, group_booking, abandoned_cart{delay_minutes, delay_hours, subject}}` mit je `{enabled, can_edit, label, group, hint?}`.
+  - Dazu `features_editable` und `low_stock_threshold` (0–999).
+  - POST `{features, low_stock_threshold}`; Fehlerfeld z. B. `features.upsell.count`. `barcode_enabled` ist nicht dabei (ohne Wirkung).
+- **V13 `/studio/invoice-config`:** `tax{rate, enabled, inclusive}`.
+  - Einzel-Seite: `tax.rate` = `tax_rate` des Ausstellers „site“ = `tix_settings.tax_rate`. Beide Wege halten die Zahl gleich; beide zugleich → 400.
+  - evendis: `tax.*` gilt plattformweit (nur Admin).
+- **V15 `/support/mode`:** `switches{enabled, chat_enabled, categories[] ≤ 12×40}`, `switches_editable`, `categories_custom`. POST `{switches}`; `mode` ist dann optional.
+- **Rechte:** Auf evendis schreibt nur der Plattform-Admin (403 `tix_platform_only`); auf Einzel-Seiten Admin und Inhaber. Jede Änderung landet als `site_settings` in `tix_audit_log`.
+- **Umzug nach evendis-api:** Instanz-Felder mit denselben Namen; `clean` als reine Funktion mit Fixtures.
+- **Test:** `test-site-switches-wp` (Plattform 27, KK 28).

@@ -180,7 +180,9 @@ class TIX_Sale_Settings {
         $defaults = [];
         foreach (self::FIELDS as $area => $fields) foreach ($fields as $k => $def) $defaults[$area][$k] = $def[1];
         return ['ok' => true, 'scope' => (self::multi() && $org > 0) ? 'organizer' : 'site', 'organizer_id' => $org ?: null] + self::get($org)
-            + (class_exists('TIX_Site_Switches') ? ['site' => TIX_Site_Switches::payload('checkout'), 'site_editable' => TIX_Site_Switches::can_write()] : []) // W2 (1.38.882): ganze Seite
+            // W2 (1.38.882/883): Funktionen der ganzen Seite (Form laut Studio-Vertrag) + „Nur noch wenige Tickets“
+            + (class_exists('TIX_Site_Switches') ? ['features' => TIX_Site_Switches::features_payload(), 'features_editable' => TIX_Site_Switches::can_write(),
+                'low_stock_threshold' => TIX_Site_Switches::value('low_stock_threshold'), 'low_stock_limits' => [0, 999]] : [])
             + ['defaults' => $defaults, 'address_forced' => self::address_forced(), 'options' => ['checkout.phone_field' => self::FIELDS['checkout']['phone_field'][3], 'checkout.birthdate_field' => self::FIELDS['checkout']['birthdate_field'][3],
                 'pos.default_payment' => self::FIELDS['pos']['default_payment'][3], 'checkin.duplicate' => self::FIELDS['checkin']['duplicate'][3]]];
     }
@@ -195,13 +197,15 @@ class TIX_Sale_Settings {
         $org = self::org_of($req);
         if (self::multi() && !$org && !current_user_can('manage_options')) return new WP_Error('tix_organizer_required', 'Kein Veranstalter.', ['status' => 400]);
         $body = (array) $req->get_json_params();
-        // Werte der ganzen Seite (W2, 1.38.882): {site: {low_stock_threshold}}
-        $site = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($body, 'site') : null;
-        if (is_wp_error($site)) return $site;
-        unset($body['site']);
+        // Werte der ganzen Seite (W2): {features: {…}, low_stock_threshold}
+        $features = class_exists('TIX_Site_Switches') ? TIX_Site_Switches::input($body, 'features') : null;
+        if (is_wp_error($features)) return $features;
+        $low = array_key_exists('low_stock_threshold', $body) ? ['low_stock_threshold' => $body['low_stock_threshold']] : null;
+        unset($body['features'], $body['low_stock_threshold']);
         $clean = self::validate($body);
         if (isset($clean['error'])) return new WP_Error('tix_invalid_field', 'Ungültiger Wert: ' . $clean['error'] . '.', ['status' => 400, 'field' => $clean['error']]);
-        if ($site !== null) { $r = TIX_Site_Switches::save($site, 'checkout', 'site.'); if (is_wp_error($r)) return $r; }
+        if ($features !== null) { $r = TIX_Site_Switches::features_save($features); if (is_wp_error($r)) return $r; }
+        if ($low !== null) { $r = TIX_Site_Switches::save($low, 'checkout', ''); if (is_wp_error($r)) return $r; }
         self::save($org, $clean);
         return self::rest_get($req);
     }
