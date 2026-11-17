@@ -7293,3 +7293,15 @@ Vertrag: `uebergaben/vertrag-kleinkram-w4-2026-11-17.md`. Rein additiv.
   - promoter-p2 (8 Mail-Prüfungen), promoter-audit (1) und promoter-portal (2): Die Demo-Instanz verwirft Mails.
   - promoter-p4 (1 Provision an der Kasse): Das Promoter-Modul ist aus.
 - Mit der Voraussetzung laufen die Prüfungen wie bisher, zum Beispiel p4 mit Modul an: 11/11.
+
+## 246. Plattform-Akte W6a: Prüfung/Vertrag, Auszahlungen, Gebühren, Vertrag je Veranstalter (ab 1.38.887)
+Vertrag: `uebergaben/vertrag-plattform-akte-w6-2026-11-17.md` (ENDGÜLTIGE FORM W6a). Klasse `TIX_Platform_Money`, nur Plattform-Admin. Rein additiv.
+- **P1:** `GET/POST /platform/approval-settings`, `GET /platform/contract`, `POST /platform/contract/publish`.
+- **P2:**
+  - `GET/POST /platform/settlement-settings`; die Auftraggeber-IBAN wird nur geschrieben, die Antwort maskiert sie.
+  - `POST /platform/settlements/sepa` liefert pain.001 als base64; das Protokoll enthält nur Anzahl und Summe.
+  - `GET /platform/settlements/{id}/pdf`.
+- **P3:** `GET/POST /platform/fee-settings` (dazu Kanal-Gebühr und `planned[]`), `DELETE /platform/planned-values/{id}` und `/platform/channel-invoices…`.
+- **P5:** `GET /platform/organizers/{id}/contract`, `…/contract/document`, `POST …/contract/addendum`.
+- **`TIX_Settlement::opt`** liest jetzt `get_option('tix_settings')` direkt statt über den Zwischenspeicher von `tix_get_settings()`. Damit wirken Studio-Änderungen im selben Aufruf (wichtig für SEPA).
+- **Test:** `test-w6a-platform-money-wp` (Plattform 33; Einzel-Seite 1: Routen liefern 404).

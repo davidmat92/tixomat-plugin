@@ -62,7 +62,7 @@ class TIX_Settlement {
             'settlement_prefix' => 'EV', 'settlement_invoice_prefix' => 'EVR', 'settlement_refund_alert' => 15,
             'settlement_sepa_enabled' => 0, 'settlement_debtor_name' => '', 'settlement_debtor_iban' => '', 'settlement_debtor_bic' => '',
         ];
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $s = get_option('tix_settings', []); // direkt (1.38.887): tix_get_settings() ist je Aufruf zwischengespeichert, Studio-Änderungen wirken sofort
         $v = is_array($s) && array_key_exists($key, $s) ? $s[$key] : ($defaults[$key] ?? null);
         if ($key === 'settlement_since' && !$v) $v = get_option('tix_settlement_since', '');
         return $v;
