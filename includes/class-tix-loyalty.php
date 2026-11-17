@@ -217,6 +217,7 @@ class TIX_Loyalty {
             'rewards'          => self::rewards(),
             'station_events_only' => self::station_events_only(),
             'has_exit_pin'     => self::exit_pin_hash() !== '',
+            'station_exit_pin_set' => self::exit_pin_hash() !== '', // Name aus der App-Abstimmung (1.38.871)
         ]);
     }
 
@@ -496,20 +497,23 @@ class TIX_Loyalty {
             if (!self::$org) return new WP_Error('rest_forbidden', 'Bitte einen Veranstalter wählen.', ['status' => 403]);
         }
         $hash = self::exit_pin_hash();
-        if ($hash === '') return rest_ensure_response(['ok' => true, 'exit' => true, 'pin_required' => false]);
-        $k = 'tix_station_exit_' . md5(self::$org . '|' . get_current_user_id());
-        $st = get_transient($k); $st = is_array($st) ? $st : ['fails' => 0, 'until' => 0];
-        if ($st['until'] > time()) return new WP_Error('tix_station_exit_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => $st['until'] - time()]);
+        if ($hash === '') return new WP_Error('tix_station_pin_unset', 'Für die Station ist kein Code gesetzt.', ['status' => 409]);
         $b = $req->get_json_params();
+        $dev = strtolower(preg_replace('/[^a-z0-9-]/i', '', (string) (is_array($b) ? ($b['device'] ?? '') : $req->get_param('device'))));
+        $station = substr($dev !== '' ? $dev : 'u' . get_current_user_id(), 0, 40);
+        $k = 'tix_station_exit_' . md5(self::$org . '|' . get_current_user_id() . '|' . $station); // je Gerät und Konto
+        $st = get_transient($k); $st = is_array($st) ? $st : ['fails' => 0, 'until' => 0];
+        if ($st['until'] > time()) return new WP_Error('tix_station_pin_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => $st['until'] - time()]);
         $pin = trim((string) (is_array($b) ? ($b['pin'] ?? '') : $req->get_param('pin')));
         if ($pin !== '' && preg_match('/^\d{4,6}$/', $pin) && wp_check_password($pin, $hash)) {
             delete_transient($k);
-            return rest_ensure_response(['ok' => true, 'exit' => true, 'pin_required' => true]);
+            delete_transient(self::station_key(self::$org, $station)); // Station gilt sofort als aus, Codes von ihr nimmt claim nicht mehr an
+            return rest_ensure_response(['ok' => true]);
         }
         $st['fails']++;
-        if ($st['fails'] >= 5) { $st = ['fails' => 0, 'until' => time() + MINUTE_IN_SECONDS]; set_transient($k, $st, 2 * MINUTE_IN_SECONDS); return new WP_Error('tix_station_exit_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => MINUTE_IN_SECONDS]); }
+        if ($st['fails'] >= 5) { $st = ['fails' => 0, 'until' => time() + MINUTE_IN_SECONDS]; set_transient($k, $st, 2 * MINUTE_IN_SECONDS); return new WP_Error('tix_station_pin_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => MINUTE_IN_SECONDS]); }
         set_transient($k, $st, 10 * MINUTE_IN_SECONDS);
-        return new WP_Error('tix_station_exit_wrong', 'Der Code stimmt nicht.', ['status' => 403, 'remaining' => 5 - $st['fails']]);
+        return new WP_Error('tix_station_pin_wrong', 'Der Code stimmt nicht.', ['status' => 403, 'remaining' => 5 - $st['fails']]);
     }
 
     /** Signatur eines Stations-Codes (an diese Seite gebunden) */
@@ -594,7 +598,7 @@ class TIX_Loyalty {
         $r = rest_ensure_response(['ok' => true, 'token' => $token, 'qr' => self::STATION_PREFIX . $token, 'station_id' => $station, 'iat' => $now, 'expires_at' => $now + self::STATION_TTL,
             'ttl' => self::STATION_TTL, 'refresh_in' => self::STATION_REFRESH, 'event' => $eid ? ['id' => $eid, 'title' => html_entity_decode(get_the_title($eid), ENT_QUOTES, 'UTF-8')] : null, 'mode' => $eid ? 'event' : 'day',
             'brand' => ['name' => (string) ($brand['name'] ?? ''), 'logo' => (string) ($brand['logo'] ?? ''), 'accent' => (string) ($brand['accent'] ?? '')],
-            'stamps_per_visit' => self::stamps_per_visit(), 'rewards' => self::rewards(), 'steps' => ['App öffnen', 'Prämien öffnen', '„Code scannen“ antippen'], 'events_only' => $only]);
+            'stamps_per_visit' => self::stamps_per_visit(), 'rewards' => self::rewards(), 'steps' => ['App öffnen', 'Prämien öffnen', '„Code scannen“ antippen'], 'events_only' => $only, 'exit_pin' => self::exit_pin_hash() !== '']);
         $r->header('Cache-Control', 'no-store');
         return $r;
     }

@@ -7118,3 +7118,7 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `POST /loyalty/config {station_exit_pin}`: 4–6 Ziffern, gespeichert als `wp_hash_password` (Seite `_tix_loyalty_station_exit_pin`, evendis `_tix_org_loyalty.station_exit_pin_hash`); leer löscht. `GET /loyalty/config` → `has_exit_pin`.
 - `POST /loyalty/station/exit {pin}` (`perm_station`): richtig bzw. ohne PIN → `{exit: true, pin_required}`; falsch 403 `tix_station_exit_wrong` (`remaining`); 5 Fehlversuche → 429 `tix_station_exit_locked` 60 s (Transient je Konto und Veranstalter).
 - **Test:** `test-stamp-station-wp` (KK 16, Plattform 3).
+
+## 233. Station-PIN an die App angeglichen (ab 1.38.871)
+- Abstimmung mit dem App-Chat: `POST /loyalty/station/exit {pin, device}` → `200 {ok}` (Herzschlag des Geräts endet), 403 `tix_station_pin_wrong` (`remaining`), 429 `tix_station_pin_locked` (`retry_after`, je Gerät und Konto), 409 `tix_station_pin_unset`. `GET /loyalty/config.station_exit_pin_set` (dazu weiter `has_exit_pin`), `station/token.exit_pin`. Ersetzt die Codes aus §232.
+- **Test:** `test-stamp-station-wp` (KK 16, Plattform 3).
