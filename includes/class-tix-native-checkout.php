@@ -2125,7 +2125,8 @@ class TIX_Native_Checkout {
 
         // ── Gebühren / Provisionen ──
         $fee_data = null;
-        if (class_exists('TIX_Fees')) {
+        // Kasse vor Ort (1.38.881, User-Entscheid 17.11.): keine Servicegebühr, es gilt nur der Ticketpreis
+        if (class_exists('TIX_Fees') && empty($data['no_fees'])) {
             $fee_data = TIX_Fees::calc_order_fees($cart['items']);
             // Kundengebühren auf Total aufschlagen
             if ($fee_data['customer_fee_line'] > 0) {

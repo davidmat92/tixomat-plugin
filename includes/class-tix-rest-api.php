@@ -2399,6 +2399,7 @@ class TIX_REST_API {
             'payment_method'     => 'pos_' . $payment,
             'total'              => $subtotal,
             'items'              => $cart['items'],
+            'no_fees'            => true, // 1.38.881: Kassenverkauf ohne Servicegebühr (wie /pos/quote)
         ]);
         if (!$order_id) {
             if (!empty($previous_cart['items'])) TIX_Native_Checkout::save_cart($previous_cart);

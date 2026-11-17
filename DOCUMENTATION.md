@@ -7233,3 +7233,12 @@ Vertrag: `uebergaben/vertrag-bestellungen-von-hand.md`. Klasse `TIX_Order_Manual
 - **Umzug nach evendis-api:** siehe Vertrag. Reine Funktionen `mark_paid_check`, `ticket_status_check`, `manual_kind_check`; Ereignis `order.paid` für Online und von Hand.
 - **Test:** `test-order-manual-wp` (42; mit eingerichteter Überweisung auf der Plattform 44; Plattform und KK).
 - **1.38.880 (Abgleich Studio):** `GET /orders` → `can_create`, `create_kinds`; Detail `order.manual.bank`; `mark-paid` mit `paid_at`, `notify`; `tickets/{id}/status` nimmt `note` als Alias. Endgültige Form im Studio-Vertrag `vertrag-bestellungen-von-hand-2026-11-17.md` eingetragen. Test 46 (mit Überweisung 48).
+
+## 241. Kasse vor Ort ohne Servicegebühr (ab 1.38.881)
+User-Entscheid 17.11.: Bei Kassenverkäufen gilt nur der Ticketpreis; Freikarten kosten immer 0 €.
+- `TIX_Native_Checkout::create_order` nimmt `no_fees => true`. Dann wird keine Gebühr berechnet und kein `_tix_order_fees` geschrieben. `POST /pos/orders` setzt das immer.
+- `/pos/quote` war schon ohne Gebühr; Angebot und Bestellung stimmen jetzt überein.
+- Bisher rechnete `get_cart()` die Kassenpositionen auf den Listenpreis neu und schlug die Kundengebühr auf. Lokal mit Kundengebühr: Freikarte 2×0 € = 1,98 €, bar 2×20 € = 41,98 €.
+- Die Online-Kasse ist unverändert. Für die Abrechnung ändert sich nichts: Kassenverkäufe sind dort ohnehin nur Information.
+- KitchenKlub live (nur lesend): Alle 6 bisherigen Kassenbestellungen hatten keine Gebühr (total = Positionen). Die Kassenberichte ändern sich nicht.
+- **Test:** `test-pos-no-fee-wp` (4; der Lauf setzt vorher die Kundengebühr per Option).
