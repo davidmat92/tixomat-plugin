@@ -371,7 +371,7 @@ class TIX_Demo_Remote {
         // invite:false (Vorgabe für signierte Aufrufe) – die Plattform schickt die eine Mail mit allen Links
         $invite = $req->get_param('invite') !== null && filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN);
         $login = $invite ? '' : TIX_Demo_Access::login_url($u, true);
-        if ($invite) TIX_Demo_Access::send_link($u, true);
+        if ($invite) TIX_Demo_Access::send_credentials($u, true); // Zugang direkt auf der Instanz (ohne Plattform): Benutzername + Passwort
         return self::out(['ok' => true, 'access' => self::stand(get_userdata($u->ID)), 'login_url' => $login], 201);
     }
 
@@ -407,6 +407,9 @@ class TIX_Demo_Remote {
         $u = self::user_for($req['rid']);
         if (!$u) return new WP_Error('tix_not_found', 'Demo-Zugang nicht gefunden.', ['status' => 404]);
         if (!TIX_Demo_Access::usable($u->ID)) return new WP_Error('tix_demo_expired', 'Der Zugang ist abgelaufen oder gesperrt.', ['status' => 409]);
+        // 1.38.872: Passwort der Plattform übernehmen (nur der WordPress-Hash kommt an, nie das Passwort)
+        $h = (string) $req->get_param('password_hash');
+        if ($h !== '') return self::out(['ok' => true, 'password_set' => TIX_Demo_Access::set_hash($u->ID, $h)]);
         return self::out(['ok' => true, 'login_url' => TIX_Demo_Access::login_url($u, true)]);
     }
 

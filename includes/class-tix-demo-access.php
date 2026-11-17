@@ -557,7 +557,7 @@ class TIX_Demo_Access {
         }
         $invite = $req->get_param('invite') === null || filter_var($req->get_param('invite'), FILTER_VALIDATE_BOOLEAN);
         $sent = false;
-        if ($invite) $sent = $cases !== null ? self::send_cases_mail(get_userdata($uid), true, $logins) : self::send_link(get_userdata($uid), true);
+        if ($invite) { $sent = self::send_credentials(get_userdata($uid), true); if (is_wp_error($sent)) $sent = false; } // 1.38.872: Benutzername + Passwort statt Einmal-Link
         $state = false;
         if ($cases !== null) $state = self::remote_states($targets);
         return self::out(['ok' => true, 'access' => self::row(get_userdata($uid), $state), 'invite_sent' => $sent], 201);
@@ -672,15 +672,9 @@ class TIX_Demo_Access {
         if (!$u || !self::can_manage($u)) return new WP_Error('tix_not_found', 'Demo-Zugang nicht gefunden.', ['status' => 404]);
         if (!self::is_prospect($u)) return new WP_Error('tix_invalid_field', 'Vertriebler melden sich mit Passwort an.', ['status' => 400]);
         if (!self::usable($u->ID)) return new WP_Error('tix_demo_expired', 'Der Zugang ist abgelaufen oder gesperrt.', ['status' => 409]);
-        if (!self::multi() || !self::with_cases($u->ID)) return self::out(['ok' => true, 'sent' => self::send_link($u, true)]);
-        // erst alle Links holen; fehlt einer, geht keine Mail raus
-        $logins = [];
-        foreach (self::remote_cases($u->ID) as $t) {
-            $r = TIX_Demo_Remote::call('POST', '/demo-access/remote/' . intval($u->ID) . '/link', [], [], 15, $t);
-            $logins[$t] = $r['ok'] ? (string) ($r['data']['login_url'] ?? '') : '';
-            if ($logins[$t] === '') return TIX_Demo_Remote::error($r, $t);
-        }
-        return self::out(['ok' => true, 'sent' => self::send_cases_mail($u, true, $logins)]);
+        $r = self::send_credentials($u, false); // 1.38.872: neues Passwort für alle Fälle; scheitert eine Instanz, geht keine Mail raus
+        if (is_wp_error($r)) return $r;
+        return self::out(['ok' => true, 'sent' => $r]);
     }
 
     /**
@@ -837,6 +831,77 @@ class TIX_Demo_Access {
         ]);
     }
 
+    // ── Zugang mit Benutzername und Passwort (1.38.872, User: Einmal-Links wurden von Mail-Scannern verbraucht) ──
+
+    /** Gut lesbares Passwort: 3 × 4 Zeichen ohne verwechselbare (0/O, 1/l/I), mit Bindestrich → 14 Zeichen */
+    public static function readable_password() {
+        $abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $g = [];
+        for ($j = 0; $j < 3; $j++) { $x = ''; for ($i = 0; $i < 4; $i++) $x .= $abc[random_int(0, strlen($abc) - 1)]; $g[] = $x; }
+        return implode('-', $g);
+    }
+
+    /** Fertigen WordPress-Hash setzen (Passwort selbst kennt diese Seite dann nicht) */
+    public static function set_hash($uid, $hash) {
+        global $wpdb;
+        $hash = (string) $hash;
+        if ($hash === '' || $hash[0] !== '$' || strlen($hash) > 255) return false;
+        $wpdb->update($wpdb->users, ['user_pass' => $hash, 'user_activation_key' => ''], ['ID' => intval($uid)]);
+        clean_user_cache(intval($uid));
+        delete_user_meta(intval($uid), '_tix_app_tokens'); // alte Geräte-Anmeldungen enden
+        return true;
+    }
+
+    /** Anmeldeseite eines Demo-Studios (ohne Einmal-Token) */
+    public static function login_page($case) {
+        if (self::instance()) return self::studio_url('/anmelden/');
+        $links = class_exists('TIX_Demo_Remote') ? TIX_Demo_Remote::links() : [];
+        $base = $case === 'platform' ? (string) get_option(self::OPT_STUDIO, $links['platform'] ?? 'https://demo-studio.evendis.de') : (string) ($links[$case] ?? '');
+        return $base !== '' ? rtrim($base, '/') . '/anmelden/' : '';
+    }
+
+    /**
+     * Neues Passwort setzen (Plattform und alle Instanz-Fälle) und die Zugangs-Mail mit Benutzername und Passwort schicken.
+     * Scheitert eine Instanz, geht keine Mail raus und das Passwort gilt nirgends als mitgeteilt → true | WP_Error
+     */
+    public static function send_credentials(WP_User $u, $invite = true) {
+        if (!class_exists('TIX_Mail_Layout')) return new WP_Error('tix_mail_off', 'Mail ist nicht eingerichtet.', ['status' => 503]);
+        $pw = self::readable_password();
+        $hash = wp_hash_password($pw);
+        $cases = (self::multi() && self::with_cases($u->ID)) ? self::cases($u->ID) : [self::instance() ? (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::vorlage() === 'club' ? 'club' : 'shop') : 'platform'];
+        if (self::multi() && self::with_cases($u->ID)) {
+            foreach (self::remote_cases($u->ID) as $t) {
+                $r = TIX_Demo_Remote::call('POST', '/demo-access/remote/' . intval($u->ID) . '/link', [], ['password_hash' => $hash], 15, $t);
+                if (!$r['ok'] || empty($r['data']['password_set'])) return TIX_Demo_Remote::error($r, $t);
+            }
+        }
+        self::set_hash($u->ID, $hash);
+        delete_user_meta($u->ID, '_tix_demo_link'); // alte Einmal-Links gelten nicht mehr
+        $labels = ['platform' => ['Plattform', 'Verkauf über evendis.de: Beispiel-Veranstalter mit Veranstalter-Seite und das Studio dazu.', 'Zum Demo-Studio'],
+            'shop' => ['Eigene Website mit einem Event', 'Ein Festival über ein ganzes Wochenende: eigene Ticket-Website mit eigenem Studio, nur Testzahlung. Jede Nacht wird dort alles zurückgesetzt.', 'Zum Studio (Festival)'],
+            'club' => ['Eigene Website mit mehreren Events', 'Ein Club mit Programm jede Woche: eigene Ticket-Website mit eigenem Studio, Vorverkauf, Gästeliste und Musikwunsch, nur Testzahlung. Jede Nacht wird dort alles zurückgesetzt.', 'Zum Studio (Club)']];
+        $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite ? 'hier ist dein Zugang zu den <b>evendis-Demos</b>. Du probierst alles mit Beispieldaten aus – inklusive Testkauf und Einlass. Es fließt kein echtes Geld.' : 'hier sind deine neuen Zugangsdaten für die evendis-Demos. Das alte Passwort gilt nicht mehr.')],
+            ['type' => 'html', 'html' => '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border:1px solid #E5E7EB;border-radius:8px;"><tr><td style="padding:12px 16px;font-size:15px;line-height:24px;">'
+                . 'Benutzername: <b>' . esc_html($u->user_email) . '</b><br>Passwort: <b style="font-family:Menlo,Consolas,monospace;font-size:17px;letter-spacing:1px;">' . esc_html($pw) . '</b></td></tr></table>']];
+        foreach (array_values(array_unique($cases)) as $c) {
+            $url = self::login_page($c);
+            if ($url === '' || !isset($labels[$c])) continue;
+            if (count($cases) > 1) $blocks[] = ['type' => 'text', 'html' => '<b>' . esc_html($labels[$c][0]) . '</b> – ' . esc_html($labels[$c][1])];
+            $blocks[] = ['type' => 'button', 'label' => $labels[$c][2], 'url' => $url];
+        }
+        if (count($cases) > 1) $blocks[] = ['type' => 'text', 'html' => 'Benutzername und Passwort gelten für alle Demos.'];
+        $exp = self::expires($u->ID);
+        if ($exp) $blocks[] = ['type' => 'text', 'html' => 'Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. Passwort vergessen? Auf der Demo-Seite einfach den Zugang neu anfordern – du bekommst dann ein neues Passwort.'];
+        if (class_exists('TIX_Email_Log')) TIX_Email_Log::$redact = [$pw];
+        try {
+            $ok = (bool) TIX_Mail_Layout::send($u->user_email, 'evendis Demo – ' . ($invite ? 'dein Zugang' : 'deine neuen Zugangsdaten'), ['title' => $invite ? 'Dein Zugang zu den evendis-Demos' : 'Deine neuen Zugangsdaten', 'blocks' => $blocks, 'kind' => 'account']);
+        } finally {
+            if (class_exists('TIX_Email_Log')) TIX_Email_Log::$redact = [];
+        }
+        unset($pw);
+        return $ok;
+    }
+
     public static function send_link(WP_User $u, $invite = false) {
         $url = self::login_url($u, $invite);
         if (!class_exists('TIX_Mail_Layout')) return false;
@@ -879,7 +944,7 @@ class TIX_Demo_Access {
                 $mk = 'tix_dal_mail_' . $u->ID;
                 if (intval(get_transient($mk)) < 5) {
                     set_transient($mk, intval(get_transient($mk)) + 1, HOUR_IN_SECONDS);
-                    self::send_link($u, false);
+                    self::send_credentials($u, false); // 1.38.872: neues Passwort statt Einmal-Link
                 }
             }
         }

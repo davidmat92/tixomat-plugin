@@ -7122,3 +7122,10 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 ## 233. Station-PIN an die App angeglichen (ab 1.38.871)
 - Abstimmung mit dem App-Chat: `POST /loyalty/station/exit {pin, device}` → `200 {ok}` (Herzschlag des Geräts endet), 403 `tix_station_pin_wrong` (`remaining`), 429 `tix_station_pin_locked` (`retry_after`, je Gerät und Konto), 409 `tix_station_pin_unset`. `GET /loyalty/config.station_exit_pin_set` (dazu weiter `has_exit_pin`), `station/token.exit_pin`. Ersetzt die Codes aus §232.
 - **Test:** `test-stamp-station-wp` (KK 16, Plattform 3).
+
+## 234. Demo-Zugang mit Benutzername und Passwort statt Einmal-Link (ab 1.38.872)
+- Befund: Mail-Scanner bzw. Vorschauen öffneten `…/anmelden/link/?t=…` vorab, und das Studio löste den Link beim Seitenaufruf ein → „ungültig oder schon benutzt“.
+- `TIX_Demo_Access::send_credentials($u, $invite)`: neues lesbares Passwort (`readable_password`, 14 Zeichen), `set_hash` auf der Plattform und per signiertem `POST /demo-access/remote/{rid}/link {password_hash}` auf jeder Instanz (Antwort `password_set`). Mail mit Benutzername (E-Mail), Passwort und Knopf „Zum Studio“ je Fall (`login_page()` = `<Studio>/anmelden/`). Genutzt von `rest_create` (Einladung), `rest_resend`, `rest_link` und `TIX_Trial::rest_demo_confirm` (bestehender Zugang); auf einer Instanz ohne Plattform auch von `r_create` mit `invite`.
+- `TIX_Email_Log::$redact`: Werte darin werden im gespeicherten Mail-Inhalt durch „[nicht gespeichert]“ ersetzt.
+- Einmal-Links (`login_url`, `/public/demo-access/confirm`) bleiben technisch bestehen (POST), werden aber nicht mehr verschickt.
+- **Test:** `test-demo-credentials-wp` (KK 7).

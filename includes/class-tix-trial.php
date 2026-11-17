@@ -513,8 +513,8 @@ class TIX_Trial {
         $wpdb->update(self::t('tix_trial_requests'), ['used_at' => self::now()], ['id' => $r->id]);
         $u = get_user_by('email', $d['email']);
         if ($u && in_array('tix_demo', (array) $u->roles, true) && class_exists('TIX_Demo_Access')) {
-            TIX_Demo_Access::send_link($u, false);
-            return self::out(['ok' => true, 'status' => 'existing', 'login_link_sent' => true]);
+            $r = TIX_Demo_Access::send_credentials($u, false); // 1.38.872: erneut angefordert → neues Passwort
+            return self::out(['ok' => true, 'status' => 'existing', 'login_link_sent' => $r === true, 'credentials_sent' => $r === true]);
         }
         if ($u) return self::out(['ok' => true, 'status' => 'existing', 'login_link_sent' => false]); // anderes Konto: keine Auskunft, kein Zugang
         // Gleiche Anlage wie im Vertrieb – als System-Konto (Inhaber der selbst angeforderten Zugänge)
@@ -531,7 +531,7 @@ class TIX_Trial {
         $uid = intval($acc['id'] ?? 0);
         if ($uid) { update_user_meta($uid, '_tix_demo_source', 'self'); update_user_meta($uid, '_tix_demo_consent_at', $d['consent_at'] ?? wp_date('c')); }
         self::notify_sales('Neuer Demo-Zugang (selbst angefordert)', ['Name: ' . $d['name'], 'Firma: ' . ($d['company'] ?: '–'), 'E-Mail: ' . $d['email'], 'Beispiel: ' . $d['profile'] . ' · Fälle: ' . implode(', ', (array) $d['cases'])]);
-        return self::out(['ok' => true, 'status' => 'created', 'login_link_sent' => !empty($res->get_data()['invite_sent'])]);
+        return self::out(['ok' => true, 'status' => 'created', 'login_link_sent' => !empty($res->get_data()['invite_sent']), 'credentials_sent' => !empty($res->get_data()['invite_sent'])]);
     }
 
     // ── W2 Bestellung ──

@@ -11,6 +11,9 @@ if (!defined('ABSPATH')) exit;
 
 class TIX_Email_Log {
 
+    /** Geheimnisse (z. B. Passwort des Demo-Zugangs, 1.38.872), die nie im gespeicherten Mail-Inhalt landen; Aufrufer setzt und leert */
+    public static $redact = [];
+
     const TABLE_SUFFIX = 'tix_email_log';
 
     /** Erneut gesendet: Zeile, auf die sich die nächste protokollierte Mail bezieht (TIX_Mail_Log::rest_resend). */
@@ -281,10 +284,11 @@ class TIX_Email_Log {
             $args['message'] = $body;
         }
 
+        $redact = array_values(array_filter(array_map('strval', (array) self::$redact), 'strlen'));
         $insert_data = [
             'to_email'       => mb_substr($to, 0, 500),
             'subject'        => mb_substr($subject, 0, 500),
-            'body'           => $body,
+            'body'           => $redact ? str_replace(array_merge($redact, array_map('esc_html', $redact)), '[nicht gespeichert]', $body) : $body,
             'headers'        => $headers,
             'status'         => 'sent',
             'error_message'  => '',
