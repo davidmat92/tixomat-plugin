@@ -186,6 +186,12 @@ class TIX_Site_Config {
         if ($imprint === '') foreach (['impressum', 'imprint'] as $sl) { $p = get_page_by_path($sl); if ($p && $p->post_status === 'publish') { $imprint = get_permalink($p); break; } }
         if ($privacy === '') foreach (['datenschutz', 'datenschutzerklaerung', 'privacy-policy'] as $sl) { $p = get_page_by_path($sl); if ($p && $p->post_status === 'publish') { $privacy = get_permalink($p); break; } }
         if ($terms === '') foreach (['agb', 'terms'] as $sl) { $p = get_page_by_path($sl); if ($p && $p->post_status === 'publish') { $terms = get_permalink($p); break; } }
+        // 1.38.890: eigene Kunden-Seite (z. B. evendis.de) als letzte Quelle – Einzel-Seiten (Kunden-Adresse = WordPress) unverändert
+        if (class_exists('TIX_Studio_Legal') && method_exists('TIX_Studio_Legal', 'customer_site_url')) {
+            if ($imprint === '') $imprint = TIX_Studio_Legal::customer_site_url('impressum');
+            if ($privacy === '') $privacy = TIX_Studio_Legal::customer_site_url('datenschutz');
+            if ($terms === '') $terms = TIX_Studio_Legal::customer_site_url('agb');
+        }
         $social = [];
         foreach (self::SOCIAL as $k) {
             $v = (string) ($contact_cfg[$k] ?? ($contact_cfg[$k . '_url'] ?? ($s[$k . '_url'] ?? '')));

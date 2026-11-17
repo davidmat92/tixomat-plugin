@@ -7319,3 +7319,12 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
 - **P11:** `/platform/domain-settings` (das Geheimnis wird nur geschrieben), `/platform/organizers/{id}/domain-access` und `/studio/website-package` (nur Einzel-Seiten).
 - **P12:** `/awareness/test` (Status, starten, Tester, aufräumen; nur Admin). Notrufnummern stehen weiter in `nav.sos` der App-Konfiguration.
 - **Test:** `test-w6c-platform-ops-wp` (Plattform 19, KK 18).
+
+## 249. Rechtslinks von der eigenen Kunden-Seite (ab 1.38.890)
+- **Reihenfolge der Quellen** in `TIX_Studio_Legal::checkout_link()`: eigene URL (`tix_settings`) → veröffentlichter WP-Rechtstext → Kunden-Seite (`customer_site`) → leer.
+- **Neu:** `customer_site_url($doc)` liefert `https://<Kunden-Adresse>/agb|datenschutz|widerruf|impressum/` (Pfade wie `TIX_Admin_Only::LEGAL`).
+  - Das gilt nur, wenn die Kunden-Adresse (`tix_customer_base_url`) ein anderer Host ist als WordPress, zum Beispiel evendis.de vor veranstalter.evendis.de.
+  - Einzel-Seiten ohne eigene Kunden-Adresse bleiben unverändert. Live nur lesend geprüft: KK und die xxl-Instanz haben keine Kunden-Adresse.
+- **Nutzer:** Die Filter `tix_checkout_*_url` (Ticket-Mails) nehmen jetzt `checkout_url()`. `site-config.legal` (Impressum, Datenschutz, AGB) nutzt die Kunden-Seite als letzte Quelle, ohne Seitensuche, damit kein Rückruf entsteht.
+- **`TIX_Co_Legal::site()`:** Auf der Plattform wird die Anschrift aus den Rechnungsdaten (`invoice_company_address`) genommen, wenn die Kontakt-Anschrift fehlt. Damit wird `complete` auf evendis true.
+- **Test:** `test-legal-customer-site-wp` (10; Plattform und KK).

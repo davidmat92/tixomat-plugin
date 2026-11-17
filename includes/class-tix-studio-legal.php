@@ -36,9 +36,9 @@ class TIX_Studio_Legal {
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         // W4 (1.38.885): Kasse/Tickets-Mail nehmen die veröffentlichten Rechtstexte, wenn keine eigene URL eingetragen ist
-        add_filter('tix_checkout_terms_url', function ($u) { return $u ?: self::page_url('agb'); }, 20);
-        add_filter('tix_checkout_privacy_url', function ($u) { $p = self::page_url('datenschutz'); return $p ?: $u; }, 20);
-        add_filter('tix_checkout_revocation_url', function ($u) { return $u ?: self::page_url('widerruf'); }, 20);
+        add_filter('tix_checkout_terms_url', function ($u) { return $u ?: self::checkout_url('terms'); }, 20);
+        add_filter('tix_checkout_privacy_url', function ($u) { $p = self::page_url('datenschutz'); return $p ?: ($u ?: self::checkout_url('privacy')); }, 20);
+        add_filter('tix_checkout_revocation_url', function ($u) { return $u ?: self::checkout_url('revocation'); }, 20);
     }
 
     /** Kasse → Rechtstext: terms|privacy|revocation ↔ Schlüssel und tix_settings-Feld */
@@ -60,7 +60,24 @@ class TIX_Studio_Legal {
         return self::$urls[$key] = $u;
     }
 
-    /** Link der Kasse: eigene URL (tix_settings) vor veröffentlichtem Rechtstext → [url, source own|page|''] */
+    /** Rechtstext → Pfad auf der Kunden-Seite (wie TIX_Admin_Only::LEGAL) */
+    const CUSTOMER_PATHS = ['agb' => '/agb/', 'datenschutz' => '/datenschutz/', 'widerruf' => '/widerruf/', 'impressum' => '/impressum/'];
+
+    /**
+     * Rechtstext auf der eigenen Kunden-Seite (1.38.890, z. B. evendis.de als Next.js vor veranstalter.evendis.de):
+     * nur wenn die Kunden-Adresse ein anderer Host ist als WordPress selbst – sonst '' (Einzel-Seiten unverändert).
+     * Rein und ohne Seitensuche (darf aus TIX_Site_Config::payload heraus gerufen werden).
+     */
+    public static function customer_site_url($doc) {
+        if (!isset(self::CUSTOMER_PATHS[$doc]) || !class_exists('TIX_Customer_URL')) return '';
+        $c = preg_replace('/^www\./', '', strtolower((string) TIX_Customer_URL::host()));
+        $w = preg_replace('/^www\./', '', strtolower((string) wp_parse_url((string) get_option('home'), PHP_URL_HOST)));
+        if ($c === '' || $c === $w) return '';
+        $path = class_exists('TIX_Admin_Only') && defined('TIX_Admin_Only::LEGAL') ? (string) (TIX_Admin_Only::LEGAL['tix_' . $doc] ?? self::CUSTOMER_PATHS[$doc]) : self::CUSTOMER_PATHS[$doc];
+        return 'https://' . TIX_Customer_URL::host() . $path;
+    }
+
+    /** Link der Kasse: eigene URL (tix_settings) vor veröffentlichtem Rechtstext vor Kunden-Seite → [url, source own|page|customer_site|''] */
     public static function checkout_link($kind) {
         if (!isset(self::CHECKOUT[$kind])) return ['', ''];
         [$doc, $field] = self::CHECKOUT[$kind];
@@ -68,7 +85,9 @@ class TIX_Studio_Legal {
         $own = trim((string) (is_array($s) ? ($s[$field] ?? '') : ''));
         if ($own !== '') return [preg_match('#^https?://#i', $own) ? $own : home_url($own), 'own'];
         $u = self::page_url($doc);
-        return [$u, $u !== '' ? 'page' : ''];
+        if ($u !== '') return [$u, 'page'];
+        $u = self::customer_site_url($doc);
+        return [$u, $u !== '' ? 'customer_site' : ''];
     }
 
     public static function checkout_url($kind) { return self::checkout_link($kind)[0]; }

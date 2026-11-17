@@ -49,9 +49,12 @@ class TIX_Co_Legal {
         $lg = class_exists('TIX_Site_Config') ? (array) (TIX_Site_Config::payload()['legal'] ?? []) : [];
         $s = (array) get_option('tix_settings', []);
         $name = (string) ($c['company'] ?? '') ?: (string) (tix_get_settings('syndication_site_name') ?: get_bloginfo('name'));
+        // 1.38.890: Plattform ohne Kontakt-Anschrift → Anschrift des Rechnungsstellers (Rechnungsdaten); Einzel-Seiten unverändert
+        $address = (string) ($c['address'] ?? '');
+        if ($address === '' && class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) $address = trim((string) ($s['invoice_company_address'] ?? ''));
         return self::clean([
             'name' => self::dec($name),
-            'address' => (string) ($c['address'] ?? ''),
+            'address' => $address,
             'imprint_url' => (string) ($lg['imprint'] ?? '') ?: (string) ($s['imprint_url'] ?? ($s['impressum_url'] ?? '')),
             'privacy_url' => (string) ($lg['privacy'] ?? '') ?: (class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('privacy') : (string) ($s['privacy_url'] ?? '')),
             'terms_url' => (string) ($lg['terms'] ?? '') ?: (class_exists('TIX_Studio_Legal') ? TIX_Studio_Legal::checkout_url('terms') : (string) ($s['terms_url'] ?? '')),
