@@ -7328,3 +7328,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
 - **Nutzer:** Die Filter `tix_checkout_*_url` (Ticket-Mails) nehmen jetzt `checkout_url()`. `site-config.legal` (Impressum, Datenschutz, AGB) nutzt die Kunden-Seite als letzte Quelle, ohne Seitensuche, damit kein Rückruf entsteht.
 - **`TIX_Co_Legal::site()`:** Auf der Plattform wird die Anschrift aus den Rechnungsdaten (`invoice_company_address`) genommen, wenn die Kontakt-Anschrift fehlt. Damit wird `complete` auf evendis true.
 - **Test:** `test-legal-customer-site-wp` (10; Plattform und KK).
+- **1.38.891:** `POST /platform/city-texts/image` (multipart `image`, JPG/PNG/WebP ≤ 15 MB, optional `alt`) → `{ok, image: {id, url, thumb, alt}}`. Danach `POST /platform/city-texts {…, image_id}`. Test w6b auf der Plattform: 26.

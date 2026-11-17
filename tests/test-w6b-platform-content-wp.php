@@ -63,6 +63,19 @@ try {
     $eq('Stadt angelegt, Slug duesseldorf, Skript entfernt', [200, 'Düsseldorf', true, false], [$s, $c['name'] ?? null, strpos($c['intro'] ?? '', '<strong>') !== false, strpos($c['intro'] ?? '', '<script') !== false]);
     [$s, , , $fld] = $rest('POST', '/platform/city-texts', ['name' => 'Leer']);
     $eq('ohne Text und Bild → 400 intro', [400, 'intro'], [$s, $fld]);
+    // Bild hochladen (1.38.891) und mit dem Text speichern
+    $tmp = wp_tempnam('stadt.png'); $im = imagecreatetruecolor(4, 4); imagepng($im, $tmp); imagedestroy($im);
+    $ureq = new WP_REST_Request('POST', '/tixomat/v1/platform/city-texts/image');
+    $ureq->set_file_params(['image' => ['name' => 'stadt.png', 'type' => 'image/png', 'tmp_name' => $tmp, 'error' => 0, 'size' => filesize($tmp)]]);
+    $ureq->set_param('alt', 'Rheinufer');
+    $ures = rest_do_request($ureq); $ud = $ures->get_data(); $img_id = intval($ud['image']['id'] ?? 0);
+    $eq('Städte-Bild hochgeladen (id, url, alt)', [200, true, true, 'Rheinufer'], [$ures->get_status(), $img_id > 0, !empty($ud['image']['url']), $ud['image']['alt'] ?? null]);
+    [$s, $d] = $rest('POST', '/platform/city-texts', ['name' => 'Düsseldorf', 'intro' => '<p>Rhein</p>', 'image_id' => $img_id]);
+    $c = array_values(array_filter($d['cities'] ?? [], function ($x) { return $x['slug'] === 'duesseldorf'; }))[0] ?? [];
+    $eq('Bild am Städte-Text', [200, $img_id], [$s, $c['image']['id'] ?? null]);
+    $nreq = new WP_REST_Request('POST', '/tixomat/v1/platform/city-texts/image');
+    $eq('ohne Bild → 400', 400, rest_do_request($nreq)->get_status());
+    if ($img_id) wp_delete_attachment($img_id, true);
     [$s, $d] = $rest('DELETE', '/platform/city-texts/duesseldorf');
     $eq('Stadt entfernt', [200, false], [$s, in_array('duesseldorf', array_column($d['cities'] ?? [], 'slug'), true)]);
 

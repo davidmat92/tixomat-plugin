@@ -12,6 +12,7 @@
  *   POST   /platform/events/{id}/promote          P6 {enabled, priority? 0–1000, until? Y-m-d|''}
  *   GET    /platform/city-texts                   P7 {cities: [{slug, name, intro, image}]}
  *   POST   /platform/city-texts                   P7 {name, intro (HTML), image_id?} – anlegen/ändern (Slug aus dem Namen)
+ *   POST   /platform/city-texts/image             P7 multipart `image` (+ alt?) → {image: {id, url, thumb, alt}} (1.38.891)
  *   DELETE /platform/city-texts/{slug}            P7
  *   GET|POST /platform/weekly-mail                P8 {enabled, day 1–7, hour 0–23} + counts
  *   POST   /platform/weekly-mail/test             P8 {city?} Test an die eigene Adresse
@@ -37,6 +38,7 @@ class TIX_Platform_Content {
         $r('/platform/events/(?P<id>\d+)/promote', 'POST', 'rest_promote');
         $r('/platform/city-texts', 'GET', 'rest_cities');
         $r('/platform/city-texts', 'POST', 'rest_city_save');
+        $r('/platform/city-texts/image', 'POST', 'rest_city_image'); // 1.38.891: Bild hochladen → id für POST /platform/city-texts
         $r('/platform/city-texts/(?P<slug>[a-z0-9-]{1,80})', 'DELETE', 'rest_city_delete');
         $r('/platform/weekly-mail', 'GET', 'rest_weekly');
         $r('/platform/weekly-mail', 'POST', 'rest_weekly_save');
@@ -190,6 +192,28 @@ class TIX_Platform_Content {
         self::flush();
         self::audit('platform_city_text', $slug, []);
         return rest_ensure_response(self::cities_payload());
+    }
+
+    /** POST /platform/city-texts/image (multipart `image`, JPG/PNG/WebP ≤ 15 MB) → {ok, image: {id, url, thumb, alt}} */
+    public static function rest_city_image(WP_REST_Request $req) {
+        $files = $req->get_file_params();
+        $file = $files['image'] ?? ($files['file'] ?? null);
+        if (empty($file['tmp_name'])) return self::bad('image', 'Kein Bild hochgeladen.');
+        if (!empty($file['error']) || intval($file['size'] ?? 0) > 15 * MB_IN_BYTES) return new WP_Error('too_large', 'Das Bild ist zu groß (höchstens 15 MB).', ['status' => 413, 'field' => 'image']);
+        $info = @getimagesize($file['tmp_name']);
+        $mime = is_array($info) ? (string) $info['mime'] : '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) return self::bad('image', 'Bitte ein JPG-, PNG- oder WebP-Bild wählen.');
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mime];
+        $aid = media_handle_sideload(['name' => 'stadt-' . time() . '.' . $ext, 'tmp_name' => $file['tmp_name'], 'type' => $mime, 'size' => $file['size'] ?? 0], 0, 'Städte-Text');
+        if (is_wp_error($aid)) return new WP_Error('upload_failed', $aid->get_error_message(), ['status' => 500]);
+        $alt = trim(sanitize_text_field((string) $req->get_param('alt')));
+        if ($alt !== '') update_post_meta($aid, '_wp_attachment_image_alt', mb_substr($alt, 0, 200));
+        self::audit('platform_city_image', intval($aid), []);
+        $img = class_exists('TIX_SEO_Texts') ? (array) TIX_SEO_Texts::image_payload($aid) : ['url' => (string) wp_get_attachment_url($aid)];
+        return rest_ensure_response(['ok' => true, 'image' => ['id' => intval($aid)] + $img]);
     }
 
     public static function rest_city_delete(WP_REST_Request $req) {
