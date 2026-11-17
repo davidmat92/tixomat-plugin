@@ -41,6 +41,8 @@ class TIX_Demo_Access {
     const PROFILES = ['club', 'festival'];
     /** Fälle je Zugang (1.38.843): platform = Demo-Studio, shop = Demo-Shop „Eigene Website“ auf der Instanz */
     const META_CASES = '_tix_demo_cases';
+    /** Hervorgehobene Variante der Mail (1.38.874): shop = ein Event, club = mehrere Events */
+    const META_PRIMARY = '_tix_demo_primary';
 
     private static $foreign = null;
 
@@ -53,6 +55,7 @@ class TIX_Demo_Access {
         add_filter('tix_staff_push_recipients', [__CLASS__, 'push_recipients'], 10, 3);
         add_action('tix_order_completed', [__CLASS__, 'on_order_completed'], 40);
         add_action('tix_demo_access_cleanup', [__CLASS__, 'cleanup']);
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat demo-access', [__CLASS__, 'cli']);
         add_action('init', function () {
             if (!wp_next_scheduled('tix_demo_access_cleanup')) wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'tix_demo_access_cleanup');
         }, 30);
@@ -502,6 +505,13 @@ class TIX_Demo_Access {
         // Fälle (1.38.843, nur Plattform): null = nicht übergeben → wie bisher
         $cases = self::multi() ? TIX_Demo_Remote::clean_cases($req->get_param('cases')) : null;
         if ($cases !== null && !$cases) return new WP_Error('tix_invalid_field', 'Bitte mindestens einen Fall wählen: Plattform, Demo-Shop (ein Event) oder Demo-Club (mehrere Events).', ['status' => 400, 'field' => 'cases']);
+        // 1.38.874 (User 17.11.): jeder Zugang gilt immer in allen drei Demos; die Auswahl bestimmt nur die hervorgehobene Variante
+        $primary = null;
+        if ($cases !== null) {
+            $primary = self::primary_of($cases, self::clean_profile($req->get_param('profile')));
+            // alle drei – Instanzen, die auf dieser Plattform gar nicht eingerichtet sind, fallen weg (eingerichtet, aber nicht erreichbar = Fehler wie bisher)
+            $cases = array_values(array_filter(TIX_Demo_Remote::CASES, function ($c) { return $c === 'platform' || TIX_Demo_Remote::platform_ready($c); }));
+        }
         $with_platform = $cases === null || in_array('platform', $cases, true);
         $targets = $cases !== null ? TIX_Demo_Remote::instance_cases($cases) : []; // shop, club
         $model = self::clean_model($req->get_param('model'));
@@ -512,6 +522,7 @@ class TIX_Demo_Access {
         $profile = self::clean_profile($req->get_param('profile'));
         if ($profile === '' && self::instance()) $profile = TIX_Demo_Shop::profile();
         if ($profile === '' && !$with_platform) $profile = 'club'; // Profil nur beim Fall „platform“ Pflicht
+        if ($profile === '' && $primary !== null) $profile = $primary === 'shop' ? 'festival' : 'club';
         if ($profile === '') return new WP_Error('tix_invalid_field', 'Bitte das Profil wählen: Club (mehrere Events) oder Festival (1 Event).', ['status' => 400, 'field' => 'profile']);
         $email = sanitize_email((string) $req->get_param('email'));
         $name = mb_substr(trim(sanitize_text_field((string) $req->get_param('name'))), 0, 80);
@@ -531,6 +542,7 @@ class TIX_Demo_Access {
         if ($with_platform) self::set_profile($uid, $profile);
         else update_user_meta($uid, self::META_PROFILE, $profile); // nur Shop: kein Team im Beispiel-Veranstalter
         if ($cases !== null) update_user_meta($uid, self::META_CASES, $cases);
+        if ($primary !== null) update_user_meta($uid, self::META_PRIMARY, $primary);
         $logins = [];
         if ($targets) {
             // Instanz-Teile nacheinander anlegen (shop, dann club); scheitert eine, werden alle schon angelegten Teile und der
@@ -833,6 +845,68 @@ class TIX_Demo_Access {
 
     // ── Zugang mit Benutzername und Passwort (1.38.872, User: Einmal-Links wurden von Mail-Scannern verbraucht) ──
 
+    /** Hervorgehobene Variante aus Auswahl/Profil (rein): erster Instanz-Fall, sonst Profil festival → shop, club → club */
+    public static function primary_of(array $cases, $profile = '') {
+        foreach (['shop', 'club'] as $c) if (in_array($c, $cases, true)) return $c;
+        return $profile === 'festival' ? 'shop' : 'club';
+    }
+
+    public static function primary($uid) {
+        $p = (string) get_user_meta(intval($uid), self::META_PRIMARY, true);
+        return in_array($p, ['shop', 'club'], true) ? $p : self::primary_of(self::cases($uid), self::profile($uid));
+    }
+
+    /**
+     * Fehlende Demos eines Zugangs ergänzen (Plattform, 1.38.874): Instanz-Konten mit dem aktuellen Passwort-Hash anlegen,
+     * Plattform-Teil (Team im Beispiel-Veranstalter) nachziehen. Keine Mail. → ['added' => [...]] | WP_Error
+     */
+    public static function complete_cases(WP_User $u) {
+        if (!self::multi() || !self::is_prospect($u)) return new WP_Error('tix_invalid_field', 'Nur Demo-Zugänge auf der Plattform.', ['status' => 400]);
+        $has = self::with_cases($u->ID) ? self::cases($u->ID) : ['platform'];
+        if (!get_user_meta($u->ID, self::META_PRIMARY, true)) update_user_meta($u->ID, self::META_PRIMARY, self::primary_of($has, self::profile($u->ID)));
+        $added = [];
+        foreach (TIX_Demo_Remote::INSTANCE_CASES as $t) {
+            if (in_array($t, $has, true) || !TIX_Demo_Remote::platform_ready($t)) continue; // nicht eingerichtete Instanz: überspringen
+            $own = intval(get_user_meta($u->ID, '_tix_demo_owner', true)); $ow = $own ? get_userdata($own) : null;
+            $r = TIX_Demo_Remote::call('POST', '/demo-access/remote', [], ['remote_id' => $u->ID, 'owner' => ['id' => $own, 'name' => $ow ? (string) $ow->display_name : '', 'email' => $ow ? (string) $ow->user_email : ''],
+                'name' => (string) $u->display_name, 'email' => (string) $u->user_email, 'company' => (string) get_user_meta($u->ID, '_tix_demo_company', true), 'expires_at' => wp_date('c', self::expires($u->ID)),
+                'extended' => (bool) get_user_meta($u->ID, '_tix_demo_extended', true), 'invite' => false], 15, $t);
+            if (!$r['ok'] && intval($r['status']) !== 409) return TIX_Demo_Remote::error($r, $t); // 409 = gibt es dort schon
+            $h = TIX_Demo_Remote::call('POST', '/demo-access/remote/' . intval($u->ID) . '/link', [], ['password_hash' => (string) $u->user_pass], 15, $t);
+            if (!$h['ok'] || empty($h['data']['password_set'])) return TIX_Demo_Remote::error($h, $t);
+            $has[] = $t; $added[] = $t;
+            update_user_meta($u->ID, self::META_CASES, array_values(array_intersect(TIX_Demo_Remote::CASES, $has)));
+        }
+        if (!in_array('platform', $has, true)) {
+            $u->add_role('tix_organizer');
+            self::set_profile($u->ID, self::profile($u->ID) ?: (self::primary($u->ID) === 'shop' ? 'festival' : 'club'));
+            $has[] = 'platform'; $added[] = 'platform';
+            update_user_meta($u->ID, self::META_CASES, array_values(array_intersect(TIX_Demo_Remote::CASES, $has)));
+        }
+        TIX_Demo_Remote::forget();
+        return ['added' => $added, 'cases' => self::cases($u->ID)];
+    }
+
+    /**
+     * WP-CLI (Plattform): wp tixomat demo-access complete <email> | --all  → fehlende Demos mit demselben Passwort ergänzen, ohne Mail.
+     * Eine JSON-Zeile je Zugang.
+     */
+    public static function cli($args, $assoc) {
+        $line = function ($a) { WP_CLI::line(wp_json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); };
+        if (($args[0] ?? '') !== 'complete') { $line(['ok' => false, 'error' => 'Befehl: complete <email> | --all']); WP_CLI::halt(1); }
+        if (!self::multi()) { $line(['ok' => false, 'error' => 'Nur auf der Plattform.']); WP_CLI::halt(1); }
+        $users = !empty($assoc['all']) ? get_users(['role' => self::ROLE]) : array_filter([get_user_by('email', sanitize_email((string) ($args[1] ?? '')))]);
+        if (!$users) { $line(['ok' => false, 'error' => 'Zugang nicht gefunden.']); WP_CLI::halt(1); }
+        $fail = false;
+        foreach ($users as $u) {
+            if (!self::is_prospect($u) || !self::usable($u->ID)) { $line(['ok' => true, 'id' => $u->ID, 'skipped' => 'kein aktiver Interessent']); continue; }
+            $r = self::complete_cases($u);
+            if (is_wp_error($r)) { $fail = true; $line(['ok' => false, 'id' => $u->ID, 'error' => $r->get_error_code(), 'message' => $r->get_error_message()]); }
+            else $line(['ok' => true, 'id' => $u->ID] + $r);
+        }
+        if ($fail) WP_CLI::halt(1);
+    }
+
     /** Gut lesbares Passwort: 3 × 4 Zeichen ohne verwechselbare (0/O, 1/l/I), mit Bindestrich → 14 Zeichen */
     public static function readable_password() {
         $abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -868,6 +942,11 @@ class TIX_Demo_Access {
         if (!class_exists('TIX_Mail_Layout')) return new WP_Error('tix_mail_off', 'Mail ist nicht eingerichtet.', ['status' => 503]);
         $pw = self::readable_password();
         $hash = wp_hash_password($pw);
+        if (self::multi() && self::is_prospect($u)) { // ältere Zugänge: fehlende Demos erst ergänzen (1.38.874)
+            $cc = self::complete_cases($u);
+            if (is_wp_error($cc)) return $cc;
+            $u = get_userdata($u->ID);
+        }
         $cases = (self::multi() && self::with_cases($u->ID)) ? self::cases($u->ID) : [self::instance() ? (class_exists('TIX_Demo_Shop') && TIX_Demo_Shop::vorlage() === 'club' ? 'club' : 'shop') : 'platform'];
         if (self::multi() && self::with_cases($u->ID)) {
             foreach (self::remote_cases($u->ID) as $t) {
@@ -878,7 +957,10 @@ class TIX_Demo_Access {
         self::set_hash($u->ID, $hash);
         delete_user_meta($u->ID, '_tix_demo_link'); // alte Einmal-Links gelten nicht mehr
         // Kompakt (1.38.873, User: „erklären, was zu tun ist“): ein Hauptknopf, Schritte, Rest als Textlinks
-        $names = ['platform' => 'Plattform (Verkauf über evendis.de)', 'shop' => 'Festival – ein Event', 'club' => 'Club – mehrere Events'];
+        $names = ['platform' => 'Plattform (Verkauf über evendis.de)', 'shop' => 'Ein Event (z. B. Festival)', 'club' => 'Mehrere Events (z. B. Club, Location)'];
+        // 1.38.874: die Mail nennt nur die beiden Instanz-Studios (das Plattform-Demo-Studio gilt trotzdem); gewählte Variante zuerst
+        $inst = array_values(array_intersect(['shop', 'club'], $cases));
+        if ($inst) { $pr = self::multi() ? self::primary($u->ID) : $inst[0]; usort($inst, function ($a, $b) use ($pr) { return ($b === $pr) <=> ($a === $pr); }); $cases = $inst; }
         $cases = array_values(array_filter(array_unique($cases), function ($c) use ($names) { return isset($names[$c]) && self::login_page($c) !== ''; }));
         $first = $cases[0] ?? 'platform';
         $shop_url = function ($c) use ($u) {
@@ -897,14 +979,15 @@ class TIX_Demo_Access {
         foreach ($cases as $c) {
             $su = $shop_url($c);
             $links .= '<p style="margin:0 0 6px;font-size:14px;line-height:21px;"><b>' . esc_html($names[$c]) . ':</b> '
-                . ($su !== '' ? '<a href="' . esc_url($su) . '">Demo-Shop</a> · ' : '') . '<a href="' . esc_url(self::login_page($c)) . '">Studio</a></p>';
+                . '<a href="' . esc_url(self::login_page($c)) . '">Studio</a>' . ($su !== '' ? ' · <a href="' . esc_url($su) . '">Demo-Shop</a>' : '') . '</p>';
         }
         $trial = class_exists('TIX_Trial') && method_exists('TIX_Trial', 'page_url') ? TIX_Trial::page_url('neu') : 'https://demo.evendis.de/testen/';
+        if (count($cases) > 1) $links .= '<p style="margin:4px 0 0;font-size:14px;line-height:21px;">Dein Zugang gilt in beiden.</p>';
         $links .= '<p style="margin:10px 0 0;font-size:14px;line-height:21px;"><a href="' . esc_url($trial) . '">Eigenen Shop 14 Tage testen</a></p>';
         $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite ? 'hier ist dein Zugang zu den <b>evendis-Demos</b> – mit Beispieldaten, Testkauf und Einlass. Es fließt kein echtes Geld.' : 'hier sind deine neuen Zugangsdaten für die evendis-Demos. Das alte Passwort gilt nicht mehr.')],
             ['type' => 'html', 'html' => '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 8px;border:1px solid #E5E7EB;border-radius:8px;"><tr><td style="padding:12px 16px;font-size:15px;line-height:24px;">'
                 . 'Benutzername: <b>' . esc_html($u->user_email) . '</b><br>Passwort: <b style="font-family:Menlo,Consolas,monospace;font-size:17px;letter-spacing:1px;">' . esc_html($pw) . '</b>'
-                . (count($cases) > 1 ? '<br><span style="font-size:13px;color:#6B7280;">gilt für alle Demos</span>' : '') . '</td></tr></table>' . $btn],
+                . '</td></tr></table>' . $btn],
             ['type' => 'html', 'html' => '<p style="margin:12px 0 4px;"><b>So geht’s</b></p>' . $steps . $links]];
         $exp = self::expires($u->ID);
         if ($exp) $blocks[] = ['type' => 'text', 'html' => '<span style="font-size:13px;color:#6B7280;">Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. Passwort vergessen? Auf der Demo-Seite einfach den Zugang neu anfordern – du bekommst dann ein neues Passwort.</span>'];

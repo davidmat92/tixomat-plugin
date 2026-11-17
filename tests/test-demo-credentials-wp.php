@@ -14,7 +14,57 @@ $pws = []; for ($i = 0; $i < 30; $i++) $pws[] = $A::readable_password();
 $eq('Passwort: 14 Zeichen (3 × 4 mit Bindestrich), keine verwechselbaren Zeichen, jedes Mal anders', [true, true, 30],
     [!array_filter($pws, function ($p) { return !preg_match('/^[a-zA-Z2-9]{4}-[a-zA-Z2-9]{4}-[a-zA-Z2-9]{4}$/', $p); }), !array_filter($pws, function ($p) { return preg_match('/[0O1lI]/', $p); }), count(array_unique($pws))]);
 
-if (!$A::instance()) { echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen, nur rein – keine Demo-Instanz)\n"; return; }
+if (!$A::instance()) {
+    if (!$A::multi()) { echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen, nur rein)\n"; return; }
+    // ═══ 1.38.874 Plattform: jeder Zugang immer in allen drei Demos, Mail nennt beide Instanz-Studios ═══
+    $ob = []; foreach (['tix_demo_shop_url', 'tix_demo_shop_key', 'tix_demo_club_url', 'tix_demo_club_key'] as $o) $ob[$o] = get_option($o, null);
+    update_option('tix_demo_shop_url', 'https://demoshop.test/wp-json/tixomat/v1', false); update_option('tix_demo_club_url', 'https://democlub.test/wp-json/tixomat/v1', false);
+    update_option('tix_demo_shop_key', str_repeat('s', 40), false); update_option('tix_demo_club_key', str_repeat('c', 40), false);
+    $calls = [];
+    $mock = function ($pre, $args, $url) use (&$calls) {
+        if (!preg_match('#^https://(demoshop|democlub)\.test/wp-json/tixomat/v1(/demo-access/remote[^?]*)#', $url, $m)) return $pre;
+        $b = json_decode((string) ($args['body'] ?? ''), true) ?: [];
+        $calls[] = [$m[1], $args['method'], $m[2], $b];
+        $res = function ($code, $body) { return ['headers' => [], 'body' => wp_json_encode($body), 'response' => ['code' => $code, 'message' => ''], 'cookies' => [], 'filename' => null]; };
+        if ($args['method'] === 'POST' && $m[2] === '/demo-access/remote') return $res(201, ['ok' => true, 'login_url' => 'https://studio.x/anmelden/link/?t=abc']);
+        if ($args['method'] === 'POST' && preg_match('#/link$#', $m[2])) return $res(200, ['ok' => true] + (!empty($b['password_hash']) ? ['password_set' => true] : ['login_url' => 'x']));
+        return $res(200, ['ok' => true]);
+    };
+    add_filter('pre_http_request', $mock, PHP_INT_MAX, 3);
+    $mails = []; $cap = function ($pre, $atts) use (&$mails) { $mails[] = $atts; return true; }; add_filter('pre_wp_mail', $cap, 1, 2);
+    $adm = intval(get_users(['role' => 'administrator', 'number' => 1, 'fields' => 'ID'])[0] ?? 0);
+    wp_set_current_user($adm);
+    $em = 'drei' . wp_rand() . '@example.test';
+    $x = new WP_REST_Request('POST', '/tixomat/v1/demo-access'); foreach (['kind' => 'prospect', 'name' => 'Drei Demos', 'email' => $em, 'company' => '', 'profile' => 'festival', 'cases' => ['shop']] as $k => $v) $x->set_param($k, $v);
+    $res = $A::rest_create($x);
+    $uu = get_user_by('email', $em);
+    $creates = array_values(array_unique(array_column(array_filter($calls, function ($c) { return $c[1] === 'POST' && $c[2] === '/demo-access/remote'; }), 0)));
+    $hashes = array_values(array_filter($calls, function ($c) { return !empty($c[3]['password_hash']); }));
+    $eq('Auswahl „Ein Event“: Konto auf Plattform, demo-shop und demo-club; gleicher Hash auf beiden Instanzen; Variante shop gemerkt', [true, ['platform', 'shop', 'club'], ['democlub', 'demoshop'], 2, true, 'shop', true],
+        [!is_wp_error($res) && $uu instanceof WP_User, $uu ? $A::cases($uu->ID) : [], (function ($a) { sort($a); return $a; })($creates), count($hashes), count($hashes) === 2 && $hashes[0][3]['password_hash'] === $hashes[1][3]['password_hash'] && $hashes[0][3]['password_hash'] === get_userdata($uu->ID)->user_pass,
+         (string) get_user_meta($uu->ID, '_tix_demo_primary', true), in_array('tix_organizer', (array) $uu->roles, true)]);
+    $mm = (string) (end($mails)['message'] ?? '');
+    $eq('Mail: Hauptknopf → studio.demo-shop, beide Instanz-Studios als „Ein Event … / Mehrere Events …: Studio · Demo-Shop“, „Dein Zugang gilt in beiden.“, kein Plattform-Studio', [true, true, true, true, true, false, 1],
+        [(bool) preg_match('#href="https://studio\.demo-shop\.evendis\.de/anmelden/"[^>]*class="tm-btn-sm"#', $mm), strpos($mm, 'Ein Event (z. B. Festival):</b> <a href="https://studio.demo-shop.evendis.de/anmelden/">Studio</a> · <a href="https://demo-shop.evendis.de/">Demo-Shop</a>') !== false,
+         strpos($mm, 'Mehrere Events (z. B. Club, Location):</b> <a href="https://studio.demo-club.evendis.de/anmelden/">Studio</a> · <a href="https://demo-club.evendis.de/">Demo-Shop</a>') !== false,
+         strpos($mm, 'Dein Zugang gilt in beiden.') !== false, strpos($mm, 'Ein Event') < strpos($mm, 'Mehrere Events'), strpos($mm, 'demo-studio.evendis.de') !== false, substr_count($mm, 'class="tm-btn-sm"')]);
+    // Bestand: nur „shop“ → complete ergänzt club und Plattform mit demselben Hash, ohne Mail
+    $em2 = 'alt' . wp_rand() . '@example.test';
+    $old = $A::insert_prospect('Alt Zugang', $em2, '', time() + 5 * DAY_IN_SECONDS, $adm, false);
+    update_user_meta($old->ID, '_tix_demo_cases', ['shop']); update_user_meta($old->ID, '_tix_demo_profile', 'festival');
+    wp_set_password('Alt-Pass-1234', $old->ID); $old = get_userdata($old->ID);
+    $calls = []; $mc = count($mails);
+    $cr = $A::complete_cases($old);
+    $hc = array_values(array_filter($calls, function ($c) { return !empty($c[3]['password_hash']); }));
+    $eq('Bestand ergänzen: demo-club + Plattform dazu, gleicher Hash, keine Mail, Passwort bleibt', [['club', 'platform'], ['platform', 'shop', 'club'], 'democlub', true, 0, true],
+        [$cr['added'] ?? null, $A::cases($old->ID), $hc[0][0] ?? '', ($hc[0][3]['password_hash'] ?? '') === get_userdata($old->ID)->user_pass, count($mails) - $mc, wp_check_password('Alt-Pass-1234', get_userdata($old->ID)->user_pass, $old->ID)]);
+    remove_filter('pre_http_request', $mock, PHP_INT_MAX); remove_filter('pre_wp_mail', $cap, 1);
+    foreach ($ob as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v, false); }
+    require_once ABSPATH . 'wp-admin/includes/user.php'; foreach ([$uu->ID ?? 0, $old->ID] as $id) if ($id) wp_delete_user($id);
+    wp_set_current_user(0);
+    echo ($f ? "FEHLER: $f" : 'ALLES OK') . " ($n Prüfungen, Plattform)\n";
+    return;
+}
 
 $mails = [];
 $cap = function ($pre, $atts) use (&$mails) { $mails[] = $atts; return true; };

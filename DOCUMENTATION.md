@@ -7134,3 +7134,9 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Trial::rest_demo_request`: Bestätigungs-Mail mit zwei Schritten und Knopf „Zugang bestätigen“.
 - `TIX_Demo_Access::send_credentials`: kompakt – Zugangsdaten-Kasten, ein Hauptknopf „Zum Studio“ (`compact`), Schritte 1–4, Reset-Hinweis, Textlinks Demo-Shop/Studio je Fall (Demo-Shop der Instanz = Studio-Adresse ohne `studio.`, Plattform = `home_url`) und „Eigenen Shop 14 Tage testen“ (`TIX_Trial::page_url('neu')`).
 - **Test:** `test-demo-credentials-wp` (KK 8), `test-trial-wp`.
+
+## 236. Demo-Zugang immer in allen drei Demos (ab 1.38.874)
+- `TIX_Demo_Access::rest_create`: mit `cases` (Plattform) immer Plattform + alle eingerichteten Instanzen (`TIX_Demo_Remote::platform_ready`); die Auswahl → `META_PRIMARY` (`primary_of`: erster Instanz-Fall, sonst Profil festival → shop, club → club). Profil fehlt → aus der Variante.
+- `complete_cases(WP_User)`: legt fehlende Instanz-Konten an (`/demo-access/remote`, 409 = schon da) und setzt dort den vorhandenen Hash (`/link {password_hash}`), zieht den Plattform-Teil nach; keine Mail. Läuft vor jeder `send_credentials`. WP-CLI `wp tixomat demo-access complete <email>|--all`.
+- `send_credentials`: Mail nennt nur `shop` und `club` (gewählte zuerst, Hauptknopf), Textlinks „Studio · Demo-Shop“, „Dein Zugang gilt in beiden.“; das Plattform-Demo-Studio gilt weiter, steht aber nicht in der Mail.
+- **Test:** `test-demo-credentials-wp` (Plattform 4, KK 8).
