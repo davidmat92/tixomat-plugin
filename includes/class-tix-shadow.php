@@ -16,6 +16,7 @@
  * Schutz: Die Kennung gilt nur zusammen mit `X-Evendis-Shadow-Key: <Schlüssel>`. Der Schlüssel steht in wp-config
  * (EVENDIS_SHADOW_KEY) oder in der Option `tix_shadow_key` (mindestens 32 Zeichen) und im Dienst. Ohne eingerichteten
  * Schlüssel wird die Kennung ignoriert – sonst könnte jeder mit dem Kopf die Ratenlimits umgehen.
+ * Export V5 (TIX_Service_Export, 1.38.893): `X-Evendis-Export: 1` mit demselben Schlüssel gilt ebenso als Schatten-Abruf.
  */
 if (!defined('ABSPATH')) exit;
 
@@ -30,7 +31,9 @@ class TIX_Shadow {
     }
 
     /** Kennung gesetzt (mit oder ohne Schlüssel)? */
-    public static function flagged() { return (string) ($_SERVER['HTTP_X_EVENDIS_SHADOW_FETCH'] ?? '') === '1'; }
+    public static function flagged() {
+        return (string) ($_SERVER['HTTP_X_EVENDIS_SHADOW_FETCH'] ?? '') === '1' || (string) ($_SERVER['HTTP_X_EVENDIS_EXPORT'] ?? '') === '1'; // Export V5 (1.38.893) ebenso nur lesend
+    }
 
     private static function unsafe($method) { return !in_array(strtoupper((string) $method), ['GET', 'HEAD', 'OPTIONS'], true); }
 
@@ -58,7 +61,8 @@ class TIX_Shadow {
     /** Ist diese Anfrage ein Schatten-Abruf des Dienstes? */
     public static function active() {
         if (self::$v !== null) return self::$v;
-        if ((string) ($_SERVER['HTTP_X_EVENDIS_SHADOW_FETCH'] ?? '') !== '1') return self::$v = false;
+        // Schatten-Abruf (V3) oder Export-Abruf des Dienstes (V5, X-Evendis-Export: 1, 1.38.893) – beide mit demselben Schlüssel
+        if (!self::flagged()) return self::$v = false;
         $key = self::key();
         $got = (string) ($_SERVER['HTTP_X_EVENDIS_SHADOW_KEY'] ?? '');
         return self::$v = ($key !== '' && $got !== '' && hash_equals($key, $got));

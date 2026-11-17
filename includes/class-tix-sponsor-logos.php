@@ -191,6 +191,7 @@ class TIX_Sponsor_Logos {
         global $wpdb;
         if (!self::ready()) return;
         $wpdb->replace(self::t('settings'), ['scope' => $scope, 'owner_id' => intval($owner), 'data' => wp_json_encode($data), 'updated_at' => current_time('mysql', true)]);
+        do_action('tix_sponsor_logos_changed', $scope, intval($owner)); // Export V5 (1.38.893)
     }
 
     public static function rows($scope, $owner, $active_only = false) {
@@ -220,6 +221,7 @@ class TIX_Sponsor_Logos {
             }
             foreach (array_diff($have, $keep) as $gone) { $wpdb->delete($t, ['id' => $gone]); $wpdb->delete(self::t('clicks'), ['sponsor_id' => $gone]); }
         }
+        do_action('tix_sponsor_logos_changed', $scope, intval($owner)); // Export V5 (1.38.893)
     }
 
     // ═══════════════ Ausgabe ═══════════════

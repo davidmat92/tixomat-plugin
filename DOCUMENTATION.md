@@ -7330,3 +7330,26 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
 - **Test:** `test-legal-customer-site-wp` (10; Plattform und KK).
 - **1.38.891:** `POST /platform/city-texts/image` (multipart `image`, JPG/PNG/WebP ≤ 15 MB, optional `alt`) → `{ok, image: {id, url, thumb, alt}}`. Danach `POST /platform/city-texts {…, image_id}`. Test w6b auf der Plattform: 26.
 - **1.38.892:** `GET /platform/organizers/{id}` liefert zusätzlich `organizer.domain_access {allowed, fee_note, domain}` (gleiche Form wie `POST …/domain-access`). `/studio/website-package` bleibt bestehen, das Studio schaltet das Paket aber über `/studio/modules` (`website`), dieselbe Option.
+
+## 250. Export für den Dienst evendis-api, Vertrag V5 (ab 1.38.893)
+- **Klasse:** `TIX_Service_Export` (`class-tix-service-export.php`). Nicht zu verwechseln mit `TIX_Export` (CSV-Exporte). Vertrag: `uebergaben/vertrag-export-dienst-v5-2026-11-18.md`. Phase 2 „Lesen“ der WordPress-Ablösung.
+- **Zugang:**
+  - Nur `GET /_export/…` mit `X-Evendis-Export: 1` und `X-Evendis-Shadow-Key` (Schlüssel der Schatten-Kennung, `TIX_Shadow::key()`). Sonst 404 `rest_no_route`.
+  - Die Routen stehen nicht im REST-Index.
+  - Ein gültiger Abruf gilt als Schatten-Abruf (`TIX_Shadow::active()`): keine Zähler, keine Mails, keine Pushes.
+  - Schreibende Methoden mit Export-Kopf ergeben 403 `tix_shadow_readonly`.
+  - Notbremse: mehr als 240 Abrufe pro Minute ergeben 429.
+- **`/_export/changes?since&limit≤500`:**
+  - Quelle ist die Tabelle `tix_export_log`. Je (entity, obj_id) bleibt nur der letzte Eintrag; `version` ist die Log-Nummer.
+  - Ohne `since` kommt nur der Cursor (head).
+  - Täglicher Cron `tix_export_cleanup` löscht Einträge älter als 30 Tage und setzt `tix_export_floor`. Ein Cursor darunter ergibt 410.
+- **Hooks:** Posts und `_tix_*`-Meta (`event`, `tix_organizer`, `tix_artist`, `tix_location`, `tix_app_tip`), Beitragsbild, Terms, Anhänge, Optionen der Config-Liste, Aktion `tix_sponsor_logos_changed` (neu in `TIX_Sponsor_Logos::put_settings/replace`).
+  - Gesammelt wird im Speicher, geschrieben einmal am Ende der Anfrage.
+  - `derived`: Der Fingerabdruck wird höchstens alle 60 s beim Abruf geprüft.
+  - Ausschalten: `TIX_EXPORT_OFF` in wp-config.
+- **`/_export/<entity>?ids≤200|page&per_page≤200`:**
+  - Entitäten: `events`, `ticket_categories`, `organizers`, `artists`, `locations`, `tips`, `sponsors` (Logos), `config` (Erlaubnisliste `config_options()`, Filter `tix_export_config_options`), `terms`, `media` (nur mit ids).
+  - Jede Zeile trägt `version` und `modified_gmt`. Fehlende IDs stehen in `missing`.
+  - Bereinigt über `TIX_Mirror_Map::strip_sensitive` + `clean`; `_tix_payout_*` ist nie dabei.
+- **`/_export/derived`:** plan, license, contract, migrations (öffentlich), staff_site, push_ready, payment_methods, staff_app_min_version.
+- **Test:** `test-export-v5-wp` (31; Plattform und KK).
