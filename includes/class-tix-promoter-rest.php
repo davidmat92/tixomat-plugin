@@ -238,6 +238,7 @@ class TIX_Promoter_REST {
             'settings' => ['enabled' => !empty($s['promoter_enabled']), 'can_edit' => self::can_settings(), 'cookie_days' => intval($s['promoter_cookie_days'] ?? 30) ?: 30, 'consent_category' => 'marketing', 'self_signup' => !empty($s['promoter_self_signup']),
                 'dashboard_url' => class_exists('TIX_Promoter_Auth') ? TIX_Promoter_Auth::get_promoter_page_url() : '',
                 'default_commission' => ['type' => (string) ($s['promoter_default_commission_type'] ?? 'percent'), 'value' => floatval($s['promoter_default_commission_value'] ?? 0)],
+                ] + self::settings_extra($s) + [
                 'multi' => class_exists('TIX_App_Scope') && TIX_App_Scope::multi()]]);
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -423,6 +424,18 @@ class TIX_Promoter_REST {
     // ═══════════════ Einstellungen der Seite ═══════════════
 
     /** Einstellungen gelten für die ganze Seite: Einzel-Seite Inhaber/Admin, evendis nur Admin */
+    /** W3 (1.38.884): Anmeldung der Promoter und Hinweis in „Meine Tickets“ (alte Website) */
+    const AUTH_METHODS = ['both' => 'Link per E-Mail und Passwort', 'magic_link' => 'Nur Link per E-Mail', 'wp_login' => 'Nur Passwort'];
+
+    private static function settings_extra(array $s) {
+        $raw = get_option('tix_settings', []); // direkt (tix_get_settings() ist im selben Aufruf zwischengespeichert)
+        if (is_array($raw)) $s = array_merge($s, array_intersect_key($raw, ['promoter_auth_method' => 1, 'promoter_my_tickets_enabled' => 1]));
+        $am = (string) ($s['promoter_auth_method'] ?? 'both');
+        return ['auth_method' => isset(self::AUTH_METHODS[$am]) ? $am : 'both', 'auth_methods' => self::AUTH_METHODS,
+            'my_tickets_referral' => !empty($s['promoter_my_tickets_enabled']),
+            'hints' => ['auth_method' => 'Wie sich Promoter im Promoter-Bereich anmelden.', 'my_tickets_referral' => 'Zeigt Käufern in „Meine Tickets“ der alten Website einen Hinweis „Werde Promoter“. Entfällt mit der neuen Marken-Website.']];
+    }
+
     private static function can_settings() {
         return current_user_can('manage_options') || !(class_exists('TIX_App_Scope') && TIX_App_Scope::multi());
     }
@@ -445,9 +458,15 @@ class TIX_Promoter_REST {
             $s['promoter_default_commission_type'] = $t;
             $s['promoter_default_commission_value'] = $v;
         }
+        if ($req->has_param('auth_method')) {
+            $am = (string) $req->get_param('auth_method');
+            if (!isset(self::AUTH_METHODS[$am])) return self::bad('auth_method', 'Anmeldung: both, magic_link oder wp_login.');
+            $s['promoter_auth_method'] = $am;
+        }
+        if ($req->has_param('my_tickets_referral')) $s['promoter_my_tickets_enabled'] = rest_sanitize_boolean($req->get_param('my_tickets_referral')) ? 1 : 0;
         update_option('tix_settings', $s);
         return rest_ensure_response(['ok' => true, 'enabled' => !empty($s['promoter_enabled']), 'self_signup' => !empty($s['promoter_self_signup']), 'cookie_days' => intval($s['promoter_cookie_days'] ?? 30) ?: 30,
-            'default_commission' => ['type' => (string) ($s['promoter_default_commission_type'] ?? 'percent'), 'value' => floatval($s['promoter_default_commission_value'] ?? 0)]]);
+            'default_commission' => ['type' => (string) ($s['promoter_default_commission_type'] ?? 'percent'), 'value' => floatval($s['promoter_default_commission_value'] ?? 0)]] + self::settings_extra($s));
     }
 
     // ═══════════════ Auszahlungen ═══════════════

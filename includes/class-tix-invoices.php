@@ -1388,6 +1388,8 @@ class TIX_Invoices {
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/invoices/(?P<id>\d+)/cancel', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_cancel'], 'permission_callback' => [__CLASS__, 'perm_manager']]); // Storno von Hand (B26, 1.38.802)
         register_rest_route(self::NS, '/studio/invoices/reissue', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_reissue_all'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
+        // W3 (1.38.884): Buchhaltung (Lexoffice) testen – Schlüssel nur schreiben, nie ausgeben
+        register_rest_route(self::NS, '/studio/invoice-config/test', ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_accounting_test'], 'permission_callback' => [__CLASS__, 'perm_manager']]);
         register_rest_route(self::NS, '/studio/invoice-config', [
             ['methods' => 'GET', 'callback' => [__CLASS__, 'rest_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
             ['methods' => 'POST', 'callback' => [__CLASS__, 'rest_save_config'], 'permission_callback' => [__CLASS__, 'perm_manager']],
@@ -1626,6 +1628,16 @@ class TIX_Invoices {
         $issuer = self::scope_issuer($req);
         if ($issuer === null) return self::err('rest_forbidden', 'Dieses Konto ist keinem Veranstalter zugeordnet.', 403);
         return rest_ensure_response(self::config_payload($issuer) + self::order_tax_payload());
+    }
+
+    public static function rest_accounting_test(WP_REST_Request $req) {
+        $issuer = self::scope_issuer($req);
+        if ($issuer === null) return self::err('rest_forbidden', 'Dieses Konto ist keinem Veranstalter zugeordnet.', 403);
+        if (!class_exists('TIX_Invoice_Accounting')) return self::err('tix_unavailable', 'Buchhaltung nicht verfügbar.', 500);
+        if (class_exists('TIX_App_Account') && TIX_App_Account::rate_limited('accounting_test', 10, 600)) return self::err('tix_rate_limit', 'Zu viele Tests – bitte kurz warten.', 429);
+        $r = TIX_Invoice_Accounting::test($issuer, (string) $req->get_param('key'));
+        if (is_wp_error($r)) return $r;
+        return rest_ensure_response($r);
     }
 
     /** W2 (1.38.882/883): MwSt.-Ausweis der Bestellungen (tix_settings tax_enabled/tax_inclusive), ganze Seite; Satz = tax_rate */

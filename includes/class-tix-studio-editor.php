@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
  *   timetable       {times_tba, hidden, mode (times|tba|none, 1.38.782), stages[{name, color}], days{"JJJJ-MM-TT": [{time, end, stage, title, desc}]}} | null löscht
  *   low_stock       {mode: global|custom|manual|off, threshold, text}  (+ low_stock_global nur lesend)
  *   ticket_transfer bool  (+ ticket_transfer_available nur lesend: globaler Schalter)
+ *   notify_muted    bool (1.38.884: keine Benachrichtigungen an den Veranstalter zu diesem Event)
  *   ticket_transfer_hours int 0–720 (1.38.877/878, 0 = jederzeit; + ticket_transfer_rule nur lesend: strengere Regel der Ticket-Angaben oder null)
  *   ticket_sponsor  {image, image_id, link} | null löscht;  POST /events/{id}/sponsor-image (multipart `image`) → {image_id, image}
  *   (1.38.449)
@@ -88,6 +89,8 @@ class TIX_Studio_Editor {
             // 1.38.877: Frist für den Inhaberwechsel (0 = jederzeit) + Regel aus den Ticket-Angaben (Bestand, nur lesend)
             'ticket_transfer_hours' => max(0, min(720, intval($m('_tix_ticket_transfer_hours')))),
             'ticket_transfer_rule'  => ($id && class_exists('TIX_Ticket_Fields')) ? TIX_Ticket_Fields::transfer_rule($id) : null,
+            // W3 (1.38.884): keine Benachrichtigungen an den Veranstalter zu diesem Event
+            'notify_muted' => $m('_tix_org_notify_muted') === '1',
             'ticket_sponsor'  => ['image' => $simg, 'image_id' => $sid, 'link' => $m('_tix_ticket_sponsor_link')],
         ] + self::payload2($id);
     }
@@ -477,6 +480,7 @@ class TIX_Studio_Editor {
             $out['low_stock'] = $c;
         }
         if (array_key_exists('ticket_transfer', $body)) $out['ticket_transfer'] = !empty($body['ticket_transfer']);
+        if (array_key_exists('notify_muted', $body)) $out['notify_muted'] = filter_var($body['notify_muted'], FILTER_VALIDATE_BOOLEAN);
         if (array_key_exists('ticket_transfer_hours', $body)) {
             $h = $body['ticket_transfer_hours'];
             if ($h === null || $h === '') $h = 0;
@@ -543,6 +547,7 @@ class TIX_Studio_Editor {
             if (isset($l['text'])) update_post_meta($post_id, '_tix_low_stock_text', $l['text']);
         }
         if (array_key_exists('ticket_transfer', $c)) update_post_meta($post_id, '_tix_ticket_transfer', $c['ticket_transfer'] ? '1' : '0');
+        if (array_key_exists('notify_muted', $c)) { if ($c['notify_muted']) update_post_meta($post_id, '_tix_org_notify_muted', '1'); else delete_post_meta($post_id, '_tix_org_notify_muted'); }
         if (array_key_exists('ticket_transfer_hours', $c)) {
             if ($c['ticket_transfer_hours'] > 0) update_post_meta($post_id, '_tix_ticket_transfer_hours', $c['ticket_transfer_hours']);
             else delete_post_meta($post_id, '_tix_ticket_transfer_hours');

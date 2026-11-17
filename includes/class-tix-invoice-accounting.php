@@ -56,7 +56,30 @@ class TIX_Invoice_Accounting {
         $k = self::api_key($issuer_key);
         return ['provider' => $s['provider'], 'key_set' => $k !== '', 'key_last4' => $k !== '' ? substr($k, -4) : null,
             'use_site_key' => $s['use_site_key'], 'site_key_available' => strpos($issuer_key, 'org:') !== 0 && self::site_key() !== '',
-            'category_id' => $s['category_id'], 'since' => $s['since'] ?: null];
+            'category_id' => $s['category_id'], 'since' => $s['since'] ?: null] + self::sync_state($issuer_key);
+    }
+
+    /** W3 (1.38.884): Stand der Übergabe {status: ok|error|pending|'', last_sync, error, pending} aus tix_invoices.export_* */
+    public static function sync_state($issuer_key) {
+        global $wpdb;
+        $t = TIX_Invoices::table();
+        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t))) return ['status' => '', 'last_sync' => null, 'error' => '', 'pending' => 0];
+        $last = $wpdb->get_row($wpdb->prepare("SELECT export_status, export_at, export_error FROM $t WHERE issuer_key = %s AND export_status IN ('done','error') ORDER BY export_at DESC, id DESC LIMIT 1", $issuer_key));
+        $done = $wpdb->get_var($wpdb->prepare("SELECT MAX(export_at) FROM $t WHERE issuer_key = %s AND export_status = 'done'", $issuer_key));
+        $pending = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE issuer_key = %s AND export_status = 'pending'", $issuer_key)));
+        $st = $last ? ($last->export_status === 'done' ? 'ok' : 'error') : ($pending ? 'pending' : '');
+        return ['status' => $st, 'last_sync' => $done ? mysql_to_rfc3339($done) : null, 'error' => $last && $last->export_status === 'error' ? mb_substr((string) $last->export_error, 0, 200) : '', 'pending' => $pending];
+    }
+
+    /** POST /studio/invoice-config/test {key?}: Schlüssel bei Lexoffice prüfen (mitgeschickt oder gespeichert). Gibt den Schlüssel nie zurück. */
+    public static function test($issuer_key, $key = '') {
+        $key = trim((string) $key);
+        if ($key === '') $key = self::api_key($issuer_key);
+        if ($key === '') return new WP_Error('tix_accounting_no_key', 'Kein Lexoffice-Schlüssel hinterlegt.', ['status' => 409]);
+        $r = self::request('GET', '/profile', $key);
+        if (is_wp_error($r)) return ['ok' => false, 'message' => $r->get_error_message()];
+        $name = trim((string) (($r['companyName'] ?? '') ?: trim(($r['firstName'] ?? '') . ' ' . ($r['lastName'] ?? ''))));
+        return ['ok' => true, 'message' => 'Verbindung steht' . ($name !== '' ? ': ' . $name : '') . '.', 'company' => $name];
     }
 
     /**

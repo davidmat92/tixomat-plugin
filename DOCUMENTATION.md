@@ -7256,3 +7256,16 @@ Endgültiger Vertrag: `uebergaben/vertrag-funktionen-der-seite-2026-11-17.md`, A
 - **Rechte:** Auf evendis schreibt nur der Plattform-Admin (403 `tix_platform_only`); auf Einzel-Seiten Admin und Inhaber. Jede Änderung landet als `site_settings` in `tix_audit_log`.
 - **Umzug nach evendis-api:** Instanz-Felder mit denselben Namen; `clean` als reine Funktion mit Fixtures.
 - **Test:** `test-site-switches-wp` (Plattform 27, KK 28).
+
+## 243. Team, Kasse, Benachrichtigungen im Studio (ab 1.38.884, WP-Admin-Restliste W3)
+Vertrag: `uebergaben/vertrag-team-kasse-benachrichtigungen-2026-11-17.md`, Abschnitt „ENDGÜLTIGE FORM“. Rein additiv.
+- **V3:** `TIX_Org_Notify_REST`, `GET|POST /organizer/notifications`. Die Felder sind `emails ≤ 10`, `paused_until`/`indefinite`/`''`, `types` (7 Arten) und `pushover` (nur lesend).
+  - Die Daten liegen dort, wo die Veranstalter-Metabox sie schon ablegt (`_tix_org_notify_*`); der Versand liest sie unverändert.
+  - Einzel-Seite: Auswahl über `organizer_id`, `organizers[]` in der Antwort.
+  - Im Event-Editor gibt es `notify_muted` (`_tix_org_notify_muted`).
+- **V4:** nicht gebaut. Kassen-PIN, Kasse an/aus und SumUp gehören zur alten WooCommerce-Webkasse. Die App-Kasse hat keine PIN.
+- **V14:** Promoter-Einstellungen bekommen `auth_method`, `my_tickets_referral` und `hints` (GET `/organizer/promoters` → `settings`, POST `/organizer/promoter-settings`).
+- **V16:** `accounting` in `/studio/invoice-config` hat zusätzlich `status`, `last_sync`, `error` und `pending` (aus `tix_invoices.export_*`).
+  - Neu ist `POST /studio/invoice-config/test {key?}` → `{ok, message, company}`. Höchstens 10 Tests in 10 Minuten; der Schlüssel steht nie in der Antwort.
+- **Protokoll:** Jede Änderung der Benachrichtigungen landet als `org_notifications` in `tix_audit_log` (nur Anzahl und Arten, keine Adressen).
+- **Test:** `test-w3-team-notify-wp` (Plattform 24, KK 25). Lexoffice wird dabei per `pre_http_request` nachgestellt, es gibt keinen echten Aufruf.
