@@ -877,21 +877,37 @@ class TIX_Demo_Access {
         }
         self::set_hash($u->ID, $hash);
         delete_user_meta($u->ID, '_tix_demo_link'); // alte Einmal-Links gelten nicht mehr
-        $labels = ['platform' => ['Plattform', 'Verkauf über evendis.de: Beispiel-Veranstalter mit Veranstalter-Seite und das Studio dazu.', 'Zum Demo-Studio'],
-            'shop' => ['Eigene Website mit einem Event', 'Ein Festival über ein ganzes Wochenende: eigene Ticket-Website mit eigenem Studio, nur Testzahlung. Jede Nacht wird dort alles zurückgesetzt.', 'Zum Studio (Festival)'],
-            'club' => ['Eigene Website mit mehreren Events', 'Ein Club mit Programm jede Woche: eigene Ticket-Website mit eigenem Studio, Vorverkauf, Gästeliste und Musikwunsch, nur Testzahlung. Jede Nacht wird dort alles zurückgesetzt.', 'Zum Studio (Club)']];
-        $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite ? 'hier ist dein Zugang zu den <b>evendis-Demos</b>. Du probierst alles mit Beispieldaten aus – inklusive Testkauf und Einlass. Es fließt kein echtes Geld.' : 'hier sind deine neuen Zugangsdaten für die evendis-Demos. Das alte Passwort gilt nicht mehr.')],
-            ['type' => 'html', 'html' => '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;border:1px solid #E5E7EB;border-radius:8px;"><tr><td style="padding:12px 16px;font-size:15px;line-height:24px;">'
-                . 'Benutzername: <b>' . esc_html($u->user_email) . '</b><br>Passwort: <b style="font-family:Menlo,Consolas,monospace;font-size:17px;letter-spacing:1px;">' . esc_html($pw) . '</b></td></tr></table>']];
-        foreach (array_values(array_unique($cases)) as $c) {
-            $url = self::login_page($c);
-            if ($url === '' || !isset($labels[$c])) continue;
-            if (count($cases) > 1) $blocks[] = ['type' => 'text', 'html' => '<b>' . esc_html($labels[$c][0]) . '</b> – ' . esc_html($labels[$c][1])];
-            $blocks[] = ['type' => 'button', 'label' => $labels[$c][2], 'url' => $url];
+        // Kompakt (1.38.873, User: „erklären, was zu tun ist“): ein Hauptknopf, Schritte, Rest als Textlinks
+        $names = ['platform' => 'Plattform (Verkauf über evendis.de)', 'shop' => 'Festival – ein Event', 'club' => 'Club – mehrere Events'];
+        $cases = array_values(array_filter(array_unique($cases), function ($c) use ($names) { return isset($names[$c]) && self::login_page($c) !== ''; }));
+        $first = $cases[0] ?? 'platform';
+        $shop_url = function ($c) use ($u) {
+            if ($c === 'platform' || self::instance()) return self::home_url(self::code($u->ID), self::model($u->ID) ?: 'self', self::profile($u->ID) ?: 'club');
+            $st = (string) (TIX_Demo_Remote::links()[$c] ?? '');
+            return $st !== '' ? preg_replace('#^https://studio\.#', 'https://', rtrim($st, '/')) . '/' : '';
+        };
+        $btn = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::button('Zum Studio', self::login_page($first), 'compact') : '';
+        $steps = '<ol style="margin:4px 0 12px 20px;padding:0;font-size:15px;line-height:23px;">'
+            . '<li>Auf „Zum Studio“ klicken und mit Benutzername und Passwort anmelden.</li>'
+            . '<li>Die Tour zeigt dir das Wichtigste.</li>'
+            . '<li>Im Demo-Shop ein Testticket kaufen (Testzahlung, kein echtes Geld) und die Bestellung im Studio ansehen.</li>'
+            . '<li>Am Einlass das Ticket mit dem Handy scannen.</li></ol>'
+            . '<p style="margin:0 0 12px;">Alles wird jede Nacht zurückgesetzt – probier ruhig alles aus.</p>';
+        $links = '';
+        foreach ($cases as $c) {
+            $su = $shop_url($c);
+            $links .= '<p style="margin:0 0 6px;font-size:14px;line-height:21px;"><b>' . esc_html($names[$c]) . ':</b> '
+                . ($su !== '' ? '<a href="' . esc_url($su) . '">Demo-Shop</a> · ' : '') . '<a href="' . esc_url(self::login_page($c)) . '">Studio</a></p>';
         }
-        if (count($cases) > 1) $blocks[] = ['type' => 'text', 'html' => 'Benutzername und Passwort gelten für alle Demos.'];
+        $trial = class_exists('TIX_Trial') && method_exists('TIX_Trial', 'page_url') ? TIX_Trial::page_url('neu') : 'https://demo.evendis.de/testen/';
+        $links .= '<p style="margin:10px 0 0;font-size:14px;line-height:21px;"><a href="' . esc_url($trial) . '">Eigenen Shop 14 Tage testen</a></p>';
+        $blocks = [['type' => 'text', 'html' => 'Hallo ' . esc_html($u->display_name) . ',<br>' . ($invite ? 'hier ist dein Zugang zu den <b>evendis-Demos</b> – mit Beispieldaten, Testkauf und Einlass. Es fließt kein echtes Geld.' : 'hier sind deine neuen Zugangsdaten für die evendis-Demos. Das alte Passwort gilt nicht mehr.')],
+            ['type' => 'html', 'html' => '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 8px;border:1px solid #E5E7EB;border-radius:8px;"><tr><td style="padding:12px 16px;font-size:15px;line-height:24px;">'
+                . 'Benutzername: <b>' . esc_html($u->user_email) . '</b><br>Passwort: <b style="font-family:Menlo,Consolas,monospace;font-size:17px;letter-spacing:1px;">' . esc_html($pw) . '</b>'
+                . (count($cases) > 1 ? '<br><span style="font-size:13px;color:#6B7280;">gilt für alle Demos</span>' : '') . '</td></tr></table>' . $btn],
+            ['type' => 'html', 'html' => '<p style="margin:12px 0 4px;"><b>So geht’s</b></p>' . $steps . $links]];
         $exp = self::expires($u->ID);
-        if ($exp) $blocks[] = ['type' => 'text', 'html' => 'Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. Passwort vergessen? Auf der Demo-Seite einfach den Zugang neu anfordern – du bekommst dann ein neues Passwort.'];
+        if ($exp) $blocks[] = ['type' => 'text', 'html' => '<span style="font-size:13px;color:#6B7280;">Dein Zugang gilt bis ' . esc_html(wp_date('j. F Y', $exp)) . '. Passwort vergessen? Auf der Demo-Seite einfach den Zugang neu anfordern – du bekommst dann ein neues Passwort.</span>'];
         if (class_exists('TIX_Email_Log')) TIX_Email_Log::$redact = [$pw];
         try {
             $ok = (bool) TIX_Mail_Layout::send($u->user_email, 'evendis Demo – ' . ($invite ? 'dein Zugang' : 'deine neuen Zugangsdaten'), ['title' => $invite ? 'Dein Zugang zu den evendis-Demos' : 'Deine neuen Zugangsdaten', 'blocks' => $blocks, 'kind' => 'account']);

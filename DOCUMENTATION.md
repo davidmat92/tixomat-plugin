@@ -7129,3 +7129,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `TIX_Email_Log::$redact`: Werte darin werden im gespeicherten Mail-Inhalt durch „[nicht gespeichert]“ ersetzt.
 - Einmal-Links (`login_url`, `/public/demo-access/confirm`) bleiben technisch bestehen (POST), werden aber nicht mehr verschickt.
 - **Test:** `test-demo-credentials-wp` (KK 7).
+
+## 235. Demo-Mails mit Schritten (ab 1.38.873)
+- `TIX_Trial::rest_demo_request`: Bestätigungs-Mail mit zwei Schritten und Knopf „Zugang bestätigen“.
+- `TIX_Demo_Access::send_credentials`: kompakt – Zugangsdaten-Kasten, ein Hauptknopf „Zum Studio“ (`compact`), Schritte 1–4, Reset-Hinweis, Textlinks Demo-Shop/Studio je Fall (Demo-Shop der Instanz = Studio-Adresse ohne `studio.`, Plattform = `home_url`) und „Eigenen Shop 14 Tage testen“ (`TIX_Trial::page_url('neu')`).
+- **Test:** `test-demo-credentials-wp` (KK 8), `test-trial-wp`.

@@ -496,8 +496,8 @@ class TIX_Trial {
                 'consent_at' => wp_date('c'), 'ip_hash' => self::ip_hash()]),
             'expires_at' => wp_date('Y-m-d H:i:s', time() + self::TOKEN_TTL), 'created_at' => self::now()]);
         self::mail($email, 'Bitte bestätige deinen Demo-Zugang', 'Fast geschafft',
-            ['Hallo ' . strtok($name, ' ') . ', bitte bestätige deine E-Mail-Adresse. Danach bekommst du sofort deinen Zugang zum evendis-Demo-Studio mit Beispieldaten.', 'Der Link gilt 24 Stunden.'],
-            [['E-Mail bestätigen', self::page('demo', $token)]]);
+            ['Hallo ' . strtok($name, ' ') . ', so geht es weiter:', '1. Auf „Zugang bestätigen“ klicken.', '2. Du bekommst in etwa einer Minute eine zweite Mail mit Benutzername und Passwort.', 'Der Link gilt 24 Stunden.'],
+            [['Zugang bestätigen', self::page('demo', $token)]]);
         return self::out(['ok' => true, 'status' => 'confirm_sent'], 202);
     }
 

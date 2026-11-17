@@ -27,6 +27,9 @@ $pw = preg_match('#Passwort: <b[^>]*>([a-zA-Z2-9]{4}-[a-zA-Z2-9]{4}-[a-zA-Z2-9]{
 $auth = wp_authenticate($email, $pw);
 $eq('Zugangs-Mail: Benutzername = E-Mail, Passwort, Knopf auf die normale Anmeldeseite (ohne Einmal-Link); Anmeldung mit E-Mail + Passwort klappt', [true, true, true, true, false, true],
     [$r, strpos($m, 'Benutzername: <b>' . esc_html($email) . '</b>') !== false, $pw !== '', strpos($m, '/anmelden/') !== false, strpos($m, '/anmelden/link/') !== false, $auth instanceof WP_User && $auth->ID === $u->ID]);
+$eq('1.38.873: kompakt – ein kleiner Hauptknopf „Zum Studio“, kein großer Knopf, vier Schritte, Reset-Hinweis, Textlinks Demo-Shop/Studio und „Eigenen Shop 14 Tage testen“', [1, false, true, true, true, true, true],
+    [substr_count($m, 'class="tm-btn-sm"'), strpos($m, 'class="tm-btn"') !== false, strpos($m, 'Die Tour zeigt dir das Wichtigste.') !== false && strpos($m, 'Am Einlass das Ticket mit dem Handy scannen.') !== false,
+     strpos($m, 'Alles wird jede Nacht zurückgesetzt – probier ruhig alles aus.') !== false, strpos($m, '>Demo-Shop</a>') !== false, strpos($m, '>Studio</a>') !== false, strpos($m, '/testen/">Eigenen Shop 14 Tage testen</a>') !== false]);
 // Mail-Protokoll: Passwort nie gespeichert
 $lt = class_exists('TIX_Email_Log') ? TIX_Email_Log::table_name() : '';
 $row = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lt)) === $lt ? $wpdb->get_var($wpdb->prepare("SELECT body FROM $lt WHERE to_email LIKE %s ORDER BY id DESC LIMIT 1", '%' . $wpdb->esc_like($email) . '%')) : null;

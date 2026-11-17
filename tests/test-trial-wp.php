@@ -184,6 +184,9 @@ $eq('W1 Honigtopf: 202 wie immer, aber keine Mail', [202, $cnt], [$st, count($ma
 [$st, $d] = $post('/public/demo-access/request', ['name' => 'Lena Test', 'email' => $em1, 'company' => 'Test GmbH', 'profile' => 'club', 'cases' => ['platform'], 'consent' => true]);
 $tok = $token_from('demo');
 $eq('W1 Anfrage: 202 confirm_sent, Bestätigungs-Mail mit Link', [202, 'confirm_sent', true], [$st, $d['status'] ?? '', strlen($tok) === 40]);
+$dm = array_values(array_filter($mails, function ($m) { return ($m['subject'] ?? '') === 'Bitte bestätige deinen Demo-Zugang'; }));
+$dh = (string) (end($dm)['message'] ?? '');
+$eq('Bestätigungs-Mail Demo-Zugang: Schritte 1/2 und Knopf „Zugang bestätigen“', [true, true, true], [strpos($dh, '1. Auf „Zugang bestätigen“ klicken.') !== false, strpos($dh, 'zweite Mail mit Benutzername und Passwort') !== false, (bool) preg_match('#class="tm-btn-sm"[^>]*>Zugang bestätigen<#', $dh)]);
 [$st, $d] = $post('/public/demo-access/request/confirm', ['token' => $tok], null);
 $u = get_user_by('email', $em1);
 $eq('W1 Bestätigen: Zugang wie im Vertrieb (Rolle tix_demo), Quelle self, Info an den Vertrieb', [200, 'created', true, 'self', true],
