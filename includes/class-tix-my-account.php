@@ -871,13 +871,8 @@ class TIX_My_Account {
     // Liefert JSON-Download mit allen personenbezogenen Daten
     // ══════════════════════════════════════
 
-    public static function ajax_export_data() {
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'tix_account_privacy')) {
-            wp_die('Sicherheits-Token abgelaufen.');
-        }
-        $user = wp_get_current_user();
-        if (!$user->ID) wp_die('Nicht eingeloggt.');
-
+    /** Datenauskunft (Art. 15/20) als Array – Download über ajax_export_data (ab 1.38.876 ausgelagert, damit testbar) */
+    public static function export_payload(WP_User $user) {
         // Daten per E-Mail nur mit bestätigter E-Mail
         $email = class_exists('TIX_App_Account') ? TIX_App_Account::match_email($user) : $user->user_email;
         global $wpdb;
@@ -923,6 +918,8 @@ class TIX_My_Account {
             foreach ($orders as $o) {
                 $o['items'] = $wpdb->get_results($wpdb->prepare("SELECT * FROM $ti WHERE order_id = %d", $o['id']), ARRAY_A);
                 $o['attribution_source'] = get_post_meta($o['id'], '_tix_ol_source', true);
+                // Kassenfelder (1.38.876, Art. 15): Geburtsdatum (entschlüsselt) und Alter am Event-Tag, falls erfasst
+                $o['extra_fields'] = class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::for_order(intval($o['id'])) : null;
                 $export['orders_native'][] = $o;
             }
         }
@@ -1023,6 +1020,17 @@ class TIX_My_Account {
                 ];
             }
         }
+        return $export;
+    }
+
+    public static function ajax_export_data() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'tix_account_privacy')) {
+            wp_die('Sicherheits-Token abgelaufen.');
+        }
+        $user = wp_get_current_user();
+        if (!$user->ID) wp_die('Nicht eingeloggt.');
+
+        $export = self::export_payload($user);
 
         // ── JSON-Download ausliefern ──
         while (ob_get_level() > 0) ob_end_clean();

@@ -7190,3 +7190,9 @@ Vertrag: `uebergaben/plan-kassenfelder-2026-11-17.md`. Neues Modul `TIX_Checkout
 **Umzug nach evendis-api:** Die reinen Funktionen `parse_birthdate`, `age_on`, `age_group`, `strictest`, `effective`, `region_key` und `bounds` sind ohne WP portierbar. Das Geburtsdatum zieht als verschlüsseltes Feld je Bestellung um (eigener Schlüssel), `age` im Klartext.
 
 **Test:** neu `test-checkout-fields-wp` (Plattform 45, KK 45).
+
+## 238. Geburtsdatum: Löschen bei Aufbewahrung und Datenauskunft (ab 1.38.876)
+- **Löschen:** `TIX_Account_Delete::anonymize_email` ruft `TIX_Checkout_Fields::forget()` für jede Bestellung des Kunden. Das gilt auch für Bestellungen, die im Modus `retain` wegen der Aufbewahrungspflicht bleiben. Ab 875 schon so gebaut, jetzt durch Tests abgesichert (Konto über `delete`, Gast über `delete_guest`; die Studio-Kundenlöschung nutzt beide). Das Geburtsdatum ist danach weg, nur `age` bleibt.
+- **Datenauskunft (Art. 15/20):** „Meine Daten exportieren“ im Kundenkonto liefert je Bestellung `extra_fields {birthdate, age}` (oder `null`).
+  - Die Daten baut jetzt `TIX_My_Account::export_payload(WP_User)` zusammen; der Download (`ajax_export_data`) ist unverändert.
+- **Test:** `test-checkout-fields-wp` (Plattform 49, KK 49).

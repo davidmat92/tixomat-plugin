@@ -158,6 +158,31 @@ try {
     $eq('Anonymisieren: Datum weg, Alter bleibt', [null, 20], [(array) $C::for_order($o1) === [] ? 'x' : $C::for_order($o1)['birthdate'], $C::for_order($o1)['age'] ?? null]);
     $eq('Anonymisieren hängt in TIX_Account_Delete', true, strpos((string) file_get_contents(TIXOMAT_PATH . 'includes/class-tix-account-delete.php'), 'TIX_Checkout_Fields::forget($oid)') !== false);
 
+    // ── 1.38.876: Löschen bei Aufbewahrung (Rechnungsdaten bleiben) + Datenauskunft (Art. 15) ──
+    $keep[TIX_Account_Delete::OPTION] = get_option(TIX_Account_Delete::OPTION, null); // finally stellt zurück
+    update_option(TIX_Account_Delete::OPTION, 'retain', false);
+    $umail = 'kf_konto_' . wp_rand(10000, 99999) . '@example.test';
+    $uid = wp_insert_user(['user_login' => 'kf_konto_' . wp_rand(10000, 99999), 'user_email' => $umail, 'user_pass' => wp_generate_password(20), 'role' => 'subscriber']);
+    wp_set_current_user($uid);
+    [$st, , , $oU] = $order($ev, ['birthdate' => '1995-05-05'], $umail);
+    $eq('Konto: Bestellung mit Datum, bezahlt', [true, '1995-05-05', true], [in_array($st, [200, 201], true), $C::for_order($oU)['birthdate'] ?? null,
+        in_array((string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $oU)), ['completed', 'processing'], true)]);
+    $exp = TIX_My_Account::export_payload(get_userdata($uid));
+    $row = null; foreach ((array) ($exp['orders_native'] ?? []) as $r) if (intval($r['id']) === $oU) $row = $r;
+    $eq('Datenauskunft: Bestellung enthält extra_fields mit Geburtsdatum und Alter', ['1995-05-05', $C::age_on('1995-05-05', $evd)], [$row['extra_fields']['birthdate'] ?? null, $row['extra_fields']['age'] ?? null]);
+    wp_set_current_user($adm);
+    $res = TIX_Account_Delete::delete($uid, 'test');
+    $kept = intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tix_orders WHERE id = %d", $oU)));
+    $eq('Konto gelöscht, Bestellung aufbewahrt → Geburtsdatum weg, Alter bleibt', [false, 1, true, null, $C::age_on('1995-05-05', $evd)],
+        [is_wp_error($res), $kept, in_array($oU, array_map('intval', array_column((array) ($res['retained'] ?? []), 'order_id')), true), $C::for_order($oU)['birthdate'] ?? null, $C::for_order($oU)['age'] ?? null]);
+    $gmail = 'kf_gast_' . wp_rand(10000, 99999) . '@example.test';
+    wp_set_current_user(0);
+    [$st, , , $oG] = $order($ev, ['birthdate' => '1988-08-08'], $gmail);
+    wp_set_current_user($adm);
+    $res = TIX_Account_Delete::delete_guest($gmail, 'test');
+    $eq('Gast gelöscht, Bestellung aufbewahrt → Geburtsdatum weg, Alter bleibt', [false, true, null, $C::age_on('1988-08-08', $evd)],
+        [is_wp_error($res), in_array($oG, array_map('intval', array_column((array) ($res['retained'] ?? []), 'order_id')), true), $C::for_order($oG)['birthdate'] ?? null, $C::for_order($oG)['age'] ?? null]);
+
     // ── Editor: zurück auf Standard ──
     wp_set_current_user($adm);
     [$st, $d] = $rest('POST', "/events/$ev/extras", ['checkout_fields' => ['birthdate' => 'inherit']]);
@@ -172,6 +197,7 @@ try {
         TIX_Object_Data::remove('_tix_order_fields', $oid);
         delete_option('_tix_pos_order_' . $oid); delete_option('_tix_order_source_' . $oid);
     }
+    if (!empty($uid) && get_userdata($uid)) { require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($uid); }
     foreach (array_reverse($posts) as $p) { if (get_post_type($p) === 'tix_organizer') TIX_Object_Data::remove(TIX_Sale_Settings::OBJ, $p); wp_delete_post($p, true); }
     foreach ($keep as $k => $v) { if ($v === null) delete_option($k); else update_option($k, $v); }
     wp_set_current_user(0);
