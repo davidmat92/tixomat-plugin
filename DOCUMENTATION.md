@@ -7329,3 +7329,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
 - **`TIX_Co_Legal::site()`:** Auf der Plattform wird die Anschrift aus den Rechnungsdaten (`invoice_company_address`) genommen, wenn die Kontakt-Anschrift fehlt. Damit wird `complete` auf evendis true.
 - **Test:** `test-legal-customer-site-wp` (10; Plattform und KK).
 - **1.38.891:** `POST /platform/city-texts/image` (multipart `image`, JPG/PNG/WebP ≤ 15 MB, optional `alt`) → `{ok, image: {id, url, thumb, alt}}`. Danach `POST /platform/city-texts {…, image_id}`. Test w6b auf der Plattform: 26.
+- **1.38.892:** `GET /platform/organizers/{id}` liefert zusätzlich `organizer.domain_access {allowed, fee_note, domain}` (gleiche Form wie `POST …/domain-access`). `/studio/website-package` bleibt bestehen, das Studio schaltet das Paket aber über `/studio/modules` (`website`), dieselbe Option.

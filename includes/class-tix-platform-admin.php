@@ -9,6 +9,7 @@ if (!defined('ABSPATH')) exit;
  *   GET  /platform/organizers?status=pending|approved|rejected|blocked|all&q=
  *        → {organizers: [{id, name, slug, city, logo, status, created, owner {name, email}, events, upcoming, modules {key: bool}, requirements [{key, label, done}]}]}
  *   GET  /platform/organizers/{id} → {organizer: {…, description, website, phone, reason, terms {version, accepted_at}|null, payout {complete, iban_masked}|null, events_list [{id, title, date_start, status}]}}
+ *        + domain_access {allowed, fee_note, domain} (1.38.892)
  *   POST /platform/organizers/{id}/approve · /reject {reason} · /block {reason} · /unblock → {ok, status}
  *   POST /platform/organizers/{id}/modules {modules: {key: bool}} → {ok, modules}
  * Abrechnungen (TIX_Settlement; Studio „released“ = Plugin „approved“):
@@ -185,6 +186,8 @@ class TIX_Platform_Admin {
             'payout' => $pay,
             'events_list' => $list,
         ];
+        // 1.38.892 (Wunsch Studio): eigene Domain – gleiche Form wie POST /platform/organizers/{id}/domain-access
+        if (class_exists('TIX_Org_Domains')) $row['domain_access'] = ['allowed' => TIX_Org_Domains::allowed($oid), 'fee_note' => (string) get_post_meta($oid, TIX_Org_Domains::META_FEE, true), 'domain' => TIX_Org_Domains::get($oid)];
         return rest_ensure_response(['ok' => true, 'organizer' => $row]);
     }
 

@@ -57,6 +57,8 @@ try {
         $org = wp_insert_post(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'post_title' => 'W6c Club']);
         [$s, $d] = $rest('POST', "/platform/organizers/$org/domain-access", ['allowed' => true, 'fee_note' => '9 € / Monat']);
         $eq('eigene Domain für Veranstalter freigeschaltet', [200, true, '9 € / Monat'], [$s, $d['allowed'] ?? null, $d['fee_note'] ?? null]);
+        [$s, $d] = $rest('GET', "/platform/organizers/$org");
+        $eq('Veranstalter-Detail mit domain_access (1.38.892)', [200, true, '9 € / Monat', null], [$s, $d['organizer']['domain_access']['allowed'] ?? null, $d['organizer']['domain_access']['fee_note'] ?? null, array_key_exists('domain', (array) ($d['organizer']['domain_access'] ?? [])) ? $d['organizer']['domain_access']['domain'] : 'x']);
         [$s] = $rest('GET', '/studio/website-package');
         $eq('Plattform: kein Website-Paket → 404', 404, $s);
     } else {
