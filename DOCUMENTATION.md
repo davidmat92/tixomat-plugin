@@ -7353,3 +7353,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - Bereinigt über `TIX_Mirror_Map::strip_sensitive` + `clean`; `_tix_payout_*` ist nie dabei.
 - **`/_export/derived`:** plan, license, contract, migrations (öffentlich), staff_site, push_ready, payment_methods, staff_app_min_version.
 - **Test:** `test-export-v5-wp` (31; Plattform und KK).
+- **1.38.894:** `config` ergänzt (Funktions-, Modul-, Website-, Guthaben-, Gutschein-, Assistent- und degaso-Optionen, `home`, `siteurl`). `derived` liefert zusätzlich `settings_effective`, `event_placeholder`, `support_alias` und `site_config`. Wunsch evendis-api für die Pakete 2.1/2.2. Test: 34.

@@ -94,6 +94,10 @@ try {
     [$s, $d] = $get('/terms'); $eq('terms', 200, $s);
     [$s, $d] = $get('/derived');
     $eq('derived: plan, license, staff_site, version', [200, true, true, true], [$s, array_key_exists('plan', $d), array_key_exists('license', $d), is_int($d['version'] ?? null)]);
+    $eq('derived 1.38.894: settings_effective, site_config, event_placeholder', [true, true, true], [array_key_exists('settings_effective', $d), array_key_exists('site_config', $d), array_key_exists('event_placeholder', $d)]);
+    $eq('settings_effective ohne Schlüssel-Felder', [], array_values(array_filter(array_keys((array) ($d['settings_effective'] ?? [])), ['TIX_Mirror_Map', 'is_sensitive'])));
+    [, $d] = $get('/config', ['ids' => 'tix_play_public,tix_app_top_bar,tix_modules_entitled_v,tix_giftcard_settings,tix_degaso']);
+    $eq('config: Optionen für /info und site-config in der Liste', [], array_values(array_diff(['tix_play_public', 'tix_app_top_bar', 'tix_modules_entitled_v', 'tix_giftcard_settings', 'tix_degaso'], array_column($d['items'] ?? [], 'id'))));
     [$s] = $get('/nichtda'); $eq('unbekannte Entität → 404', 404, $s);
 
     // Keine Geheimnisse in allen Antworten

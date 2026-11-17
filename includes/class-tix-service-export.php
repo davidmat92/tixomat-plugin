@@ -276,7 +276,10 @@ class TIX_Service_Export {
               'tix_app_coupons_enabled', 'tix_app_tips_enabled', 'tix_broadcast_enabled', 'tix_raffles_enabled', 'tix_muttizettel_enabled',
               'tix_artist_previews_enabled', 'tix_marketing_enabled', 'tix_cloakroom_enabled', 'tix_website_enabled', 'tix_website',
               'tix_strip_ref_params', 'tix_staff_app_min_version', 'tix_customer_base_url', '_tix_loyalty_enabled', 'tix_invoices_enabled',
-              'tix_org_domain_settings', 'tix_release_dates', 'blogname', 'blogdescription', 'timezone_string', 'gmt_offset', 'site_icon'];
+              'tix_org_domain_settings', 'tix_release_dates', 'blogname', 'blogdescription', 'timezone_string', 'gmt_offset', 'site_icon',
+              // 1.38.894 (Wunsch evendis-api, Pakete 2.1/2.2): alles, was /info, Funktionen (TIX_Features::map) und site-config lesen
+              'tix_modules_entitled_v', 'tix_wallet_platform', '_tix_wallet', 'tix_giftcard_settings', 'tix_assistant_settings', 'tix_degaso',
+              'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl'];
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
             return $o !== '' && !(class_exists('TIX_Mirror_Map') && TIX_Mirror_Map::is_sensitive($o));
@@ -532,6 +535,11 @@ class TIX_Service_Export {
             'push_ready'      => class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'push_configured') && TIX_Notifications::push_configured(),
             'payment_methods' => $multi && class_exists('TIX_App_Checkout') ? TIX_App_Checkout::info_methods() : null,
             'staff_app_min_version' => (string) get_option('tix_staff_app_min_version', ''),
+            // 1.38.894: berechnete Vorgaben als Bezug für 2.1/2.2 (Werte wie für einen Gast)
+            'settings_effective' => function_exists('tix_get_settings') ? tix_get_settings() : null,  // tix_settings mit Vorgaben (Schlüssel entfernt)
+            'event_placeholder'  => class_exists('TIX_Studio') ? TIX_Studio::placeholder() : null,
+            'support_alias'      => class_exists('TIX_Support_Inbound') && method_exists('TIX_Support_Inbound', 'verified_alias') ? TIX_Support_Inbound::verified_alias() : '',
+            'site_config'        => class_exists('TIX_Site_Config') ? TIX_Site_Config::payload() : null,     // fertige Antwort /public/site-config
         ];
         return self::clean($d);
     }
