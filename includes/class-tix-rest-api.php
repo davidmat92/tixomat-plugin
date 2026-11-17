@@ -3627,6 +3627,8 @@ class TIX_REST_API {
         }
 
         $res = ['ok' => true, 'orders' => $out];
+        // 1.38.880: Knopf „Bestellung von Hand“ (TIX_Order_Manual)
+        if (class_exists('TIX_Order_Manual')) $res += TIX_Order_Manual::create_info($req);
         // 1.38.606: Summen heute / 7 / 30 Tage aus TIX_Sales_Figures (alle Bestellungen, nicht nur diese Liste) – nicht selbst addieren
         if (class_exists('TIX_Sales_Figures') && class_exists('TIX_Studio_Stats') && TIX_Studio_Stats::is_manager()) $res['summary'] = self::orders_summary($event_id);
         return rest_ensure_response($res);

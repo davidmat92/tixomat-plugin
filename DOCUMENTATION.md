@@ -7232,3 +7232,4 @@ Vertrag: `uebergaben/vertrag-bestellungen-von-hand.md`. Klasse `TIX_Order_Manual
 - **Sichtbarkeit:** `TIX_App_Events::order_or_error` und `TIX_REST_API::current_price` sind jetzt public.
 - **Umzug nach evendis-api:** siehe Vertrag. Reine Funktionen `mark_paid_check`, `ticket_status_check`, `manual_kind_check`; Ereignis `order.paid` für Online und von Hand.
 - **Test:** `test-order-manual-wp` (42; mit eingerichteter Überweisung auf der Plattform 44; Plattform und KK).
+- **1.38.880 (Abgleich Studio):** `GET /orders` → `can_create`, `create_kinds`; Detail `order.manual.bank`; `mark-paid` mit `paid_at`, `notify`; `tickets/{id}/status` nimmt `note` als Alias. Endgültige Form im Studio-Vertrag `vertrag-bestellungen-von-hand-2026-11-17.md` eingetragen. Test 46 (mit Überweisung 48).

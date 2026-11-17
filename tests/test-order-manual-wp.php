@@ -41,6 +41,9 @@ try {
     update_post_meta($ev, '_tix_ticket_categories', [['name' => 'Normal', 'price' => 20, 'stock' => 10, 'online' => '1'], ['name' => 'Knapp', 'price' => 10, 'stock' => 1, 'online' => '1']]);
     $mail = "kunde_$sfx@example.test";
 
+    [$s, $d] = $rest('GET', '/orders', ['per_page' => 1]);
+    $eq('GET /orders: can_create + create_kinds (evendis nur free, ohne Bank kein transfer)', [200, true, $multi ? ['free'] : ['free', 'paid']], [$s, $d['can_create'] ?? null, (class_exists('TIX_Gateway_Bank') && TIX_Gateway_Bank::is_available()) ? array_values(array_diff($d['create_kinds'] ?? [], ['transfer'])) : ($d['create_kinds'] ?? null)]);
+
     // ═══ Manuelle Bestellung: Freikarte ═══
     $mails = [];
     [$s, $d] = $rest('POST', '/orders/manual', ['event_id' => $ev, 'kind' => 'free', 'items' => [['cat_index' => 0, 'qty' => 2]], 'customer' => ['first_name' => 'Frei', 'last_name' => 'Karte', 'email' => $mail], 'note' => 'Gästeliste']);
@@ -108,8 +111,8 @@ try {
     $eq('Ticket storniert, Bestand unverändert', [200, 'cancelled', 'cancelled', $before], [$s, $d['ticket']['status'] ?? null, (string) get_post_meta($tA, '_tix_ticket_status', true), $stock($ev)]);
     [, $d] = $rest('GET', "/orders/$o1/detail");
     $eq('Detail: Ticket reaktivierbar', true, $d['order']['manual']['tickets'][(string) $tA]['reactivate'] ?? null);
-    [$s, $d] = $rest('POST', "/tickets/$tA/status", ['status' => 'valid']);
-    $eq('Ticket wieder gültig', [200, 'valid'], [$s, (string) get_post_meta($tA, '_tix_ticket_status', true)]);
+    [$s, $d] = $rest('POST', "/tickets/$tA/status", ['status' => 'valid', 'note' => 'war doch richtig']);
+    $eq('Ticket wieder gültig, note als Begründung im Verlauf', [200, 'valid', true], [$s, (string) get_post_meta($tA, '_tix_ticket_status', true), (bool) array_filter(TIX_Order_Manual::notes($o1), function ($x) { return strpos($x['text'], 'war doch richtig') !== false; })]);
     update_post_meta($tA, '_tix_ticket_status', 'cancelled'); // wie nach Erstattung (ohne Markierung)
     [$s, , $c] = $rest('POST', "/tickets/$tA/status", ['status' => 'valid']);
     $eq('nach Erstattung storniert → 409 tix_not_reactivatable', [409, 'tix_not_reactivatable'], [$s, $c]);
@@ -129,6 +132,9 @@ try {
     $total = floatval($wpdb->get_var($wpdb->prepare("SELECT total FROM {$wpdb->prefix}tix_orders WHERE id = %d", $ob)));
     [, $d] = $rest('GET', "/orders/$ob/detail");
     $eq('Detail Vorkasse: als bezahlt setzbar, Bankdaten-Knopf', [true, !$multi || true], [$d['order']['manual']['can_mark_paid'] ?? null, $d['order']['manual']['can_send_bank_info'] ?? null]);
+    $eq('Detail Vorkasse: Bankblock mit Verwendungszweck und Betrag', [true, $total], [is_array($d['order']['manual']['bank'] ?? null) && ($d['order']['manual']['bank']['reference'] ?? '') !== '', $d['order']['manual']['bank']['amount'] ?? null]);
+    [$s, , $c] = $rest('POST', "/orders/$ob/mark-paid", ['paid_at' => wp_date('Y-m-d', time() + 3 * DAY_IN_SECONDS)]);
+    $eq('Eingangsdatum in der Zukunft → 400', 400, $s);
     [$s, , $c] = $rest('POST', "/orders/$ob/mark-paid", ['received' => $total - 5]);
     $eq('Teilbetrag → 409, bleibt offen', [409, 'tix_partial_payment', 'on-hold'], [$s, $c, $st($ob)]);
     [$s, , $c] = $rest('POST', "/orders/$ob/send-bank-info");
@@ -144,6 +150,11 @@ try {
     $eq('zweimal → 409 tix_not_open', [409, 'tix_not_open'], [$s, $c]);
     $audit = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM " . TIX_Customers::audit_table() . " WHERE action = 'order_paid' AND subject_id = %s", (string) $ob));
     $eq('Änderungsprotokoll order_paid', '1', (string) $audit);
+    $ob2 = $mk('bank', 'on-hold'); $orders[] = $ob2;
+    $mails = [];
+    [$s, $d] = $rest('POST', "/orders/$ob2/mark-paid", ['notify' => false, 'paid_at' => wp_date('Y-m-d')]);
+    $eq('bezahlt ohne Benachrichtigung: Tickets ja, keine Kundenmail, Datum im Verlauf', [200, 1, false, true],
+        [$s, $d['tickets'] ?? null, in_array($mail, array_column($mails, 'to'), true), (bool) array_filter(TIX_Order_Manual::notes($ob2), function ($x) { return strpos($x['text'], 'Zahlung eingegangen am') !== false && strpos($x['text'], 'ohne Mail') !== false; })]);
     $om = $mk('mollie', 'pending'); $orders[] = $om;
     [$s, , $c] = $rest('POST', "/orders/$om/mark-paid");
     $eq('Mollie offen → 409 tix_online_payment', [409, 'tix_online_payment'], [$s, $c]);

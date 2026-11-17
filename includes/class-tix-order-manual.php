@@ -148,7 +148,23 @@ class TIX_Order_Manual {
                                  'reactivate' => !$mirror && self::ticket_status_check($st, 'valid', $ci, $rs, $by, $paid) === true];
         }
         if ($t) $out['tickets'] = $t;
+        // Anzeige „Erwartete Überweisung“ (1.38.880): nur offene Vorkasse, IBAN nur gekürzt
+        $out['bank'] = null;
+        if (in_array($r->payment_method, ['bank', 'bacs'], true) && in_array($r->status, self::OPEN, true)) {
+            $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+            $iban = strtoupper(preg_replace('/\s+/', '', (string) ($s['bank_iban'] ?? '')));
+            $out['bank'] = ['holder' => (string) ($s['bank_holder'] ?? ''), 'iban_masked' => $iban === '' ? '' : substr($iban, 0, 4) . ' •••• ' . substr($iban, -4),
+                'reference' => (string) $r->order_number, 'amount' => round(floatval($r->total), 2), 'due_at' => null];
+        }
         return $out;
+    }
+
+    /** Für GET /orders (1.38.880): Darf dieser Nutzer Bestellungen von Hand anlegen, und welche Arten? */
+    public static function create_info(WP_REST_Request $req) {
+        if (!class_exists('TIX_App_Events') || TIX_App_Events::perm_money($req) !== true) return ['can_create' => false, 'create_kinds' => []];
+        $bank = class_exists('TIX_Gateway_Bank') && TIX_Gateway_Bank::is_available();
+        $kinds = array_values(array_filter(self::KINDS, function ($k) use ($bank) { return self::manual_kind_check($k, self::multi(), self::admin(), $bank) === true; }));
+        return ['can_create' => (bool) $kinds, 'create_kinds' => $kinds];
     }
 
     private static function order_or_error($id) {
@@ -169,11 +185,19 @@ class TIX_Order_Manual {
         $ok = self::mark_paid_check((string) $r->status, (string) $r->payment_method, floatval($r->total), $received, self::multi(), self::admin());
         if ($ok !== true) return self::err($ok, $ok[0] === 'tix_partial_payment' ? 'received' : null);
         $note = mb_substr(sanitize_textarea_field((string) $req->get_param('note')), 0, 500);
+        // 1.38.880: Eingangsdatum (nur Verlauf/Protokoll) und Käufer benachrichtigen (Standard ja)
+        $paid_at = (string) $req->get_param('paid_at');
+        if ($paid_at !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $paid_at) || !checkdate((int) substr($paid_at, 5, 2), (int) substr($paid_at, 8, 2), (int) substr($paid_at, 0, 4)) || $paid_at > current_time('Y-m-d'))) {
+            return new WP_Error('tix_invalid_field', 'Bitte ein gültiges Eingangsdatum (nicht in der Zukunft).', ['status' => 400, 'field' => 'paid_at']);
+        }
+        $notify = $req->get_param('notify') === null || filter_var($req->get_param('notify'), FILTER_VALIDATE_BOOLEAN);
         // Team-Mail „Neue Bestellung“ unterdrücken (das Team hat es selbst ausgelöst)
         set_transient('_tix_skip_admin_email_' . $id, 1, 300);
+        if (!$notify) set_transient('_tix_skip_customer_email_' . $id, 1, 300);
         TIX_Native_Checkout::update_order_status($id, 'completed', 'admin');
-        if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($id, '💶 Zahlung eingegangen (von Hand, ' . self::actor() . ')' . ($note !== '' ? "\n" . $note : ''), 'internal', self::actor());
-        self::audit('order_paid', $id, ['total' => round(floatval($r->total), 2), 'method' => (string) $r->payment_method], self::order_org($id));
+        if (!$notify) delete_transient('_tix_skip_customer_email_' . $id);
+        if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($id, '💶 Zahlung eingegangen' . ($paid_at !== '' ? ' am ' . mysql2date('d.m.Y', $paid_at) : '') . ' (von Hand, ' . self::actor() . ($notify ? '' : ', ohne Mail an den Käufer') . ')' . ($note !== '' ? "\n" . $note : ''), 'internal', self::actor());
+        self::audit('order_paid', $id, array_filter(['total' => round(floatval($r->total), 2), 'method' => (string) $r->payment_method, 'paid_at' => $paid_at ?: null, 'notify' => $notify], function ($v) { return $v !== null; }), self::order_org($id));
         return rest_ensure_response(['ok' => true, 'order' => self::state($id), 'tickets' => count(self::ticket_ids($id))]);
     }
 
@@ -237,7 +261,7 @@ class TIX_Order_Manual {
         $ok = self::ticket_status_check($from, $to, (string) get_post_meta($tid, '_tix_ticket_checked_in', true) === '1', (string) get_post_meta($tid, '_tix_ticket_resale', true),
             (string) get_post_meta($tid, '_tix_ticket_cancelled_by', true), in_array(self::state($oid)['status'], self::PAID, true));
         if ($ok !== true) return self::err($ok);
-        $reason = mb_substr(sanitize_textarea_field((string) $req->get_param('reason')), 0, 300);
+        $reason = mb_substr(sanitize_textarea_field((string) ($req->get_param('reason') ?? $req->get_param('note'))), 0, 300); // note = Alias (1.38.880)
         update_post_meta($tid, '_tix_ticket_status', $to);
         if ($to === 'cancelled') update_post_meta($tid, '_tix_ticket_cancelled_by', 'studio'); else delete_post_meta($tid, '_tix_ticket_cancelled_by');
         $code = (string) get_post_meta($tid, '_tix_ticket_code', true);
