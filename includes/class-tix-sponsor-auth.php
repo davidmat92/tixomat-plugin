@@ -232,6 +232,15 @@ class TIX_Sponsor_Auth {
         return $ip !== '' ? $ip : '0.0.0.0';
     }
 
+    /** Login-Link per Mail an den Sponsor (Studio: POST /studio/sponsor-accounts/{id}/send-login, 1.38.889) → bool */
+    public static function send_login_link(int $sponsor_id): bool {
+        if (!class_exists('TIX_Sponsor_DB')) return false;
+        $s = TIX_Sponsor_DB::get_sponsor($sponsor_id);
+        if (!$s || $s->status !== 'active' || !is_email($s->email)) return false;
+        $r = self::send_magic_link_email($s->email, self::build_magic_url($sponsor_id), $s);
+        return $r === null ? true : (bool) $r;
+    }
+
     private static function send_magic_link_email($email, $url, $sponsor) {
         $site = get_bloginfo('name');
         $subject = 'Dein Sponsor-Login — ' . $site;

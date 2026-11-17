@@ -7312,3 +7312,10 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6b“. Klasse `TIX_Platform_
 - **Kleine Ergänzungen:** `TIX_Weekly_Mail::send_test/counts`, `TIX_Mail_Follow::active_count`, `TIX_SEO_Texts::city_texts/image_payload`.
 - **Protokoll:** Jede Änderung landet als `platform_*` in `tix_audit_log`.
 - **Test:** `test-w6b-platform-content-wp` (Plattform 23, Einzel-Seite 1).
+
+## 248. Plattform-Akte W6c: Sponsoren-Zugänge, Domains, Website-Paket, Awareness-Test (ab 1.38.889)
+Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_Ops`.
+- **P9:** `/studio/sponsor-accounts[/{id}[/pools[/{pool}]|/send-login]]`. Rechte: Admin, auf Einzel-Seiten auch der Inhaber. Neu ist `TIX_Sponsor_Auth::send_login_link`; es ersetzt den Reflection-Aufruf, den die Admin-Seite nutzte.
+- **P11:** `/platform/domain-settings` (das Geheimnis wird nur geschrieben), `/platform/organizers/{id}/domain-access` und `/studio/website-package` (nur Einzel-Seiten).
+- **P12:** `/awareness/test` (Status, starten, Tester, aufräumen; nur Admin). Notrufnummern stehen weiter in `nav.sos` der App-Konfiguration.
+- **Test:** `test-w6c-platform-ops-wp` (Plattform 19, KK 18).
