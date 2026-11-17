@@ -22,6 +22,7 @@ class TIX_Ticket_Fields {
     const NS = 'tixomat/v1';
     const META = '_tix_ticket_fields';
     const META_DEFAULT = '_tix_ticket_fields_default';
+    const MAX_TRANSFER_HOURS = 720; // Event-Frist für den Inhaberwechsel (1.38.878: Studio bis 30 Tage)
     const OPT_DEFAULT = 'tix_ticket_fields_default';
     const DB_VERSION = '1';
     const TYPES = ['text', 'textarea', 'select', 'radio', 'checkbox', 'date', 'phone', 'accessibility'];
@@ -112,6 +113,13 @@ class TIX_Ticket_Fields {
         }
         return ['personalize' => $p, 'categories' => array_values(array_unique(array_map('intval', (array) ($in['categories'] ?? [])))), 'ask_email' => !empty($in['ask_email']),
             'age_confirm' => $age, 'questions' => $qs, 'transfer' => $tr, 'transfer_hours' => max(1, min(168, intval($in['transfer_hours'] ?? 24))), 'retention_days' => $ret];
+    }
+
+    /** Rein (1.38.878): fehlende transfer/transfer_hours aus der bisherigen Einstellung übernehmen */
+    public static function keep_transfer(array $in, $prev) {
+        if (!is_array($prev)) return $in;
+        foreach (['transfer', 'transfer_hours'] as $k) if (!array_key_exists($k, $in) && array_key_exists($k, $prev)) $in[$k] = $prev[$k];
+        return $in;
     }
 
     /** Hinweise zum Datenschutz (Studio zeigt sie beim Speichern) */
@@ -398,7 +406,7 @@ class TIX_Ticket_Fields {
 
     /** Frist des Events für den Inhaberwechsel (Studio „Bis X Std. vor Beginn“), 0 = jederzeit */
     public static function event_transfer_hours($event_id) {
-        return max(0, min(168, intval(get_post_meta(intval($event_id), '_tix_ticket_transfer_hours', true))));
+        return max(0, min(self::MAX_TRANSFER_HOURS, intval(get_post_meta(intval($event_id), '_tix_ticket_transfer_hours', true))));
     }
 
     /** Rein: wirksame Frist in Stunden aus Ticket-Angaben-Regel und Event-Frist; null = nie, 0 = jederzeit (strengere gewinnt) */
@@ -517,7 +525,8 @@ class TIX_Ticket_Fields {
         if (!self::manager()) return new WP_Error('rest_forbidden', 'Einstellungen zu Ticket-Angaben ändern Inhaber und Team-Admins.', ['status' => 403]);
         if (rest_sanitize_boolean($req->get_param('inherit'))) { delete_post_meta($eid, self::META); return self::rest_get($req); }
         $p = $req->get_json_params() ?: $req->get_body_params();
-        $c = self::sanitize((array) ($p['config'] ?? $p));
+        // 1.38.878: Studio schickt transfer/transfer_hours nicht mehr mit → bisher wirksamen Wert behalten (nicht auf „allowed“)
+        $c = self::sanitize(self::keep_transfer((array) ($p['config'] ?? $p), self::config($eid)));
         if (is_wp_error($c)) return $c;
         update_post_meta($eid, self::META, $c);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();
@@ -533,7 +542,7 @@ class TIX_Ticket_Fields {
         $org = TIX_Ad_Accounts::org($req);
         if (rest_sanitize_boolean($req->get_param('clear'))) { if ($org) delete_post_meta($org, self::META_DEFAULT); else delete_option(self::OPT_DEFAULT); return self::rest_default_get($req); }
         $p = $req->get_json_params() ?: $req->get_body_params();
-        $c = self::sanitize((array) ($p['config'] ?? $p));
+        $c = self::sanitize(self::keep_transfer((array) ($p['config'] ?? $p), self::default_for($org)));
         if (is_wp_error($c)) return $c;
         if ($org) update_post_meta($org, self::META_DEFAULT, $c); else update_option(self::OPT_DEFAULT, $c, false);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();

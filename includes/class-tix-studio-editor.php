@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
  *   timetable       {times_tba, hidden, mode (times|tba|none, 1.38.782), stages[{name, color}], days{"JJJJ-MM-TT": [{time, end, stage, title, desc}]}} | null löscht
  *   low_stock       {mode: global|custom|manual|off, threshold, text}  (+ low_stock_global nur lesend)
  *   ticket_transfer bool  (+ ticket_transfer_available nur lesend: globaler Schalter)
- *   ticket_transfer_hours int 0–168 (1.38.877, 0 = jederzeit; + ticket_transfer_rule nur lesend: strengere Regel der Ticket-Angaben oder null)
+ *   ticket_transfer_hours int 0–720 (1.38.877/878, 0 = jederzeit; + ticket_transfer_rule nur lesend: strengere Regel der Ticket-Angaben oder null)
  *   ticket_sponsor  {image, image_id, link} | null löscht;  POST /events/{id}/sponsor-image (multipart `image`) → {image_id, image}
  *   (1.38.449)
  *   specials        {in_selector, in_checkout, items[{special_id, enabled, price_override, qty_override}]} + specials_catalog (nur lesend)
@@ -86,7 +86,7 @@ class TIX_Studio_Editor {
             'ticket_transfer' => $m('_tix_ticket_transfer') === '1',
             'ticket_transfer_available' => function_exists('tix_get_settings') && (bool) tix_get_settings('ticket_transfer_enabled'),
             // 1.38.877: Frist für den Inhaberwechsel (0 = jederzeit) + Regel aus den Ticket-Angaben (Bestand, nur lesend)
-            'ticket_transfer_hours' => max(0, min(168, intval($m('_tix_ticket_transfer_hours')))),
+            'ticket_transfer_hours' => max(0, min(720, intval($m('_tix_ticket_transfer_hours')))),
             'ticket_transfer_rule'  => ($id && class_exists('TIX_Ticket_Fields')) ? TIX_Ticket_Fields::transfer_rule($id) : null,
             'ticket_sponsor'  => ['image' => $simg, 'image_id' => $sid, 'link' => $m('_tix_ticket_sponsor_link')],
         ] + self::payload2($id);
@@ -480,7 +480,7 @@ class TIX_Studio_Editor {
         if (array_key_exists('ticket_transfer_hours', $body)) {
             $h = $body['ticket_transfer_hours'];
             if ($h === null || $h === '') $h = 0;
-            if (!is_numeric($h) || intval($h) != $h || intval($h) < 0 || intval($h) > 168) return self::bad('ticket_transfer_hours', 'Frist zwischen 0 (jederzeit) und 168 Stunden.');
+            if (!is_numeric($h) || intval($h) != $h || intval($h) < 0 || intval($h) > 720) return self::bad('ticket_transfer_hours', 'Frist zwischen 0 (jederzeit) und 720 Stunden.');
             $out['ticket_transfer_hours'] = intval($h);
         }
         // ── Ticket-Sponsor ──

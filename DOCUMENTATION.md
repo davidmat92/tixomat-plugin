@@ -7201,7 +7201,7 @@ Vertrag: `uebergaben/plan-kassenfelder-2026-11-17.md`. Neues Modul `TIX_Checkout
 Vertrag: `uebergaben/plan-umschreiben-frist-2026-11-17.md`. Rein additiv. User-Entscheid: „Aus“ sperrt nur den Inhaberwechsel; Namenskorrekturen folgen weiter nur der Regel der Ticket-Angaben.
 - **Studio-Editor** (GET /events/{id}/edit → `event`, GET /events/form, POST /events[/{id}]):
   - `ticket_transfer` bool, unverändert.
-  - `ticket_transfer_hours` int 0–168, neu: 0 = jederzeit, sonst nur bis so viele Stunden vor Beginn. Meta `_tix_ticket_transfer_hours` (0 löscht die Meta). Ungültig → 400 `ticket_transfer_hours`.
+  - `ticket_transfer_hours` int 0–720 (ab 878, vorher 168), neu: 0 = jederzeit, sonst nur bis so viele Stunden vor Beginn. Meta `_tix_ticket_transfer_hours` (0 löscht die Meta). Ungültig → 400 `ticket_transfer_hours`.
   - `ticket_transfer_rule` nur lesend: strengere Regel aus den Ticket-Angaben `{transfer: until_hours|never, transfer_hours}` oder null.
   - Studio-Darstellung: „Ticket umschreiben: Aus / Jederzeit / Bis __ Std. vor Beginn“. Der Punkt unter Ticket-Angaben entfällt im Studio; `ticket_fields.transfer` bleibt in der API.
 - **Prüfung:**
@@ -7212,4 +7212,5 @@ Vertrag: `uebergaben/plan-umschreiben-frist-2026-11-17.md`. Rein additiv. User-E
 - **Öffentlich:** GET /public/events/{id} → `event.ticket_transfer_hours` (wirksame Frist für den Inhaberwechsel, 0 = jederzeit bzw. Umschreiben aus). `ticket_fields.transfer`/`transfer_hours` bleiben unverändert (App-Vertrag).
 - Die Meta wandert in Serien-Kopien und in die Event-Historie mit.
 - **Umzug nach evendis-api:** Event-Feld `transfer_hours` neben `transfer_enabled`; reine Funktion `owner_transfer_allowed(event, ticket_fields_rule, start, now)`. Fixtures: hours 0/24/72 gegen ticket_fields never/until_hours 24/72 → strengere gewinnt; Namenskorrektur nur nach ticket_fields.
-- **Test:** `test-transfer-hours-wp` (21, mit globalem Schalter 24; Plattform und KK).
+- **1.38.878:** Speichern der Ticket-Angaben (`POST /events/{id}/ticket-fields`, `POST /organizer/ticket-fields-default`) ohne `transfer`/`transfer_hours` behält die bisher wirksame Regel (Event: eigene oder geerbte Vorgabe; Vorgabe: gespeicherte), kein Rückfall auf „allowed“. Reine Funktion `TIX_Ticket_Fields::keep_transfer($in, $prev)`. Event-Frist bis 720 h (`MAX_TRANSFER_HOURS`).
+- **Test:** `test-transfer-hours-wp` (28, mit globalem Schalter 31; Plattform und KK).

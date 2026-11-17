@@ -29,12 +29,14 @@ try {
     [$st] = $rest('POST', "/events/$ev", ['ticket_transfer' => true, 'ticket_transfer_hours' => 24]);
     $eq('„Bis 24 Std. vor Beginn“ gespeichert', [200, 200, true, 24, null], array_merge([$st], $get()));
     $eq('Meta _tix_ticket_transfer_hours', '24', (string) get_post_meta($ev, '_tix_ticket_transfer_hours', true));
-    [$st, $d] = $rest('POST', "/events/$ev", ['ticket_transfer_hours' => 200]);
-    $eq('ungültig 200 → 400 ticket_transfer_hours', [400, 'ticket_transfer_hours'], [$st, $d['data']['field'] ?? null]);
+    [$st] = $rest('POST', "/events/$ev", ['ticket_transfer_hours' => 720]);
+    $eq('720 h (30 Tage) erlaubt', [200, 720], [$st, $get()[2]]);
+    [$st, $d] = $rest('POST', "/events/$ev", ['ticket_transfer_hours' => 721]);
+    $eq('ungültig 721 → 400 ticket_transfer_hours', [400, 'ticket_transfer_hours'], [$st, $d['data']['field'] ?? null]);
     [$st, $d] = $rest('POST', "/events/$ev", ['ticket_transfer_hours' => 'abc']);
     $eq('ungültig Text → 400', 400, $st);
     [$st] = $rest('POST', "/events/$ev", ['ticket_transfer' => false]);
-    $eq('nur Schalter aus: Frist bleibt', [200, false, 24], [$st, $get()[1], $get()[2]]);
+    $eq('nur Schalter aus: Frist bleibt', [200, false, 720], [$st, $get()[1], $get()[2]]);
     [$st] = $rest('POST', "/events/$ev", ['ticket_transfer' => true, 'ticket_transfer_hours' => 0]);
     $eq('„Jederzeit“: Frist 0, Meta gelöscht', [200, 0, ''], [$st, $get()[2], (string) get_post_meta($ev, '_tix_ticket_transfer_hours', true)]);
     [$st, $d] = $rest('GET', '/events/form');
@@ -60,6 +62,27 @@ try {
     $eq('Bestand never: beides gesperrt (wie bisher)', [false, false], [$ok(true), $ok(false)]);
     delete_post_meta($ev, TIX_Ticket_Fields::META);
 
+    // ═══ 878: Ticket-Angaben speichern ohne transfer/transfer_hours → bisheriger Wert bleibt ═══
+    $eq('keep_transfer rein: fehlend übernommen, mitgeschickt gewinnt', [['transfer' => 'never', 'transfer_hours' => 48], ['transfer' => 'allowed', 'transfer_hours' => 48]],
+        [TIX_Ticket_Fields::keep_transfer([], ['transfer' => 'never', 'transfer_hours' => 48]), TIX_Ticket_Fields::keep_transfer(['transfer' => 'allowed'], ['transfer' => 'never', 'transfer_hours' => 48])]);
+    $tfc = function () use ($ev) { $c = get_post_meta($ev, TIX_Ticket_Fields::META, true); return is_array($c) ? [$c['transfer'], $c['transfer_hours'], $c['personalize']] : null; };
+    [$st] = $rest('POST', "/events/$ev/ticket-fields", ['config' => ['personalize' => 'optional', 'transfer' => 'until_hours', 'transfer_hours' => 48]]);
+    $eq('Ticket-Angaben mit Frist 48 gespeichert', [200, ['until_hours', 48, 'optional']], [$st, $tfc()]);
+    [$st] = $rest('POST', "/events/$ev/ticket-fields", ['config' => ['personalize' => 'required']]);
+    $eq('ohne transfer/transfer_hours gespeichert: Regel bleibt until_hours 48 (kein Rückfall auf allowed)', [200, ['until_hours', 48, 'required']], [$st, $tfc()]);
+    [$st] = $rest('POST', "/events/$ev/ticket-fields", ['config' => ['personalize' => 'required', 'transfer' => 'allowed']]);
+    $eq('mitgeschicktes allowed gilt', ['allowed', 48, 'required'], $tfc());
+    delete_post_meta($ev, TIX_Ticket_Fields::META);
+    $org_d = TIX_Ticket_Fields::default_for(0);
+    [$st] = $rest('POST', '/organizer/ticket-fields-default', ['config' => ['personalize' => 'optional', 'transfer' => 'never']]);
+    [$st2] = $rest('POST', '/organizer/ticket-fields-default', ['config' => ['personalize' => 'required']]);
+    [, $dd] = $rest('GET', '/organizer/ticket-fields-default');
+    $eq('Vorgabe ohne transfer gespeichert: never bleibt', [200, 200, 'never', 'required'], [$st, $st2, $dd['config']['transfer'] ?? null, $dd['config']['personalize'] ?? null]);
+    [$st] = $rest('POST', "/events/$ev/ticket-fields", ['config' => ['personalize' => 'off', 'questions' => [['type' => 'text', 'label' => 'Wer?']]]]);
+    $eq('Event erbt Vorgabe, speichert ohne transfer: übernimmt wirksame Regel never', [200, 'never'], [$st, $tfc()[0] ?? null]);
+    delete_post_meta($ev, TIX_Ticket_Fields::META);
+    if ($org_d === null) delete_option(TIX_Ticket_Fields::OPT_DEFAULT); else update_option(TIX_Ticket_Fields::OPT_DEFAULT, $org_d, false);
+
     // ═══ Mit globalem Schalter: can_transfer + öffentlich ═══
     if (tix_get_settings('ticket_transfer_enabled')) {
         update_post_meta($ev, '_tix_ticket_transfer', '1');
@@ -79,6 +102,8 @@ try {
     }
 } catch (\Throwable $e) { $f++; echo "FEHLER " . $e->getMessage() . ' @' . $e->getFile() . ':' . $e->getLine() . "\n"; }
 finally {
+    // Vorgabe zurücksetzen (vorher keine gesetzt bzw. alten Wert wiederherstellen)
+    if (array_key_exists('org_d', get_defined_vars())) { if ($org_d === null) delete_option(TIX_Ticket_Fields::OPT_DEFAULT); else update_option(TIX_Ticket_Fields::OPT_DEFAULT, $org_d, false); }
     if ($tid) wp_delete_post($tid, true);
     if ($ev) wp_delete_post($ev, true);
 }
