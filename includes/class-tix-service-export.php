@@ -282,7 +282,8 @@ class TIX_Service_Export {
               'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl'];
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
-            return $o !== '' && !(class_exists('TIX_Mirror_Map') && TIX_Mirror_Map::is_sensitive($o));
+            // tix_awareness_flags: nur die öffentlichen Schalter report_enabled/alarm_live (Name enthält „awareness“ aus der DENY-Liste)
+            return $o !== '' && ($o === 'tix_awareness_flags' || !(class_exists('TIX_Mirror_Map') && TIX_Mirror_Map::is_sensitive($o)));
         }));
         return $list;
     }
@@ -536,12 +537,31 @@ class TIX_Service_Export {
             'payment_methods' => $multi && class_exists('TIX_App_Checkout') ? TIX_App_Checkout::info_methods() : null,
             'staff_app_min_version' => (string) get_option('tix_staff_app_min_version', ''),
             // 1.38.894: berechnete Vorgaben als Bezug für 2.1/2.2 (Werte wie für einen Gast)
-            'settings_effective' => function_exists('tix_get_settings') ? tix_get_settings() : null,  // tix_settings mit Vorgaben (Schlüssel entfernt)
+            'settings_effective' => function_exists('tix_get_settings') ? self::clean(tix_get_settings()) : null,  // tix_settings mit Vorgaben (Schlüssel entfernt)
             'event_placeholder'  => class_exists('TIX_Studio') ? TIX_Studio::placeholder() : null,
             'support_alias'      => class_exists('TIX_Support_Inbound') && method_exists('TIX_Support_Inbound', 'verified_alias') ? TIX_Support_Inbound::verified_alias() : '',
             'site_config'        => class_exists('TIX_Site_Config') ? TIX_Site_Config::payload() : null,     // fertige Antwort /public/site-config
+            // 1.38.895 (Wunsch evendis-api, Paket 2.1 /info): Werte wie in /info für einen Gast
+            'plugin_version'     => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : 'unknown',
+            'site_name'          => get_bloginfo('name'),
+            'timezone'           => wp_timezone_string(),
+            'modules'            => class_exists('TIX_Modules') ? TIX_Modules::info_payload() : null,
+            'modules_source'     => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
+            'app_features_site'  => class_exists('TIX_Features') ? self::as_guest(function () { return TIX_Features::map(0); }) : null,
+            'multi'              => class_exists('TIX_App_Scope') && TIX_App_Scope::multi(),
+            'newsletter_enabled' => $multi ? (bool) TIX_Weekly_Mail::enabled() : null,
+            'mail_follow_enabled'=> $multi ? (class_exists('TIX_Mail_Follow') && TIX_Mail_Follow::enabled()) : null,
         ];
-        return self::clean($d);
+        // Alle Teile außer settings_effective sind öffentliche /info- bzw. site-config-Werte: nicht nach Feldnamen kürzen
+        // (DENY enthält „awareness“ – die öffentlichen Awareness-Schalter müssen bleiben), nur Hash-Werte/UTF-8 bereinigen.
+        return TIX_Mirror_Map::clean($d);
+    }
+
+    /** Als Gast rechnen (can_edit false), egal wer angemeldet ist. */
+    private static function as_guest(callable $fn) {
+        $uid = get_current_user_id();
+        if ($uid) wp_set_current_user(0);
+        try { return $fn(); } finally { if ($uid) wp_set_current_user($uid); }
     }
 
     /** Fingerabdruck höchstens alle 60 s prüfen; bei Abweichung Signal derived|all. */

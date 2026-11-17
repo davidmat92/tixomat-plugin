@@ -96,8 +96,18 @@ try {
     $eq('derived: plan, license, staff_site, version', [200, true, true, true], [$s, array_key_exists('plan', $d), array_key_exists('license', $d), is_int($d['version'] ?? null)]);
     $eq('derived 1.38.894: settings_effective, site_config, event_placeholder', [true, true, true], [array_key_exists('settings_effective', $d), array_key_exists('site_config', $d), array_key_exists('event_placeholder', $d)]);
     $eq('settings_effective ohne Schlüssel-Felder', [], array_values(array_filter(array_keys((array) ($d['settings_effective'] ?? [])), ['TIX_Mirror_Map', 'is_sensitive'])));
+    [, $cfg] = $get('/config', ['ids' => 'tix_awareness_flags']);
+    $eq('config: tix_awareness_flags dabei', ['tix_awareness_flags'], array_column($cfg['items'] ?? [], 'id'));
     [, $d] = $get('/config', ['ids' => 'tix_play_public,tix_app_top_bar,tix_modules_entitled_v,tix_giftcard_settings,tix_degaso']);
     $eq('config: Optionen für /info und site-config in der Liste', [], array_values(array_diff(['tix_play_public', 'tix_app_top_bar', 'tix_modules_entitled_v', 'tix_giftcard_settings', 'tix_degaso'], array_column($d['items'] ?? [], 'id'))));
+    $info = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/info'))->get_data();
+    [, $d] = $get('/derived');
+    $eq('derived 1.38.895 = /info (Version, Name, Module, Quelle, Funktionen)', [$info['plugin_version'], $info['name'], $info['modules'], $info['modules_source'], $info['app_features']],
+        [$d['plugin_version'] ?? null, $d['site_name'] ?? null, $d['modules'] ?? null, $d['modules_source'] ?? null, $d['app_features_site'] ?? null]);
+    $eq('derived: timezone, multi, Newsletter nur bei multi', [wp_timezone_string(), class_exists('TIX_App_Scope') && TIX_App_Scope::multi(), isset($info['newsletter']) ? $info['newsletter']['enabled'] : null],
+        [$d['timezone'] ?? null, $d['multi'] ?? null, array_key_exists('newsletter_enabled', (array) $d) ? $d['newsletter_enabled'] : 'x']);
+    $can = array_filter(array_column(array_values((array) ($d['app_features_site'] ?? [])), 'can_edit'));
+    $eq('app_features_site als Gast: nichts bearbeitbar', [], array_values($can));
     [$s] = $get('/nichtda'); $eq('unbekannte Entität → 404', 404, $s);
 
     // Keine Geheimnisse in allen Antworten
