@@ -5,7 +5,7 @@ if (!defined('ABSPATH')) exit;
  * TIX_Stats_Audience – Kennzahlen-Katalog Besucher → Kauf → Einlass (Statistik Stufe 1, docs/plan-statistik-marketing.md §3).
  *
  *   GET /organizer/stats/audience?from&to[&event_id][&organizer (nur Admin, evendis)]
- *   → {ok, range, scope, kpis, previous, funnel[], by_source[], by_campaign[], app, visits_enabled, modules, matomo}
+ *   → {ok, range, scope, kpis, previous, funnel[], by_source[], by_campaign[], app, audience{ages, regions}, visits_enabled, modules, matomo}
  *     mit event_id zusätzlich series[{date, views, app_views, orders}] (je Tag, höchstens 400 Tage) für den Verlauf bis zum Event
  *   GET /organizer/stats/events?ids=1,2,…[&days=14] (höchstens 100 Events, nur eigene) – Sammelabfrage für die Event-Liste:
  *   → {ok, days, events[{id, event_views, app_views, checkout, web_orders, conversion, views_days[], orders_days[]}]}
@@ -99,6 +99,7 @@ class TIX_Stats_Audience {
             'by_source' => $cur['by_source'],
             'by_campaign' => $cur['by_campaign'],
             'app' => $cur['app'],
+            'audience' => $cur['audience'], // 1.38.875: {ages{known, orders, groups[], average}, regions{known, items[]}}
             'series' => $eid && $days <= 400 ? self::series($eid, $from, $to) : null,
             // ab 1.38.634: ohne event_id Aufrufe der Event-Seiten je Tag (Mini-Kurve „Leute haben geschaut“ in der Studio-Statistik)
             'views_series' => !$eid && $days <= 400 ? self::views_series($ids, $from, $to) : null,
@@ -257,7 +258,10 @@ class TIX_Stats_Audience {
             'order' => count($web), 'purchase' => count($web_paid), 'checkin' => count($checked)];
         foreach (self::FUNNEL as $k => $label) $funnel[] = ['key' => $k, 'label' => $label, 'n' => $vals[$k]];
         list($by_source, $by_campaign) = self::origins($ids, $org, $eid, $from, $to, $web_paid, $f);
-        return ['kpis' => $kpis, 'funnel' => $funnel, 'by_source' => $by_source, 'by_campaign' => $by_campaign, 'app' => self::app_hits($ids, $from, $to)];
+        // Publikum (1.38.875): Altersgruppen (Kassenfeld Geburtsdatum) und Herkunft nach PLZ, bezahlte Bestellungen aller Kanäle
+        $paid_ids = array_keys(array_filter($orders, function ($o) { return in_array($o['status'], self::PAID, true); }));
+        $audience = class_exists('TIX_Checkout_Fields') ? ['ages' => TIX_Checkout_Fields::age_stats($paid_ids), 'regions' => TIX_Checkout_Fields::region_stats($paid_ids, self::MIN_GROUP)] : null;
+        return ['kpis' => $kpis, 'funnel' => $funnel, 'by_source' => $by_source, 'by_campaign' => $by_campaign, 'app' => self::app_hits($ids, $from, $to), 'audience' => $audience];
     }
 
     /** Website-Schritte aus tix_web_stats (mit Verlauf vor Stufe 1) */

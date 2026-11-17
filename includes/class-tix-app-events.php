@@ -1349,6 +1349,8 @@ class TIX_App_Events {
                     (string) $order->get_billing_address_1(),
                     trim((string) $order->get_billing_postcode() . ' ' . (string) $order->get_billing_city()),
                 ]))),
+                // Kassenfelder (1.38.875): {birthdate: JJJJ-MM-TT|null, age} oder null ohne Angabe
+                'extra_fields'   => class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::for_order($id) : null,
                 'items'          => $items,
                 'tickets'        => $tickets,
                 // Rechnungen der Bestellung (1.38.487): Liste, senden über POST /invoices/{id}/send, nachholen über POST /orders/{id}/invoices/issue

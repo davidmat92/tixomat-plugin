@@ -35,6 +35,7 @@ class TIX_Object_Data {
         'tix_org_guest_flows'        => 'org_guest_flows',   // Gäste-Abläufe je Veranstalter (1.38.813)
         'tix_resale_org'             => 'resale_org',        // Weiterverkauf: Regeln je Veranstalter (§223)
         'tix_resale_event'           => 'resale_event',      // Weiterverkauf: Regeln/Kategorien je Event (§223)
+        '_tix_order_fields'          => 'order_fields',      // Kassenfelder je Bestellung (Geburtsdatum verschlüsselt + Alter, §237)
     ];
 
     public static function table() {

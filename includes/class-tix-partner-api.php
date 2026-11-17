@@ -289,6 +289,7 @@ class TIX_Partner_API {
                 'payment_method'    => (string) ($req->get_param('payment_method') ?? ''),
                 'idempotency_token' => $token,
                 'accept_terms'      => 1, // Zustimmung holt die Plattform in ihrer Kasse ein
+                'extra_fields'      => is_array($req->get_param('extra_fields')) ? $req->get_param('extra_fields') : null, // Kassenfelder (1.38.875)
             ])));
         } finally {
             TIX_App_Checkout::$partner = null;

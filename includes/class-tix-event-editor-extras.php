@@ -79,7 +79,9 @@ class TIX_Event_Editor_Extras {
                 'max' => self::UPSELL_MAX],
             'embed' => ['enabled' => get_post_meta($eid, '_tix_embed_enabled', true) === '1', 'domains' => $dom, 'max' => self::DOMAINS_MAX],
             'express_checkout' => get_post_meta($eid, '_tix_express_checkout', true) === '1',
-            'waitlist_enabled' => get_post_meta($eid, '_tix_waitlist_enabled', true) === '1'];
+            'waitlist_enabled' => get_post_meta($eid, '_tix_waitlist_enabled', true) === '1']
+            // Kassenfelder je Event (1.38.875): eigene Einstellung (inherit = Standard), wirksamer Wert, Standard
+            + (class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::editor_payload($eid) : []);
     }
 
     public static function rest_get(WP_REST_Request $req) {
@@ -155,15 +157,21 @@ class TIX_Event_Editor_Extras {
         }
         if (array_key_exists('express_checkout', $b)) $out['_tix_express_checkout'] = !empty($b['express_checkout']) ? '1' : '0';
         if (array_key_exists('waitlist_enabled', $b)) $out['_tix_waitlist_enabled'] = !empty($b['waitlist_enabled']) ? '1' : '';
+        if (array_key_exists('checkout_fields', $b) && class_exists('TIX_Checkout_Fields')) {
+            $cf = TIX_Checkout_Fields::clean_event_input($b['checkout_fields']);
+            if (is_wp_error($cf)) return $cf;
+            $out['checkout_fields'] = $cf;
+        }
         return $out;
     }
 
-    /** POST /events/{id}/extras {gallery?, video_url?, upsell?{disabled, event_ids}, embed?{enabled, domains}, express_checkout?, waitlist_enabled?} */
+    /** POST /events/{id}/extras {gallery?, video_url?, upsell?{disabled, event_ids}, embed?{enabled, domains}, express_checkout?, waitlist_enabled?, checkout_fields?{birthdate}} */
     public static function rest_save(WP_REST_Request $req) {
         $eid = absint($req['id']);
         $c = self::clean($eid, (array) $req->get_json_params());
         if (is_wp_error($c)) return $c;
         if (isset($c['gallery'])) { self::store_gallery($eid, $c['gallery']); unset($c['gallery']); }
+        if (isset($c['checkout_fields'])) { TIX_Checkout_Fields::save_event($eid, $c['checkout_fields']); unset($c['checkout_fields']); }
         foreach ($c as $k => $v) update_post_meta($eid, $k, $v);
         clean_post_cache($eid);
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();

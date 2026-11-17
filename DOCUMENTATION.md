@@ -7140,3 +7140,53 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
 - `complete_cases(WP_User)`: legt fehlende Instanz-Konten an (`/demo-access/remote`, 409 = schon da) und setzt dort den vorhandenen Hash (`/link {password_hash}`), zieht den Plattform-Teil nach; keine Mail. Läuft vor jeder `send_credentials`. WP-CLI `wp tixomat demo-access complete <email>|--all`.
 - `send_credentials`: Mail nennt nur `shop` und `club` (gewählte zuerst, Hauptknopf), Textlinks „Studio · Demo-Shop“, „Dein Zugang gilt in beiden.“; das Plattform-Demo-Studio gilt weiter, steht aber nicht in der Mail.
 - **Test:** `test-demo-credentials-wp` (Plattform 4, KK 8).
+
+## 237. Einstellbare Kassenfelder – Geburtsdatum (ab 1.38.875)
+Vertrag: `uebergaben/plan-kassenfelder-2026-11-17.md`. Neues Modul `TIX_Checkout_Fields` (`includes/class-tix-checkout-fields.php`). Rein additiv: Vorgabe `off`, dann ändert sich an keiner Kasse etwas.
+
+**Einstellung**
+- **Standard:** `TIX_Sale_Settings` Bereich `checkout`, neues Feld `birthdate_field` = `off|optional|required`.
+  - Pflege über `GET/POST /studio/checkout-settings`. Auf evendis gilt der Wert je Veranstalter.
+  - `options["checkout.birthdate_field"]` listet die erlaubten Werte.
+- **Je Event:** Meta `_tix_checkout_fields` `{birthdate}`. Fehlt der Schlüssel, gilt der Standard (`inherit`).
+  - Pflege über `GET/POST /events/{id}/extras` mit `checkout_fields: {birthdate: inherit|off|optional|required}`.
+  - GET liefert zusätzlich `checkout_fields_effective` und `checkout_fields_default`.
+  - Ungültig → 400 `tix_invalid_field`, `field = checkout_fields.<key>`.
+  - Die Meta steht im Änderungsverlauf und wird beim Event-Kopieren mitkopiert.
+- **Web-Warenkorb mit mehreren Events:** Es gilt das Strengste.
+
+**Kassen**
+- **Feld-Beschreibung:** `{key, type: date, mode, label, hint, min, max, format}`. Der Zweck-Hinweis steht fest im Code („Fragt der Veranstalter für die Alterskontrolle und eine anonyme Altersstatistik ab.“).
+- **App:**
+  - `POST /customer/cart/quote` → `checkout_fields.birthdate` (Modus) und `checkout_fields.extra[]`.
+  - `POST /customer/orders` nimmt `extra_fields{birthdate}` an (JJJJ-MM-TT oder TT.MM.JJJJ). Fehler: 400 `tix_extra_field`, `field = birthdate`.
+  - Ist das Feld aus, wird ein mitgeschickter Wert ignoriert.
+  - Partner-Vermittlung (`/partner/orders`) und Co-Event reichen `extra_fields` an die Quelle durch; dort wird nach deren Einstellung geprüft.
+- **Web:** `tix_extra[birthdate]` als `<input type=date>` unter Telefon, mit Hinweis. Gleiche Prüfung, Fehler mit `field = tix_extra[birthdate]`.
+- **Kasse vor Ort:**
+  - `POST /pos/orders {extra_fields}` ist nie Pflicht. Wird ein Wert mitgeschickt, wird er geprüft und gespeichert.
+  - `GET /pos/config` → `checkout.birthdate` = `off|optional`.
+- **Ältere Kassen:**
+  - Express-Kasse (WooCommerce): wird bei Pflicht nicht angeboten.
+  - Modal-Kasse (nur WooCommerce): nicht angepasst.
+
+**Prüfung:** echtes Datum, nicht in der Zukunft, höchstens 120 Jahre zurück.
+
+**Ablage**
+- `TIX_Object_Data`, Art `order_fields`: `{birthdate_enc (AES-256-GCM, TIX_Ad_Accounts), age (am Tag des ersten Events, sonst Kaufdatum), age_on, at}`.
+- `TIX_Account_Delete::anonymize_email` ruft `forget()`: Das Geburtsdatum wird gelöscht, `age` bleibt.
+- Der Datenspiegel bekommt das Feld nicht.
+
+**Anzeige**
+- `GET /orders/{id}/detail` → `order.extra_fields {birthdate, age}` oder `null`.
+- Export der Bestellungen: Spalte „Geburtsdatum“ (TT.MM.JJJJ) am Ende von `ORDER_HEADER`. Das gilt für REST und WP-Admin.
+- WP-Admin-Bestellung: Zeile „Geburtsdatum (Alter)“.
+
+**Statistik:** `GET /organizer/stats/audience` liefert `audience`:
+- `ages{known, orders, groups[{key,label,n,share}], average}` mit den Gruppen u18, 18–20, 21–24, 25–29, 30–39, 40+.
+- `regions{known, items[{key,label,n,share}]}`: PLZ nach den ersten zwei Ziffern (DE), sonst Land. Gruppen unter 3 kommen in „weitere“.
+- Gezählt werden bezahlte Bestellungen aller Kanäle im Zeitraum.
+
+**Umzug nach evendis-api:** Die reinen Funktionen `parse_birthdate`, `age_on`, `age_group`, `strictest`, `effective`, `region_key` und `bounds` sind ohne WP portierbar. Das Geburtsdatum zieht als verschlüsseltes Feld je Bestellung um (eigener Schlüssel), `age` im Klartext.
+
+**Test:** neu `test-checkout-fields-wp` (Plattform 45, KK 45).

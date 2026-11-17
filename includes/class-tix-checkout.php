@@ -1618,6 +1618,8 @@ class TIX_Checkout {
             if (!function_exists('tix_get_settings')) return false;
             if (empty(tix_get_settings('express_checkout_enabled'))) return false;
             if (get_post_meta($event_id, '_tix_express_checkout', true) !== '1') return false;
+            // Kassenfeld Pflicht (1.38.875): Express fragt nichts ab → nicht anbieten
+            if (class_exists('TIX_Checkout_Fields') && in_array('required', TIX_Checkout_Fields::for_event($event_id), true)) return false;
 
             $uid = get_current_user_id();
             $has_tokens = class_exists('WC_Payment_Tokens')

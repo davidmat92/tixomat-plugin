@@ -143,6 +143,8 @@ class TIX_Account_Delete {
                 // Marketing-Einwilligung und Tracking-IDs der Bestellung (Meta-Pixel) sofort weg
                 if (class_exists('TIX_Order_Attribution')) TIX_Order_Attribution::forget($oid);
                 else foreach (['_tix_meta_consent', '_tix_meta_fbp', '_tix_meta_fbc'] as $mk) delete_post_meta($oid, $mk);
+                // Kassenfelder (1.38.875): Geburtsdatum sofort weg, nur das Alter bleibt (ohne Personenbezug, Statistik)
+                if (class_exists('TIX_Checkout_Fields')) TIX_Checkout_Fields::forget($oid);
                 $orders++;
             }
         }

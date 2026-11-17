@@ -1306,6 +1306,8 @@ class TIX_Native_Checkout {
         if ($ws) $show_company = $ws['company_field'];
         $addr_req      = $ws ? $ws['address_required'] : true;
         $phone_req     = $ws && $ws['phone_field'] === 'required';
+        // Kassenfelder (1.38.875): eingeschaltete Zusatzfelder (mehrere Events: das Strengste)
+        $extra_defs    = class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::definitions(TIX_Checkout_Fields::for_events(TIX_Checkout_Fields::cart_event_ids((array) ($cart['items'] ?? [])))) : [];
         $offer_account = $ws ? $ws['account_offer'] : true;
         $req_attr      = function ($on) { return $on ? ' required' : ''; };
         $req_mark      = function ($on) { return $on ? ' <abbr class="tix-co-req">*</abbr>' : ''; };
@@ -1603,6 +1605,13 @@ class TIX_Native_Checkout {
                                 <label class="tix-co-label">Telefon<?php echo $req_mark($phone_req); ?></label>
                                 <input type="tel" class="tix-co-input" name="billing_phone"<?php echo $req_attr($phone_req); ?> autocomplete="tel" value="<?php echo esc_attr($prefill_phone); ?>">
                             </div>
+                            <?php foreach ($extra_defs as $xf): $xreq = $xf['mode'] === 'required'; ?>
+                            <div class="tix-co-field tix-co-field-full tix-co-extra-<?php echo esc_attr($xf['key']); ?>">
+                                <label class="tix-co-label" for="tix-extra-<?php echo esc_attr($xf['key']); ?>"><?php echo esc_html($xf['label']); ?><?php echo $req_mark($xreq); ?></label>
+                                <input type="date" class="tix-co-input" id="tix-extra-<?php echo esc_attr($xf['key']); ?>" name="tix_extra[<?php echo esc_attr($xf['key']); ?>]"<?php echo $req_attr($xreq); ?> min="<?php echo esc_attr($xf['min']); ?>" max="<?php echo esc_attr($xf['max']); ?>" autocomplete="bday" aria-describedby="tix-extra-<?php echo esc_attr($xf['key']); ?>-hint">
+                                <p class="tix-co-create-account-hint" id="tix-extra-<?php echo esc_attr($xf['key']); ?>-hint"><?php echo esc_html($xf['hint']); ?></p>
+                            </div>
+                            <?php endforeach; ?>
                         </div>
 
                         <?php if (!$is_logged && $offer_account): ?>
@@ -1829,6 +1838,14 @@ class TIX_Native_Checkout {
             }
         }
 
+        // Kassenfelder (1.38.875): tix_extra[birthdate] nach Einstellung prüfen (mehrere Events: das Strengste)
+        $extra_values = [];
+        if (class_exists('TIX_Checkout_Fields')) {
+            $extra_values = TIX_Checkout_Fields::validate(TIX_Checkout_Fields::for_events(TIX_Checkout_Fields::cart_event_ids((array) $cart['items'])),
+                isset($_POST['tix_extra']) && is_array($_POST['tix_extra']) ? wp_unslash($_POST['tix_extra']) : [], false, 'tix_extra[%s]');
+            if (is_wp_error($extra_values)) wp_send_json_error(['message' => $extra_values->get_error_message(), 'field' => $extra_values->get_error_data()['field'] ?? '']);
+        }
+
         // Account creation for guests — Checkbox „Konto anlegen"
         $create_account     = !is_user_logged_in() && !empty($_POST['createaccount']) && (!$ws || $ws['account_offer']);
         $created_user_id    = 0; // speichern für spätere Activation-Mail
@@ -1999,6 +2016,7 @@ class TIX_Native_Checkout {
             wp_send_json_error(['message' => is_wp_error($err) ? $err->get_error_message() : 'Bestellung konnte nicht erstellt werden.', 'code' => is_wp_error($err) ? $err->get_error_code() : 'tix_order_failed']);
         }
         if (class_exists('TIX_Seatmap')) TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
+        if ($extra_values) TIX_Checkout_Fields::store($order_id, $extra_values, $cart['items']);
 
         // ── Kontoaktivierung per Email (nur wenn frisch angelegt) ──
         if ($created_user_id && class_exists('TIX_Account_Activation')) {

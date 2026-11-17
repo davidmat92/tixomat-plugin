@@ -1318,8 +1318,10 @@ class TIX_App_Checkout {
                 'countries' => $countries,
             ],
             // Online-Kasse einstellen (P3, 1.38.799, Namen vom Apps-Chat): fehlt das Feld, gilt das bisherige Verhalten
-            'checkout_fields' => class_exists('TIX_Sale_Settings') ? (function ($c) { return ['company' => !empty($c['company_field']), 'coupon' => !empty($c['coupon_field']), 'newsletter' => !empty($c['newsletter_optin']),
-                'address_required' => !empty($c['address_required']) || TIX_Sale_Settings::address_forced(), 'offer_account' => !empty($c['account_offer']), 'phone' => (string) $c['phone_field']]; })(TIX_Sale_Settings::for_event($event_id)['checkout']) : null,
+            'checkout_fields' => class_exists('TIX_Sale_Settings') ? (function ($c) use ($event_id) { return ['company' => !empty($c['company_field']), 'coupon' => !empty($c['coupon_field']), 'newsletter' => !empty($c['newsletter_optin']),
+                'address_required' => !empty($c['address_required']) || TIX_Sale_Settings::address_forced(), 'offer_account' => !empty($c['account_offer']), 'phone' => (string) $c['phone_field']]
+                // Kassenfelder (1.38.875): birthdate = Modus wie phone, extra[] = Beschreibungen der eingeschalteten Felder (POST extra_fields{})
+                + (class_exists('TIX_Checkout_Fields') ? (function ($m) { return ['birthdate' => $m['birthdate'], 'extra' => TIX_Checkout_Fields::definitions($m)]; })(TIX_Checkout_Fields::for_event($event_id)) : []); })(TIX_Sale_Settings::for_event($event_id)['checkout']) : null,
         ];
         if (!empty($items)) {
             $cart = self::build_cart($event_id, $items, (string) $req->get_param('hold_token'));
@@ -1475,6 +1477,7 @@ class TIX_App_Checkout {
         if ($partner) {
             $billing = self::read_billing($req, $user);
             if (is_wp_error($billing)) return $billing;
+            // Kassenfelder: Prüfung bei der Quelle (nach deren Einstellung), hier nur weiterreichen
             $wants_account = self::check_new_account($req, $user, $billing);
             if (is_wp_error($wants_account)) return $wants_account;
             $broker_id = TIX_Partner_Broker::create_order($partner, $event_id, $req, $billing, $user, $tkey);
@@ -1564,6 +1567,12 @@ class TIX_App_Checkout {
         // Rechnungsadresse wie im Web-Formular (Konto: E-Mail aus dem Konto; Gast: aus dem Formular)
         $billing = self::read_billing($req, $user);
         if (is_wp_error($billing)) return $billing;
+        // Kassenfelder (1.38.875): extra_fields{birthdate} nach Einstellung des Events prüfen; aus = ignoriert
+        $extra_values = [];
+        if (class_exists('TIX_Checkout_Fields')) {
+            $extra_values = TIX_Checkout_Fields::validate(TIX_Checkout_Fields::for_event($event_id), $req->get_param('extra_fields'));
+            if (is_wp_error($extra_values)) return $extra_values;
+        }
 
         // Gutschein mit der Rechnungs-E-Mail prüfen (z. B. „einmal pro E-Mail“)
         $coupon_in = (string) ($req->get_param('coupon') ?? '');
@@ -1652,6 +1661,7 @@ class TIX_App_Checkout {
         }
         if ($seat_holder !== '') TIX_Seatmap::attach_order($cart['items'], $seat_holder, $order_id);
         if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
+        if ($extra_values) TIX_Checkout_Fields::store($order_id, $extra_values, $cart['items']);
         update_option('_tix_order_source_' . $order_id, self::$partner ? 'partner:' . self::$partner['id'] : 'app', false);
         if ($return_url !== '') update_post_meta($order_id, TIX_Native_Checkout::META_RETURN_URL, $return_url);
         // Vermittlung (1.38.712): Rücksprung-Host war nur für diese Anfrage erlaubt → an der Bestellung merken

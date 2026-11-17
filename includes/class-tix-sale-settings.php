@@ -22,6 +22,7 @@ class TIX_Sale_Settings {
             'newsletter_optin'  => ['bool', false, 'newsletter_enabled'],
             'address_required'  => ['bool', true, null],
             'phone_field'       => ['enum', 'off', null, ['off', 'optional', 'required']],
+            'birthdate_field'   => ['enum', 'off', null, ['off', 'optional', 'required']], // Kassenfelder (1.38.875, TIX_Checkout_Fields)
             'account_offer'     => ['bool', true, null],
             'countdown_minutes' => ['int', 0, null, [0, 60]],
         ],
@@ -179,7 +180,7 @@ class TIX_Sale_Settings {
         $defaults = [];
         foreach (self::FIELDS as $area => $fields) foreach ($fields as $k => $def) $defaults[$area][$k] = $def[1];
         return ['ok' => true, 'scope' => (self::multi() && $org > 0) ? 'organizer' : 'site', 'organizer_id' => $org ?: null] + self::get($org)
-            + ['defaults' => $defaults, 'address_forced' => self::address_forced(), 'options' => ['checkout.phone_field' => self::FIELDS['checkout']['phone_field'][3],
+            + ['defaults' => $defaults, 'address_forced' => self::address_forced(), 'options' => ['checkout.phone_field' => self::FIELDS['checkout']['phone_field'][3], 'checkout.birthdate_field' => self::FIELDS['checkout']['birthdate_field'][3],
                 'pos.default_payment' => self::FIELDS['pos']['default_payment'][3], 'checkin.duplicate' => self::FIELDS['checkin']['duplicate'][3]]];
     }
 
@@ -210,7 +211,8 @@ class TIX_Sale_Settings {
         if (is_wp_error($eid)) return $eid;
         $v = $eid ? self::for_event($eid) : self::get(self::org_of($req));
         // enabled/pin_required: die App-Kasse kennt keinen Aus-Schalter und keine PIN (Apps-Chat 13.11.) – feste Werte, bis gewünscht
-        return rest_ensure_response(['ok' => true, 'event_id' => $eid ?: null, 'pos' => ['enabled' => true, 'pin_required' => false] + $v['pos'], 'checkout' => ['coupon_field' => $v['checkout']['coupon_field']],
+        return rest_ensure_response(['ok' => true, 'event_id' => $eid ?: null, 'pos' => ['enabled' => true, 'pin_required' => false] + $v['pos'], 'checkout' => ['coupon_field' => $v['checkout']['coupon_field']] + ['birthdate' => (($eid && class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::for_event($eid)['birthdate'] : $v['checkout']['birthdate_field']) === 'off' ? 'off' : 'optional')], // Kasse vor Ort: nie Pflicht (1.38.875)
+            
             'seatmap' => $eid && class_exists('TIX_Seatmap') && TIX_Seatmap::event_seatmap($eid) > 0 && TIX_Seatmap::module_on($eid)]);
     }
 

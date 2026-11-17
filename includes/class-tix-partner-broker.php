@@ -291,6 +291,8 @@ class TIX_Partner_Broker {
             'channel_fee'       => self::fee_for($p, $event_id),
             // Rücksprung nach der Zahlung (z. B. Kunden-Seite, 1.38.712)
             'return_url'        => (string) ($req->get_param('return_url') ?? ''),
+            // Kassenfelder (1.38.875): Prüfung und Ablage bei der Quelle
+            'extra_fields'      => is_array($req->get_param('extra_fields')) ? $req->get_param('extra_fields') : null,
         ]);
         if (is_wp_error($data) || empty($data['order']['id'])) {
             $wpdb->delete(self::table(), ['id' => $id]);

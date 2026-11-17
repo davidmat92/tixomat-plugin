@@ -2371,6 +2371,13 @@ class TIX_REST_API {
             if ($tf_err) return $tf_err;
         }
 
+        // Kassenfelder (1.38.875): an der Kasse vor Ort nie Pflicht – mitgeschickt wird geprüft und gespeichert
+        $extra_values = [];
+        if (class_exists('TIX_Checkout_Fields')) {
+            $extra_values = TIX_Checkout_Fields::validate(TIX_Checkout_Fields::for_event($event_id), $body['extra_fields'] ?? null, true);
+            if (is_wp_error($extra_values)) return $extra_values;
+        }
+
         // Kassenbon mit TSE über eine angebundene Kasse (Degaso, 1.38.557): Fehler = kein Verkauf, nie still ohne Bon
         $receipt = apply_filters('tix_pos_sign_sale', null, ['event_id' => $event_id, 'event_title' => $event_title, 'items' => $cart['items'],
             'subtotal' => round($subtotal, 2), 'discount' => $discount, 'total' => $total, 'payment' => $payment, 'coupon' => $coupon_info]);
@@ -2405,6 +2412,7 @@ class TIX_REST_API {
         if ($seat_lines) TIX_Seatmap::pos_attach($seat_lines, $order_id); // gehaltene Plätze → diese Bestellung (verkauft beim Abschluss)
         self::$pos_seat_lines = []; // ab hier gehören die Plätze der Bestellung
         if ($ticket_plan) TIX_Ticket_Fields::store($order_id, $ticket_plan);
+        if ($extra_values) TIX_Checkout_Fields::store($order_id, $extra_values, $cart['items']);
         if ($receipt) do_action('tix_pos_signed', $order_id, $receipt);
         self::pos_meta($order_id, array_filter([
             'payment'    => $payment,

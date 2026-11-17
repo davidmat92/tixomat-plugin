@@ -881,7 +881,9 @@ class TIX_Order_Admin {
                         <?php if ($order->billing_country): ?><?php echo esc_html($order->billing_country); ?><br><?php endif; ?>
                         <br>
                         <a href="mailto:<?php echo esc_attr($order->billing_email); ?>"><?php echo esc_html($order->billing_email); ?></a><br>
-                        <?php if ($order->billing_phone): ?><?php echo esc_html($order->billing_phone); ?><?php endif; ?>
+                        <?php if ($order->billing_phone): ?><?php echo esc_html($order->billing_phone); ?><br><?php endif; ?>
+                        <?php $tix_xf = class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::for_order(intval($order->id)) : null; // Kassenfelder (1.38.875)
+                        if ($tix_xf && $tix_xf['birthdate']): ?>Geburtsdatum: <?php echo esc_html(date('d.m.Y', strtotime($tix_xf['birthdate']))); ?><?php if ($tix_xf['age'] !== null): ?> (<?php echo intval($tix_xf['age']); ?> J.)<?php endif; ?><?php endif; ?>
                     </div>
                 </div>
             </div>

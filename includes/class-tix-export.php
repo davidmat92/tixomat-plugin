@@ -14,7 +14,7 @@ class TIX_Export {
 
     const NS = 'tixomat/v1';
     const EVENT_HEADER = ['Typ', 'Ticket-Code', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Kategorie', 'Anzahl', 'Status', 'Kaufdatum', 'Notizen', 'Quelle'];
-    const ORDER_HEADER = ['Bestellnr', 'Datum', 'Status', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'PLZ', 'Ort', 'Event', 'Positionen', 'Tickets', 'Betrag (eigene Positionen)', 'Gesamtbetrag Bestellung', 'Zahlart'];
+    const ORDER_HEADER = ['Bestellnr', 'Datum', 'Status', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'PLZ', 'Ort', 'Event', 'Positionen', 'Tickets', 'Betrag (eigene Positionen)', 'Gesamtbetrag Bestellung', 'Zahlart', 'Geburtsdatum'];
     const CUSTOMER_HEADER = ['Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Bestellungen', 'Tickets', 'Umsatz', 'Erste Bestellung', 'Letzte Bestellung'];
     const STATUS_PAID = ['completed', 'processing'];
     const STATUS_ALL  = ['completed', 'processing', 'on-hold', 'pending', 'refunded', 'cancelled'];
@@ -66,6 +66,8 @@ class TIX_Export {
             'status' => self::status_list($status), 'date_from' => self::date_or_empty($from), 'date_to' => self::date_or_empty($to),
         ]);
         $rows = [];
+        // Kassenfelder (1.38.875): Geburtsdatum (entschlüsselt, nur wenn erfasst)
+        $births = class_exists('TIX_Checkout_Fields') ? TIX_Checkout_Fields::birthdates(array_map(function ($r) { return intval($r['order']->id); }, $result)) : [];
         foreach ($result as $r) {
             $o = $r['order'];
             $own = 0.0; $qty = 0; $names = []; $events = [];
@@ -93,6 +95,7 @@ class TIX_Export {
                 self::money($own),
                 self::money($o->total),
                 (string) ($o->payment_method_title ?? $o->payment_method ?? ''),
+                isset($births[intval($o->id)]) ? date('d.m.Y', strtotime($births[intval($o->id)])) : '',
             ];
         }
         return $rows;
