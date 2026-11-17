@@ -216,6 +216,7 @@ class TIX_Loyalty {
             'stamps_per_visit' => self::stamps_per_visit(),
             'rewards'          => self::rewards(),
             'station_events_only' => self::station_events_only(),
+            'has_exit_pin'     => self::exit_pin_hash() !== '',
         ]);
     }
 
@@ -225,6 +226,16 @@ class TIX_Loyalty {
         if (is_wp_error($ctx)) return $ctx;
         $b = $req->get_json_params();
         if (!is_array($b)) $b = [];
+        // PIN zum Verlassen der Stempel-Station (1.38.870): 4–6 Ziffern, nur gehasht; leer/null löscht ihn
+        if (array_key_exists('station_exit_pin', $b)) {
+            $pin = $b['station_exit_pin'] === null ? '' : trim((string) $b['station_exit_pin']);
+            if ($pin !== '' && !preg_match('/^\d{4,6}$/', $pin)) return new WP_Error('tix_invalid_field', 'Der Code braucht 4 bis 6 Ziffern.', ['status' => 400, 'field' => 'station_exit_pin']);
+            $hash = $pin === '' ? '' : wp_hash_password($pin);
+            if (self::$org) { $c = self::org_config(); if ($hash === '') unset($c['station_exit_pin_hash']); else $c['station_exit_pin_hash'] = $hash; update_post_meta(self::$org, '_tix_org_loyalty', $c); }
+            elseif ($hash === '') delete_option('_tix_loyalty_station_exit_pin');
+            else update_option('_tix_loyalty_station_exit_pin', $hash, false);
+            unset($b['station_exit_pin']);
+        }
         if (self::$org) return self::save_org_config($b);
         if (array_key_exists('enabled', $b)) {
             update_option('_tix_loyalty_enabled', filter_var($b['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0');
@@ -473,6 +484,34 @@ class TIX_Loyalty {
         return get_option('_tix_loyalty_station_events_only', '0') === '1';
     }
 
+    public static function exit_pin_hash() {
+        return self::$org ? (string) (self::org_config()['station_exit_pin_hash'] ?? '') : (string) get_option('_tix_loyalty_station_exit_pin', '');
+    }
+
+    /** POST /loyalty/station/exit {pin} – darf die Station verlassen werden? 5 Fehlversuche → 1 min Sperre (je Konto und Veranstalter) */
+    public static function rest_station_exit(WP_REST_Request $req) {
+        self::$org = 0;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) {
+            self::$org = (current_user_can('tix_app_stamp_station') || TIX_App_Scope::scoped()) ? intval(TIX_App_Scope::organizer_id_for_user()) : intval($req->get_param('organizer'));
+            if (!self::$org) return new WP_Error('rest_forbidden', 'Bitte einen Veranstalter wählen.', ['status' => 403]);
+        }
+        $hash = self::exit_pin_hash();
+        if ($hash === '') return rest_ensure_response(['ok' => true, 'exit' => true, 'pin_required' => false]);
+        $k = 'tix_station_exit_' . md5(self::$org . '|' . get_current_user_id());
+        $st = get_transient($k); $st = is_array($st) ? $st : ['fails' => 0, 'until' => 0];
+        if ($st['until'] > time()) return new WP_Error('tix_station_exit_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => $st['until'] - time()]);
+        $b = $req->get_json_params();
+        $pin = trim((string) (is_array($b) ? ($b['pin'] ?? '') : $req->get_param('pin')));
+        if ($pin !== '' && preg_match('/^\d{4,6}$/', $pin) && wp_check_password($pin, $hash)) {
+            delete_transient($k);
+            return rest_ensure_response(['ok' => true, 'exit' => true, 'pin_required' => true]);
+        }
+        $st['fails']++;
+        if ($st['fails'] >= 5) { $st = ['fails' => 0, 'until' => time() + MINUTE_IN_SECONDS]; set_transient($k, $st, 2 * MINUTE_IN_SECONDS); return new WP_Error('tix_station_exit_locked', 'Zu viele falsche Versuche. Bitte in einer Minute noch einmal.', ['status' => 429, 'retry_after' => MINUTE_IN_SECONDS]); }
+        set_transient($k, $st, 10 * MINUTE_IN_SECONDS);
+        return new WP_Error('tix_station_exit_wrong', 'Der Code stimmt nicht.', ['status' => 403, 'remaining' => 5 - $st['fails']]);
+    }
+
     /** Signatur eines Stations-Codes (an diese Seite gebunden) */
     private static function station_sig($payload) {
         return substr(hash_hmac('sha256', 'tix-stamp-v1|' . strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST)) . '|' . $payload, self::secret()), 0, 32);
@@ -622,6 +661,10 @@ class TIX_Loyalty {
         ]);
         register_rest_route(self::NS, '/loyalty/station/token', [
             'methods' => 'GET', 'callback' => [__CLASS__, 'rest_station_token'],
+            'permission_callback' => [__CLASS__, 'perm_station'],
+        ]);
+        register_rest_route(self::NS, '/loyalty/station/exit', [
+            'methods' => 'POST', 'callback' => [__CLASS__, 'rest_station_exit'],
             'permission_callback' => [__CLASS__, 'perm_station'],
         ]);
         register_rest_route(self::NS, '/loyalty/claim', [

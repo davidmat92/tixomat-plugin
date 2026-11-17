@@ -91,6 +91,36 @@ update_option('_tix_loyalty_enabled', '0');
 [$sd, $dd] = $req('GET', '/loyalty/station/token', null, ['device' => 'wand-1']);
 $eq('Prämien aus → 403 tix_loyalty_disabled', [403, 'tix_loyalty_disabled'], [$sd, $dd['code'] ?? '']);
 
+// 1.38.870: Station nur mit Code verlassen
+update_option('_tix_loyalty_enabled', '1');
+$pinbak = get_option('_tix_loyalty_station_exit_pin', null);
+wp_set_current_user($adm);
+[$sp0, $dp0] = $req('POST', '/loyalty/config', ['station_exit_pin' => '12a']);
+[$sp1, $dp1] = $req('POST', '/loyalty/config', ['station_exit_pin' => '4711']);
+$cfg = rest_do_request(new WP_REST_Request('GET', '/tixomat/v1/loyalty/config'))->get_data();
+$eq('PIN setzen: ungültig 400 station_exit_pin; gültig nur gehasht gespeichert, GET nur has_exit_pin', [400, 'station_exit_pin', 200, true, false, false],
+    [$sp0, $dp0['data']['field'] ?? '', $sp1, $cfg['has_exit_pin'] ?? null, get_option('_tix_loyalty_station_exit_pin') === '4711', strpos(wp_json_encode($cfg), '4711') !== false]);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_station\\_exit%'"); wp_cache_flush();
+wp_set_current_user($stu);
+[$e1, $x1] = $req('POST', '/loyalty/station/exit', ['pin' => '0000']);
+[$e2, $x2] = $req('POST', '/loyalty/station/exit', ['pin' => '4711']);
+$eq('Verlassen: falsch 403 mit Restversuchen, richtig ok', [403, 'tix_station_exit_wrong', 4, 200, true], [$e1, $x1['code'] ?? '', $x1['data']['remaining'] ?? null, $e2, $x2['exit'] ?? false]);
+$codes = []; for ($i = 0; $i < 5; $i++) $codes[] = $req('POST', '/loyalty/station/exit', ['pin' => '9999'])[0];
+[$e3, $x3] = $req('POST', '/loyalty/station/exit', ['pin' => '4711']);
+$eq('5 Fehlversuche → 1 min Sperre, auch der richtige Code wartet', [[403, 403, 403, 403, 429], 429, 'tix_station_exit_locked', true], [$codes, $e3, $x3['code'] ?? '', ($x3['data']['retry_after'] ?? 0) > 0]);
+wp_set_current_user($guest);
+[$eg] = $req('POST', '/loyalty/station/exit', ['pin' => '4711']);
+wp_set_current_user($stu);
+[$ec] = $req('POST', '/loyalty/config', ['station_exit_pin' => '']);
+wp_set_current_user($adm);
+$req('POST', '/loyalty/config', ['station_exit_pin' => '']);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_station\\_exit%'"); wp_cache_flush();
+wp_set_current_user($stu);
+[$e4, $x4] = $req('POST', '/loyalty/station/exit', ['pin' => '']);
+$eq('Gast darf nicht prüfen (403); Station darf den PIN nicht ändern; PIN gelöscht → Verlassen ohne Code', [403, true, 200, false], [$eg, in_array($ec, [401, 403], true), $e4, $x4['pin_required'] ?? null]);
+if ($pinbak === null) delete_option('_tix_loyalty_station_exit_pin'); else update_option('_tix_loyalty_station_exit_pin', $pinbak, false);
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_station\\_exit%'");
+
 // Aufräumen
 wp_set_current_user(0);
 foreach ($bak as $o => $v) { if ($v === null) delete_option($o); else update_option($o, $v); }

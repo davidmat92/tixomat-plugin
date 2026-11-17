@@ -7113,3 +7113,8 @@ Auftrag des Users vom 15.11.: „Gestalte die Demoseiten lebendiger und inhaltsv
   - Option `station_events_only` (Seite `_tix_loyalty_station_events_only`, evendis je Veranstalter): Codes nur im Event-Fenster wie beim Musikwunsch (`station_event`), sonst 409 `tix_station_no_event` mit `next_event`.
 - Bisherige Wege (`/loyalty/token|scan|award|redeem`, Check-in) unverändert.
 - **Test:** `test-stamp-station-wp` (KK 12, Plattform 3).
+
+## 232. Stempel-Station nur mit Code verlassen (ab 1.38.870)
+- `POST /loyalty/config {station_exit_pin}`: 4–6 Ziffern, gespeichert als `wp_hash_password` (Seite `_tix_loyalty_station_exit_pin`, evendis `_tix_org_loyalty.station_exit_pin_hash`); leer löscht. `GET /loyalty/config` → `has_exit_pin`.
+- `POST /loyalty/station/exit {pin}` (`perm_station`): richtig bzw. ohne PIN → `{exit: true, pin_required}`; falsch 403 `tix_station_exit_wrong` (`remaining`); 5 Fehlversuche → 429 `tix_station_exit_locked` 60 s (Transient je Konto und Veranstalter).
+- **Test:** `test-stamp-station-wp` (KK 16, Plattform 3).
