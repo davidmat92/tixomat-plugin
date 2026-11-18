@@ -218,6 +218,8 @@ class TIX_Studio_Editor {
                 'enabled' => !empty($tr['enabled']), 'payment_mode' => (string) ($tr['payment_mode'] ?? 'on_site'), 'deposit_type' => (string) ($tr['deposit_type'] ?? 'percent'),
                 'deposit_value' => round(floatval($tr['deposit_value'] ?? 50), 2), 'info_text' => (string) ($tr['info_text'] ?? ''), 'show_in_checkout' => !empty($tr['show_in_checkout']),
                 'categories' => $tcats, 'has_floor_plan' => intval($tr['floor_plan_id'] ?? 0) > 0,
+                // 1.38.902: Vorgabe-Kategorien der Seite (/studio/checkout-settings); greifen beim ersten Einschalten ohne categories
+                'default_categories' => class_exists('TIX_Site_Switches') ? TIX_Site_Switches::value('table_default_categories') : [],
                 // W4 (1.38.885): Tischplan-Bild (POST/DELETE /events/{id}/table-floor-plan)
                 'floor_plan' => self::floor_plan_payload(intval($tr['floor_plan_id'] ?? 0)),
             ],
@@ -368,6 +370,9 @@ class TIX_Studio_Editor {
                     }
                 }
                 $new['categories'] = $cats;
+            } elseif (empty($old['categories']) && !empty($new['enabled']) && class_exists('TIX_Site_Switches')) {
+                // 1.38.902: Einschalten ohne Kategorien (bisher keine, keine mitgeschickt) → Vorgabe-Kategorien der Seite (wie im WP-Admin)
+                $new['categories'] = array_map(function ($c) { return $c + ['tables' => []]; }, TIX_Site_Switches::value('table_default_categories'));
             }
             $out['table_reservation'] = $new;
         }

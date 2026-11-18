@@ -21,6 +21,8 @@ class TIX_Site_Switches {
         'group_booking'             => ['checkout', 'bool', 1, 'Gemeinsam buchen', 'verkauf', ['hint' => 'Knopf „Gemeinsam buchen“ in der Ticketauswahl der Website (alte WordPress-Seiten; entfällt mit der neuen Marken-Website).']],
         'specials_enabled'          => ['checkout', 'bool', 0, 'Extras', 'verkauf', ['hint' => 'Zusatzartikel wie Getränkemarken oder Parkplatz zum Ticket.']],
         'table_reservation_enabled' => ['checkout', 'bool', 0, 'Tischreservierung', 'verkauf', ['hint' => 'Tische mit Mindestverzehr. Je Event einstellen.']],
+        // 1.38.902: Vorlage für neue Events (WP-Admin „Standard-Tischkategorien“); JSON-Text in tix_settings wie bisher
+        'table_default_categories'  => ['checkout', 'tables', '[]', 'Vorgabe-Kategorien für Tische', 'verkauf', ['max_items' => 20, 'hint' => 'Neue Events mit Tischreservierung starten mit diesen Kategorien. Bestehende Events ändern sich nicht.']],
         'waitlist_enabled'          => ['checkout', 'bool', 1, 'Warteliste', 'event_seite', ['hint' => 'Erinnerung zum Vorverkaufsstart und Warteliste bei ausverkauften Events.']],
         'charity_enabled'           => ['checkout', 'bool', 0, 'Spenden-Hinweis', 'event_seite', ['hint' => 'Hinweis auf einen guten Zweck. Je Event einstellen.']],
         'show_upsell'               => ['checkout', 'bool', 1, 'Ähnliche Events nach dem Kauf', 'nach_kauf', []],
@@ -69,8 +71,43 @@ class TIX_Site_Switches {
             case 'int': return intval($v);
             case 'float': return round(floatval($v), 2);
             case 'list': return array_values(array_column(self::categories_from_raw((string) $v), 'label'));
+            case 'tables': return self::table_defaults_from_raw($v);
             default: return (string) $v;
         }
+    }
+
+    /** Vorgabe-Tischkategorien aus dem gespeicherten JSON-Text → [{name, desc, min_spend, quantity, min_guests, max_guests}] */
+    public static function table_defaults_from_raw($raw) {
+        $l = is_array($raw) ? $raw : json_decode((string) $raw, true);
+        $out = [];
+        foreach ((array) $l as $c) {
+            if (!is_array($c) || trim((string) ($c['name'] ?? '')) === '') continue;
+            $out[] = ['name' => (string) $c['name'], 'desc' => (string) ($c['desc'] ?? ''), 'min_spend' => round(floatval($c['min_spend'] ?? 0), 2),
+                'quantity' => max(0, intval($c['quantity'] ?? 0)), 'min_guests' => max(1, intval($c['min_guests'] ?? 1)), 'max_guests' => max(1, intval($c['max_guests'] ?? 10))];
+        }
+        return $out;
+    }
+
+    /** Rein: Liste prüfen → [JSON-Text, null] | [null, Unterfeld z. B. „2.max_guests“] */
+    public static function clean_table_defaults($v, $max_items) {
+        if (!is_array($v) || count($v) > $max_items) return [null, ''];
+        $out = [];
+        foreach (array_values($v) as $i => $c) {
+            if (!is_array($c)) return [null, (string) $i];
+            $name = sanitize_text_field((string) ($c['name'] ?? ''));
+            if ($name === '' || mb_strlen($name) > 100) return [null, $i . '.name'];
+            $desc = (string) ($c['desc'] ?? '');
+            if (mb_strlen($desc) > 500) return [null, $i . '.desc'];
+            $ms = $c['min_spend'] ?? 0;
+            if (!is_numeric($ms) || floatval($ms) < 0 || floatval($ms) > 100000) return [null, $i . '.min_spend'];
+            $q = $c['quantity'] ?? 0;
+            if (!is_numeric($q) || intval($q) != $q || intval($q) < 0 || intval($q) > 999) return [null, $i . '.quantity'];
+            $mi = $c['min_guests'] ?? 1; $ma = $c['max_guests'] ?? 10;
+            if (!is_numeric($mi) || intval($mi) != $mi || intval($mi) < 1 || intval($mi) > 100) return [null, $i . '.min_guests'];
+            if (!is_numeric($ma) || intval($ma) != $ma || intval($ma) < intval($mi) || intval($ma) > 100) return [null, $i . '.max_guests'];
+            $out[] = ['name' => $name, 'desc' => sanitize_textarea_field($desc), 'min_spend' => round(floatval($ms), 2), 'quantity' => intval($q), 'min_guests' => intval($mi), 'max_guests' => intval($ma)];
+        }
+        return [wp_json_encode($out), null];
     }
 
     /** Themen aus dem gespeicherten Text (JSON-Liste oder je Zeile eine Bezeichnung) */
@@ -127,6 +164,10 @@ class TIX_Site_Switches {
                         if (!in_array($l, $labels, true)) $labels[] = $l;
                     }
                     $out[$k] = implode("\n", $labels); break;
+                case 'tables':
+                    [$json, $sub] = self::clean_table_defaults($v, $x['max_items']);
+                    if ($json === null) return [null, $k . ($sub !== '' ? '.' . $sub : '')];
+                    $out[$k] = $json; break;
             }
         }
         return [$out, null];
@@ -138,6 +179,8 @@ class TIX_Site_Switches {
         if (!self::can_write()) return new WP_Error('tix_platform_only', self::multi() ? 'Das gilt für die ganze Plattform und stellt evendis ein.' : 'Nur Inhaber bzw. Admin können das einstellen.', ['status' => 403]);
         [$clean, $bad] = self::clean($in, $area);
         if ($clean === null) {
+            $base = explode('.', $bad, 2)[0];
+            if ($base !== $bad && isset(self::DEFS[$base])) return new WP_Error('tix_invalid_field', 'Ungültiger Wert für ' . self::DEFS[$base][3] . ' (' . substr($bad, strlen($base) + 1) . ').', ['status' => 400, 'field' => $prefix . $bad]);
             $known = isset(self::DEFS[$bad]) && self::DEFS[$bad][0] === $area;
             return new WP_Error('tix_invalid_field', $known ? 'Ungültiger Wert für ' . self::DEFS[$bad][3] . '.' : 'Unbekannte Einstellung: ' . $bad . '.', ['status' => 400, 'field' => $prefix . $bad]);
         }
@@ -166,7 +209,7 @@ class TIX_Site_Switches {
     /** /studio/checkout-settings features: Name => [API-Feld => Schlüssel] (Studio-Vertrag 17.11.) */
     const FEATURE_MAP = [
         'ticket_transfer'   => ['enabled' => 'ticket_transfer_enabled'],
-        'table_reservation' => ['enabled' => 'table_reservation_enabled'],
+        'table_reservation' => ['enabled' => 'table_reservation_enabled', 'default_categories' => 'table_default_categories'],
         'specials'          => ['enabled' => 'specials_enabled'],
         'charity'           => ['enabled' => 'charity_enabled'],
         'express_checkout'  => ['enabled' => 'express_checkout_enabled'],
@@ -186,6 +229,7 @@ class TIX_Site_Switches {
             foreach ($map as $api => $k) if ($api !== 'enabled') $f[$api] = self::value($k, $s);
             if ($name === 'abandoned_cart') $f['delay_hours'] = round(self::value('abandoned_cart_delay', $s) / 60, 1);
             if ($name === 'upsell') $f['limits'] = ['count' => [1, 6], 'heading' => 80];
+            if ($name === 'table_reservation') $f['limits'] = ['default_categories' => 20, 'name' => 100, 'desc' => 500, 'min_spend' => [0, 100000], 'quantity' => [0, 999], 'guests' => [1, 100]];
             if ($name === 'abandoned_cart') $f['limits'] = ['delay_minutes' => [5, 1440], 'delay_hours' => [1, 24], 'subject' => 150];
             $out[$name] = $f;
         }
@@ -213,7 +257,10 @@ class TIX_Site_Switches {
         $r = self::save($keyed, 'checkout', '');
         if (is_wp_error($r)) {
             $d = (array) $r->get_error_data();
-            if (isset($d['field'], $where[$d['field']])) $r = new WP_Error($r->get_error_code(), $r->get_error_message(), ['field' => $where[$d['field']]] + $d);
+            if (isset($d['field'])) {
+                [$fk, $sub] = array_pad(explode('.', $d['field'], 2), 2, null);
+                if (isset($where[$fk])) $r = new WP_Error($r->get_error_code(), $r->get_error_message(), ['field' => $where[$fk] . ($sub !== null ? '.' . $sub : '')] + $d);
+            }
         }
         return $r;
     }

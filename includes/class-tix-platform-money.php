@@ -43,6 +43,8 @@ class TIX_Platform_Money {
         $r('/platform/settlements/(?P<id>\d+)/pdf', 'GET', 'rest_settlement_pdf');
         $r('/platform/fee-settings', 'GET', 'rest_fee_get');
         $r('/platform/fee-settings', 'POST', 'rest_fee_save');
+        $r('/platform/price-watch-settings', 'GET', 'rest_pw_get');
+        $r('/platform/price-watch-settings', 'POST', 'rest_pw_save');
         $r('/platform/channel-invoices', 'GET', 'rest_ci_list');
         $r('/platform/channel-invoices/run', 'POST', 'rest_ci_run');
         $r('/platform/channel-invoices/(?P<id>\d+)/(?P<action>send|paid|void)', 'POST', 'rest_ci_action');
@@ -341,6 +343,55 @@ class TIX_Platform_Money {
         if (class_exists('TIX_Contract_Template') && method_exists('TIX_Contract_Template', 'detect')) TIX_Contract_Template::detect();
         self::audit('platform_fee_settings', 0, ['new' => $c, 'channel' => $ch]);
         return self::rest_fee_get($req);
+    }
+
+    // ── Preis-Wächter freigeben (1.38.902) ──
+
+    /** API-Feld => [Schlüssel in tix_settings, Typ, Grenzen] */
+    const PRICE_WATCH = [
+        'enabled'      => ['price_watch_enabled', 'bool'],
+        'shop_monthly' => ['price_watch_shop_monthly', 'float', [0, 10000]],
+        'ref_percent'  => ['price_watch_ref_percent', 'float', [0, 100, 4]],
+        'ref_fixed'    => ['price_watch_ref_fixed', 'float', [0, 10]],
+    ];
+
+    private static function pw_payload() {
+        $s = self::settings_raw();
+        $d = ['price_watch_enabled' => 0, 'price_watch_shop_monthly' => 79,
+            'price_watch_ref_percent' => class_exists('TIX_Price_Watch') ? TIX_Price_Watch::REF_PERCENT : 2.9, 'price_watch_ref_fixed' => class_exists('TIX_Price_Watch') ? TIX_Price_Watch::REF_FIXED : 0.49];
+        $out = ['ok' => true];
+        foreach (self::PRICE_WATCH as $api => $def) {
+            $v = $s[$def[0]] ?? $d[$def[0]];
+            $out[$api] = $def[1] === 'bool' ? !empty($v) : round(max(0.0, floatval($v)), $def[2][2] ?? 2);
+        }
+        // Hinweis fürs Studio: Rechensatz greift nur, solange die Plattformgebühr 0 ist
+        $fee = class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(null) : null;
+        $out['ref_in_use'] = $fee ? (floatval($fee['fee_percent'] ?? 0) <= 0 && floatval($fee['fee_fixed'] ?? 0) <= 0) : true;
+        $out['limits'] = ['shop_monthly' => [0, 10000], 'ref_percent' => [0, 100], 'ref_fixed' => [0, 10]];
+        return $out;
+    }
+
+    /** GET /platform/price-watch-settings – {enabled, shop_monthly, ref_percent, ref_fixed, ref_in_use, limits} */
+    public static function rest_pw_get(WP_REST_Request $req) { return rest_ensure_response(self::pw_payload()); }
+
+    /** POST /platform/price-watch-settings – nur mitgeschickte Felder; Protokoll platform_price_watch */
+    public static function rest_pw_save(WP_REST_Request $req) {
+        $b = self::body($req);
+        unset($b['ok'], $b['ref_in_use'], $b['limits']);
+        $defs = [];
+        foreach (self::PRICE_WATCH as $api => $def) $defs[$api] = [$def[1], $def[2] ?? []];
+        [$c, $bad] = self::clean($b, $defs);
+        if ($c === null) return self::bad($bad, isset($defs[$bad]) ? 'Ungültiger Wert.' : 'Unbekanntes Feld: ' . $bad . '.');
+        if ($c) {
+            $s = self::settings_raw(); $old = []; $new = [];
+            foreach ($c as $api => $v) {
+                $k = self::PRICE_WATCH[$api][0];
+                $old[$api] = $s[$k] ?? null; $s[$k] = $v; $new[$api] = $v;
+            }
+            update_option('tix_settings', $s);
+            self::audit('platform_price_watch', 0, ['old' => $old, 'new' => $new]);
+        }
+        return self::rest_pw_get($req);
     }
 
     // ── Kanal-Gebühr: Monatsrechnungen ──

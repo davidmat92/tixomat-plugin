@@ -7383,3 +7383,49 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - Im Demo-Shop sind Schreibzugriffe für Nicht-Admins weiter gesperrt (`tix_demo_forbidden`).
 - Bei jeder Änderung entsteht ein Eintrag im Änderungsprotokoll `tix_audit_log`: action `site_setting`, scope `site`, summary `{co_remote:[vorher, nachher]}`. Gleicher Wert erzeugt keinen Eintrag.
 - Test: `tests/test-co-remote-switch-wp.php`.
+
+## 252. Restpunkte aus dem Settings-Abgleich (ab 1.38.902, Zentrale 18.11.)
+**1) Vorgabe-Kategorien für Tische** (`table_default_categories`):
+- In `/studio/checkout-settings` unter `features.table_reservation.default_categories`, lesen und schreiben.
+- Form: `[{name, desc, min_spend, quantity, min_guests, max_guests}]`, höchstens 20 Einträge.
+- Grenzen in `features.table_reservation.limits`.
+- Fehlerfeld: `features.table_reservation.default_categories.<i>.<feld>`.
+- Gespeichert wird wie bisher als JSON-Text in `tix_settings`, also in derselben Form wie der WP-Admin.
+- Schreibrecht wie bei den anderen Seiten-Werten (`TIX_Site_Switches::can_write`). Protokoll `site_settings`.
+
+**Editor (`TIX_Studio_Editor`):**
+- `table_reservation.default_categories` wird nur gelesen.
+- Schaltet ein POST die Tischreservierung ein (`enabled: true`), ohne `categories` mitzuschicken, und hat das Event noch keine Kategorien, übernimmt das Plugin die Vorgabe. So ist es auch im WP-Admin.
+- Bestehende Kategorien bleiben unberührt.
+
+**2) Preis-Wächter freigeben:**
+- `GET|POST /platform/price-watch-settings`, nur Plattform-Admin; auf der Einzel-Seite 404.
+- Felder: `{enabled, shop_monthly, ref_percent, ref_fixed}`. Gespeichert in `price_watch_*` in `tix_settings`.
+- Die Antwort enthält zusätzlich `ref_in_use` (der Rechensatz greift, solange die Plattformgebühr 0 ist) und `limits`.
+- POST schreibt nur mitgeschickte Felder; Komma als Dezimalzeichen geht. Protokoll `platform_price_watch`.
+- Lesen für Veranstalter weiter über `GET /organizer/price-watch`.
+
+**3) Kampagnen-Tracking (`campaign_tracking_enabled`, `campaign_cookie_days`, `campaign_custom_channels`, `?tix_src=`): Altlast, geht in „Messung & Links“ auf.**
+
+Was die Optionen noch tun, wenn sie an sind (live an auf KitchenKlub und Mallorca, Stand 18.11.):
+- Cookie `tix_campaign` (First-Touch) und Seitenaufrufe in `tixomat_campaign_views`, nur auf Seiten, die WordPress selbst ausliefert. Letzte Aufrufe: KK 11.10., Mallorca 23.10. Seit dem Wechsel der Kunden-Seiten kommt also nichts mehr an.
+- Bei jeder nativen Bestellung schreibt `TIX_Campaign_Tracking::save_native_order_meta` Quelle/Referrer aus dem Cookie, sonst `direct`. Die App- und Web-Kasse überschreibt das danach mit `utm_*`/`referrer_host`. Die neue Statistik behandelt eine fehlende Quelle ohnehin als `direct`.
+- WP-Admin-Seite „Kampagnen“ und der Link-Baukasten mit `?tix_src=` in der Event-Metabox.
+- Kanal-Namen (`get_channel_label`) in der Verkaufs-Mitteilung an Veranstalter. Ist die Option aus, steht dort der Rohwert mit großem Anfangsbuchstaben.
+
+Abgedeckt durch „Messung & Links“:
+- `utm_*` und `c=`-Link-Codes (`/marketing/links`) an der Bestellung (`TIX_Order_Attribution`).
+- Besuche über `TIX_Web_Stats::origin` (`utm_source`/`us`, `ref_host`).
+- `?tix_src=` liest der neue Weg nicht. Alte Links mit `tix_src` zählen nur, wenn die Kunden-Seite den Wert als `utm_source` weitergibt.
+
+Nichts gelöscht, nichts umgeschaltet.
+
+**Entfällt (keine Studio-Fläche, nichts gelöscht):**
+- `enable_bacs`, `enable_cod`, `order_number_enabled`: nur WooCommerce-Filter, und WooCommerce kommt nicht wieder. Die native Bestellnummer liegt in `TIX_Order_Numbers`.
+- `theme_mode`: nur die Darstellung der WP-Admin-Einstellungsseite.
+- `channel_fee_mode`: wird ignoriert (`TIX_Channel_Fee` rechnet je Bestellung).
+- `stats_source`: wird noch gelesen (`TIX_Statistics`, `auto|cpt|orders`, Vorgabe `auto`), nur als Notschalter für alte Tickera-Importe. Kein Formularfeld; überall `auto`.
+
+**Nicht entfallen:** `auto_complete_enabled` wirkt auf native Bestellungen (`tixomat.php`, `tix_order_status_changed`). Bei an (Vorgabe) gehen bezahlte Mollie-, PayPal- und Gratis-Bestellungen von `processing` auf `completed`. Live ist es auf KitchenKlub aus (bleibt `processing`), auf evendis und Mallorca an.
+
+- Test: `tests/test-table-defaults-price-watch-wp.php`.
