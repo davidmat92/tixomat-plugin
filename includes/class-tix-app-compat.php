@@ -52,6 +52,8 @@ class TIX_App_Compat {
         if ($cur && $cur['min'] === $want['min'] && $cur['since'] === $want['since'] && ($cur['last_seen'] ?? '') === $today) return $cur;
         $first = ($cur && $cur['min'] === $want['min']) ? ($cur['first_seen'] ?? $today) : $today;
         $all[$want['app']] = ['min' => $want['min'], 'since' => $want['since'], 'first_seen' => $first, 'last_seen' => $today];
+        // Schatten-/Export-Abruf des Dienstes (1.38.896): nur auswerten, nie schreiben – Ergebnis wie beim echten Aufzeichnen
+        if (class_exists('TIX_Shadow') && TIX_Shadow::active()) return $all[$want['app']];
         if (count($all) > 10) {
             uasort($all, function ($a, $b) { return strcmp($b['last_seen'] ?? '', $a['last_seen'] ?? ''); });
             $all = array_slice($all, 0, 10, true);

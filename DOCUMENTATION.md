@@ -7355,3 +7355,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
 - **Test:** `test-export-v5-wp` (31; Plattform und KK).
 - **1.38.894:** `config` ergänzt (Funktions-, Modul-, Website-, Guthaben-, Gutschein-, Assistent- und degaso-Optionen, `home`, `siteurl`). `derived` liefert zusätzlich `settings_effective`, `event_placeholder`, `support_alias` und `site_config`. Wunsch evendis-api für die Pakete 2.1/2.2. Test: 34.
 - **1.38.895:** `derived` liefert zusätzlich `plugin_version`, `site_name`, `timezone`, `modules`, `modules_source`, `app_features_site` (als Gast), `multi`, `newsletter_enabled` und `mail_follow_enabled` (nur multi). Öffentliche Teile werden nicht mehr nach der DENY-Liste gekürzt, denn „awareness“ fehlte. `config` enthält `tix_awareness_flags`. Test: 38.
+- **1.38.896:** `TIX_App_Compat::record()` schreibt bei einem Schatten- oder Export-Abruf nicht in `tix_app_requirements`, sondern wertet nur aus (gleiches Ergebnis). Test: 39.

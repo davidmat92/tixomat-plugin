@@ -37,6 +37,9 @@ try {
     // ═══ Gültig ═══
     $hdr('1', $key);
     $eq('gilt als Schatten-Abruf: keine Zähler, keine Mails', [true, true], [TIX_Shadow::active(), apply_filters('pre_wp_mail', null, ['to' => 'x@example.test'])]);
+    $req0 = get_option('tix_app_requirements', null);
+    $rec = TIX_App_Compat::record(['app' => 'v5test_' . substr(md5(microtime()), 0, 6), 'min' => '9.9.9', 'since' => '']);
+    $eq('Schatten: App-Anforderung nur ausgewertet, nicht gespeichert (1.38.896)', ['9.9.9', $req0], [$rec['min'] ?? null, get_option('tix_app_requirements', null)]);
     [$s, $d] = $get('/changes');
     $head0 = (string) ($d['cursor'] ?? '');
     $eq('changes ohne since: nur Cursor = head', [200, [], $head0, false], [$s, $d['changes'] ?? null, (string) ($d['head'] ?? 'x'), $d['has_more'] ?? null]);
