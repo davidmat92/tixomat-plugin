@@ -118,6 +118,28 @@ try {
     foreach (['/events?p', '/organizers?p', '/config?p', '/derived?p', '/sponsors?p'] as $r) { [, $d] = $get(strtok($r, '?'), $r === '/derived?p' ? [] : ['per_page' => 200]); $all .= wp_json_encode($d); }
     $eq('kein Geheimnis, keine IBAN, kein Schlüssel', [false, false, false], [strpos($all, $secret) !== false, strpos($all, 'DE89370400440532013000') !== false, strpos($all, $key) !== false]);
 
+    // ═══ 1.38.897: Fixtures-Schutz, Gebühren-Regel ohne rounding ═══
+    if (class_exists('TIX_Export_Fixtures')) {
+        $hf = function () { return 'https://kitchenklub.de'; };
+        add_filter('pre_option_home', $hf);
+        $remote = TIX_Export_Fixtures::local_site();
+        remove_filter('pre_option_home', $hf);
+        $eq('export-fixtures seed: echte Domain abgelehnt, Testseite erlaubt', [false, true], [$remote, TIX_Export_Fixtures::local_site()]);
+    }
+    $hdr(null, null);
+    $syn = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'V5 Syn']);
+    update_post_meta($syn, '_tix_syndicated', '1');
+    update_post_meta($syn, '_tix_source_fee', ['fixed' => 1, 'mode' => 'customer']);
+    $warn = [];
+    set_error_handler(function ($no, $msg) use (&$warn) { $warn[] = $msg; return true; }, E_WARNING | E_NOTICE);
+    $fc = TIX_Fees::display_config($syn);
+    restore_error_handler();
+    wp_delete_post($syn, true);
+    $eq('Regel der Quelle ohne rounding: keine Warnung, none', [[], 'none'], [$warn, $fc['fee_rounding'] ?? null]);
+    $hdr('1', $key);
+    [, $d] = $get('/derived');
+    $eq('derived.fees_site', true, is_array($d['fees_site'] ?? null) && array_key_exists('fee_mode', $d['fees_site']));
+
     // ═══ Löschen + 410 ═══
     $hdr(null, null);
     [, $d] = (function () use ($get, $hdr, $key) { $hdr('1', $key); $r = $get('/changes'); $hdr(null, null); return $r; })();

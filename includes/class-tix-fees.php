@@ -509,7 +509,8 @@ class TIX_Fees {
             'fee_fixed' => max(0.0, floatval($src['fixed'] ?? 0)), 'fee_percent' => max(0.0, min(100.0, floatval($src['percent'] ?? 0))),
             'fee_mode' => in_array($src['mode'] ?? '', self::MODES, true) ? $src['mode'] : 'organizer', 'fee_label' => self::safe_label($src['label'] ?? ''),
             'fee_max_per_ticket' => max(0.0, floatval($src['max_per_ticket'] ?? 0)), 'fee_max_per_order' => max(0.0, floatval($src['max_per_order'] ?? 0)),
-            'fee_rounding' => in_array((string) ($src['rounding'] ?? 'none'), ['none', '0.90', '0.99', '0.50', '0.00', 'custom'], true) ? (string) $src['rounding'] : 'none',
+            // ohne „rounding“ in der Regel der Quelle: none (vorher PHP-Warnung „Undefined array key“, 1.38.897)
+            'fee_rounding' => in_array((string) ($src['rounding'] ?? 'none'), ['none', '0.90', '0.99', '0.50', '0.00', 'custom'], true) ? (string) ($src['rounding'] ?? 'none') : 'none',
             'fee_rounding_custom' => floatval($src['rounding_custom'] ?? 0), 'fee_split_share' => max(0.0, min(100.0, floatval($src['split_share'] ?? 50))),
             'gateway_fee_fixed' => max(0.0, floatval($g['fixed'] ?? 0)), 'gateway_fee_percent' => max(0.0, floatval($g['percent'] ?? 0)),
             'gateway_fee_mode' => ($g['mode'] ?? '') === 'customer' ? 'customer' : 'organizer', 'gateway_fee_included' => !empty($g['included']),

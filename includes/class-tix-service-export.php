@@ -279,7 +279,9 @@ class TIX_Service_Export {
               'tix_org_domain_settings', 'tix_release_dates', 'blogname', 'blogdescription', 'timezone_string', 'gmt_offset', 'site_icon',
               // 1.38.894 (Wunsch evendis-api, Pakete 2.1/2.2): alles, was /info, Funktionen (TIX_Features::map) und site-config lesen
               'tix_modules_entitled_v', 'tix_wallet_platform', '_tix_wallet', 'tix_giftcard_settings', 'tix_assistant_settings', 'tix_degaso',
-              'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl'];
+              'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl',
+              // 1.38.897 (Paket 2.3 Events/Preise): Lesestellen von TIX_Public_Events::payload, TIX_Fees, TIX_Customer_URL
+              'tix_multi_organizer', 'tix_org_domains_active', 'tix_ticket_fields_default', 'tix_org_approval_settings', 'tix_demo_organizer_id'];
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
             // tix_awareness_flags: nur die öffentlichen Schalter report_enabled/alarm_live (Name enthält „awareness“ aus der DENY-Liste)
@@ -551,6 +553,8 @@ class TIX_Service_Export {
             'multi'              => class_exists('TIX_App_Scope') && TIX_App_Scope::multi(),
             'newsletter_enabled' => $multi ? (bool) TIX_Weekly_Mail::enabled() : null,
             'mail_follow_enabled'=> $multi ? (class_exists('TIX_Mail_Follow') && TIX_Mail_Follow::enabled()) : null,
+            // 1.38.897: Gebühren-Regel der Seite (TIX_Fees::get_fee_config ohne Veranstalter) als Bezug; je Veranstalter: organizers.meta _tix_fee_*
+            'fees_site'          => class_exists('TIX_Fees') ? TIX_Fees::get_fee_config(null) : null,
         ];
         // Alle Teile außer settings_effective sind öffentliche /info- bzw. site-config-Werte: nicht nach Feldnamen kürzen
         // (DENY enthält „awareness“ – die öffentlichen Awareness-Schalter müssen bleiben), nur Hash-Werte/UTF-8 bereinigen.
