@@ -7457,3 +7457,13 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - Wie bisher stellt der stündliche Wächter für `processing`-Bestellungen ohne Tickets die Tickets aus.
 - **Bestand:** Die 58 alten WooCommerce-Bestellungen auf KK (`processing`, `wc_order_id > 0`) bleiben unverändert.
 - **Test:** `tests/test-mollie-capture-wp.php` (Mollie gemockt). Auf Seiten ohne Mollie-Schlüssel braucht er zwei Läufe, weil `tix_get_settings` zwischenspeichert.
+
+## 255. Prämien: So sammeln Gäste – collect_mode (ab 1.38.905, User 18.11.)
+- Vertrag: `uebergaben/vertrag-praemien-sammelmodus-2026-11-18.md`.
+- Gespeichert in `_tix_loyalty_collect_mode` (Seite) bzw. `_tix_org_loyalty.collect_mode` (Veranstalter), Werte `both|station|team`, Vorgabe `both`.
+- `GET /loyalty/config` liefert `collect_mode`, `collect_modes[{key,label,hint}]` und `checkin_stamp: true`; `/loyalty/me` und die Einträge von `/loyalty/cards` liefern `collect_mode`.
+- Sperren (403 `tix_loyalty_collect_mode`):
+  - `station` sperrt `POST /loyalty/award`.
+  - `team` sperrt `GET /loyalty/station/token` und `POST /loyalty/claim`.
+- `scan` und `redeem` bleiben offen; `scan` meldet `can_award`. Der Check-in-Stempel gilt in jedem Modus.
+- Test: `tests/test-loyalty-collect-mode-wp.php`.

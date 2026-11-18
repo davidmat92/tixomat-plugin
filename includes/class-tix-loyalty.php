@@ -85,6 +85,31 @@ class TIX_Loyalty {
         return get_option('_tix_loyalty_enabled', '1') === '1';
     }
 
+    // ── Stempel sammeln: Station, Team oder beides (1.38.905, User 18.11.) ──
+    const COLLECT_MODES = [
+        'both'    => ['Stempel-Station und Team', 'Gäste stempeln selbst an der Stempel-Station oder zeigen ihren Code dem Team. Am einfachsten für den Start.'],
+        'station' => ['Nur Stempel-Station', 'Ein Gerät (Tablet/Handy) zeigt an der Wand oder Bar einen wechselnden Code. Gäste öffnen in der App „Prämien“ → „Code scannen“. Das Team vergibt keine Stempel, löst Prämien aber weiter per Scan ein.'],
+        'team'    => ['Nur Team scannt', 'Gäste zeigen in der App unter „Prämien“ ihren Code; das Team scannt ihn in der Veranstalter-App und vergibt den Stempel. Es gibt keine Stempel-Station.'],
+    ];
+
+    public static function collect_mode() {
+        $m = self::$org ? (string) (self::org_config()['collect_mode'] ?? 'both') : (string) get_option('_tix_loyalty_collect_mode', 'both');
+        return isset(self::COLLECT_MODES[$m]) ? $m : 'both';
+    }
+
+    /** Darf auf diesem Weg gestempelt werden? $way: station | team */
+    public static function collect_allows($way) {
+        $m = self::collect_mode();
+        return $m === 'both' || $m === $way;
+    }
+
+    private static function mode_error($way) {
+        $msg = $way === 'team'
+            ? 'Hier gibt es Stempel nur an der Stempel-Station. Prämien einlösen geht weiter per Scan.'
+            : 'Hier stempelt das Team: Zeig deinen Code in der App unter „Prämien“ an der Bar oder am Einlass.';
+        return new WP_Error('tix_loyalty_collect_mode', $msg, ['status' => 403, 'collect_mode' => self::collect_mode()]);
+    }
+
     public static function stamps_per_visit() {
         if (self::$org) return max(1, intval(self::org_config()['stamps_per_visit'] ?? 1));
         return max(1, intval(get_option('_tix_loyalty_stamps_per_visit', 1)));
@@ -218,6 +243,9 @@ class TIX_Loyalty {
             'station_events_only' => self::station_events_only(),
             'has_exit_pin'     => self::exit_pin_hash() !== '',
             'station_exit_pin_set' => self::exit_pin_hash() !== '', // Name aus der App-Abstimmung (1.38.871)
+            'collect_mode'     => self::collect_mode(),
+            'collect_modes'    => array_map(function ($k, $v) { return ['key' => $k, 'label' => $v[0], 'hint' => $v[1]]; }, array_keys(self::COLLECT_MODES), array_values(self::COLLECT_MODES)),
+            'checkin_stamp'    => true, // Stempel beim Ticket-Check-in gibt es in jedem Modus
         ]);
     }
 
@@ -237,7 +265,11 @@ class TIX_Loyalty {
             else update_option('_tix_loyalty_station_exit_pin', $hash, false);
             unset($b['station_exit_pin']);
         }
+        if (array_key_exists('collect_mode', $b) && !isset(self::COLLECT_MODES[(string) $b['collect_mode']])) {
+            return new WP_Error('tix_invalid_field', 'Modus: both, station oder team.', ['status' => 400, 'field' => 'collect_mode']);
+        }
         if (self::$org) return self::save_org_config($b);
+        if (array_key_exists('collect_mode', $b)) update_option('_tix_loyalty_collect_mode', (string) $b['collect_mode'], false);
         if (array_key_exists('enabled', $b)) {
             update_option('_tix_loyalty_enabled', filter_var($b['enabled'], FILTER_VALIDATE_BOOLEAN) ? '1' : '0');
         }
@@ -273,6 +305,7 @@ class TIX_Loyalty {
         if (array_key_exists('enabled', $b)) $c['enabled'] = filter_var($b['enabled'], FILTER_VALIDATE_BOOLEAN);
         if (array_key_exists('stamps_per_visit', $b)) $c['stamps_per_visit'] = max(1, intval($b['stamps_per_visit']));
         if (array_key_exists('station_events_only', $b)) $c['station_events_only'] = filter_var($b['station_events_only'], FILTER_VALIDATE_BOOLEAN);
+        if (array_key_exists('collect_mode', $b)) $c['collect_mode'] = (string) $b['collect_mode'];
         if (array_key_exists('rewards', $b) && is_array($b['rewards'])) {
             $clean = [];
             foreach ($b['rewards'] as $r) {
@@ -324,6 +357,7 @@ class TIX_Loyalty {
             'stamps_per_visit' => self::stamps_per_visit(),
             'rewards'          => self::reward_state($uid),
             'history'          => array_values($log),
+            'collect_mode'     => self::collect_mode(), // 1.38.905: Prämien-Seite zeigt nur den passenden Teil
         ]);
     }
 
@@ -348,6 +382,7 @@ class TIX_Loyalty {
                 'stamps_per_visit' => self::stamps_per_visit(),
                 'rewards'          => self::reward_state($uid),
                 'last_activity'    => (is_array($log) && !empty($log[0]['ts'])) ? (string) $log[0]['ts'] : null,
+                'collect_mode'     => self::collect_mode(),
             ];
         }
         self::$org = 0;
@@ -398,7 +433,7 @@ class TIX_Loyalty {
         if (is_wp_error($user)) return $user;
         $body = $req->get_json_params();
         $event_id = intval(is_array($body) ? ($body['event_id'] ?? 0) : 0);
-        return rest_ensure_response(['ok' => true] + self::user_payload($user, $event_id));
+        return rest_ensure_response(['ok' => true, 'collect_mode' => self::collect_mode(), 'can_award' => self::collect_allows('team')] + self::user_payload($user, $event_id));
     }
 
     public static function rest_award(WP_REST_Request $req) {
@@ -408,6 +443,7 @@ class TIX_Loyalty {
         if (is_wp_error($user)) return $user;
         $body = $req->get_json_params();
         $event_id = intval(is_array($body) ? ($body['event_id'] ?? 0) : 0);
+        if (!self::collect_allows('team')) return self::mode_error('team');
         $awarded = self::award_stamp($user->ID, $event_id, 'scan');
         if ($awarded === false) {
             return rest_ensure_response([
@@ -580,6 +616,7 @@ class TIX_Loyalty {
             if (!self::$org) return new WP_Error('rest_forbidden', 'Bitte einen Veranstalter wählen.', ['status' => 403]);
         }
         if (!self::enabled()) return new WP_Error('tix_loyalty_disabled', 'Das Prämienprogramm ist nicht aktiv.', ['status' => 403]);
+        if (!self::collect_allows('station')) return new WP_Error('tix_loyalty_collect_mode', 'Die Stempel-Station ist ausgeschaltet: Hier vergibt das Team die Stempel per Scan. Umstellen unter Prämien → So sammeln Gäste.', ['status' => 403, 'collect_mode' => self::collect_mode()]);
         $dev = strtolower(preg_replace('/[^a-z0-9-]/i', '', (string) $req->get_param('device')));
         $station = substr($dev !== '' ? $dev : 'u' . get_current_user_id(), 0, 40);
         $ev = self::station_event(self::$org);
@@ -614,6 +651,7 @@ class TIX_Loyalty {
         self::$org = $t['org'];
         if (self::$org && !(class_exists('TIX_App_Scope') && TIX_App_Scope::multi())) return new WP_Error('tix_station_token_invalid', 'Das ist kein gültiger Stempel-Code.', ['status' => 400]);
         if (!self::enabled()) return new WP_Error('tix_loyalty_disabled', 'Das Prämienprogramm ist nicht aktiv.', ['status' => 403]);
+        if (!self::collect_allows('station')) return self::mode_error('station');
         $beat = intval(get_transient(self::station_key(self::$org, $t['station'])));
         if (!$beat || time() - $beat > self::STATION_ALIVE) return new WP_Error('tix_station_offline', 'Die Stempel-Station ist gerade aus.', ['status' => 409]);
         $eid = $t['event'];
