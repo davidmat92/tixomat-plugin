@@ -258,8 +258,12 @@ class TIX_Service_Export {
     public static function on_attachment($id) { self::touch('media', (int) $id); }
     public static function on_attachment_delete($id) { self::touch('media', (int) $id, 'delete'); }
 
+    /** Optionen, die alle öffentlichen Adressen ändern → Signal reload|urls (Dienst lädt url aller Post-Entitäten neu). */
+    const URL_OPTIONS = ['permalink_structure', 'home', 'tix_customer_base_url', 'category_base', 'tag_base'];
+
     public static function on_option($name) {
         if (in_array((string) $name, self::config_options(), true)) self::touch('config', (string) $name);
+        if (in_array((string) $name, self::URL_OPTIONS, true)) self::touch('reload', 'urls');
     }
 
     public static function on_sponsors($scope, $owner) { self::touch('sponsors', $scope . ':' . intval($owner)); }
@@ -281,7 +285,8 @@ class TIX_Service_Export {
               'tix_modules_entitled_v', 'tix_wallet_platform', '_tix_wallet', 'tix_giftcard_settings', 'tix_assistant_settings', 'tix_degaso',
               'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl',
               // 1.38.897 (Paket 2.3 Events/Preise): Lesestellen von TIX_Public_Events::payload, TIX_Fees, TIX_Customer_URL
-              'tix_multi_organizer', 'tix_org_domains_active', 'tix_ticket_fields_default', 'tix_org_approval_settings', 'tix_demo_organizer_id'];
+              'tix_multi_organizer', 'tix_org_domains_active', 'tix_ticket_fields_default', 'tix_org_approval_settings', 'tix_demo_organizer_id',
+              'permalink_structure', 'category_base', 'tag_base']; // 1.38.898: Adressen
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
             // tix_awareness_flags: nur die öffentlichen Schalter report_enabled/alarm_live (Name enthält „awareness“ aus der DENY-Liste)
@@ -346,6 +351,9 @@ class TIX_Service_Export {
         $thumb = (int) get_post_thumbnail_id($p->ID);
         return [
             'id' => (int) $p->ID, 'type' => $p->post_type, 'status' => $p->post_status, 'slug' => $p->post_name,
+            // Öffentliche Adresse wie /public/events (Kunden-Adresse statt WordPress; 1.38.898). Eigene Domain eines Veranstalters
+            // gilt nur bei Durchleitung (X-Forwarded-Host) – hier immer die Standard-Adresse.
+            'url' => class_exists('TIX_Customer_URL') ? TIX_Customer_URL::to((string) get_permalink($p)) : (string) get_permalink($p),
             'title' => (string) $p->post_title, 'content' => (string) $p->post_content, 'excerpt' => (string) $p->post_excerpt,
             'author' => (int) $p->post_author, 'parent' => (int) $p->post_parent, 'menu_order' => (int) $p->menu_order,
             'date_gmt' => self::iso_gmt($p->post_date_gmt), 'date_local' => (string) $p->post_date,

@@ -118,6 +118,19 @@ try {
     foreach (['/events?p', '/organizers?p', '/config?p', '/derived?p', '/sponsors?p'] as $r) { [, $d] = $get(strtok($r, '?'), $r === '/derived?p' ? [] : ['per_page' => 200]); $all .= wp_json_encode($d); }
     $eq('kein Geheimnis, keine IBAN, kein Schlüssel', [false, false, false], [strpos($all, $secret) !== false, strpos($all, 'DE89370400440532013000') !== false, strpos($all, $key) !== false]);
 
+    // ═══ 1.38.898: url + Signal reload|urls ═══
+    [, $d] = $get('/organizers', ['ids' => (string) $org]);
+    $eq('url = Kunden-Adresse des Permalinks', TIX_Customer_URL::to((string) get_permalink($org)), $d['items'][0]['url'] ?? null);
+    [, $d] = $get('/changes'); $hu = (string) $d['cursor'];
+    $hdr(null, null);
+    $cb = get_option('tix_customer_base_url', null);
+    update_option('tix_customer_base_url', 'https://kunden-v5.example.test');
+    if ($cb === null) delete_option('tix_customer_base_url'); else update_option('tix_customer_base_url', $cb);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hu]);
+    $eq('Kunden-Adresse geändert → reload|urls', 1, count($find($d['changes'] ?? [], 'reload', 'urls')));
+
     // ═══ 1.38.897: Fixtures-Schutz, Gebühren-Regel ohne rounding ═══
     if (class_exists('TIX_Export_Fixtures')) {
         $hf = function () { return 'https://kitchenklub.de'; };

@@ -7362,3 +7362,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - `config` ergänzt um `tix_multi_organizer`, `tix_org_domains_active`, `tix_ticket_fields_default`, `tix_org_approval_settings` und `tix_demo_organizer_id`; `derived.fees_site`.
   - **Fix:** `TIX_Fees::display_config` gab bei einer Regel der Quelle ohne `rounding` eine PHP-Warnung aus. Auf KK hätte das die JSON-Antwort zerbrochen.
   - Test: export-v5 42.
+- **1.38.898:** Post-Zeilen (`events`, `organizers`, `artists`, `locations`, `tips`) tragen `url` = `TIX_Customer_URL::to(get_permalink())`. Die eigene Domain eines Veranstalters gilt nur bei Durchleitung, hier steht immer die Standard-Adresse. Ändern sich `permalink_structure`, `home`, `tix_customer_base_url`, `category_base` oder `tag_base`, entsteht das Signal `reload|urls`: Der Dienst lädt die `url` aller Post-Entitäten neu. Test: export-v5 44.
