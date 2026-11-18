@@ -7363,3 +7363,8 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - **Fix:** `TIX_Fees::display_config` gab bei einer Regel der Quelle ohne `rounding` eine PHP-Warnung aus. Auf KK hätte das die JSON-Antwort zerbrochen.
   - Test: export-v5 42.
 - **1.38.898:** Post-Zeilen (`events`, `organizers`, `artists`, `locations`, `tips`) tragen `url` = `TIX_Customer_URL::to(get_permalink())`. Die eigene Domain eines Veranstalters gilt nur bei Durchleitung, hier steht immer die Standard-Adresse. Ändern sich `permalink_structure`, `home`, `tix_customer_base_url`, `category_base` oder `tag_base`, entsteht das Signal `reload|urls`: Der Dienst lädt die `url` aller Post-Entitäten neu. Test: export-v5 44.
+- **1.38.899 (User-Entscheid 18.11.):** Feste Reihenfolge bei gleichem Datum für alle Event-Abfragen mit `meta_key _tix_date_start` und `orderby meta_value`. Das betrifft `/public/events`, `/public/events/days`, die Website-Listen (Karten, Homepage, Shortcodes) und Admin-Listen.
+  - **Reihenfolge:** Datum, dann `_tix_time_start`, dann ID, jeweils in derselben Richtung.
+  - **Ohne Uhrzeit:** zählt als leere Angabe. Bei aufsteigender Sortierung (ASC) steht das Event am Tag vor 00:00, bei absteigender (DESC, z. B. `past`) am Ende. Bei mehreren Uhrzeit-Zeilen zählt die kleinste.
+  - **Umsetzung:** `TIX_Public_Events::tie_break_vars` (`pre_get_posts`: orderby → `[meta_value, ID]`) und `tie_break_sql` (`posts_pre_query`: Uhrzeit dazwischen). Beide laufen auch bei `get_posts` (`suppress_filters`).
+  - **Test:** `test-event-order-wp` (5; Plattform und KK).

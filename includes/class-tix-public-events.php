@@ -24,6 +24,36 @@ class TIX_Public_Events {
         // Cache bei Event-Änderungen verwerfen
         add_action('save_post_event', [__CLASS__, 'flush']);
         add_action('deleted_post', [__CLASS__, 'flush']);
+        // Feste Reihenfolge bei gleichem Datum (1.38.899, User-Entscheid 18.11.): alle Event-Abfragen mit Sortierung nach _tix_date_start
+        // (Listen, /public/events, /days, Website-Listen). Beide Haken laufen auch bei get_posts (suppress_filters).
+        add_action('pre_get_posts', [__CLASS__, 'tie_break_vars'], 99);
+        add_filter('posts_pre_query', [__CLASS__, 'tie_break_sql'], 5, 2);
+    }
+
+    /**
+     * Event-Abfrage „meta_key _tix_date_start, orderby meta_value“: Datum, dann Beginn-Uhrzeit (_tix_time_start), dann ID –
+     * alles in derselben Richtung wie das Datum. Ohne Uhrzeit zählt '' → bei ASC vor 00:00 (zuerst am Tag), bei DESC zuletzt;
+     * mehrere Uhrzeit-Zeilen: kleinster Wert. Schritt 1 (hier): ID als feste letzte Sortierung über WP selbst.
+     */
+    public static function tie_break_vars($q) {
+        if (!($q instanceof WP_Query) || (string) $q->get('meta_key') !== '_tix_date_start' || $q->get('orderby') !== 'meta_value') return;
+        $pt = $q->get('post_type');
+        if ($pt !== 'event' && $pt !== ['event']) return;
+        $dir = strtoupper((string) $q->get('order')) === 'DESC' ? 'DESC' : 'ASC';
+        $q->set('orderby', ['meta_value' => $dir, 'ID' => $dir]);
+        $q->set('tix_start_order', $dir);
+    }
+
+    /** Schritt 2: Uhrzeit zwischen Datum und ID in die fertige Abfrage (vor dem Ausführen; ohne Treffer bleibt Datum + ID). */
+    public static function tie_break_sql($posts, $q) {
+        if ($posts !== null || !($q instanceof WP_Query) || !$q->get('tix_start_order')) return $posts;
+        global $wpdb;
+        $sql = (string) $q->request;
+        $re = '/ORDER BY (\S+\.meta_value) (ASC|DESC), (' . preg_quote($wpdb->posts, '/') . '\.ID) (ASC|DESC)/';
+        if (!preg_match($re, $sql, $m)) return $posts;
+        $time = "COALESCE((SELECT MIN(tix_ts.meta_value) FROM {$wpdb->postmeta} tix_ts WHERE tix_ts.post_id = {$wpdb->posts}.ID AND tix_ts.meta_key = '_tix_time_start'), '')";
+        $q->request = str_replace($m[0], "ORDER BY {$m[1]} {$m[2]}, $time {$m[2]}, {$m[3]} {$m[4]}", $sql);
+        return $posts;
     }
 
     public static function register_routes() {
