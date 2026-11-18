@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.903
+ * Version: 1.38.904
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.903');
+define('TIXOMAT_VERSION', '1.38.904');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -260,8 +260,7 @@ add_action('plugins_loaded', function() {
 
     // ── Auto-Complete: WC-Bestellungen bei sofortiger Zahlung direkt auf "completed" setzen ──
     add_filter('woocommerce_payment_complete_order_status', function($status, $order_id, $order) {
-        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        if (empty($s['auto_complete_enabled'])) return $status;
+        // Schalter auto_complete_enabled entfällt (1.38.904, User 18.11.): immer abschließen
 
         // Nur wenn es Event-Produkte enthält (mind. 1 Ticket)
         $has_event = false;
@@ -285,17 +284,8 @@ add_action('plugins_loaded', function() {
     }, 10, 3);
 });
 
-// ── Auto-Complete: Native Bestellungen bei Sofort-Zahlung auf "completed" setzen ──
-add_action('tix_order_status_changed', function($order_id, $new_status, $old_status, $gateway) {
-    if ($new_status !== 'processing') return;
-    $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-    if (empty($s['auto_complete_enabled'])) return;
-
-    $instant = ['mollie', 'paypal', 'free'];
-    if (in_array($gateway, $instant, true)) {
-        TIX_Native_Checkout::update_order_status($order_id, 'completed', $gateway);
-    }
-}, 10, 4);
+// ── Auto-Complete (native) entfällt ab 1.38.904 (User 18.11.): PayPal, Mollie „paid“ und Gratis setzen die Gateways
+// direkt auf „completed“; Mollie „authorized“ zieht TIX_Gateway_Mollie::capture() erst ein, „paid“ schließt dann ab.
 
 // ── Event-Karten Fonts (Google Fonts, wenn nicht self-hosted) ──
 add_action('wp_enqueue_scripts', function() {

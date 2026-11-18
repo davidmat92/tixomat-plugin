@@ -1892,7 +1892,7 @@ class TIX_Settings {
         $clean['auto_archive_days']    = max(0, min(365, intval($input['auto_archive_days'] ?? 0)));
 
         // Auto-Complete
-        $clean['auto_complete_enabled'] = !empty($input['auto_complete_enabled']) ? 1 : 0;
+        // auto_complete_enabled entfällt (1.38.904): gespeicherter Wert bleibt, wird nicht mehr gelesen
 
         // Sponsor (Thank-You)
         $clean['sponsor_enabled']    = !empty($input['sponsor_enabled']) ? 1 : 0;
@@ -8308,7 +8308,6 @@ class TIX_Settings {
                                     <div class="tix-card-body">
                                         <div class="tix-field-grid">
                                             <div class="tix-field tix-field-full">
-                                                <?php self::checkbox_row('auto_complete_enabled', 'Bestellungen bei Sofort-Zahlung automatisch abschlie&szlig;en', $s, 'Bestellungen, die mit Zahlarten wie PayPal, Mollie oder Kreditkarte bezahlt werden, werden direkt auf &bdquo;Abgeschlossen&ldquo; gesetzt. Banküberweisung bleibt auf &bdquo;Wartend&ldquo;.'); ?>
                                             </div>
                                         </div>
                                     </div>

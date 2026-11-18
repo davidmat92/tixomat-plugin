@@ -311,6 +311,9 @@ class TIX_Gateway_Mollie {
         }
         set_transient($lock_key, 1, 30); // 30 second lock
 
+        // „authorized“ (z. B. Klarna später bezahlen): erst einziehen, abgeschlossen wird erst bei „paid“ (1.38.904)
+        if ($status === 'authorized') self::capture($order_id, $payment_id, $body);
+
         $old_status = $wpdb->get_var($wpdb->prepare(
             "SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $order_id
         ));
@@ -347,6 +350,37 @@ class TIX_Gateway_Mollie {
         delete_transient($lock_key);
 
         wp_die('OK', '', 200);
+    }
+
+    /**
+     * Einzug einer freigegebenen Zahlung (Mollie Captures API, 1.38.904). Einmal je Bestellung (Merker
+     * `_tix_mollie_capture_<order>`); schlägt er fehl, versucht der nächste „authorized“-Webhook es erneut.
+     * → true (ausgelöst) | 'already' | false
+     */
+    public static function capture($order_id, $payment_id, array $payment = []) {
+        $flag = '_tix_mollie_capture_' . intval($order_id);
+        if (get_option($flag)) return 'already';
+        $api_key = self::get_api_key();
+        if (!$api_key || !preg_match('/^tr_[A-Za-z0-9]+$/', (string) $payment_id)) return false;
+        $req = [];
+        if (!empty($payment['amount']['value']) && !empty($payment['amount']['currency'])) {
+            $req['amount'] = ['currency' => (string) $payment['amount']['currency'], 'value' => (string) $payment['amount']['value']];
+        }
+        $req['description'] = 'Bestellung ' . intval($order_id);
+        $r = wp_remote_post(self::API_URL . '/payments/' . $payment_id . '/captures', [
+            'timeout' => 15,
+            'headers' => ['Authorization' => 'Bearer ' . $api_key, 'Content-Type' => 'application/json'],
+            'body'    => wp_json_encode($req),
+        ]);
+        $code = is_wp_error($r) ? 0 : intval(wp_remote_retrieve_response_code($r));
+        $data = is_wp_error($r) ? [] : (array) json_decode(wp_remote_retrieve_body($r), true);
+        if ($code === 201) {
+            update_option($flag, ['id' => (string) ($data['id'] ?? ''), 'at' => gmdate('c')], false);
+            if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($order_id, 'Zahlung freigegeben – Einzug bei Mollie ausgelöst. Abgeschlossen wird die Bestellung, sobald Mollie „bezahlt“ meldet.', 'system');
+            return true;
+        }
+        if (class_exists('TIX_Order_Admin')) TIX_Order_Admin::add_note($order_id, 'Einzug bei Mollie fehlgeschlagen (HTTP ' . $code . '). Wird beim nächsten Mollie-Aufruf erneut versucht; sonst im Mollie-Dashboard einziehen.', 'system');
+        return false;
     }
 
     /**

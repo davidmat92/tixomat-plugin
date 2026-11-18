@@ -7445,3 +7445,15 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - Aktionen: `staff:sales:trial:<id>`, `staff:sales:demo[:<uid>]`.
   - Im Schatten-Abruf wird nichts versendet.
 - **Test:** `tests/test-sales-notify-wp.php`.
+
+## 254. Auto-Abschluss entfällt, Mollie-Einzug bei „authorized“ (ab 1.38.904, User 18.11.)
+- **Schalter weg:** `auto_complete_enabled` wird nicht mehr gelesen und steht nicht mehr im WP-Admin. Der gespeicherte Wert bleibt.
+  - PayPal, Mollie „paid“ und Gratis setzen die Gateways wie bisher direkt auf `completed`.
+  - Der WooCommerce-Filter schließt immer ab.
+- **Mollie „authorized“** (z. B. Klarna „später bezahlen“):
+  - Der Webhook löst den Einzug aus: `TIX_Gateway_Mollie::capture()` → `POST /payments/{id}/captures` mit vollem Betrag, einmal je Bestellung (Option `_tix_mollie_capture_<order>`), mit Notiz an der Bestellung.
+  - Die Bestellung bleibt `processing`. Erst Mollie „paid“ setzt sie auf `completed`; damit laufen Tickets, Mail, Rechnung usw.
+  - Schlägt der Einzug fehl, entsteht kein Merker. Der nächste „authorized“-Webhook versucht es erneut, die Notiz verweist aufs Mollie-Dashboard.
+  - Wie bisher stellt der stündliche Wächter für `processing`-Bestellungen ohne Tickets die Tickets aus.
+- **Bestand:** Die 58 alten WooCommerce-Bestellungen auf KK (`processing`, `wc_order_id > 0`) bleiben unverändert.
+- **Test:** `tests/test-mollie-capture-wp.php` (Mollie gemockt). Auf Seiten ohne Mollie-Schlüssel braucht er zwei Läufe, weil `tix_get_settings` zwischenspeichert.
