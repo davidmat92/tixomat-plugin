@@ -286,7 +286,8 @@ class TIX_Service_Export {
               'tix_website_domain', 'tix_website_license_state', 'tix_plan_migrated', 'tix_license_purge_pending', 'home', 'siteurl',
               // 1.38.897 (Paket 2.3 Events/Preise): Lesestellen von TIX_Public_Events::payload, TIX_Fees, TIX_Customer_URL
               'tix_multi_organizer', 'tix_org_domains_active', 'tix_ticket_fields_default', 'tix_org_approval_settings', 'tix_demo_organizer_id',
-              'permalink_structure', 'category_base', 'tag_base']; // 1.38.898: Adressen
+              'permalink_structure', 'category_base', 'tag_base', // 1.38.898: Adressen
+              'tix_org_approval_db']; // 1.38.900: TIX_Org_Approval::status() ohne Status-Meta (pending bei aktueller DB-Version, sonst approved)
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
             // tix_awareness_flags: nur die öffentlichen Schalter report_enabled/alarm_live (Name enthält „awareness“ aus der DENY-Liste)
@@ -358,6 +359,9 @@ class TIX_Service_Export {
             'author' => (int) $p->post_author, 'parent' => (int) $p->post_parent, 'menu_order' => (int) $p->menu_order,
             'date_gmt' => self::iso_gmt($p->post_date_gmt), 'date_local' => (string) $p->post_date,
             'modified_gmt' => self::iso_gmt($p->post_modified_gmt),
+            // Roh-Wert des Posts (1.38.900): modified_gmt wird in finish() zu „später von Log und Post“; /public/events gibt
+            // dagegen nur den Post-Wert aus (ISO …Z wie hier, null bei 0000-00-00)
+            'post_modified_gmt' => self::iso_gmt($p->post_modified_gmt),
             'meta' => (object) self::post_meta($p->ID),
             'terms' => (object) $terms,
             'image' => $thumb ? self::media_row($thumb) : null,

@@ -121,6 +121,10 @@ try {
     // ═══ 1.38.898: url + Signal reload|urls ═══
     [, $d] = $get('/organizers', ['ids' => (string) $org]);
     $eq('url = Kunden-Adresse des Permalinks', TIX_Customer_URL::to((string) get_permalink($org)), $d['items'][0]['url'] ?? null);
+    $pm = get_post($org)->post_modified_gmt;
+    $eq('post_modified_gmt = Post-Wert (1.38.900)', gmdate('Y-m-d\\TH:i:s\\Z', strtotime($pm . ' UTC')), $d['items'][0]['post_modified_gmt'] ?? null);
+    [, $d] = $get('/config', ['ids' => 'tix_org_approval_db']);
+    $eq('config: tix_org_approval_db', ['tix_org_approval_db'], array_column($d['items'] ?? [], 'id'));
     [, $d] = $get('/changes'); $hu = (string) $d['cursor'];
     $hdr(null, null);
     $cb = get_option('tix_customer_base_url', null);

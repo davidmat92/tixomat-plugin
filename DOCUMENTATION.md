@@ -7368,3 +7368,4 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - **Ohne Uhrzeit:** zählt als leere Angabe. Bei aufsteigender Sortierung (ASC) steht das Event am Tag vor 00:00, bei absteigender (DESC, z. B. `past`) am Ende. Bei mehreren Uhrzeit-Zeilen zählt die kleinste.
   - **Umsetzung:** `TIX_Public_Events::tie_break_vars` (`pre_get_posts`: orderby → `[meta_value, ID]`) und `tie_break_sql` (`posts_pre_query`: Uhrzeit dazwischen). Beide laufen auch bei `get_posts` (`suppress_filters`).
   - **Test:** `test-event-order-wp` (5; Plattform und KK).
+- **1.38.900:** Post-Zeilen tragen zusätzlich `post_modified_gmt` (reiner Post-Wert, ISO …Z wie `/public/events.modified`; `modified_gmt` bleibt „später von Log und Post“). `config` enthält `tix_org_approval_db` (Grundlage für `TIX_Org_Approval::status()` ohne Status-Meta). Test: export-v5 46.
