@@ -7369,3 +7369,17 @@ Vertrag: W6-Vertrag, Abschnitt „ENDGÜLTIGE FORM W6c“. Klasse `TIX_Platform_
   - **Umsetzung:** `TIX_Public_Events::tie_break_vars` (`pre_get_posts`: orderby → `[meta_value, ID]`) und `tie_break_sql` (`posts_pre_query`: Uhrzeit dazwischen). Beide laufen auch bei `get_posts` (`suppress_filters`).
   - **Test:** `test-event-order-wp` (5; Plattform und KK).
 - **1.38.900:** Post-Zeilen tragen zusätzlich `post_modified_gmt` (reiner Post-Wert, ISO …Z wie `/public/events.modified`; `modified_gmt` bleibt „später von Log und Post“). `config` enthält `tix_org_approval_db` (Grundlage für `TIX_Org_Approval::status()` ohne Status-Meta). Test: export-v5 46.
+
+## 251. Co-Veranstalter-Schalter im Studio unter Module (ab 1.38.901, User 18.11.)
+- Der Schalter `tix_settings[co_remote_enabled]` (§109, Vorgabe 0) ist jetzt auch über `/studio/modules` lesbar und schreibbar, nur auf der Einzelseite. Auf der Plattform gibt es den Eintrag nicht: Die Route antwortet dort wie bisher mit 404, `TIX_Plan::site_settings()` ist leer.
+- `GET /studio/modules` liefert zusätzlich:
+  - `can_edit_modules`
+  - `settings: [{key:"co_remote", label, enabled, can_edit, hint, requirements:[{key:"sharing"|"partner_api", label, ok}], ready}]`
+- Die Voraussetzungen kommen aus `TIX_Syndication_Push::is_configured()` und `TIX_Partners::source_api_enabled()`. Fehlt eine, bleibt der Schalter trotzdem schaltbar; `hint` nennt dann, was fehlt.
+- `POST /studio/modules {"settings":{"co_remote":true|false}}` gibt `{ok, modules, settings}` zurück. `settings` und `modules` gehen zusammen oder einzeln. Ein unbekannter Schlüssel gibt 400 `tix_invalid_field` (`field: settings.<key>`).
+- Rechte:
+  - Lesen und `settings` schreiben dürfen Admin (`manage_options`) und Inhaber (`_tix_site_owner`).
+  - `modules` schreibt weiterhin nur der Admin; der Inhaber bekommt 403.
+  - Im Demo-Shop sind Schreibzugriffe für Nicht-Admins weiter gesperrt (`tix_demo_forbidden`).
+- Bei jeder Änderung entsteht ein Eintrag im Änderungsprotokoll `tix_audit_log`: action `site_setting`, scope `site`, summary `{co_remote:[vorher, nachher]}`. Gleicher Wert erzeugt keinen Eintrag.
+- Test: `tests/test-co-remote-switch-wp.php`.

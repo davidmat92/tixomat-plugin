@@ -114,8 +114,45 @@ class TIX_Plan {
     public static function perm_site() {
         if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Bitte anmelden.', ['status' => 401]);
         if (self::multi()) return new WP_Error('tix_not_single', 'Auf der Plattform werden Module je Veranstalter geschaltet.', ['status' => 404]);
-        return current_user_can('manage_options') ? true : new WP_Error('rest_forbidden', 'Nur Admins können Module schalten.', ['status' => 403]);
+        if (current_user_can('manage_options') || self::is_site_owner()) return true; // Inhaber (1.38.901): lesen + Seiten-Schalter, Module nur Admin
+        return new WP_Error('rest_forbidden', 'Nur Admins können Module schalten.', ['status' => 403]);
     }
+
+    /** Inhaber der Einzelseite (TIX_Owner_Access::OWNER_META). */
+    private static function is_site_owner() {
+        $uid = get_current_user_id();
+        return $uid && intval(get_user_meta($uid, '_tix_site_owner', true)) === 1;
+    }
+
+    // ═══════════════ Seiten-Schalter (1.38.901) ═══════════════
+    // Einstellungen, die keine Lizenz-Module sind, aber im Studio unter Module geschaltet werden.
+
+    /** Roh-Wert aus tix_settings (ohne statischen Cache von tix_get_settings, damit Antworten nach dem Speichern stimmen). */
+    private static function setting_raw($name) {
+        $s = get_option('tix_settings', []);
+        return is_array($s) ? ($s[$name] ?? null) : null;
+    }
+
+    /** [{key, label, enabled, can_edit, hint, requirements:[{key,label,ok}], ready}] – nur Einzelseite. */
+    public static function site_settings() {
+        if (self::multi()) return [];
+        $can = current_user_can('manage_options') || self::is_site_owner();
+        $req = [
+            ['key' => 'sharing', 'label' => 'Teilen mit evendis.de eingerichtet', 'ok' => class_exists('TIX_Syndication_Push') && TIX_Syndication_Push::is_configured()],
+            ['key' => 'partner_api', 'label' => 'Verkauf über Partner an', 'ok' => class_exists('TIX_Partners') && TIX_Partners::source_api_enabled()],
+        ];
+        $ready = !in_array(false, array_column($req, 'ok'), true);
+        $missing = array_column(array_filter($req, function ($r) { return !$r['ok']; }), 'label');
+        $hint = 'Ein Co-Veranstalter bearbeitet geteilte Events im Studio von evendis; die Daten bleiben auf dieser Seite.';
+        if ($missing) $hint .= ' Wirkt erst, wenn erfüllt: ' . implode(', ', $missing) . '.';
+        return [[
+            'key' => 'co_remote', 'label' => 'Co-Veranstalter über die Plattform erlauben',
+            'enabled' => !empty(self::setting_raw('co_remote_enabled')), 'can_edit' => $can,
+            'hint' => $hint, 'requirements' => $req, 'ready' => $ready,
+        ]];
+    }
+
+    const SITE_SETTINGS = ['co_remote' => 'co_remote_enabled'];
 
     /** Durch Lizenz bzw. Freischaltung gesperrt (Admin kann es nicht einschalten). */
     private static function license_locked($key) {
@@ -130,11 +167,37 @@ class TIX_Plan {
         return rest_ensure_response(['ok' => true, 'modules' => self::modules(), 'locked' => $locked,
             'usage' => self::usage(),
             'licensed_by' => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
+            'settings' => self::site_settings(), 'can_edit_modules' => current_user_can('manage_options'),
             'groups' => ['always' => self::ALWAYS, 'packages' => self::PACKAGES, 'extras' => self::EXTRAS, 'app_extras' => self::APP_EXTRAS]]);
     }
 
     public static function rest_site_save(WP_REST_Request $req) {
         $in = $req->get_param('modules');
+        $set = $req->get_param('settings');
+        if ($set !== null) {
+            if (!is_array($set)) return new WP_Error('tix_invalid_field', 'Bitte Schalter als {key: true|false} senden.', ['status' => 400, 'field' => 'settings']);
+            $unknown = array_diff(array_keys($set), array_keys(self::SITE_SETTINGS));
+            if ($unknown) return new WP_Error('tix_invalid_field', 'Unbekannter Schalter: ' . reset($unknown) . '.', ['status' => 400, 'field' => 'settings.' . reset($unknown)]);
+        }
+        if ($in === null && $set === null) return new WP_Error('tix_invalid_field', 'Bitte Module als {key: true|false} senden.', ['status' => 400, 'field' => 'modules']);
+        if ($in !== null && !current_user_can('manage_options')) return new WP_Error('rest_forbidden', 'Nur Admins können Module schalten.', ['status' => 403]);
+        if ($set) {
+            $s = get_option('tix_settings', []);
+            $s = is_array($s) ? $s : [];
+            $diff = [];
+            foreach ($set as $k => $v) {
+                $name = self::SITE_SETTINGS[$k];
+                $on = filter_var($v, FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                $before = !empty($s[$name]) ? 1 : 0;
+                $s[$name] = $on;
+                if ($before !== $on) $diff[$k] = [(bool) $before, (bool) $on];
+            }
+            if ($diff) {
+                update_option('tix_settings', $s);
+                if (class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) TIX_Customers::audit('site_setting', '', ['scope' => 'site', 'oid' => 0], $diff);
+            }
+            if ($in === null) return rest_ensure_response(['ok' => true, 'modules' => self::modules(), 'settings' => self::site_settings()]);
+        }
         if (!is_array($in)) return new WP_Error('tix_invalid_field', 'Bitte Module als {key: true|false} senden.', ['status' => 400, 'field' => 'modules']);
         $unknown = array_diff(array_keys($in), self::all_keys());
         if ($unknown) return new WP_Error('tix_invalid_field', 'Unbekanntes Modul: ' . reset($unknown) . '.', ['status' => 400, 'field' => 'modules.' . reset($unknown)]);
@@ -156,7 +219,7 @@ class TIX_Plan {
             }
         }
         update_option(self::SITE_OPT, $opt, false);
-        return rest_ensure_response(['ok' => true, 'modules' => self::modules()]);
+        return rest_ensure_response(['ok' => true, 'modules' => self::modules(), 'settings' => self::site_settings()]);
     }
 
     /** Einzelseite: vom Admin ausdrücklich ausgeschaltet? */
