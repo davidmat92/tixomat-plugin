@@ -405,7 +405,9 @@ class TIX_Trial {
         return wp_mail($to, $subject, $h, ['Content-Type: text/html; charset=UTF-8']);
     }
 
-    private static function notify_sales($subject, array $paras) {
+    /** Vertriebs-Meldung (1.38.903: über TIX_Sales_Notify – Ereignis-Schalter, Mail-Liste, Push an Plattform-Admins) */
+    private static function notify_sales($subject, array $paras, $event = 'other', $push = null) {
+        if (class_exists('TIX_Sales_Notify')) { TIX_Sales_Notify::send($event, [$subject, $paras], $push); return; }
         $to = get_option('tix_demo_notify', null);
         if (!is_array($to) || !$to) {
             $to = [];
@@ -495,6 +497,8 @@ class TIX_Trial {
             'data' => wp_json_encode(['name' => $name, 'email' => $email, 'company' => $company, 'profile' => $profile, 'cases' => $cases, 'model' => in_array($b['model'] ?? '', ['self', 'platform'], true) ? $b['model'] : 'self',
                 'consent_at' => wp_date('c'), 'ip_hash' => self::ip_hash()]),
             'expires_at' => wp_date('Y-m-d H:i:s', time() + self::TOKEN_TTL), 'created_at' => self::now()]);
+        self::notify_sales('Demo angefordert: ' . ($company !== '' ? $company : $name), ['Name: ' . $name, 'Firma: ' . ($company ?: '–'), 'E-Mail: ' . $email, 'Beispiel: ' . $profile . ' · Fälle: ' . implode(', ', (array) $cases), 'Noch nicht bestätigt – der Zugang entsteht erst nach dem Klick in der Mail.'],
+            'demo_requested', ['Demo angefordert', $company !== '' ? $company : $name, 'staff:sales:demo']);
         self::mail($email, 'Bitte bestätige deinen Demo-Zugang', 'Fast geschafft',
             ['Hallo ' . strtok($name, ' ') . ', so geht es weiter:', '1. Auf „Zugang bestätigen“ klicken.', '2. Du bekommst in etwa einer Minute eine zweite Mail mit Benutzername und Passwort.', 'Der Link gilt 24 Stunden.'],
             [['Zugang bestätigen', self::page('demo', $token)]]);
@@ -530,7 +534,8 @@ class TIX_Trial {
         $acc = $res->get_data()['access'] ?? [];
         $uid = intval($acc['id'] ?? 0);
         if ($uid) { update_user_meta($uid, '_tix_demo_source', 'self'); update_user_meta($uid, '_tix_demo_consent_at', $d['consent_at'] ?? wp_date('c')); }
-        self::notify_sales('Neuer Demo-Zugang (selbst angefordert)', ['Name: ' . $d['name'], 'Firma: ' . ($d['company'] ?: '–'), 'E-Mail: ' . $d['email'], 'Beispiel: ' . $d['profile'] . ' · Fälle: ' . implode(', ', (array) $d['cases'])]);
+        self::notify_sales('Neuer Demo-Zugang (selbst angefordert)', ['Name: ' . $d['name'], 'Firma: ' . ($d['company'] ?: '–'), 'E-Mail: ' . $d['email'], 'Beispiel: ' . $d['profile'] . ' · Fälle: ' . implode(', ', (array) $d['cases'])],
+            'demo_created', ['Neuer Demo-Zugang', !empty($d['company']) ? $d['company'] : (string) $d['name'], $uid ? 'staff:sales:demo:' . $uid : 'staff:sales:demo']);
         return self::out(['ok' => true, 'status' => 'created', 'login_link_sent' => !empty($res->get_data()['invite_sent']), 'credentials_sent' => !empty($res->get_data()['invite_sent'])]);
     }
 
@@ -644,6 +649,8 @@ class TIX_Trial {
             'data' => wp_json_encode($d), 'token_hash' => hash('sha256', $token), 'ip_hash' => $ih, 'created_at' => self::now(), 'updated_at' => self::now()]);
         $id = intval($wpdb->insert_id);
         if (!$id) return self::err('tix_trial_failed', 'Die Bestellung konnte nicht gespeichert werden.', 500);
+        self::notify_sales('Testphase bestellt: ' . $kurz, ['Firma: ' . $d['company'], 'Kontakt: ' . $d['contact']['name'] . ' · ' . $d['contact']['email'], 'Shop: ' . $kurz . '.evendis.de · Paket: ' . self::tier_label($d['tier']), 'Ablauf: ' . ($d['flow'] === 'nopay' ? 'ohne Zahlungsdaten' : 'mit Zahlungsmittel'), 'Noch nicht bestätigt.'],
+            'trial_requested', ['Testphase bestellt', $d['company'], 'staff:sales:trial:' . $id]);
         self::mail($d['contact']['email'], 'Bitte bestätige deine Testphase', 'Fast geschafft',
             ['Hallo ' . strtok($d['contact']['name'], ' ') . ', bitte bestätige deine E-Mail-Adresse. ' . ($d['flow'] === 'nopay' ? 'Danach richten wir deinen Shop unter ' . $kurz . '.evendis.de ein – ohne Zahlungsdaten.' : 'Danach hinterlegst du ein Zahlungsmittel (es wird nichts abgebucht) und wir richten deinen Shop unter ' . $kurz . '.evendis.de ein.'), 'Der Link gilt 24 Stunden.'],
             [['E-Mail bestätigen', self::page('trial', $token)]]);
@@ -789,6 +796,8 @@ class TIX_Trial {
         $d = $t->d; $ptok = self::issue_progress($d);
         $t = self::set($t, 'queued', $cols, $d, $by);
         $nopay = self::flow_of($t) === 'nopay';
+        self::notify_sales('Testphase bestätigt: ' . $t->kurz, ['Firma: ' . $t->company, $nopay ? 'E-Mail bestätigt, Shop wird eingerichtet.' : 'Zahlungsmittel hinterlegt, Shop wird eingerichtet.'],
+            'trial_confirmed', ['Testphase bestätigt', (string) $t->company, 'staff:sales:trial:' . intval($t->id)]);
         self::mail($t->email, 'Dein Testshop wird eingerichtet', $nopay ? 'E-Mail bestätigt' : 'Zahlungsmittel bestätigt',
             [($nopay ? 'Danke! Deine E-Mail-Adresse ist bestätigt.' : 'Danke! Dein Zahlungsmittel ist hinterlegt, abgebucht wurde nichts.') . ' Wir richten jetzt deinen Testshop ' . $t->kurz . '.evendis.de ein – das dauert etwa 10 Minuten.', 'Sobald er fertig ist, bekommst du eine zweite Mail mit deinem Zugang.'],
             [['Fortschritt ansehen', self::progress_url($t->id, $ptok)]]);
@@ -1010,7 +1019,8 @@ class TIX_Trial {
                     ? 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Nach 14 Tagen wird nichts abgebucht. Es verlängert sich nichts automatisch. Hältst du den Shop nicht aktiv, pausieren wir ihn am ' . wp_date('d.m.Y', $ends + 1) . ' und löschen ihn am ' . wp_date('d.m.Y', $ends + 1 + self::PAUSE_DAYS * DAY_IN_SECONDS) . '. Willst du weitermachen, klickst du auf „Aktiv halten“.'
                     : 'Die Testphase endet am ' . wp_date('d.m.Y', $ends) . '. Danach beginnt dein Vertrag automatisch – außer du kündigst vorher mit einem Klick.'],
                 array_values(array_filter([$invite !== '' ? ['Passwort festlegen', $invite] : null, $d['studio_url'] ? ['Zum Studio', $d['studio_url']] : null])), 'account', self::page('kuendigen', $cancel), self::flow_of($t) === 'nopay' ? 'Testshop löschen' : 'Testphase kündigen');
-            self::notify_sales('Testphase aktiv: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . wp_date('d.m.Y', $ends), 'Shop: ' . $d['url']]);
+            self::notify_sales('Testphase aktiv: ' . $t->kurz, ['Firma: ' . $t->company, 'Ende: ' . wp_date('d.m.Y', $ends), 'Shop: ' . $d['url']],
+                'trial_active', ['Testphase aktiv', (string) $t->company, 'staff:sales:trial:' . intval($t->id)]);
             return self::signed_out(['ok' => true, 'status' => 'active']);
         }
         if (!$ok) { $d['error'] = mb_substr(sanitize_text_field((string) ($b['error'] ?? 'unbekannt')), 0, 500); self::set($t, 'failed', [], $d, 'server'); return self::signed_out(['ok' => true, 'status' => 'failed']); }

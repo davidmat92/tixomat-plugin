@@ -7429,3 +7429,19 @@ Nichts gelöscht, nichts umgeschaltet.
 **Nicht entfallen:** `auto_complete_enabled` wirkt auf native Bestellungen (`tixomat.php`, `tix_order_status_changed`). Bei an (Vorgabe) gehen bezahlte Mollie-, PayPal- und Gratis-Bestellungen von `processing` auf `completed`. Live ist es auf KitchenKlub aus (bleibt `processing`), auf evendis und Mallorca an.
 
 - Test: `tests/test-table-defaults-price-watch-wp.php`.
+
+## 253. Vertriebs-Meldungen Plattform (ab 1.38.903, User 18.11.)
+Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse `TIX_Sales_Notify` (`class-tix-sales-notify.php`), nur Plattform.
+
+- **Route:** `GET|POST /platform/sales-notify` (Plattform-Admin) mit `{emails[], push, events{key: bool}}`, Option `tix_sales_notify`.
+- **Mail-Empfänger:**
+  - Ohne gespeicherte Einstellung gilt die alte Option `tix_demo_notify`, sonst `DEFAULT_EMAILS`.
+  - Eine gespeicherte leere Liste fällt wie bisher auf alle `administrator`- und `tix_sales`-Konten zurück.
+- **Ereignisse:** demo_requested, demo_created, trial_requested, trial_confirmed (Vorgabe aus), trial_active, other.
+  - `TIX_Trial::notify_sales($subject, $paras, $event = 'other', $push = null)` gibt an `TIX_Sales_Notify::send` weiter.
+  - Neue Meldestellen: `rest_demo_request` (vor der Bestätigung), `rest_order` (bestellt), `to_queued` (bestätigt).
+- **Push:** an alle `administrator`-Konten über `TIX_Staff_Push::send_to_users`, plus Feed-Eintrag (`add_user_item`, `no_push`).
+  - Der Text enthält nur Firma bzw. Name.
+  - Aktionen: `staff:sales:trial:<id>`, `staff:sales:demo[:<uid>]`.
+  - Im Schatten-Abruf wird nichts versendet.
+- **Test:** `tests/test-sales-notify-wp.php`.
