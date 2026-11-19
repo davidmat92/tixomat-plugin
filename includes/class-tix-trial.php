@@ -649,6 +649,7 @@ class TIX_Trial {
             'data' => wp_json_encode($d), 'token_hash' => hash('sha256', $token), 'ip_hash' => $ih, 'created_at' => self::now(), 'updated_at' => self::now()]);
         $id = intval($wpdb->insert_id);
         if (!$id) return self::err('tix_trial_failed', 'Die Bestellung konnte nicht gespeichert werden.', 500);
+        if (isset($b['ads'])) do_action('tix_trial_ordered', $id, $b['ads'], $d['contact']['email']); // Google-Ads-Klick mit Einwilligung (TIX_Ads_Conversions, 1.38.906)
         self::notify_sales('Testphase bestellt: ' . $kurz, ['Firma: ' . $d['company'], 'Kontakt: ' . $d['contact']['name'] . ' · ' . $d['contact']['email'], 'Shop: ' . $kurz . '.evendis.de · Paket: ' . self::tier_label($d['tier']), 'Ablauf: ' . ($d['flow'] === 'nopay' ? 'ohne Zahlungsdaten' : 'mit Zahlungsmittel'), 'Noch nicht bestätigt.'],
             'trial_requested', ['Testphase bestellt', $d['company'], 'staff:sales:trial:' . $id]);
         self::mail($d['contact']['email'], 'Bitte bestätige deine Testphase', 'Fast geschafft',
@@ -795,6 +796,7 @@ class TIX_Trial {
     private static function to_queued($t, array $cols, $by) {
         $d = $t->d; $ptok = self::issue_progress($d);
         $t = self::set($t, 'queued', $cols, $d, $by);
+        do_action('tix_trial_queued', $t);
         $nopay = self::flow_of($t) === 'nopay';
         self::notify_sales('Testphase bestätigt: ' . $t->kurz, ['Firma: ' . $t->company, $nopay ? 'E-Mail bestätigt, Shop wird eingerichtet.' : 'Zahlungsmittel hinterlegt, Shop wird eingerichtet.'],
             'trial_confirmed', ['Testphase bestätigt', (string) $t->company, 'staff:sales:trial:' . intval($t->id)]);
@@ -865,6 +867,7 @@ class TIX_Trial {
         $t = self::set($t, 'converted', $cols + ['converted_at' => self::now(), 'delete_at' => null, 'cancelled_at' => null], $d, 'customer');
         if ($t->license_id) $wpdb->update($wpdb->prefix . 'tix_licenses', ['valid_until' => $until->format('Y-m-d')], ['id' => $t->license_id]);
         $price = self::tier_price($d['tier'] ?? 0);
+        do_action('tix_trial_converted', $t, $price); // Conversion „kunde“ (netto; TIX_Ads_Conversions meldet je Testphase einmal)
         if ($d['billing'] === 'month') { // Rate 1 ist die Aktivierungszahlung
             $pm = self::price_month_of($d['tier'] ?? 0);
             $t = self::get($t->id); $d = $t->d;

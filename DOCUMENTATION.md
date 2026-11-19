@@ -7645,3 +7645,42 @@ Vertrag (vollständig): `uebergaben/vertrag-vorkasse-ueberweisung-2026-11-23.md`
   - Das Detail `GET /orders/{id}/detail` trägt in `manual.bank.due_at` die Frist.
   - `GET /customer/orders?status=awaiting_payment` liefert nur die offene Vorkasse des Kontos.
 - Test: `tests/test-bank-prepay-wp.php` (KK 24, Plattform 23). Der erste Lauf schaltet die Überweisung ein; wegen des Einstellungs-Caches läuft der Test erst beim zweiten Mal vollständig.
+## 256. Google-Ads-Conversions vom Server, ohne Pixel (ab 1.38.916 – entwickelt als 906, Zentrale 19.11.)
+- Vertrag: `uebergaben/vertrag-ads-offline-conversions.md` §2, §4 und §5, mit Nachtrag „Umsetzung Plugin“. Klasse: `TIX_Ads_Conversions` (`includes/class-tix-ads-conversions.php`).
+- **Schalter:** `tix_ads_conversions` = `'1'`, Vorgabe aus.
+  - Wenn aus: `POST /public/ads/click` antwortet 404, und das Feld `ads` der Testphasen-Bestellung wird ignoriert.
+  - Export und Zähler bleiben für Admins erreichbar, damit Reste noch abgeholt werden können.
+- **`POST /public/ads/click`:**
+  - Wird nur von evendis-web aufgerufen. Ratenbegrenzung: 5 Aufrufe je IP in 10 Minuten (`TIX_App_Account::rate_limited`).
+  - Antworten:
+    - `202 {ok}`: gespeichert.
+    - `400 tix_invalid_field` mit dem fehlerhaften Feld in `field`.
+    - `409 tix_no_consent`, wenn `ad_user_data` nicht GRANTED ist. Dann wird nichts gespeichert.
+    - `429 tix_rate_limited`
+  - `conversion` nimmt von außen nur `beratung` und `testphase` an. `kunde` legt nur das Plugin selbst an.
+  - Ein doppelter Aufruf (gleiche Klick-ID, Conversion und Bezug) legt keinen zweiten Eintrag an.
+- **Tabelle `{prefix}tix_ads_clicks`:**
+  - Felder: id, click_id_type, click_id, conversion, source, reference, email_sha256, consent (JSON), conversion_value, currency_code, clicked_at (UTC), uploaded_at, status.
+  - Die E-Mail wird sofort beim Eingang gehasht (getrimmt, klein, SHA-256). Den Klartext speichert das Plugin nicht.
+  - Status: `wartet` (Testphase noch nicht bestätigt), `neu`, `gemeldet`, `fehler`, `verfallen`. `wartet` ist neu gegenüber dem Vertrag.
+- **Testphase:** Haken in `TIX_Trial`, die Testphase selbst ändert sich nicht.
+  - `tix_trial_ordered` (Feld `ads` mit Einwilligung): Eintrag `testphase` mit Status `wartet`. Ein fehlerhaftes `ads` bricht die Bestellung nie ab.
+  - `tix_trial_queued` (E-Mail bzw. Zahlungsmittel bestätigt): Status wird `neu`.
+  - `tix_trial_converted` (erstes bezahltes „Aktiv halten“): Eintrag `kunde` mit dem Netto-Paketpreis pro Jahr in EUR.
+    - Nur, wenn der Klick jünger als 90 Tage ist und die Einwilligung vorliegt.
+    - Je Testphase nur einmal.
+- **Upload (User-Entscheid 19.11.: CSV statt API):** `POST /platform/ads-conversions/export` (nur `manage_options`) liefert `{filename, count, by_conversion, csv}`.
+  - Die CSV folgt der Google-Vorlage „Conversions from clicks“:
+    - Erste Zeile `Parameters:TimeZone=Europe/Berlin`.
+    - Spalten: Google Click ID, Conversion Name, Conversion Time, Conversion Value, Conversion Currency, Ad User Data, Ad Personalization (Granted/Denied).
+  - Exportiert werden nur `gclid`-Einträge mit Status `neu`, die älter als 6 h und jünger als 90 Tage sind. gbraid/wbraid kennt die Klick-Vorlage nicht; sie gehen erst mit der API.
+  - Nach dem Export sind die Einträge `gemeldet`, und Klick-ID und Prüfwert sind geleert.
+    - Ausnahme `testphase`: Die Klick-ID bleibt, bis `kunde` angelegt ist.
+    - Einen zweiten Abruf derselben Daten gibt es nicht.
+  - Die erweiterte Conversion per Hash-E-Mail steht nicht in der CSV, weil die Klick-Vorlage das nicht vorsieht. Der Prüfwert ist für die spätere API gedacht.
+- **`GET|POST /platform/ads-conversions`** (nur Admin):
+  - Liefert `enabled`, `conversions[{key,name,default_name}]`, `counts{conversion:{status:n}}` und `pending{exportable,too_young,braid}`, nie Klick-IDs.
+  - POST nimmt `{enabled?, names?}`. Die Namen müssen genau so heißen wie die Conversion-Aktionen in Google Ads.
+  - Beide Routen schreiben ins Audit-Protokoll: `ads_conversions_settings` und `ads_conversions_export` (nur Anzahlen).
+- **Löschfrist:** Der tägliche Cron `tix_ads_cleanup` leert alle Einträge, die älter als 90 Tage sind. Offene Einträge werden dabei `verfallen`. Logs, Mails und Audit enthalten nie Klick-ID oder Prüfwert.
+- Tests: `tests/test-ads-conversions-wp.php` und `tests/test-trial-wp.php` (Bestellung mit `ads` bis `kunde`).

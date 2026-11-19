@@ -162,7 +162,7 @@ $mock = function ($pre, $args, $url) use (&$mol, &$mstate) {
     return $res(404, []);
 };
 add_filter('pre_http_request', $mock, PHP_INT_MAX, 3); // zuletzt: der Container blockt Fremd-HTTP mit eigenem Filter
-$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify', 'tix_trial_upgrade_charge', 'tix_trial_invoice', 'tix_trial_flow', 'tix_trial_daily_limit'] as $o) $bak[$o] = get_option($o, null);
+$bak = []; foreach (['tix_trial_mollie_key', 'tix_trial_queue_secret', 'tix_trial_origins', 'tix_trial_auto_charge', 'tix_demo_notify', 'tix_trial_upgrade_charge', 'tix_trial_invoice', 'tix_trial_flow', 'tix_trial_daily_limit', 'tix_ads_conversions'] as $o) $bak[$o] = get_option($o, null);
 update_option('tix_trial_origins', ['demo.evendis.de'], false);
 update_option('tix_demo_notify', ['vertrieb-test@example.org'], false);
 delete_option('tix_trial_mollie_key'); delete_option('tix_trial_queue_secret'); update_option('tix_trial_auto_charge', '0', false);
@@ -497,7 +497,9 @@ $wpdb->delete(TIX_Trial::t(), ['id' => $t5]); if ($lic5) $wpdb->delete($wpdb->pr
 $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%tix\\_app\\_rl\\_trial%'"); wp_cache_flush();
 update_option('tix_trial_flow', 'nopay', false);
 $kn = "np-$sfx"; $emn = "np-$sfx@firma-test.de";
-$ordn = array_merge($order, ['kurz' => $kn, 'company' => "Ohne Zahlung $sfx GmbH", 'contact' => ['name' => 'Nora Probe', 'email' => $emn, 'phone' => '+49 221 2'], 'consents' => ['b2b' => true, 'trial_terms' => true]]);
+$ordn = array_merge($order, ['kurz' => $kn, 'company' => "Ohne Zahlung $sfx GmbH", 'contact' => ['name' => 'Nora Probe', 'email' => $emn, 'phone' => '+49 221 2'], 'consents' => ['b2b' => true, 'trial_terms' => true],
+    'ads' => ['click_id_type' => 'gclid', 'click_id' => 'TeStGcLiD_' . $sfx . '_0123', 'consent' => ['ad_user_data' => 'GRANTED', 'ad_personalization' => 'DENIED']]]);
+update_option('tix_ads_conversions', '1', false); // 1.38.906: Feld ads der Bestellung
 $molc = count($mol);
 [$st0, $d0] = $post('/public/trial/order', array_merge($ordn, ['consents' => ['b2b' => true]]));
 $eq('nopay Einwilligung A: ohne trial_terms → 400 consents.trial_terms', [400, 'consents.trial_terms'], [$st0, $d0['data']['field'] ?? '']);
@@ -562,6 +564,10 @@ $eq('activate: Mollie-Zahlung Jahresbetrag brutto, sequenceType first, Karte/Pay
     [$st, !empty($d['checkout_url']), $lp['amount']['value'] ?? '', $lp['sequenceType'] ?? '', $lp['method'] ?? [], $lp['metadata']['kind'] ?? '', strpos((string) ($lp['redirectUrl'] ?? ''), '/testen/aktiviert/?trial=' . $tn . '&p=') !== false]);
 $mstate['trial_id'] = $tn; $mstate['kind'] = 'activate'; $mstate['pay_status'] = 'failed';
 $cust = $T::get($tn)->mollie_customer_id; $mstate['customer'] = $cust;
+$adsrow = function ($conv) use ($tn) { global $wpdb; return class_exists('TIX_Ads_Conversions') && get_option('tix_ads_db') ? $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . TIX_Ads_Conversions::t() . ' WHERE reference = %s AND conversion = %s', 'trial:' . $tn, $conv)) : null; };
+$ar = $adsrow('testphase');
+$eq('ads (1.38.906): Bestellung mit Einwilligung → Eintrag testphase, nach Bestätigung „neu“, E-Mail nur als SHA-256', ['neu', 'gclid', hash('sha256', $emn), false],
+    [$ar->status ?? '', $ar->click_id_type ?? '', $ar->email_sha256 ?? '', strpos(wp_json_encode($ar), $emn) !== false]);
 $mc = count($mails);
 $post('/public/trial/mollie-webhook', ['id' => 'tr_act1'], null);
 $eq('Zahlung fehlgeschlagen: bleibt paused, Mail „Nochmal versuchen“', ['paused', 1], [$T::get($tn)->status, count(array_filter(array_slice($mails, $mc), function ($m) { return ($m['subject'] ?? '') === 'Zahlung hat nicht geklappt'; }))]);
@@ -575,6 +581,10 @@ $eq('Vertragsschluss erst mit Zahlung: Einwilligung B mit Fassung, Zeit, contrac
     [$cc['version'] ?? '', !empty($cc['contract_at']) && !empty($cc['at']), strpos((string) ($cc['texts']['contract'] ?? ''), $T::tier_label($order['tier']) . ' für ' . $T::money($price['net']) . ' zzgl. USt') !== false, ($cc['payment_id'] ?? '') === $payid && $payid !== '']);
 $eq('Zahlung da: converted, Vertrag 1 Jahr, Mandat gespeichert, Aufträge resume + convert, Löschdatum weg', ['converted', true, 'mdt_t1', ['resume', 'convert'], null, 1],
     [$tc->status, abs(strtotime($tc->d['contract_until'] ?? '') - strtotime('+1 year')) < 300, $tc->mollie_mandate_id, $tc->d['server']['pending'] ?? [], $tc->delete_at, count(array_filter($mails, function ($m) use ($kn) { return ($m['subject'] ?? '') === 'Dein Vertrag hat begonnen' && strpos((string) $m['message'], $kn) !== false; }))]);
+$ak = $adsrow('kunde');
+$eq('ads: erstes bezahltes „Aktiv halten“ → Eintrag kunde mit Netto-Paketpreis EUR, gleiche Klick-ID, nur einmal', ['neu', round(floatval($price['net']), 2), 'EUR', $ar->click_id ?? '-', 1],
+    [$ak->status ?? '', $ak ? round(floatval($ak->conversion_value), 2) : null, $ak->currency_code ?? '', $ak->click_id ?? '', intval($wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . TIX_Ads_Conversions::t() . " WHERE reference = %s AND conversion = 'kunde'", 'trial:' . $tn)))]);
+$wpdb->query($wpdb->prepare('DELETE FROM ' . TIX_Ads_Conversions::t() . ' WHERE reference = %s', 'trial:' . $tn));
 [, $d] = $signed('GET', '/trial/queue', ['limit' => 10]);
 $jr = null; foreach ((array) ($d['jobs'] ?? []) as $j) if (intval($j['trial_id']) === $tn) $jr = $j;
 $signed('POST', "/trial/$tn/done", [], wp_json_encode(['job_id' => $jr['job_id'] ?? '', 'ok' => true]));
