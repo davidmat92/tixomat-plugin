@@ -189,6 +189,9 @@ class TIX_Studio_Payments {
                 'bank_name' => (string) ($s['bank_name'] ?? ''),
                 'reference' => (string) ($s['bank_reference'] ?? ''),
                 'hint' => class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::HINT : null, // Vorkasse in der Kasse (1.38.915)
+                'prepay' => class_exists('TIX_Bank_Prepay') ? ['offered' => self::ready('bank', $s), 'due_days' => TIX_Bank_Prepay::DAYS, 'before_event_days' => TIX_Bank_Prepay::BEFORE_EVENT_DAYS,
+                    'min_days_before_event' => intdiv(TIX_Bank_Prepay::MIN_LEAD_HOURS, 24), 'remind_days_before_due' => TIX_Bank_Prepay::REMIND_DAYS, 'auto_cancel' => true,
+                    'reason' => self::ready('bank', $s) ? null : 'Überweisung ist nicht eingerichtet (Häkchen und IBAN).'] : null,
             ],
         ];
 

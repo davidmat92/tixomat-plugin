@@ -1005,9 +1005,16 @@ class TIX_App_Checkout {
             ));
         }
         foreach ((array) $native as $r) $rows[] = ['type' => 'native', 'id' => intval($r->id), 'created' => (string) $r->created];
+        // ?status=awaiting_payment (1.38.915): nur offene Vorkasse-Bestellungen (on-hold + Überweisung), ohne vermittelte
+        $awaiting = (string) $req->get_param('status') === 'awaiting_payment';
+        if ($awaiting && $rows) {
+            $ids = implode(',', array_map('intval', array_column($rows, 'id')));
+            $keep = array_map('intval', (array) $wpdb->get_col("SELECT id FROM {$t} WHERE id IN ({$ids}) AND status = 'on-hold' AND payment_method IN ('bank','bacs')"));
+            $rows = array_values(array_filter($rows, function ($r) use ($keep) { return in_array($r['id'], $keep, true); }));
+        }
 
         $bt = $wpdb->prefix . 'tix_partner_orders';
-        if (class_exists('TIX_Partner_Broker') && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $bt)) === $bt) {
+        if (!$awaiting && class_exists('TIX_Partner_Broker') && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $bt)) === $bt) {
             $broker = $email !== ''
                 ? $wpdb->get_results($wpdb->prepare("SELECT id, created FROM {$bt} WHERE status NOT IN ('creating', 'failed') AND (user_id = %d OR billing_email = %s) ORDER BY created DESC LIMIT %d", intval($user->ID), $email, $cap))
                 : $wpdb->get_results($wpdb->prepare("SELECT id, created FROM {$bt} WHERE status NOT IN ('creating', 'failed') AND user_id = %d ORDER BY created DESC LIMIT %d", intval($user->ID), $cap));

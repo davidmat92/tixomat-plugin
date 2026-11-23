@@ -81,8 +81,22 @@ try {
     [$st, $d2] = $get($oid, (string) ($d['order']['key'] ?? ''));
     $eq('GET /customer/orders/{id}: bank + awaiting_payment', [200, true, 'awaiting'], [$st, !empty($d2['order']['awaiting_payment']), $d2['order']['bank']['status'] ?? '']);
     [$st, $dc] = $order($ev, 'free');
+    // Konto: „Meine Bestellungen“ ?status=awaiting_payment
+    $bmail = (string) ($d['order']['billing_email'] ?? '');
+    $cu = wp_insert_user(['user_login' => 'bp_' . wp_rand(10000, 99999), 'user_email' => $bmail, 'user_pass' => wp_generate_password(20), 'role' => 'subscriber']);
+    if (!is_wp_error($cu)) {
+        TIX_App_Account::mark_confirmed(get_userdata($cu), 'test');
+        wp_set_current_user($cu);
+        [$st, $la] = $rest('GET', '/customer/orders', null, ['status' => 'awaiting_payment']);
+        [, $lall] = $rest('GET', '/customer/orders');
+        $eq('Konto: ?status=awaiting_payment → {orders:[…]} nur offene Vorkasse mit bank; ohne Filter alle', [200, [$oid], true, true],
+            [$st, array_map('intval', array_column((array) ($la['orders'] ?? []), 'id')), !empty($la['orders'][0]['bank']['iban']), count((array) ($lall['orders'] ?? [])) >= 1]);
+        require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user($cu);
+    }
     // Studio-Felder
     wp_set_current_user($adm);
+    [$st, $dt] = $rest('GET', "/orders/$oid/detail");
+    $eq('Detail: manual.bank.due_at = Frist' . ($multi ? ' (Plattform)' : ''), true, $st !== 200 || !empty($dt['order']['manual']['bank']['due_at'] ?? ($dt['manual']['bank']['due_at'] ?? null)));
     [$st, $od] = $rest('GET', "/orders/$oid");
     $eq('/orders/{id}: awaiting_payment, bank_due_date, bank_status', [200, true, wp_date('Y-m-d', time() + 7 * DAY_IN_SECONDS), 'awaiting'], [$st, !empty($od['order']['awaiting_payment']), $od['order']['bank_due_date'] ?? '', $od['order']['bank_status'] ?? '']);
     // Frist ändern
@@ -116,6 +130,8 @@ try {
     $eq('Ohne Frist (wie WordPress-Kasse): bleibt on-hold', 'on-hold', (string) $wpdb->get_var($wpdb->prepare("SELECT status FROM {$wpdb->prefix}tix_orders WHERE id = %d", $o2)));
     wp_set_current_user($adm);
     [, $pp] = $rest('GET', '/studio/payments');
+    if (!$multi) $eq('/studio/payments: bank.prepay Regel', [true, 7, 2, 3, true], [(bool) ($pp['providers']['bank']['prepay']['offered'] ?? ($pp['bank']['prepay']['offered'] ?? false)), $pp['providers']['bank']['prepay']['due_days'] ?? ($pp['bank']['prepay']['due_days'] ?? 0),
+        $pp['providers']['bank']['prepay']['before_event_days'] ?? ($pp['bank']['prepay']['before_event_days'] ?? 0), $pp['providers']['bank']['prepay']['min_days_before_event'] ?? ($pp['bank']['prepay']['min_days_before_event'] ?? 0), (bool) ($pp['providers']['bank']['prepay']['auto_cancel'] ?? ($pp['bank']['prepay']['auto_cancel'] ?? false))]);
     if (!$multi) $eq('/studio/payments: bank.hint, ready', [true, true], [($pp['providers']['bank']['hint'] ?? ($pp['bank']['hint'] ?? '')) !== '', (bool) ($pp['providers']['bank']['ready'] ?? ($pp['bank']['ready'] ?? false))]);
 } catch (Exception $e) {
     if ($e->getMessage() !== 'skip') throw $e;

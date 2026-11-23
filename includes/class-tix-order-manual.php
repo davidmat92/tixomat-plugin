@@ -154,7 +154,8 @@ class TIX_Order_Manual {
             $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
             $iban = strtoupper(preg_replace('/\s+/', '', (string) ($s['bank_iban'] ?? '')));
             $out['bank'] = ['holder' => (string) ($s['bank_holder'] ?? ''), 'iban_masked' => $iban === '' ? '' : substr($iban, 0, 4) . ' •••• ' . substr($iban, -4),
-                'reference' => (string) $r->order_number, 'amount' => round(floatval($r->total), 2), 'due_at' => null];
+                'reference' => (string) $r->order_number, 'amount' => round(floatval($r->total), 2),
+                'due_at' => class_exists('TIX_Bank_Prepay') && ($bd = TIX_Bank_Prepay::get($order_id)) && !empty($bd['due_at']) ? TIX_Bank_Prepay::iso($bd['due_at']) : null]; // Frist der Vorkasse (1.38.915)
         }
         return $out;
     }

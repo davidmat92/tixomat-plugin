@@ -7641,5 +7641,7 @@ Vertrag (vollständig): `uebergaben/vertrag-vorkasse-ueberweisung-2026-11-23.md`
 - **Staff:**
   - `/orders` liefert zusätzlich `awaiting_payment`, `bank_due_at`, `bank_due_date` und `bank_status`.
   - `POST /orders/{id}/bank-due {due_date}` mit Rechten wie mark-paid. Auf evendis darf das nur der Plattform-Admin.
-  - `/studio/payments` liefert `bank.hint`.
+  - `/studio/payments` liefert `bank.hint` und `bank.prepay {offered, due_days, before_event_days, min_days_before_event, remind_days_before_due, auto_cancel, reason}`.
+  - Das Detail `GET /orders/{id}/detail` trägt in `manual.bank.due_at` die Frist.
+  - `GET /customer/orders?status=awaiting_payment` liefert nur die offene Vorkasse des Kontos.
 - Test: `tests/test-bank-prepay-wp.php` (KK 24, Plattform 23). Der erste Lauf schaltet die Überweisung ein; wegen des Einstellungs-Caches läuft der Test erst beim zweiten Mal vollständig.
