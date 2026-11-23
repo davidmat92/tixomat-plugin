@@ -439,8 +439,9 @@ class TIX_Lineup_Links {
                 + (!empty($a['reveal']) ? ['name' => (string) $a['reveal']['name'], 'display_name' => (string) $a['reveal']['label'], 'artist_id' => $a['reveal']['artist_id'], 'tour' => $a['reveal']['tour'] ?: null,
                     'role' => $a['reveal']['headliner'] ? 'headliner' : $a['reveal']['role'], 'image' => null, 'placeholder' => true, 'reveal_id' => $a['reveal']['id'], 'reveal_at' => $a['reveal']['reveal_at'],
                     'placeholder_text' => $a['reveal']['placeholder_text'], 'notify' => $a['reveal']['notify'], 'countdown' => $a['reveal']['countdown'], 'photo_id' => $a['reveal']['photo_id'],
-                    'reveal_label' => $a['reveal']['label'], 'reveal_hint' => $a['reveal']['hint'], 'waiting_for_name' => $a['reveal']['waiting_for_name']]
-                    : ['placeholder' => false, 'reveal_id' => null, 'reveal_at' => null]);
+                    'reveal_label' => $a['reveal']['label'], 'reveal_hint' => $a['reveal']['hint'], 'waiting_for_name' => $a['reveal']['waiting_for_name'],
+                    'reveal_open' => !empty($a['reveal']['open'])] // ohne Datum, „Kommt noch“ (1.38.914)
+                    : ['placeholder' => false, 'reveal_id' => null, 'reveal_at' => null, 'reveal_open' => false]);
         }, $acts);
     }
 

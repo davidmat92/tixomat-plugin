@@ -110,8 +110,8 @@ try {
     $eq('Öffentlich: zwei Platzhalter, nie ein leerer Act', [2, true], [count(array_filter((array) $dp['lineup_acts'], function ($a) { return !empty($a['placeholder']); })), !in_array('', array_map(function ($a) { return trim((string) $a['name']); }, (array) $dp['lineup_acts']), true)]);
     [$s] = $rest('POST', "/events/$ev/lineup-reveals/$nn/reveal");
     $eq('Jetzt enthüllen ohne Namen → 409', 409, $s);
-    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals", ['name' => 'x']);
-    $eq('Anlegen ohne Zeitpunkt → 400 reveal.reveal_at', [400, 'reveal.reveal_at'], [$s, $d['data']['field'] ?? '']);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals", ['name' => 'x', 'reveal_at' => 'morgen']);
+    $eq('Ungültiger Zeitpunkt → 400 reveal.reveal_at', [400, 'reveal.reveal_at'], [$s, $d['data']['field'] ?? '']);
     // Programm-Slot mit reveal_id
     update_post_meta($ev, '_tix_timetable', [wp_date('Y-m-d', time() + 40 * DAY_IN_SECONDS) => [['time' => '22:00', 'title' => 'Überraschung', 'reveal_id' => $nn]]]);
     [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals/$nn", ['name' => "Spät Benannt $sfx"]);
@@ -137,6 +137,39 @@ try {
     $eq('Mitteilung „Neu im Line-up: …“ an Follower des Veranstalters' . ($org ? '' : ' (Einzel-Seite ohne Veranstalter: keine)'), $org ? [1, 'event:' . $ev] : [0, null], [count($hit), $hit[0]['action'] ?? null]);
     $R::cron();
     $eq('Zweiter Cron-Lauf: nichts doppelt', $org ? 1 : 0, count(array_filter((array) get_user_meta($fol, TIX_Notifications::META_USER, true), function ($i) use ($SECRET) { return ($i['body'] ?? '') === 'Neu im Line-up: ' . $SECRET; })));
+
+    // ═══ 1.38.914: ohne Datum („Kommt noch“) – nie automatisch ═══
+    $OPEN = "Offener Geheimgast $sfx";
+    $kx = function ($arr, $k) { return array_key_exists($k, (array) $arr) ? $arr[$k] : 'fehlt'; };
+    $eq('Kern: ohne Datum offen, nie fällig, Text „Kommt noch“ bzw. eigener Text', [true, false, 'Kommt noch', 'Überraschungsgast'],
+        [$R::is_open(['reveal_at' => '']), $R::due(['reveal_at' => ''], PHP_INT_MAX), $R::label(['reveal_at' => '']), $R::label(['reveal_at' => '', 'placeholder_text' => 'Überraschungsgast'])]);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals", ['name' => $OPEN, 'countdown' => true, 'notify' => true]);
+    $orid = (string) ($d['reveal']['id'] ?? '');
+    $eq('Anlegen ohne reveal_at → 200, open, reveal_at null, „Kommt noch“, kein Hinweis', [200, true, null, 'Kommt noch', null, false],
+        [$s, !empty($d['reveal']['open']), $kx($d['reveal'] ?? [], 'reveal_at'), $d['reveal']['label'] ?? '', $kx($d['reveal'] ?? [], 'hint'), !empty($d['revealed'])]);
+    $R::$now = time() + 5 * YEAR_IN_SECONDS; $R::cron(); $R::$now = null;
+    wp_set_current_user(0);
+    [, $dq, $jq] = $rest('GET', "/public/events/$ev"); $dq = $dq['event'] ?? $dq;
+    wp_set_current_user($admin);
+    $po = array_values(array_filter((array) $dq['lineup_acts'], function ($a) { return !empty($a['reveal_open']); }));
+    $eq('Cron (auch Jahre später): nicht enthüllt; öffentlich „Kommt noch“ ohne reveal_at, Hinweis, Countdown; Name nirgends', [1, 'Kommt noch', null, null, false, false],
+        [count($po), $po[0]['name'] ?? '', array_key_exists('reveal_at', $po[0] ?? []) ? $po[0]['reveal_at'] : 'x', array_key_exists('reveal_hint', $po[0] ?? []) ? $po[0]['reveal_hint'] : 'x', !empty($po[0]['countdown']), stripos($jq, 'Offener Geheimgast') !== false]);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals/$orid", ['placeholder_text' => 'Überraschungsgast']);
+    $eq('Eigener Text statt „Kommt noch“', 'Überraschungsgast', $d['reveal']['label'] ?? '');
+    $later = (new DateTimeImmutable('+5 days', $tz))->setTime(20, 0);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals/$orid", ['reveal_at' => $later->format('c'), 'placeholder_text' => '']);
+    $eq('Datum später setzen: nicht mehr offen, Datumstext', [false, $later->format('c'), true], [!empty($d['reveal']['open']), $d['reveal']['reveal_at'] ?? '', strpos((string) ($d['reveal']['label'] ?? ''), 'Neuer Act am') === 0]);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals/$orid", ['reveal_open' => true]);
+    $eq('reveal_open: true → wieder ohne Datum', [true, null], [!empty($d['reveal']['open']), $kx($d['reveal'] ?? [], 'reveal_at')]);
+    [$s, $d] = $rest('POST', "/events/$ev/lineup-reveals/$orid/reveal");
+    $eq('Von Hand enthüllen (…/reveal): Name im Line-up, Slot weg', [200, true, 0], [$s, stripos((string) get_post_meta($ev, '_tix_info_lineup', true), $OPEN) !== false, count($R::slots($ev))]);
+    // über die Liste: anlegen ohne Datum, dann „Sofort zeigen“
+    $base = array_map(function ($x) { return ['name' => $x['name']]; }, array_values(array_filter((array) (($rest('GET', "/events/$ev/edit")[1]['event'] ?? [])['lineup_list'] ?? []), function ($x) { return empty($x['placeholder']); })));
+    [$s, $d] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx", 'reveal_open' => true]])]);
+    $lo = array_values(array_filter((array) (($d['event'] ?? $d)['lineup_list'] ?? []), function ($x) { return !empty($x['placeholder']); }));
+    $eq('lineup_list mit reveal_open: Slot ohne Datum, reveal_open true im Editor', [200, 1, true, null], [$s, count($lo), !empty($lo[0]['reveal_open']), $kx($lo[0] ?? [], 'reveal_at')]);
+    [$s] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx", 'reveal_id' => $lo[0]['reveal_id'] ?? '', 'reveal_at' => null]])]);
+    $eq('„Sofort zeigen“ (reveal_id + reveal_at null): normaler Act', [200, 0, true], [$s, count($R::slots($ev)), stripos((string) get_post_meta($ev, '_tix_info_lineup', true), "Liste Offen $sfx") !== false]);
 
     // ═══ Abgleich und Löschen ═══
     $rest('POST', "/events/$ev/lineup-reveals", ['reveal_at' => wp_date('c', time() + 9 * DAY_IN_SECONDS), 'name' => "Weg Damit $sfx"]);

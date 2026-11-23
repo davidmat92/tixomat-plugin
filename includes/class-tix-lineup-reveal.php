@@ -27,6 +27,7 @@ class TIX_Lineup_Reveal {
     const MAX_NAME = 40;
     const TZ = 'Europe/Berlin';
     const DUE_TEXT = 'Bald enthüllt';
+    const OPEN_TEXT = 'Kommt noch'; // Slot ohne Datum (1.38.914): nie automatisch enthüllt
     const ROLES = ['headliner', 'support', 'guest', 'dj', 'host'];
     const MONTHS = [1 => 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
@@ -84,15 +85,20 @@ class TIX_Lineup_Reveal {
         return $s . ' enthüllt';
     }
 
+    /** Ohne Datum („kommt noch“, 1.38.914): nur von Hand enthüllen */
+    public static function is_open(array $s) { return self::parse_at($s['reveal_at'] ?? '') === null; }
+
+    /** Zeitpunkt erreicht? Slots ohne Datum sind nie fällig. */
     public static function due(array $s, $now = null) {
         $at = self::parse_at($s['reveal_at'] ?? '');
-        return $at === null || $at <= ($now ?? self::now());
+        return $at !== null && $at <= ($now ?? self::now());
     }
 
     /** Öffentlicher Text des Platzhalters */
     public static function label(array $s, $now = null) {
         $t = trim((string) ($s['placeholder_text'] ?? ''));
         if ($t !== '') return $t;
+        if (self::is_open($s)) return self::OPEN_TEXT;
         if (self::due($s, $now)) return self::DUE_TEXT;
         return self::date_label(self::parse_at($s['reveal_at']));
     }
@@ -105,7 +111,7 @@ class TIX_Lineup_Reveal {
         $head = !empty($s['headliner']) || ($s['role'] ?? '') === 'headliner';
         return ['position' => 0, 'name' => $label, 'line' => $label, 'placeholder' => true, 'reveal_key' => self::key($s['id']),
             'reveal_at' => (!$due && $at) ? self::iso($at) : null, 'reveal_label' => $label, 'reveal_hint' => (!$due && $at) ? self::hint($at) : null,
-            'countdown' => !$due && !empty($s['countdown']),
+            'countdown' => !$due && $at !== null && !empty($s['countdown']), 'reveal_open' => $at === null,
             'artist_id' => null, 'artist_slug' => null, 'artist_url' => null, 'image' => null, 'image_thumb' => null, 'image_source' => null,
             'role' => $head ? 'headliner' : 'support', 'headliner' => $head,
             'time' => null, 'end' => null, 'start_at' => null, 'end_at' => null, 'stage_name' => null, 'next_day' => false,
@@ -129,13 +135,14 @@ class TIX_Lineup_Reveal {
         return ['id' => (string) $s['id'], 'key' => self::key($s['id']), 'name' => (string) ($s['name'] ?? ''), 'artist_id' => !empty($s['artist_id']) ? intval($s['artist_id']) : null,
             'role' => (string) ($s['role'] ?? 'support'), 'headliner' => !empty($s['headliner']), 'tour' => (string) ($s['tour'] ?? ''), 'photo_id' => intval($s['photo_id'] ?? 0) ?: null,
             'reveal_at' => $at ? self::iso($at) : null, 'placeholder_text' => (string) ($s['placeholder_text'] ?? ''), 'notify' => !empty($s['notify']), 'countdown' => !empty($s['countdown']),
-            'due' => self::due($s, $now), 'waiting_for_name' => self::due($s, $now) && trim((string) ($s['name'] ?? '')) === '',
+            'open' => $at === null, 'due' => self::due($s, $now), 'waiting_for_name' => self::due($s, $now) && trim((string) ($s['name'] ?? '')) === '',
             'label' => self::label($s, $now), 'hint' => $at ? self::hint($at) : null];
     }
 
     /**
      * Eingabe prüfen (Studio) → [slot, null] | [null, WP_Error]. $cur = bisheriger Slot (Update) oder null.
-     * Felder: name?, artist_id?, role?, headliner?, tour?, photo_id?, reveal_at (Pflicht beim Anlegen), placeholder_text?, notify?, countdown?
+     * Felder: name?, artist_id?, role?, headliner?, tour?, photo_id?, reveal_at? (leer/null bzw. reveal_open: true = ohne Datum, „Kommt noch“, 1.38.914),
+     * placeholder_text?, notify?, countdown?
      */
     public static function clean(array $in, $cur = null, $field = 'reveal') {
         $s = $cur ?: ['id' => substr(md5(wp_generate_uuid4()), 0, 10), 'name' => '', 'artist_id' => null, 'role' => 'support', 'headliner' => false, 'tour' => '', 'photo_id' => 0,
@@ -146,12 +153,15 @@ class TIX_Lineup_Reveal {
             if (mb_strlen($n) > self::MAX_NAME) return $bad('name', 'Höchstens ' . self::MAX_NAME . ' Zeichen.');
             $s['name'] = $n;
         }
-        if (array_key_exists('reveal_at', $in)) {
+        $open = !empty($in['reveal_open']) && $in['reveal_open'] !== '0' && $in['reveal_open'] !== 'false';
+        if ($open || (array_key_exists('reveal_at', $in) && ($in['reveal_at'] === null || trim((string) $in['reveal_at']) === ''))) {
+            $s['reveal_at'] = ''; // ohne Datum: nur von Hand enthüllen
+        } elseif (array_key_exists('reveal_at', $in)) {
             $at = self::parse_at($in['reveal_at']);
-            if ($at === null) return $bad('reveal_at', 'Bitte Datum und Uhrzeit angeben (z. B. 2026-12-01T18:00).');
+            if ($at === null) return $bad('reveal_at', 'Bitte Datum und Uhrzeit angeben (z. B. 2026-12-01T18:00) oder leer lassen.');
             if ($at > self::now() + 2 * YEAR_IN_SECONDS) return $bad('reveal_at', 'Höchstens zwei Jahre im Voraus.');
             $s['reveal_at'] = self::iso($at);
-        } elseif (!$cur) return $bad('reveal_at', 'Bitte den Zeitpunkt der Enthüllung angeben.');
+        }
         if (array_key_exists('placeholder_text', $in)) {
             $t = trim(sanitize_text_field((string) $in['placeholder_text']));
             if (mb_strlen($t) > self::MAX_TEXT) return $bad('placeholder_text', 'Höchstens ' . self::MAX_TEXT . ' Zeichen.');
@@ -326,7 +336,7 @@ class TIX_Lineup_Reveal {
 
     /** Ist dieser Eintrag ein später zu enthüllender Act? */
     public static function is_reveal_item(array $it) {
-        return !empty($it['reveal_id']) || (array_key_exists('reveal_at', $it) && $it['reveal_at'] !== null && $it['reveal_at'] !== '');
+        return !empty($it['reveal_id']) || !empty($it['reveal_open']) || (array_key_exists('reveal_at', $it) && $it['reveal_at'] !== null && $it['reveal_at'] !== '');
     }
 
     /**
@@ -341,7 +351,7 @@ class TIX_Lineup_Reveal {
             if (!is_array($it) || !self::is_reveal_item($it)) continue;
             $rid = (string) ($it['reveal_id'] ?? '');
             if ($rid !== '' && !isset($cur[$rid])) return [null, new WP_Error('tix_invalid_field', 'Unbekannter Act (reveal_id).', ['status' => 400, 'field' => 'lineup_list.' . $i . '.reveal_id'])];
-            if ($rid !== '' && array_key_exists('reveal_at', $it) && ($it['reveal_at'] === null || $it['reveal_at'] === '')) { $seen[$rid] = true; continue; } // wird normaler Act
+            if ($rid !== '' && empty($it['reveal_open']) && array_key_exists('reveal_at', $it) && ($it['reveal_at'] === null || $it['reveal_at'] === '')) { $seen[$rid] = true; continue; } // wird normaler Act („Sofort zeigen“)
             [$s, $e] = self::clean($it, $rid !== '' ? $cur[$rid] : null, 'lineup_list.' . $i);
             if ($e) return [null, $e];
             $c = self::check_artist($event_id, $s);

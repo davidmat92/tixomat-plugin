@@ -7593,8 +7593,21 @@ Eine Liste wie bisher: `POST /events/{id}` (auch `/studio/events/{id}`) mit `lin
   - Je Slot geht die Mitteilung einmal raus.
 - **Für Erweiterungen:** Audit-Eintrag `lineup_reveal` und Aktion `tix_lineup_revealed($event_id, $slot, $sent)`.
 
+### Ohne Datum: „Kommt noch“ (ab 1.38.914, User 23.11.)
+- **Anlegen:** Ein Slot darf ohne Enthüllungszeitpunkt angelegt werden, als reiner Platzhalter im Sinne von „kommt noch“.
+  - Über die Route: `POST /events/{id}/lineup-reveals` ohne `reveal_at` bzw. mit `reveal_at: ""`/`null`. Das ist nicht mehr 400.
+  - In `lineup_list`: Eintrag mit `reveal_open: true` (ein neuer Eintrag ohne Datum braucht dieses Feld, sonst ist er ein normaler Act).
+- **Nie automatisch:** Ein Slot ohne Datum wird nie automatisch enthüllt, auch vom Cron nicht. `due` ist immer false, `waiting_for_name` ebenfalls false.
+- **Öffentlich:** `name`/`reveal_label` = „Kommt noch“, ein eigener `placeholder_text` (z. B. „Überraschungsgast“) geht vor. Außerdem `reveal_open: true`, `reveal_at: null`, `reveal_hint: null`, `countdown: false`. Der Name geht wie immer nicht nach außen.
+- **Studio:** `lineup_list[]` trägt `reveal_open` (bei normalen Acts false), `/lineup-reveals` liefert `open`.
+- **Enthüllen nur von Hand:**
+  - „Sofort zeigen“: `lineup_list`-Eintrag mit `reveal_id` und `reveal_at: null` (ohne `reveal_open`) wird zum normalen Act, wie bisher.
+  - Oder `POST /events/{id}/lineup-reveals/{rid}/reveal`; ohne Namen kommt 409 `tix_reveal_no_name`.
+- **Datum später setzen:** `POST …/lineup-reveals/{rid} {reveal_at: "…"}` bzw. in der Liste `reveal_id` + `reveal_at`. Zurück auf „ohne Datum“ mit `{reveal_open: true}`.
+- **Wichtig für die Liste:** `reveal_id` mit `reveal_at: null` heißt dort weiter „jetzt zeigen“, nicht „ohne Datum“. Für „ohne Datum“ immer `reveal_open: true` schicken.
+
 ### Test
-`tests/test-lineup-reveal-wp.php` (30 Prüfungen auf Plattform und Einzel-Seite) belegt vor dem Zeitpunkt:
+`tests/test-lineup-reveal-wp.php` (39 Prüfungen auf Plattform und Einzel-Seite, seit 1.38.914 mit „ohne Datum“) belegt vor dem Zeitpunkt:
 - Der Name fehlt in Detail, Liste und `/artists`.
 - In den Event-Metas steht er nur in der privaten Meta, in keiner Option und keinem Transient.
 - Er fehlt in der Verteilungs-Nutzlast und im Schnappschuss.
