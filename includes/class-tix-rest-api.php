@@ -563,22 +563,50 @@ class TIX_REST_API {
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_orders'],
             // Mehr-Veranstalter-Modus (1.38.664): auch Veranstalter/Team ohne edit_posts – get_orders schottet dort selbst auf den eigenen Veranstalter ab
-            'permission_callback' => function(WP_REST_Request $req) {
-                if (current_user_can('edit_posts')) return true;
-                return class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? self::check_organizer($req) : false;
-            },
+            // Einzel-Seite (1.38.909, Fund mallorcaparty-schwelm.de): auch Inhaber/Veranstalter (tix_organizer) ohne edit_posts
+            'permission_callback' => [__CLASS__, 'check_orders'],
         ]);
 
         register_rest_route($ns, '/orders/(?P<id>\d+)', [
             'methods'             => 'GET',
             'callback'            => [__CLASS__, 'get_order'],
-            'permission_callback' => function() { return current_user_can('edit_posts'); },
+            'permission_callback' => [__CLASS__, 'check_orders'],
         ]);
     }
 
     // ═══════════════════════════════════════════
     //  PERMISSION CALLBACKS
     // ═══════════════════════════════════════════
+
+    /**
+     * Bestellungen lesen (1.38.909): edit_posts wie bisher; Mehr-Veranstalter-Modus über check_organizer (get_orders/get_order
+     * schotten auf den eigenen Veranstalter ab); Einzel-Seite: Inhaber (_tix_site_owner) und Veranstalter (tix_organizer) wie beim
+     * Ein-Club-Fix 1.38.329 – verknüpfte Veranstalter sehen nur Bestellungen ihrer Events (orders_restricted). Kasse/Einlass/App-Team nicht.
+     */
+    public static function check_orders(WP_REST_Request $req) {
+        if (!is_user_logged_in()) return new WP_Error('rest_not_logged_in', 'Authentifizierung erforderlich.', ['status' => 401]);
+        if (current_user_can('edit_posts')) return true;
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return self::check_organizer($req);
+        $u = wp_get_current_user();
+        if (get_user_meta($u->ID, '_tix_site_owner', true) || in_array('tix_organizer', (array) $u->roles, true)) return true;
+        return new WP_Error('rest_forbidden', 'Keine Berechtigung für Bestellungen.', ['status' => 403]);
+    }
+
+    /** Einzel-Seite: nur Bestellungen eigener Events zeigen? (Veranstalter mit Verknüpfung, nicht Inhaber/Admin) */
+    private static function orders_restricted() {
+        if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi()) return false;
+        $u = wp_get_current_user();
+        if (!$u->ID || $u->has_cap('manage_options') || $u->has_cap('edit_posts') || get_user_meta($u->ID, '_tix_site_owner', true)) return false;
+        return in_array('tix_organizer', (array) $u->roles, true) && (bool) self::linked_organizer($u->ID);
+    }
+
+    private static function order_visible($order) {
+        if (!self::orders_restricted()) return true;
+        $ids = class_exists('TIX_App_Scope') && method_exists('TIX_App_Scope', 'order_event_ids') ? TIX_App_Scope::order_event_ids($order) : [];
+        if (!$ids) return false;
+        foreach ($ids as $eid) if (!self::can_access_event($eid)) return false;
+        return true;
+    }
 
     public static function check_authenticated(WP_REST_Request $req) {
         if (!is_user_logged_in()) {
@@ -3623,6 +3651,7 @@ class TIX_REST_API {
             $wc_id = method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0;
             if ($wc_id > 0) continue;
             if ($scoped && !TIX_App_Scope::order_allowed($order)) continue;
+            if (!$scoped && !self::order_visible($order)) continue; // Einzel-Seite, verknüpfter Veranstalter (1.38.909)
 
             $out[] = self::format_native_order($order);
         }
@@ -3672,6 +3701,8 @@ class TIX_REST_API {
             if (!TIX_App_Scope::order_allowed($order)) {
                 return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
             }
+        } elseif (!self::order_visible($order)) {
+            return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
         }
 
         return rest_ensure_response(['ok' => true, 'order' => self::format_native_order($order)]);

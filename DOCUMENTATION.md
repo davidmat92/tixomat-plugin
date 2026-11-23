@@ -7482,3 +7482,16 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - Danach werden Caches geleert, Partner-Seiten neu beliefert, die Homepages neu aufgebaut, und `litespeed_purge_post` läuft.
   - Fließtext-Events fasst der Befehl nicht an.
 - Test: `tests/test-lineup-prune-wp.php` (13 Prüfungen, Plattform und Einzel-Seite).
+
+## 260. Bestellungen für Inhaber/Veranstalter auf Einzel-Seiten (Hotfix, Fund mallorcaparty-schwelm.de 23.11.)
+- **Fund:** Im Studio zeigte „Bestellungen“ für das Inhaber-Konto nur „Gerade nicht erreichbar“. `GET /orders` antwortete mit 403, weil die Route nur `edit_posts` zuließ; `check_organizer` griff nur im Mehr-Veranstalter-Modus. Auf Einzel-Seiten hat `tix_organizer` kein `edit_posts`.
+- **Neu:** `TIX_REST_API::check_orders` gilt für `GET /orders` und `GET /orders/{id}`:
+  - `edit_posts` wie bisher.
+  - Mehr-Veranstalter-Modus: `check_organizer`; die Routen schotten auf den eigenen Veranstalter ab. `/orders/{id}` hatte dort vorher ebenfalls nur `edit_posts`.
+  - Einzel-Seite: Inhaber (`_tix_site_owner`) und `tix_organizer`, wie beim Ein-Club-Fix 1.38.329.
+    - Unverknüpfte Veranstalter sehen alle Bestellungen.
+    - Mit einem Veranstalter verknüpfte Konten sehen nur Bestellungen ihrer Events; eine fremde Einzelbestellung ergibt 403.
+    - Inhaber sehen immer alles.
+  - App-Team (`tix_staff`), Kasse und Kunden bleiben gesperrt.
+- **Geprüft:** Für ein `tix_organizer`-Konto ohne Admin-Rechte wurden auf der Einzel-Seite alle `tixomat/v1`-Routen durchgegangen. Nur die beiden Bestell-Routen waren unbeabsichtigt gesperrt. Die übrigen sind bewusst nur für Admins (Plattform, Lizenzen, Logs, Team-Verwaltung, KI-Einstellungen, Ortsabgleich, Saalplan-Modul) bzw. nur für Inhaber (`/studio/modules`).
+- Test: `tests/test-orders-permission-wp.php` (Einzel-Seite 9, Plattform 3).
