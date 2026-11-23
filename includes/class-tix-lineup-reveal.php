@@ -351,9 +351,15 @@ class TIX_Lineup_Reveal {
             if (!is_array($it) || !self::is_reveal_item($it)) continue;
             $rid = (string) ($it['reveal_id'] ?? '');
             if ($rid !== '' && !isset($cur[$rid])) return [null, new WP_Error('tix_invalid_field', 'Unbekannter Act (reveal_id).', ['status' => 400, 'field' => 'lineup_list.' . $i . '.reveal_id'])];
-            if ($rid !== '' && empty($it['reveal_open']) && array_key_exists('reveal_at', $it) && ($it['reveal_at'] === null || $it['reveal_at'] === '')) { $seen[$rid] = true; continue; } // wird normaler Act („Sofort zeigen“)
-            [$s, $e] = self::clean($it, $rid !== '' ? $cur[$rid] : null, 'lineup_list.' . $i);
+            // „Sofort zeigen“ (reveal_id + reveal_at null, ohne reveal_open): Slot jetzt fällig machen – save_list enthüllt ihn danach
+            // vollständig über reveal() (Künstler-Follow, Foto, Programm, Mitteilung bei notify, einmal je Slot; 1.38.914)
+            $now = $rid !== '' && empty($it['reveal_open']) && array_key_exists('reveal_at', $it) && ($it['reveal_at'] === null || $it['reveal_at'] === '');
+            [$s, $e] = self::clean($now ? array_diff_key($it, ['reveal_at' => 1]) : $it, $rid !== '' ? $cur[$rid] : null, 'lineup_list.' . $i);
             if ($e) return [null, $e];
+            if ($now) {
+                if (trim((string) ($s['name'] ?? '')) === '') return [null, new WP_Error('tix_invalid_field', 'Bitte zuerst den Namen eintragen, dann zeigen.', ['status' => 400, 'field' => 'lineup_list.' . $i . '.name'])];
+                $s['reveal_at'] = self::iso(self::now() - 1);
+            }
             $c = self::check_artist($event_id, $s);
             if (is_wp_error($c)) return [null, $c];
             $keep[(string) $s['id']] = $s; $seen[(string) $s['id']] = true;

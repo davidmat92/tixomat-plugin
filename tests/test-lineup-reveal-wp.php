@@ -165,11 +165,18 @@ try {
     $eq('Von Hand enthüllen (…/reveal): Name im Line-up, Slot weg', [200, true, 0], [$s, stripos((string) get_post_meta($ev, '_tix_info_lineup', true), $OPEN) !== false, count($R::slots($ev))]);
     // über die Liste: anlegen ohne Datum, dann „Sofort zeigen“
     $base = array_map(function ($x) { return ['name' => $x['name']]; }, array_values(array_filter((array) (($rest('GET', "/events/$ev/edit")[1]['event'] ?? [])['lineup_list'] ?? []), function ($x) { return empty($x['placeholder']); })));
-    [$s, $d] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx", 'reveal_open' => true]])]);
+    [$s, $d] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx", 'reveal_open' => true, 'notify' => true]])]);
     $lo = array_values(array_filter((array) (($d['event'] ?? $d)['lineup_list'] ?? []), function ($x) { return !empty($x['placeholder']); }));
     $eq('lineup_list mit reveal_open: Slot ohne Datum, reveal_open true im Editor', [200, 1, true, null], [$s, count($lo), !empty($lo[0]['reveal_open']), $kx($lo[0] ?? [], 'reveal_at')]);
+    [$s, $d] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => '', 'reveal_id' => $lo[0]['reveal_id'] ?? '', 'reveal_at' => null]])]);
+    $eq('„Sofort zeigen“ ohne Namen → 400 lineup_list.<i>.name, Slot bleibt', [400, 'lineup_list.' . count($base) . '.name', 1], [$s, $d['data']['field'] ?? '', count($R::slots($ev))]);
+    $cnt = function () use ($fol, $sfx) { return count(array_filter((array) get_user_meta($fol, TIX_Notifications::META_USER, true), function ($i) use ($sfx) { return ($i['body'] ?? '') === "Neu im Line-up: Liste Offen $sfx"; })); };
     [$s] = $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx", 'reveal_id' => $lo[0]['reveal_id'] ?? '', 'reveal_at' => null]])]);
-    $eq('„Sofort zeigen“ (reveal_id + reveal_at null): normaler Act', [200, 0, true], [$s, count($R::slots($ev)), stripos((string) get_post_meta($ev, '_tix_info_lineup', true), "Liste Offen $sfx") !== false]);
+    $eq('„Sofort zeigen“ (reveal_id + reveal_at null): normaler Act, Slot weg, Name einmal im Line-up', [200, 0, 1], [$s, count($R::slots($ev)), substr_count((string) get_post_meta($ev, '_tix_info_lineup', true), "Liste Offen $sfx")]);
+    $eq('… Mitteilung „Neu im Line-up“ wie beim Zeitpunkt' . ($org ? '' : ' (Einzel-Seite ohne Veranstalter: keine Empfänger)'), $org ? 1 : 0, $cnt());
+    $rest('POST', "/events/$ev", ['lineup_list' => array_merge($base, [['name' => "Liste Offen $sfx"]])]);
+    $R::cron();
+    $eq('… und nur einmal (erneut speichern, Cron)', $org ? 1 : 0, $cnt());
 
     // ═══ Abgleich und Löschen ═══
     $rest('POST', "/events/$ev/lineup-reveals", ['reveal_at' => wp_date('c', time() + 9 * DAY_IN_SECONDS), 'name' => "Weg Damit $sfx"]);
