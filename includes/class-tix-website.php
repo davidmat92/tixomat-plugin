@@ -44,7 +44,8 @@ class TIX_Website {
         'next'       => ['Nächste Events', ['max', 'title'], null],
         'presale'    => ['Vorverkauf', [], null],
         'service'    => ['Service-Kacheln', [], null],
-        'lineup'     => ['Line-up', ['max', 'title'], null],
+        // photos (1.38.913, Auftrag „Plakat mit Fotos“): Acts mit Foto statt reiner Namensliste, Vorgabe false
+        'lineup'     => ['Line-up', ['max', 'title', 'photos'], null],
         'about'      => ['Über uns', ['eyebrow', 'title', 'html', 'facts'], null],
         // ohne gepflegte Bilder: leer – die Website zeigt dann die Flyer der kommenden Events
         'gallery'    => ['Galerie', ['images', 'video'], null],
@@ -388,6 +389,10 @@ class TIX_Website {
                         $c[$opt] = (string) $v;
                         if ($opt === 'until' && !empty($c['from']) && $c['until'] < $c['from']) return self::bad($f . '.until', '„Bis“ liegt vor „Ab“.');
                         break;
+                    case 'photos':
+                        if (!is_bool($v) && !in_array($v, [0, 1, '0', '1', 'true', 'false'], true)) return self::bad($f . '.photos', 'photos: true oder false.');
+                        $c['photos'] = $v === true || $v === 1 || $v === '1' || $v === 'true';
+                        break;
                     case 'title':
                     case 'eyebrow':
                         $x = self::text($v, $f . '.' . $opt);
@@ -541,6 +546,7 @@ class TIX_Website {
             $s['available'] = self::switch_on(self::SECTIONS[$k][2]);
             if (isset($s['images'])) $s['images'] = array_values(array_filter(array_map([__CLASS__, 'image_payload'], $s['images'])));
             if (isset($s['image'])) $s['image'] = self::image_payload($s['image']);
+            if ($k === 'lineup') $s['photos'] = !empty($s['photos']); // immer mitgeliefert, Vorgabe false (1.38.913)
             if (isset($s['logos'])) $s['logos'] = array_map(function ($l) { $l['image'] = self::image_payload($l['image']); return $l; }, $s['logos']);
             $out[] = $s;
         }

@@ -7599,3 +7599,13 @@ Eine Liste wie bisher: `POST /events/{id}` (auch `/studio/events/{id}`) mit `lin
 - In den Event-Metas steht er nur in der privaten Meta, in keiner Option und keinem Transient.
 - Er fehlt in der Verteilungs-Nutzlast und im Schnappschuss.
 - Der Künstler ist noch nicht zugeordnet, und es gab keinen Follow.
+## 261. Startseite: Line-up mit Fotos – Option `photos` (ab 1.38.913, Auftrag „Plakat mit Fotos“, Zentrale 23.11.)
+- **Katalog** (`GET /studio/website` → `catalog.sections[key=lineup].options`): `['max', 'title', 'photos']`.
+- **Speichern** (`POST /studio/website`):
+  - `sections[].photos` beim Abschnitt `lineup` nimmt bool an, ebenso `0`/`1`/`"0"`/`"1"`/`"true"`/`"false"`. Andere Werte ergeben 400 `tix_invalid_field` mit `field: sections.<i>.photos`.
+  - An anderen Abschnitten wird `photos` ignoriert.
+- **Ausgabe an marken-web** (`GET /public/website`, `website` in `/public/site-config`): Der Abschnitt `lineup` trägt immer `photos: bool`, Vorgabe `false`.
+  - Die Fotos selbst kommen wie bisher aus `lineup_acts[].image`/`image_thumb` der Events.
+  - Platzhalter-Acts aus §257 haben kein Bild.
+  - Die Darstellung baut der Homepages-Chat.
+- Test: `tests/test-website-lineup-photos-wp.php` (6 Prüfungen).
