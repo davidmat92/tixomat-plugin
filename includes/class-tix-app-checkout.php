@@ -1073,6 +1073,8 @@ class TIX_App_Checkout {
             'invoice_url'  => self::invoice_url(intval($o->id), (string) $o->order_key),
             // alle Rechnungen/Belege/Korrekturen (Rechnungs-Kern, 1.38.487), [] ohne
             'invoices'     => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary(intval($o->id), (string) $o->order_key) : [],
+            'awaiting_payment' => $status === 'on-hold' && in_array((string) $o->payment_method, ['bank', 'bacs'], true), // Vorkasse (1.38.915)
+            'bank'         => class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::payload($o) : null,
             // Plattform vermittelt für einen Co bzw. bei gemeinsamen Events: Verkäufer nennen (1.38.717)
             'seller'       => (class_exists('TIX_Co_Money') && class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && $event_id && TIX_Co_Money::co_kind($event_id)) ? self::seller_of($event_id, ['mail_from_seller' => false]) : null,
         ];
@@ -1263,6 +1265,9 @@ class TIX_App_Checkout {
                 // Rechnung (PDF), '' solange keine erstellt ist
                 'invoice_url'          => self::invoice_url(intval($o->id), (string) $o->order_key),
                 'invoices'             => class_exists('TIX_Invoices') ? TIX_Invoices::order_summary(intval($o->id), (string) $o->order_key) : [],
+                // Vorkasse per Überweisung (1.38.915): Bankdaten, Frist, Status – null bei anderen Zahlarten
+                'awaiting_payment'     => $status === 'on-hold' && in_array((string) $o->payment_method, ['bank', 'bacs'], true),
+                'bank'                 => class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::payload($o) : null,
             ],
         ]);
     }
@@ -1345,6 +1350,9 @@ class TIX_App_Checkout {
             $resp['totals']          = $t;
             $resp['payment_methods'] = self::payment_methods($t['total'] <= 0);
             if (!empty($cart['resale'])) $resp['payment_methods'] = array_values(array_filter($resp['payment_methods'], function ($m) { return ($m['id'] ?? '') !== 'bank'; }));
+            // Vorkasse per Überweisung (1.38.915): nur Clients mit supports ["bank"], nie Weiterverkauf/Aufladen/Partner, Frist-Regel TIX_Bank_Prepay
+            if ($t['total'] > 0 && empty($cart['resale']) && !$topup && !self::$partner && class_exists('TIX_Bank_Prepay') && TIX_Bank_Prepay::client_supports($req)
+                && ($bm = TIX_Bank_Prepay::method_for_cart($cart))) $resp['payment_methods'][] = $bm;
             // Mit Guthaben bezahlen (1.38.436): erst Gutschein (in totals), dann Guthaben; Rest normal.
             // Seit 1.38.476 kommt `wallet` bei angemeldeten Kunden immer mit (auch ohne use_wallet), damit die App
             // „Guthaben nutzen (x €)“ anbieten kann: selected = use_wallet, can_apply = möglicher Anteil, applied/rest wirksam.
@@ -1357,6 +1365,8 @@ class TIX_App_Checkout {
                 $resp['wallet'] = $w;
                 if ($w['selected'] && $w['rest'] <= 0) {
                     $resp['payment_methods'] = [['id' => 'wallet', 'title' => 'Guthaben', 'icon' => '']];
+                } elseif ($w['selected']) { // Restbetrag nach Guthaben: keine Vorkasse (1.38.915)
+                    $resp['payment_methods'] = array_values(array_filter($resp['payment_methods'], function ($m) { return ($m['id'] ?? '') !== 'bank'; }));
                 }
             } elseif (class_exists('TIX_Wallet_Balance') && filter_var($req->get_param('use_wallet'), FILTER_VALIDATE_BOOLEAN)) {
                 $resp['wallet'] = TIX_Wallet_Balance::checkout_info($user, $cart, $t['total']) + ['can_apply' => 0.0, 'selected' => false];
@@ -1550,7 +1560,11 @@ class TIX_App_Checkout {
             $payment_method = 'free';
         } else {
             $allowed = array_column(self::payment_methods(false), 'id');
-            if (!in_array($payment_method, $allowed, true)) {
+            if ($payment_method === 'bank') { // Vorkasse (1.38.915): gleiche Bedingungen wie im Angebot
+                $bank_ok = !$resale && !self::$partner && !$wallet && class_exists('TIX_Bank_Prepay') && TIX_Bank_Prepay::client_supports($req)
+                    && !(class_exists('TIX_Wallet_Balance') && TIX_Wallet_Balance::cart_topups($cart)) && TIX_Bank_Prepay::method_for_cart($cart);
+                if (!$bank_ok) return self::error('tix_payment_method', 'Überweisung ist für diese Bestellung nicht möglich – bitte eine andere Zahlungsart wählen.');
+            } elseif (!in_array($payment_method, $allowed, true)) {
                 return self::error('tix_payment_method', 'Bitte eine gültige Zahlungsart wählen.');
             }
             // Weiterverkauf: keine Vorkasse (das Angebot wäre sonst tagelang gesperrt)
@@ -1694,6 +1708,9 @@ class TIX_App_Checkout {
             $result = TIX_Gateway_Stripe::process($order_id, $stripe_method);
         } elseif ($payment_method === 'paypal') {
             $result = TIX_Gateway_PayPal::process($order_id);
+        } elseif ($payment_method === 'bank') { // Vorkasse (1.38.915): Frist zuerst speichern, die on-hold-Mail nennt sie
+            TIX_Bank_Prepay::start($order_id, $cart);
+            $result = TIX_Gateway_Bank::process($order_id);
         } else {
             $result = ['error' => 'Unbekannte Zahlungsart.'];
         }

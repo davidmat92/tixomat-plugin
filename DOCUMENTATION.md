@@ -7623,3 +7623,23 @@ Eine Liste wie bisher: `POST /events/{id}` (auch `/studio/events/{id}`) mit `lin
   - Platzhalter-Acts aus §257 haben kein Bild.
   - Die Darstellung baut der Homepages-Chat.
 - Test: `tests/test-website-lineup-photos-wp.php` (6 Prüfungen).
+
+## 262. Vorkasse per Überweisung in App- und Homepage-Kasse (ab 1.38.915, User 23.11.)
+Vertrag (vollständig): `uebergaben/vertrag-vorkasse-ueberweisung-2026-11-23.md`. Klasse `TIX_Bank_Prepay` (`includes/class-tix-bank-prepay.php`).
+- **Frist:** `due_for(order_ts, event_starts[])`. Früheres Datum von (Bestelltag + 7) und (Tag des frühesten Events − 2), Ende des Tages (Berlin). Unter 72 h vor dem frühesten Event gibt es keine Vorkasse.
+- **Kasse** (`TIX_App_Checkout`):
+  - Angebot und Bestellung nur mit `supports: ["bank"]`.
+  - Nie bei Weiterverkauf, Guthaben-Aufladung, Restbetrag nach Guthaben, Partner-API oder Demo.
+  - `payment_methods[]` bekommt `{id: bank, title, due_date, due_at, note}`.
+  - Bestellung → `TIX_Bank_Prepay::start` (Frist in `TIX_Object_Data` `_tix_bank_due`) → `TIX_Gateway_Bank::process` (on-hold).
+  - Die Antworten (`order_response`, `order_summary`) tragen `awaiting_payment` und `bank {holder, iban, bic, bank_name, amount, currency, reference, due_date, due_at, due_label, note, status, expired_at}`.
+- **Mails:**
+  - on-hold-Mail mit Zeile „Zahlungsfrist“ und Storno-Hinweis
+  - Erinnerung 2 Tage vor Fristende (einmal, nur bei mindestens 3 Tagen Frist)
+  - Storno mit `gateway` `bank_expired` → Mail „Zahlungsfrist abgelaufen“
+- **Cron `tix_bank_prepay_cron`** (stündlich): Erinnerung bzw. Auto-Storno, dabei werden Bestand, Saalplätze und Tische über die vorhandenen Storno-Haken frei. Bestellungen ohne Frist (WordPress-Kasse) bleiben unberührt.
+- **Staff:**
+  - `/orders` liefert zusätzlich `awaiting_payment`, `bank_due_at`, `bank_due_date` und `bank_status`.
+  - `POST /orders/{id}/bank-due {due_date}` mit Rechten wie mark-paid. Auf evendis darf das nur der Plattform-Admin.
+  - `/studio/payments` liefert `bank.hint`.
+- Test: `tests/test-bank-prepay-wp.php` (KK 24, Plattform 23). Der erste Lauf schaltet die Überweisung ein; wegen des Einstellungs-Caches läuft der Test erst beim zweiten Mal vollständig.

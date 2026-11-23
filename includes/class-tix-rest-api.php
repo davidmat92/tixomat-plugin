@@ -3736,6 +3736,6 @@ class TIX_REST_API {
             'payment_method' => method_exists($order, 'get_payment_method') ? $order->get_payment_method() : '',
             'wc_order_id'    => method_exists($order, 'get_wc_order_id') ? $order->get_wc_order_id() : 0,
             'items'          => $items,
-        ];
+        ] + (class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::staff_fields($order->get_id(), $order->get_status(), method_exists($order, 'get_payment_method') ? $order->get_payment_method() : '') : []); // Vorkasse (1.38.915)
     }
 }

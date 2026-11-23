@@ -279,8 +279,11 @@ class TIX_Emails {
             if (!empty($bs['bank_name']))   $rows[] = ['Bank', esc_html($bs['bank_name'])];
             $rows[] = ['Betrag', esc_html($total)];
             if ($number) $rows[] = ['Verwendungszweck', esc_html($number)];
+            $bdue = class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::get($order_id) : null; // Frist (Vorkasse aus der App-/Homepage-Kasse, 1.38.915)
+            if (!empty($bdue['due_date'])) $rows[] = ['Zahlungsfrist', esc_html(TIX_Bank_Prepay::label($bdue['due_date']))];
             $blocks[] = ['type' => 'info', 'title' => 'Bitte überweise ' . $total, 'rows' => $rows];
-            $blocks[] = ['type' => 'notice', 'tone' => 'info', 'html' => (!empty($bs['bank_reference']) ? esc_html($bs['bank_reference']) . '<br>' : '') . 'Deine Tickets werden automatisch erstellt, sobald die Zahlung eingegangen ist.'];
+            $blocks[] = ['type' => 'notice', 'tone' => 'info', 'html' => (!empty($bs['bank_reference']) ? esc_html($bs['bank_reference']) . '<br>' : '') . 'Deine Tickets werden automatisch erstellt, sobald die Zahlung eingegangen ist.'
+                . (!empty($bdue['due_date']) ? '<br>Geht die Zahlung nicht ' . esc_html(TIX_Bank_Prepay::label($bdue['due_date'])) . ' ein, wird die Bestellung automatisch storniert.' : '')];
         }
 
         // Event-Karte (eine Veranstaltung in der Bestellung)
@@ -939,6 +942,11 @@ class TIX_Emails {
             // on-hold, cancelled, refunded: send to customer – Storno/Erstattung mit Rechnungskorrektur als PDF (1.38.487)
             $inv_files = in_array($new_status, ['cancelled', 'refunded'], true) && class_exists('TIX_Invoices') ? TIX_Invoices::status_mail_files($order_id) : [];
             if ($inv_files) $html = self::build_email_html($config['type'], $order, $config['heading'], [['type' => 'notice', 'tone' => 'info', 'html' => 'Die Rechnungskorrektur findest du als PDF im Anhang.']]);
+            // Vorkasse: Frist abgelaufen (1.38.915)
+            if ($new_status === 'cancelled' && $gateway === 'bank_expired') {
+                $html = self::build_email_html($config['type'], $order, 'Zahlungsfrist abgelaufen', [['type' => 'notice', 'tone' => 'info', 'html' => 'Die Zahlungsfrist ist abgelaufen, deshalb wurde die Bestellung automatisch storniert. Falls du schon überwiesen hast, melde dich bitte bei uns – wir erstatten den Betrag.']]);
+                $subject = $brand_name . ' – Zahlungsfrist abgelaufen, Bestellung storniert #' . $order->get_id();
+            }
             self::send_html_mail($order->get_billing_email(), $subject, $html, true, $inv_files);
             if ($inv_files) TIX_Invoices::cleanup($inv_files);
         }

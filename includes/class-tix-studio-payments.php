@@ -188,6 +188,7 @@ class TIX_Studio_Payments {
                 'bic' => (string) ($s['bank_bic'] ?? ''),
                 'bank_name' => (string) ($s['bank_name'] ?? ''),
                 'reference' => (string) ($s['bank_reference'] ?? ''),
+                'hint' => class_exists('TIX_Bank_Prepay') ? TIX_Bank_Prepay::HINT : null, // Vorkasse in der Kasse (1.38.915)
             ],
         ];
 
