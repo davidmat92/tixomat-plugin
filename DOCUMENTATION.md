@@ -7467,3 +7467,18 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - `team` sperrt `GET /loyalty/station/token` und `POST /loyalty/claim`.
 - `scan` und `redeem` bleiben offen; `scan` meldet `can_award`. Der Check-in-Stempel gilt in jedem Modus.
 - Test: `tests/test-loyalty-collect-mode-wp.php`.
+
+## 258. Listenmodus: lineup_list allein führend, Aufräumen entfernter Acts (ab 1.38.908, Fund xxl-schlagerparty.evendis.de Event 7)
+- **Fund:** Nach dem Ersetzen des Line-ups im Studio blieben öffentlich alle alten Acts stehen, in `lineup_acts` auf Position 3–10 als „zugeordnet ohne Zeile“. Zwei Ursachen:
+  1. Das Studio schickte im Listenmodus die versteckte alte `artists`-Liste mit.
+  2. Der stündliche Reparatur-Lauf (`TIX_Artists::repair_links` → `assign_linked`) ordnete jede Verknüpfung aus `_tix_lineup_artist_map` wieder zu, auch die von Acts, die nicht mehr im Line-up stehen.
+- **Neu:**
+  - `POST /events/{id}` mit `lineup_list` ignoriert ein gleichzeitig gesendetes `artists`: keine Prüfung, kein Speichern, kein Künstler-Follow. `_tix_artists` entsteht nur aus den `artist_id` der Liste, wie in §5 von `vertrag-lineup-kuenstlerseite.md`. Ohne `lineup_list` bleibt `artists` wie bisher.
+  - `assign_linked` ordnet nur noch Verknüpfungen echter Zeilen zu (Line-up-Text bzw. Programm, `TIX_Artists::line_keys`, Tippfehler-tolerant). Bei Fließtext ohne Zeilen bleibt es beim alten Verhalten.
+  - Nach `save_list` läuft `TIX_Artists::prune_unlisted`: Künstler ohne Act und Verknüpfungen entfernter Acts werden gelöscht, `_tix_artist_ref` wird neu aufgebaut. Damit verschwindet der Künstler auch von Künstlerseiten und Follow-Listen.
+    - Ein Künstler bleibt, wenn eine Zeile ihn verknüpft (auch unter anderem Bühnennamen) oder sein Name einer Zeile entspricht.
+    - Bei leerer Liste werden alle Verknüpfungen gelöscht.
+- **Altbestand:** `wp tixomat artists aufraeumen [--event=<id>] [--trocken]`. Ohne `--event` läuft es über alle Events mit `_tix_lineup_order` (Listenmodus).
+  - Danach werden Caches geleert, Partner-Seiten neu beliefert, die Homepages neu aufgebaut, und `litespeed_purge_post` läuft.
+  - Fließtext-Events fasst der Befehl nicht an.
+- Test: `tests/test-lineup-prune-wp.php` (13 Prüfungen, Plattform und Einzel-Seite).

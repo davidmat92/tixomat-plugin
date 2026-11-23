@@ -399,6 +399,9 @@ class TIX_Lineup_Links {
         // Line-up-Text: ein Act je Zeile (das Programm mit Zeiten bleibt _tix_timetable)
         update_post_meta($event_id, '_tix_info_lineup', implode("\n", array_map(function ($n) { return '<p>' . esc_html($n) . '</p>'; }, $names)));
         if (class_exists('TIX_Artists')) TIX_Artists::flush_cache();
+        // Die Liste ist führend (1.38.908, Fund xxl-schlagerparty Event 7): Verknüpfungen/Künstler entfernter Acts weg
+        if (class_exists('TIX_Artists') && method_exists('TIX_Artists', 'prune_unlisted')) TIX_Artists::prune_unlisted($event_id);
+        if (!$names && class_exists('TIX_Artists')) delete_post_meta($event_id, TIX_Artists::EV_LINEMAP); // leeres Line-up: keine alten Verknüpfungen
         return true;
     }
 

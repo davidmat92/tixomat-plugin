@@ -258,6 +258,56 @@ class TIX_Artists {
         return self::$cache['line'][$ck] = ['id' => 0, 'via' => null, 'suggestion' => $sug];
     }
 
+    /** Schlüssel der echten Line-up-Zeilen (Text + Programm), ohne Platzhalter und ohne „zugeordnet ohne Zeile“ */
+    public static function line_keys($event_id) {
+        $out = [];
+        if (class_exists('TIX_Lineup_Links')) foreach (TIX_Lineup_Links::lines(intval($event_id)) as $l) { $k = self::act_key((string) $l); if ($k !== '') $out[$k] = true; }
+        return array_keys($out);
+    }
+
+    /** Schlüssel in der Liste (genau oder Tippfehler-ähnlich)? */
+    public static function key_in($k, array $keys) {
+        if ($k === '') return false;
+        if (in_array($k, $keys, true)) return true;
+        if (class_exists('TIX_Lineup_Links')) foreach ($keys as $o) if (TIX_Lineup_Links::similar_norm((string) $o, $k)) return true;
+        return false;
+    }
+
+    /**
+     * Listenmodus aufräumen (1.38.908, Fund xxl-schlagerparty Event 7): Künstler in `_tix_artists`, deren Act nicht mehr im Line-up steht,
+     * und Verknüpfungen (`_tix_lineup_artist_map`) entfernter Acts löschen. Ein Künstler bleibt, wenn eine Zeile ihn verknüpft
+     * (Schlüssel der Zeile → Künstler) oder sein Name einer Zeile entspricht. → {artists_removed[], links_removed[]}
+     */
+    public static function prune_unlisted($event_id, $dry = false) {
+        $event_id = intval($event_id);
+        $out = ['artists_removed' => [], 'links_removed' => []];
+        if (!$event_id || self::is_copy($event_id)) return $out;
+        $keys = self::line_keys($event_id);
+        if (!$keys) return $out; // Fließtext/kein Line-up: nichts entscheidbar, nichts löschen
+        $map = self::line_map($event_id);
+        foreach ($map as $k => $aid) if (!self::key_in((string) $k, $keys)) { $out['links_removed'][] = (string) $k; unset($map[$k]); }
+        $linked = [];
+        foreach ($map as $k => $aid) if (intval($aid)) $linked[self::usable(intval($aid)) ?: intval($aid)] = true;
+        $list = self::event_list($event_id); $keep = [];
+        foreach ($list as $r) {
+            $aid = intval($r['artist_id'] ?? 0);
+            $u = self::usable($aid) ?: $aid;
+            $by_name = self::key_in(self::act_key((string) get_the_title($u)), $keys) || ($aid !== $u && self::key_in(self::act_key((string) get_the_title($aid)), $keys));
+            if (isset($linked[$u]) || isset($linked[$aid]) || $by_name) $keep[] = $r; else $out['artists_removed'][] = $aid;
+        }
+        if (!$dry && ($out['artists_removed'] || $out['links_removed'])) {
+            if ($map) update_post_meta($event_id, self::EV_LINEMAP, $map); else delete_post_meta($event_id, self::EV_LINEMAP);
+            if ($out['artists_removed']) {
+                update_post_meta($event_id, self::EV_META, array_values($keep));
+                delete_post_meta($event_id, self::EV_REF);
+                foreach ($keep as $r) add_post_meta($event_id, self::EV_REF, (string) intval($r['artist_id']));
+                foreach ($out['artists_removed'] as $aid) unset(self::$cache['pub'][intval($aid)]);
+            }
+            self::flush_cache();
+        }
+        return $out;
+    }
+
     /** Studio „Künstler verknüpfen“: Act $name → Künstler $aid (0 = bewusst keiner, null = Verknüpfung entfernen). → true | WP_Error */
     public static function link_line($event_id, $name, $aid) {
         $k = self::act_key($name);
@@ -293,13 +343,16 @@ class TIX_Artists {
         $heads = array_map([__CLASS__, 'act_key'], (array) get_post_meta($event_id, '_tix_lineup_headliners', true));
         $lines = [];
         if (class_exists('TIX_Lineup_Links')) foreach (TIX_Lineup_Links::acts($event_id) as $act) {
+            if (!empty($act['placeholder'])) continue;
             $line = (string) ($act['line'] ?? ($act['name'] ?? ''));
             foreach ([(string) ($act['name'] ?? ''), $line] as $nm) if (($ak = self::act_key($nm)) !== '' && !isset($lines[$ak])) $lines[$ak] = $line;
         }
+        $real = self::line_keys($event_id); // nur echte Zeilen (Text/Programm), nicht „zugeordnet ohne Zeile“ (1.38.908)
         $n = 0;
         foreach ($map as $k => $aid) {
             $aid = self::usable(intval($aid));
             if (!$aid || in_array($aid, $have, true)) continue;
+            if ($real && !self::key_in((string) $k, $real)) continue; // Verknüpfung eines entfernten Acts: nie wieder zuordnen (Fund xxl-schlagerparty Event 7)
             $line = mb_strtolower($lines[$k] ?? '');
             $role = in_array($roles[$k] ?? '', self::ROLES, true) ? $roles[$k] : (in_array($k, $heads, true) ? 'headliner'
                 : (strpos($line, 'moderation') !== false ? 'host' : (preg_match('/\(([^)]*\b)?dj\b/u', $line) ? 'dj' : 'support')));
@@ -933,6 +986,14 @@ class TIX_Artists {
         foreach (array_column($list, 'artist_id') as $aid) unset(self::$cache['pub'][intval($aid)]);
         self::flush_cache();
         self::notify_pending($event_id);
+    }
+
+    /** Nach dem Aufräumen: Caches, Verteilung, Homepages */
+    public static function after_prune($event_id) {
+        if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) { delete_transient('tix_pub_events_d' . intval($event_id)); TIX_Public_Events::flush(); }
+        if (class_exists('TIX_Syndication_Push') && get_post_meta($event_id, '_tix_syndicate', true) === '1' && method_exists('TIX_Syndication_Push', 'push_event')) TIX_Syndication_Push::push_event($event_id);
+        if (class_exists('TIX_Web_Revalidate') && method_exists('TIX_Web_Revalidate', 'touch_event')) TIX_Web_Revalidate::touch_event(intval($event_id));
+        do_action('litespeed_purge_post', intval($event_id));
     }
 
     /** Index `_tix_artist_ref` aus `_tix_artists` neu aufbauen (Kopie, Übernahme einer Vorschau). */
@@ -1880,7 +1941,22 @@ class TIX_Artists {
             WP_CLI::success(sprintf('%d Events geprüft, %d Einträge %s.', $r['events'], count($r['rows']), $dry ? 'würden angeglichen (trocken, nichts geändert)' : 'angeglichen'));
             return;
         }
-        WP_CLI::error('Aufruf: wp tixomat artists sync-photos [--trocken] [--event=<id>] | check-event <id> | verknuepfen [--event=<id>] [--trocken] | schreibweise [--event=<id>] [--trocken]');
+        if ($cmd === 'aufraeumen') { // 1.38.908: Listenmodus – Künstler/Verknüpfungen entfernter Acts löschen (--event=<id>, sonst alle Events mit Line-up-Liste)
+            $dry = isset($assoc['trocken']) || isset($assoc['dry-run']);
+            $ids = !empty($assoc['event']) ? [intval($assoc['event'])] : array_map('intval', get_posts(['post_type' => 'event', 'post_status' => ['publish', 'draft', 'future', 'private'], 'posts_per_page' => -1, 'fields' => 'ids',
+                'meta_query' => [['key' => '_tix_lineup_order', 'compare' => 'EXISTS']]]));
+            $ev = 0; $na = 0; $nl = 0;
+            foreach ($ids as $eid) {
+                $r = self::prune_unlisted($eid, $dry);
+                if (!$r['artists_removed'] && !$r['links_removed']) continue;
+                $ev++; $na += count($r['artists_removed']); $nl += count($r['links_removed']);
+                WP_CLI::line(sprintf('Event %d · Künstler weg: %s · Verknüpfungen weg: %d', $eid, $r['artists_removed'] ? implode(',', $r['artists_removed']) : '–', count($r['links_removed'])));
+                if (!$dry) self::after_prune($eid);
+            }
+            WP_CLI::success(sprintf('%d von %d Events %s: %d Künstler, %d Verknüpfungen.', $ev, count($ids), $dry ? 'würden aufgeräumt (trocken, nichts geändert)' : 'aufgeräumt', $na, $nl));
+            return;
+        }
+        WP_CLI::error('Aufruf: wp tixomat artists aufraeumen [--event=<id>] [--trocken] | sync-photos [--trocken] [--event=<id>] | check-event <id> | verknuepfen [--event=<id>] [--trocken] | schreibweise [--event=<id>] [--trocken]');
     }
 }
 

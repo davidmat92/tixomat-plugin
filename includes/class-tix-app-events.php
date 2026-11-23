@@ -465,7 +465,8 @@ class TIX_App_Events {
         $studio = class_exists('TIX_Studio_Editor') ? TIX_Studio_Editor::check($body, $is_new ? 0 : $post_id) : [];
         $texts = class_exists('TIX_Event_Texts') ? TIX_Event_Texts::check($body, $is_new ? 0 : $post_id) : [];
         // Künstler (1.38.517, nur evendis): Feld `artists` [{artist_id, role, tour}]
-        $artists = class_exists('TIX_Artists') ? TIX_Artists::check($body, $is_new ? 0 : $post_id) : null;
+        // Kommt lineup_list mit (Studio-Listenmodus), ist sie allein führend: `artists` wird ignoriert (1.38.908, Fund xxl-schlagerparty Event 7)
+        $artists = class_exists('TIX_Artists') && !array_key_exists('lineup_list', $body) ? TIX_Artists::check($body, $is_new ? 0 : $post_id) : null;
         if (is_wp_error($artists)) return $artists;
         if (is_wp_error($texts)) return $texts;
         if (is_wp_error($studio)) return $studio;
