@@ -20,7 +20,7 @@ class TIX_Web_Revalidate {
 
     const MAX_EVENTS  = 50;
     /** Event-Meta, deren Änderung die Seite betrifft (Präfixe). */
-    const EVENT_META  = ['_tix_info_', '_tix_date_', '_tix_time_', '_tix_status', '_thumbnail_id', '_tix_lineup_links', '_tix_location', '_tix_organizer_id', '_tix_price_range'];
+    const EVENT_META  = ['_tix_info_', '_tix_date_', '_tix_time_', '_tix_status', '_thumbnail_id', '_tix_lineup_links', '_tix_lineup_order', '_tix_lineup_private_reveals', '_tix_location', '_tix_organizer_id', '_tix_price_range'];
 
     private static $site = false;  // Einzel-Seite: Homepage (marken-web) dieses Hosts neu laden (1.38.732)
     private static $orgs = [];

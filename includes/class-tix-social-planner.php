@@ -98,7 +98,7 @@ class TIX_Social_Planner {
         if (!class_exists('TIX_Lineup_Links') || !method_exists('TIX_Lineup_Links', 'acts')) return [];
         $a = TIX_Lineup_Links::acts($eid);
         $names = [];
-        foreach ((array) $a as $x) { $n = is_array($x) ? (string) ($x['name'] ?? '') : (string) $x; if ($n !== '') $names[] = $n; }
+        foreach ((array) $a as $x) { if (is_array($x) && !empty($x['placeholder'])) continue; $n = is_array($x) ? (string) ($x['name'] ?? '') : (string) $x; if ($n !== '') $names[] = $n; } // Platzhalter (1.38.907) nicht als Act
         return array_slice($names, 0, 6);
     }
 

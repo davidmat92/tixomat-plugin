@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.910
+ * Version: 1.38.911
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.910');
+define('TIXOMAT_VERSION', '1.38.911');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -806,6 +806,7 @@ require_once TIXOMAT_PATH . 'includes/class-tix-org-domains.php';
 TIX_Org_Domains::init();
 // Line-up: Künstlerseiten bei Spotify/Apple Music statt Suche (alle Seiten)
 require_once TIXOMAT_PATH . 'includes/class-tix-lineup-links.php';
+require_once TIXOMAT_PATH . 'includes/class-tix-lineup-reveal.php'; // Act-Enthüllung mit automatischem Platzhalter: private Slots, Cron alle 2 min, /events/{id}/lineup-reveals (1.38.907)
 TIX_Lineup_Links::init();
 require_once TIXOMAT_PATH . 'includes/class-tix-apple-music.php';
 TIX_Apple_Music::init(); // „Bekannt für“: Apple Music Top-Songs je Act (MusicKit-Schlüssel, ohne Schlüssel leer)

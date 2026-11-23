@@ -275,6 +275,8 @@ class TIX_Syndication_Push {
                 if (strpos($key, '_tix_recurrence') === 0) continue;
                 // Künstler-Zuordnung mit IDs dieser Seite: geht als Schnappschuss `artists` (1.38.723)
                 if (in_array($key, ['_tix_artists', '_tix_artist_ref', '_tix_source_artists'], true)) continue;
+                // Später enthüllte Acts (1.38.907): nie an Partner – dort steht nur der Platzhalter aus `_tix_lineup_acts`
+                if (strpos($key, '_tix_lineup_private') === 0) continue;
                 $all_meta[$key] = maybe_unserialize($values[0]);
             }
         }

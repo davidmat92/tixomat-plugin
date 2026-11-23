@@ -7521,3 +7521,81 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - Schalter: Option `tix_legal_warning_mail`. Vorgabe ist **aus** (`'0'`, User-Entscheid 23.11.: Es bleibt beim Hinweis); einschalten mit `'1'`. `legal_warning.mail_daily` ist daher standardmäßig `false`.
   - Nur auf Einzel-Seiten.
 - Tests: `tests/test-go-live-legal-risk-wp.php` (Kunden-Seite 12, Plattform 4) und `tests/test-go-live-wp.php` (Erwartung `overridable` angepasst).
+## 257. Act-Enthüllung mit automatischem Platzhalter – App-/Studio-Vertrag (ab 1.38.911, User 23.11.)
+Auftrag: `uebergaben/auftrag-act-enthuellung.md`. Klasse: `TIX_Lineup_Reveal` (`includes/class-tix-lineup-reveal.php`). Additiv; alte Clients sehen den Platzhalter als normalen Act-Namen, nie den echten Namen.
+
+### Speicherung und Geheimhaltung
+- **Wo der Act liegt:** Ein später zu enthüllender Act („Slot“) steht bis zum Zeitpunkt nur in der privaten Event-Meta `_tix_lineup_private_reveals`.
+  - Er steht nicht im Line-up-Text (`_tix_info_lineup`/`_tix_lineup`), nicht in `_tix_artists`, nicht im Programm-Titel und in keinem Schnappschuss.
+  - Damit erreicht er keinen bestehenden Ausgabeweg: öffentliche API, Website-HTML/Breakdance, Meta-Tags, JSON-LD (`performer` kommt aus dem Line-up-Text), Suche/Sitemap, Künstlerseiten (keine Zuordnung), „Musik hören“-Abgleich, Social-Planer.
+- **Verteilung an Partner:** `TIX_Syndication_Push` überspringt `_tix_lineup_private*`. Der Schnappschuss `_tix_lineup_acts` enthält nur den Platzhalter.
+- **Supabase-Spiegel und Export V5:** Der Name enthält „private“, deshalb gilt die Meta für `TIX_Mirror_Map::is_sensitive` als sensibel.
+- **Caches:** Der Name steht in keinem Transient und keiner Option.
+- **Slot-Felder:** `{id, name, artist_id, role, headliner, tour, photo_id, reveal_at, placeholder_text, notify, countdown, created_at}`
+  - `reveal_at` als ISO in Europe/Berlin.
+  - `name` darf leer sein.
+
+### Öffentliche Ausgabe
+In `lineup_acts` (`GET /public/events/{id}` und `/by-slug`, Verteilung, Kopien) steht an seinem Platz ein Platzhalter-Act. Die Felder entsprechen den normalen Acts, dazu kommen eigene:
+```
+{position, name: "Neuer Act am 1. Dezember um 18 Uhr", line: <gleich>, placeholder: true, reveal_key: "tixreveal<id>",
+ reveal_at: "2026-12-01T18:00:00+01:00" | null (fällig), reveal_label: <wie name>, reveal_hint: "Wird am 01.12. um 18 Uhr enthüllt" | null,
+ countdown: bool (nur vor dem Zeitpunkt), headliner: bool, role: "headliner"|"support",
+ artist_id/artist_slug/artist_url/image/image_thumb/image_source/time/end/start_at/end_at/stage_name/spotify/apple_music: null}
+```
+- **Text (`name` = `reveal_label`):**
+  - Ein eigener `placeholder_text` geht vor.
+  - Sonst vor dem Zeitpunkt „Neuer Act am 1. Dezember“, mit Uhrzeit „… um 18 Uhr“ bzw. „… um 18:30 Uhr“.
+  - Nach dem Zeitpunkt ohne Namen: „Bald enthüllt“. Es gibt nie einen leeren Act.
+- **Darstellung (Website, Homepages, Apps):**
+  - Bei `placeholder: true` eine Fragezeichen- bzw. Silhouetten-Kachel im Stil der Line-up-Kacheln.
+  - Countdown nur bei `countdown: true`, auf `reveal_at` gerechnet.
+  - Kein Link und keine Musik-Knöpfe.
+- **Reihenfolge und Headliner:** wie gesetzt. Der Platzhalter belegt seinen Platz; der Reihenfolge-Schlüssel ist `reveal_key`. Öffentlich stehen Headliner wie immer vorne.
+- **Ohne Änderung:** `lineup` (HTML), `lineup_links`, `artists` und `GET /public/events/{id}/artists` enthalten den Act vor dem Zeitpunkt gar nicht.
+
+### Studio und Veranstalterbereich
+Eine Liste wie bisher: `POST /events/{id}` (auch `/studio/events/{id}`) mit `lineup_list`.
+- **Einträge mit `reveal_at` oder `reveal_id` sind Slots:**
+  ```
+  {name?: "" erlaubt, reveal_at: "2026-12-01T18:00" | ISO, reveal_id?: <bestehender Slot>, placeholder_text?: ≤60, notify?: bool, countdown?: bool,
+   headliner?, role?, artist_id?, tour?, photo_id?}
+  ```
+  - Ohne `reveal_id` wird ein neuer Slot angelegt.
+  - `reveal_id` mit `reveal_at: null` heißt „nicht mehr später“: Der Slot wird gelöscht und der Eintrag ist ein normaler Act; dafür ist ein Name Pflicht.
+  - Liegt `reveal_at` schon in der Vergangenheit und es gibt einen Namen, wird der Act beim Speichern sofort enthüllt.
+- **Slots, die in der Liste fehlen, bleiben bestehen**, an ihrem bisherigen Platz. So zerstört ein alter Client nichts.
+  - Mit `"lineup_reveals_sync": true` werden fehlende Slots gelöscht. Das Studio schickt den Schalter, wenn es die volle Liste mit allen Slots sendet.
+- **Lesen:** `GET /events/{id}/edit` → `lineup_list[]` mit `placeholder`, `reveal_id`, `reveal_at`, `placeholder_text`, `notify`, `countdown`, `photo_id`, `reveal_label` (Vorschau des Platzhalter-Texts), `reveal_hint` und `waiting_for_name`.
+  - `name` ist dort der echte Name, auch leer.
+  - Normale Acts haben `placeholder: false` und `reveal_id: null`.
+- **Eigene Routen** (Rechte wie die Event-Bearbeitung; Kopien antworten 409 `tix_source_owned`):
+  - `GET /events/{id}/lineup-reveals` → `{reveals:[{id, key, name, artist_id, role, headliner, tour, photo_id, reveal_at, placeholder_text, notify, countdown, due, waiting_for_name, label, hint}], timezone, limits}`
+  - `POST /events/{id}/lineup-reveals` legt einen Slot hinten in der Reihenfolge an; `reveal_at` ist Pflicht (400 `reveal.reveal_at`).
+  - `POST /events/{id}/lineup-reveals/{rid}` ändert einen Slot. Nur die mitgeschickten Felder ändern sich. Die Antwort enthält `revealed: true`, wenn der Act dabei schon enthüllt wurde.
+  - `DELETE /events/{id}/lineup-reveals/{rid}`
+  - `POST /events/{id}/lineup-reveals/{rid}/reveal` enthüllt sofort. Ohne Namen antwortet die Route 409 `tix_reveal_no_name`.
+  - Grenzen: höchstens 20 Slots, Name höchstens 40 Zeichen, Platzhalter-Text höchstens 60 Zeichen, Zeitpunkt höchstens 2 Jahre voraus.
+- **Programm:** Ein Slot in `_tix_timetable` mit `reveal_id: <id>` trägt bis zum Enthüllen einen eigenen, neutralen Titel (z. B. „Überraschung“). Beim Enthüllen bekommt er den Namen.
+- **Foto:** `photo_id` am Slot (Mediathek). Es wird erst beim Enthüllen dem Act zugeordnet.
+
+### Enthüllen
+- **Cron `tix_lineup_reveal_cron`** läuft alle 2 Minuten. Fällige Slots mit Namen werden zum normalen Act, Slots ohne Namen bleiben Platzhalter. Beim Enthüllen passiert der Reihe nach:
+  - Zeile im Line-up-Text (und in der Breakdance-Kopie).
+  - In Reihenfolge und Stern-Liste wird der Schlüssel ersetzt; Rolle.
+  - Künstler-Zuordnung (`TIX_Artists::apply`). Erst jetzt löst das den Künstler-Follow aus (evendis).
+  - Verknüpfung, Foto, Programm-Titel.
+  - Der Slot fällt aus der privaten Liste.
+- **Caches:** Detail-Transient und `tix_pub_events_*` werden geleert. Außerdem bekommen die Spiegel die Verteilung neu, die Homepages und evendis-web werden neu aufgebaut (`TIX_Web_Revalidate`, auch schon beim Anlegen und Ändern eines Slots) und `litespeed_purge_post` wird ausgelöst.
+- **Mitteilung:** Bei `notify` und veröffentlichtem Event geht „Neu im Line-up: <Name>“ an die Ticketkäufer mit App-Konto und die Follower des Veranstalters.
+  - Titel = Event-Titel, Aktion `event:<id>`, Typ `message`.
+  - Der Schalter Mitteilungen (`TIX_Features`) gilt.
+  - Je Slot geht die Mitteilung einmal raus.
+- **Für Erweiterungen:** Audit-Eintrag `lineup_reveal` und Aktion `tix_lineup_revealed($event_id, $slot, $sent)`.
+
+### Test
+`tests/test-lineup-reveal-wp.php` (30 Prüfungen auf Plattform und Einzel-Seite) belegt vor dem Zeitpunkt:
+- Der Name fehlt in Detail, Liste und `/artists`.
+- In den Event-Metas steht er nur in der privaten Meta, in keiner Option und keinem Transient.
+- Er fehlt in der Verteilungs-Nutzlast und im Schnappschuss.
+- Der Künstler ist noch nicht zugeordnet, und es gab keinen Follow.
