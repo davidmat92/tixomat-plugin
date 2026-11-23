@@ -34,7 +34,7 @@ if (!$multi) {
         $eq('Platzhalter erkannt: Impressum nicht ok', [false, false, 1], [$ls['ok'], $imp['ok'], $imp['placeholders']]);
         [$s, $d] = $rest('GET', '/studio/readiness');
         $it = array_column((array) ($d['items'] ?? []), null, 'key');
-        $eq('Readiness: Rechtstexte offen, nicht übergehbar', [200, false, false, false], [$s, $d['ready'] ?? null, $it['legal']['ok'] ?? null, $it['legal']['overridable'] ?? null]);
+        $eq('Readiness: Rechtstexte offen, übergehbar nur mit accept_legal_risk (1.38.909)', [200, false, false, true, 'accept_legal_risk'], [$s, $d['ready'] ?? null, $it['legal']['ok'] ?? null, $it['legal']['overridable'] ?? null, $it['legal']['override']['param'] ?? '']);
         [$s, , $c] = $rest('POST', '/studio/go-live', ['action' => 'live']);
         $eq('Live schalten mit Platzhalter: 409 tix_legal_incomplete', [409, 'tix_legal_incomplete'], [$s, $c]);
         $setpage('impressum', $texts['impressum']);

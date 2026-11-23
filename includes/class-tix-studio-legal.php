@@ -293,7 +293,8 @@ class TIX_Studio_Legal {
 
     public static function rest_list(WP_REST_Request $req) {
         $r = new WP_REST_Response(['ok' => true, 'items' => array_map(function ($k) { return self::item($k); }, array_keys(self::DOCS)), 'scope' => class_exists('TIX_App_Scope') && TIX_App_Scope::multi() ? 'platform' : 'site',
-            'checkout_links' => self::checkout_links_payload()]); // W4 (1.38.885)
+            'checkout_links' => self::checkout_links_payload(), // W4 (1.38.885)
+            'legal_warning' => class_exists('TIX_Go_Live') && method_exists('TIX_Go_Live', 'legal_warning') ? TIX_Go_Live::legal_warning() : null]); // live trotz Lücken (1.38.909)
         $r->header('Cache-Control', 'no-store');
         return $r;
     }

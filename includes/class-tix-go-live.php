@@ -6,8 +6,9 @@ if (!defined('ABSPATH')) exit;
  *
  * Kunden-Seite (Studio, Rechte wie Marke):
  *   GET  /studio/readiness                 Checkliste {ready, live, request, items[…]}
- *   POST /studio/go-live {action: live|test}  Anfrage an die Plattform (signiert mit dem Lizenzschlüssel); prüft hart:
- *        Rechtstexte (nie übergehbar) und Zahlung (Anbieter oder „Keine Zahlungen“) → 409 sonst
+ *   POST /studio/go-live {action: live|test, accept_legal_risk?}  Anfrage an die Plattform (signiert mit dem Lizenzschlüssel); prüft:
+ *        Rechtstexte (seit 1.38.909 mit accept_legal_risk: true bewusst übergehbar, Nachweis + Dauerhinweis) und
+ *        Zahlung (Anbieter oder „Keine Zahlungen“) → 409 sonst
  * Plattform (Lizenz-Server):
  *   POST /license/go-live                  Annahme der Anfrage (HMAC, 120 s, nonce) → Akte + Kunden-Dienst
  *   GET  /platform/customers/{key}/go-live Stand der Anfrage (Plattform-Admin, Kunden-Dienst)
@@ -21,10 +22,72 @@ class TIX_Go_Live {
     const OPT_REQ = 'tix_lic_golive_';      // Lizenz-Server: je Lizenz {action, status: pending|done|failed|cancelled, at, host, by, checks, message, nonce, done_at}
     const OPT_NONCES = 'tix_golive_nonces';
     const TTL = 120;
+    const OPT_RISK = 'tix_legal_risk_accepted';  // Nachweis „trotz unvollständiger Rechtstexte live“ (1.38.909): Liste, neueste zuletzt
+    const OPT_RISK_MAIL = 'tix_legal_warning_mail'; // '1' | '0' (Vorgabe, User-Entscheid 23.11.): tägliche Erinnerung an den Inhaber
+    const CRON_RISK = 'tix_legal_warning_daily';
+    const RISK_TEXT = 'Die Rechtstexte sind unvollständig. Wer trotzdem live geht, handelt auf eigenes Risiko: Fehlende oder fehlerhafte Pflichtangaben (z. B. Impressum, Datenschutz, AGB, Widerruf) können abgemahnt werden. Bitte die Rechtstexte so bald wie möglich vervollständigen.';
 
     public static function init() {
         add_action('rest_api_init', [__CLASS__, 'routes']);
         if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) WP_CLI::add_command('tixomat golive', [__CLASS__, 'cli']); // Abholer des Kunden-Dienstes (1.38.765)
+        add_action(self::CRON_RISK, [__CLASS__, 'daily_warning']);
+        add_action('init', function () { if (!wp_next_scheduled(TIX_Go_Live::CRON_RISK)) wp_schedule_event(strtotime('tomorrow 09:00', current_time('timestamp')) - (int) (get_option('gmt_offset') * HOUR_IN_SECONDS), 'daily', TIX_Go_Live::CRON_RISK); }, 30);
+    }
+
+    // ═══════════════ Live trotz unvollständiger Rechtstexte (1.38.909, User 23.11.) ═══════════════
+
+    /** Fehlende Punkte der Rechtstexte [{key, title, missing[]}] */
+    public static function legal_missing() {
+        $ls = class_exists('TIX_Studio_Legal') && method_exists('TIX_Studio_Legal', 'legal_status') ? TIX_Studio_Legal::legal_status() : ['ok' => false, 'items' => []];
+        $out = [];
+        foreach ((array) $ls['items'] as $i) if (empty($i['ok'])) $out[] = ['key' => (string) $i['key'], 'title' => (string) $i['title'], 'missing' => array_values(array_map('strval', (array) $i['missing']))];
+        return ['ok' => (bool) $ls['ok'], 'missing' => $out];
+    }
+
+    public static function risk_log() { $l = get_option(self::OPT_RISK, []); return is_array($l) ? array_values($l) : []; }
+
+    /** Nachweis speichern: wer, wann, welche Punkte fehlten, welcher Hinweis bestätigt wurde → Eintrag */
+    public static function record_risk(array $missing, $source = 'studio') {
+        $u = wp_get_current_user();
+        $e = ['at' => gmdate('c'), 'user_id' => intval($u->ID), 'by' => (string) $u->display_name, 'source' => $source, 'missing' => $missing, 'text' => self::RISK_TEXT, 'ip_hash' => class_exists('TIX_Client_IP') ? hash('sha256', TIX_Client_IP::get() . wp_salt('auth')) : ''];
+        $l = self::risk_log(); $l[] = $e;
+        update_option(self::OPT_RISK, array_slice($l, -20), false);
+        if (class_exists('TIX_Customers') && method_exists('TIX_Customers', 'audit')) TIX_Customers::audit('go_live_legal_risk', 0, ['scope' => 'site', 'oid' => 0], ['missing' => count($missing)]);
+        return $e;
+    }
+
+    /** Dauerhinweis: aktiv, solange die Seite live ist (bzw. angefragt) und die Rechtstexte unvollständig sind → {active, …} */
+    public static function legal_warning() {
+        $st = self::state();
+        $lm = self::legal_missing();
+        $last = self::risk_log() ? self::risk_log()[count(self::risk_log()) - 1] : null;
+        $live = in_array($st['status'], ['live', 'requested'], true) && ($st['status'] === 'live' || ($st['action'] ?? '') === 'live');
+        $active = $live && !$lm['ok'];
+        return ['active' => $active, 'level' => $active ? 'warning' : null, 'status' => $st['status'],
+            'title' => $active ? 'Rechtstexte unvollständig – die Seite ist trotzdem live' : null,
+            'message' => $active ? 'Bitte vervollständige die Rechtstexte. Fehlend: ' . implode(' · ', array_map(function ($i) { return $i['title'] . ($i['missing'] ? ' (' . implode(', ', array_slice($i['missing'], 0, 3)) . ')' : ''); }, $lm['missing'])) : null,
+            'missing' => $active ? $lm['missing'] : [], 'link' => '/rechtstexte/',
+            'accepted' => $last ? ['at' => $last['at'], 'by' => $last['by'], 'missing' => $last['missing']] : null,
+            'mail_daily' => (string) get_option(self::OPT_RISK_MAIL, '0') === '1'];
+    }
+
+    /** Täglich: Erinnerung an den Inhaber (bzw. die Admins), solange der Hinweis aktiv ist */
+    public static function daily_warning() {
+        if (self::multi()) return 0;
+        $w = self::legal_warning();
+        if (!$w['active'] || !$w['mail_daily']) return 0;
+        $to = [];
+        foreach (get_users(['meta_key' => '_tix_site_owner', 'meta_value' => '1', 'fields' => ['user_email']]) as $u) $to[] = $u->user_email;
+        if (!$to) foreach (get_users(['role' => 'administrator', 'fields' => ['user_email'], 'number' => 3]) as $u) $to[] = $u->user_email;
+        $subject = 'Erinnerung: Rechtstexte vervollständigen';
+        $paras = ['Deine Seite ist live, aber die Rechtstexte sind noch unvollständig.', 'Fehlend: ' . implode(' · ', array_map(function ($i) { return $i['title']; }, $w['missing'])) . '.', 'Bitte ergänze sie im Studio unter „Rechtstexte“. Diese Erinnerung kommt täglich, bis alles vollständig ist.'];
+        $n = 0;
+        foreach (array_unique(array_filter(array_map('sanitize_email', $to))) as $a) {
+            $h = ''; foreach ($paras as $p) $h .= '<p>' . esc_html($p) . '</p>';
+            $ok = class_exists('TIX_Mail_Layout') ? TIX_Mail_Layout::send($a, $subject, ['title' => $subject, 'blocks' => [['type' => 'html', 'html' => $h]], 'kind' => 'admin'], ['customer' => false]) : wp_mail($a, $subject, $h, ['Content-Type: text/html; charset=UTF-8']);
+            if ($ok) $n++;
+        }
+        return $n;
     }
 
     /** Offene Anfragen (Lizenz-Server), Vertrag uebergaben/vertrag-golive-abholen.md: [{license_id, nonce, action, host, by {name, email}, at}] – älteste zuerst. */
@@ -34,7 +97,8 @@ class TIX_Go_Live {
             if (!$lid || !is_array($q) || ($q['status'] ?? '') !== 'pending') continue;
             $out[] = ['license_id' => $lid, 'nonce' => (string) ($q['nonce'] ?? ''), 'action' => (string) ($q['action'] ?? 'live'),
                 'host' => strtolower(preg_replace('/^www\./', '', (string) ($q['host'] ?? ''))),
-                'by' => ['name' => (string) ($q['by']['name'] ?? ''), 'email' => (string) ($q['by']['email'] ?? '')], 'at' => (string) ($q['at'] ?? '')];
+                'by' => ['name' => (string) ($q['by']['name'] ?? ''), 'email' => (string) ($q['by']['email'] ?? '')], 'at' => (string) ($q['at'] ?? ''),
+                'legal_risk' => $q['legal_risk'] ?? null]; // trotz unvollständiger Rechtstexte (1.38.909): Kunden-Dienst sieht es
         }
         usort($out, function ($a, $b) { return strcmp($a['at'], $b['at']); });
         return $out;
@@ -123,7 +187,7 @@ class TIX_Go_Live {
         return $s + ['status' => 'test', 'action' => null, 'at' => null, 'by' => null, 'message' => null];
     }
 
-    /** Checkliste. overridable: nur die Zahlung darf die Plattform übergehen, die Rechtstexte nie. */
+    /** Checkliste. overridable: Zahlung übergeht die Plattform; Rechtstexte der Kunde selbst mit accept_legal_risk (1.38.909). */
     public static function checklist() {
         $items = [];
         // Zahlung
@@ -137,7 +201,8 @@ class TIX_Go_Live {
         $ls = class_exists('TIX_Studio_Legal') && method_exists('TIX_Studio_Legal', 'legal_status') ? TIX_Studio_Legal::legal_status() : ['ok' => false, 'items' => []];
         $miss = [];
         foreach ($ls['items'] as $i) if (!$i['ok']) $miss[] = $i['title'] . ': ' . implode(', ', array_slice($i['missing'], 0, 3));
-        $items[] = ['key' => 'legal', 'ok' => (bool) $ls['ok'], 'state' => $ls['ok'] ? 'ok' : 'missing', 'required' => true, 'overridable' => false,
+        $items[] = ['key' => 'legal', 'ok' => (bool) $ls['ok'], 'state' => $ls['ok'] ? 'ok' : 'missing', 'required' => true, 'overridable' => true,
+            'override' => ['param' => 'accept_legal_risk', 'by' => 'customer', 'text' => self::RISK_TEXT], // trotzdem live, mit Hinweis (1.38.909)
             'label' => 'Rechtstexte vollständig, ohne Platzhalter', 'hint' => $miss ? implode(' · ', $miss) : null, 'link' => '/rechtstexte/', 'detail' => $ls['items']];
         // Homepage, Domain, Inhaber
         $r = class_exists('TIX_Owner_Access') ? TIX_Owner_Access::readiness() : [];
@@ -153,7 +218,7 @@ class TIX_Go_Live {
 
     public static function rest_readiness(WP_REST_Request $req) {
         $c = self::checklist();
-        $r = rest_ensure_response(['ok' => true, 'ready' => $c['ready'], 'live' => self::state()['status'] === 'live', 'state' => self::state(), 'items' => $c['items'],
+        $r = rest_ensure_response(['ok' => true, 'ready' => $c['ready'], 'live' => self::state()['status'] === 'live', 'state' => self::state(), 'items' => $c['items'], 'legal_warning' => self::legal_warning(),
             'available' => !self::multi() && class_exists('TIX_License') && TIX_License::active()]);
         $r->header('Cache-Control', 'no-store');
         return $r;
@@ -170,15 +235,24 @@ class TIX_Go_Live {
         $c = self::checklist();
         if ($action === 'live') {
             $legal = array_values(array_filter($c['items'], function ($i) { return $i['key'] === 'legal'; }))[0];
-            if (!$legal['ok']) return new WP_Error('tix_legal_incomplete', 'Die Rechtstexte sind noch nicht vollständig (Pflicht, ohne Platzhalter).', ['status' => 409, 'items' => $legal['detail']]);
-            $miss = array_values(array_filter($c['items'], function ($i) { return $i['required'] && !$i['ok']; }));
+            $accept = $req->get_param('accept_legal_risk');
+            $accept = $accept === true || $accept === 1 || $accept === '1' || $accept === 'true';
+            if (!$legal['ok'] && !$accept) return new WP_Error('tix_legal_incomplete', 'Die Rechtstexte sind noch nicht vollständig (Pflicht, ohne Platzhalter).', ['status' => 409, 'items' => $legal['detail'],
+                'can_accept' => true, 'accept_param' => 'accept_legal_risk', 'notice' => self::RISK_TEXT, 'missing' => self::legal_missing()['missing']]);
+            $miss = array_values(array_filter($c['items'], function ($i) { return $i['required'] && !$i['ok'] && $i['key'] !== 'legal'; }));
             if ($miss) return new WP_Error('tix_not_ready', 'Noch nicht alles bereit: ' . implode(', ', array_column($miss, 'label')) . '.', ['status' => 409, 'items' => $miss]);
             if (class_exists('TIX_Demo_Seed') && ($e = TIX_Demo_Seed::go_live_check($req))) return $e; // „Erst Demodaten löschen?“ (1.38.860)
         }
         $key = (string) get_option(TIX_License::OPT_KEY, '');
         $u = wp_get_current_user();
         $nonce = wp_generate_password(20, false, false);
-        $raw = wp_json_encode(['action' => $action, 'host' => self::host(), 'by' => ['name' => (string) $u->display_name, 'email' => (string) $u->user_email], 'checks' => array_map(function ($i) { return ['key' => $i['key'], 'ok' => $i['ok'], 'state' => $i['state']]; }, $c['items']), 'ts' => time(), 'nonce' => $nonce]);
+        $risk = null;
+        if ($action === 'live' && empty($legal['ok'])) { // bewusst trotz unvollständiger Rechtstexte – Nachweis erst, wenn alles andere passt
+            $lm = self::legal_missing()['missing'];
+            $risk = ['accepted' => true, 'at' => gmdate('c'), 'by' => (string) $u->display_name, 'missing' => array_map(function ($i) { return ['key' => $i['key'], 'title' => $i['title']]; }, $lm)];
+        }
+        $raw = wp_json_encode(['action' => $action, 'host' => self::host(), 'by' => ['name' => (string) $u->display_name, 'email' => (string) $u->user_email], 'checks' => array_map(function ($i) { return ['key' => $i['key'], 'ok' => $i['ok'], 'state' => $i['state']]; }, $c['items']), 'ts' => time(), 'nonce' => $nonce]
+            + ($risk ? ['legal_risk' => $risk] : []));
         $resp = wp_remote_post(TIX_License::server() . '/wp-json/' . self::NS . '/license/go-live', ['timeout' => 15, 'body' => $raw,
             'headers' => ['Content-Type' => 'application/json', 'X-Tix-Signature' => self::sign($raw, self::host(), $key)]]);
         if (is_wp_error($resp)) return new WP_Error('tix_golive_unreachable', 'Die Plattform ist gerade nicht erreichbar. Bitte später noch einmal.', ['status' => 502]);
@@ -186,7 +260,8 @@ class TIX_Go_Live {
         $d = json_decode((string) wp_remote_retrieve_body($resp), true);
         if ($code !== 200) return new WP_Error(is_array($d) && !empty($d['code']) ? (string) $d['code'] : 'tix_golive_error', is_array($d) && !empty($d['message']) ? (string) $d['message'] : 'Die Plattform hat die Anfrage abgelehnt.', ['status' => in_array($code, [400, 401, 404, 409, 429], true) ? $code : 502]);
         update_option(self::OPT_STATE, ['status' => 'requested', 'action' => $action, 'at' => gmdate('c'), 'by' => (string) $u->display_name, 'message' => null, 'nonce' => $nonce], false);
-        return rest_ensure_response(['ok' => true, 'requested' => true, 'state' => self::state()]);
+        if ($risk) self::record_risk(self::legal_missing()['missing'], (string) ($req->get_param('source') ?: 'studio'));
+        return rest_ensure_response(['ok' => true, 'requested' => true, 'state' => self::state(), 'legal_risk_accepted' => (bool) $risk, 'legal_warning' => self::legal_warning()]);
     }
 
     /** Lizenzprüfung: Ergebnis der Plattform übernehmen (signiert). */
@@ -217,13 +292,19 @@ class TIX_Go_Live {
         $used[(string) $b['nonce']] = time();
         update_option(self::OPT_NONCES, $used, false);
         $action = in_array($b['action'] ?? '', ['live', 'test'], true) ? $b['action'] : 'live';
-        // Rechtstexte prüft auch die Plattform anhand der Meldung der Seite – nie übergehbar
-        foreach ((array) ($b['checks'] ?? []) as $c) if (($c['key'] ?? '') === 'legal' && empty($c['ok']) && $action === 'live') return new WP_Error('tix_legal_incomplete', 'Die Rechtstexte sind noch nicht vollständig.', ['status' => 409]);
+        // Rechtstexte prüft auch die Plattform anhand der Meldung der Seite – nur mit bestätigter Annahme des Kunden durch (1.38.909)
+        $risk = is_array($b['legal_risk'] ?? null) && !empty($b['legal_risk']['accepted']) ? $b['legal_risk'] : null;
+        $legal_open = false;
+        foreach ((array) ($b['checks'] ?? []) as $c) if (($c['key'] ?? '') === 'legal' && empty($c['ok'])) $legal_open = true;
+        if ($legal_open && $action === 'live' && !$risk) return new WP_Error('tix_legal_incomplete', 'Die Rechtstexte sind noch nicht vollständig.', ['status' => 409, 'can_accept' => true, 'accept_param' => 'accept_legal_risk']);
         $r = ['action' => $action, 'status' => 'pending', 'at' => gmdate('c'), 'host' => $host, 'by' => array_map('sanitize_text_field', (array) ($b['by'] ?? [])),
             'checks' => array_values(array_map(function ($c) { return ['key' => sanitize_key((string) ($c['key'] ?? '')), 'ok' => !empty($c['ok']), 'state' => sanitize_key((string) ($c['state'] ?? ''))]; }, (array) ($b['checks'] ?? []))),
-            'message' => null, 'nonce' => sanitize_text_field((string) $b['nonce']), 'done_at' => null];
+            'message' => null, 'nonce' => sanitize_text_field((string) $b['nonce']), 'done_at' => null,
+            'legal_risk' => ($legal_open && $risk) ? ['accepted' => true, 'at' => sanitize_text_field((string) ($risk['at'] ?? '')), 'by' => sanitize_text_field((string) ($risk['by'] ?? '')),
+                'missing' => array_values(array_map(function ($m) { return ['key' => sanitize_key((string) ($m['key'] ?? '')), 'title' => sanitize_text_field((string) ($m['title'] ?? ''))]; }, array_slice((array) ($risk['missing'] ?? []), 0, 10)))] : null];
         TIX_Object_Data::write(self::OPT_REQ, intval($lic->id), $r);
         TIX_License_Server::log(intval($lic->id), 'go_live_request', ['action' => $action, 'host' => $host, 'by' => $r['by']['email'] ?? '']);
+        if ($r['legal_risk']) TIX_License_Server::log(intval($lic->id), 'go_live_legal_risk', ['missing' => array_column($r['legal_risk']['missing'], 'key'), 'by' => $r['legal_risk']['by']]);
         do_action('tix_go_live_requested', intval($lic->id), $r);
         return rest_ensure_response(['ok' => true, 'status' => 'pending']);
     }

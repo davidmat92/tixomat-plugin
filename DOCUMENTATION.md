@@ -7495,3 +7495,29 @@ Vertrag: `uebergaben/vertrag-vertrieb-benachrichtigungen-2026-11-18.md`. Klasse 
   - App-Team (`tix_staff`), Kasse und Kunden bleiben gesperrt.
 - **Geprüft:** Für ein `tix_organizer`-Konto ohne Admin-Rechte wurden auf der Einzel-Seite alle `tixomat/v1`-Routen durchgegangen. Nur die beiden Bestell-Routen waren unbeabsichtigt gesperrt. Die übrigen sind bewusst nur für Admins (Plattform, Lizenzen, Logs, Team-Verwaltung, KI-Einstellungen, Ortsabgleich, Saalplan-Modul) bzw. nur für Inhaber (`/studio/modules`).
 - Test: `tests/test-orders-permission-wp.php` (Einzel-Seite 9, Plattform 3).
+
+## 259. Live schalten trotz unvollständiger Rechtstexte, mit Hinweis (ab 1.38.910, User 23.11., studio.xxl-schlagerparty.evendis.de)
+- Wunsch des Users: „soll trotzdem möglich sein es freizuschalten mit einem hinweis“. Bisher sperrte `TIX_Go_Live` hart (`legal` mit `overridable: false`).
+- **Checkliste** (`GET /studio/readiness`): Der Punkt `legal` hat jetzt `overridable: true` und `override: {param: "accept_legal_risk", by: "customer", text}`; `text` ist der Hinweistext, den das Studio vor der Bestätigung zeigt. Die Antwort enthält zusätzlich `legal_warning` (siehe unten).
+- **`POST /studio/go-live {action: "live"}`** (Studio und Veranstalter-App, gleiche Route):
+  - Ohne Bestätigung bleibt es bei `409 tix_legal_incomplete`, wie bisher mit `data.items`. Dazu kommen neu `data.can_accept: true`, `data.accept_param: "accept_legal_risk"`, `data.notice` (Hinweistext) und `data.missing[{key, title, missing[]}]`.
+  - Mit `accept_legal_risk: true` (auch `1`/`"1"`/`"true"`) zählt `legal` nicht mehr als Hindernis.
+    - Andere Pflichtpunkte gelten weiter: Zahlung, Domain, Inhaber → `409 tix_not_ready`. Die Demodaten-Abfrage bleibt ebenfalls.
+    - Antwort: `{ok, requested: true, state, legal_risk_accepted: true, legal_warning}`.
+- **Nachweis:** Option `tix_legal_risk_accepted` speichert die letzten 20 Annahmen als Liste `{at, user_id, by (Name), source, missing[{key, title, missing[]}], text, ip_hash}`, ohne E-Mail-Adresse. Dazu kommt der Audit-Eintrag `go_live_legal_risk` (nur die Anzahl).
+  - Die Anfrage an die Plattform trägt `legal_risk {accepted, at, by, missing[{key, title}]}`.
+- **Plattform** (`POST /license/go-live`):
+  - Ist `legal` offen und `legal_risk.accepted` fehlt, kommt weiter `409 tix_legal_incomplete`, jetzt mit `can_accept`.
+  - Mit Annahme wird die Anfrage `pending` und die Akte bekommt `legal_risk`. Dazu kommt der Protokolleintrag `go_live_legal_risk`.
+  - `wp tixomat golive offen` zeigt `legal_risk` je Anfrage.
+- **Dauerhinweis `legal_warning`:** Er steht in `GET /studio/readiness`, `GET /studio/legal` und in der Antwort von `go-live`:
+  ```
+  {active, level: "warning"|null, status, title, message, missing[{key, title, missing[]}], link: "/rechtstexte/", accepted: {at, by, missing} | null, mail_daily}
+  ```
+  - `active` ist true, solange die Seite live ist (oder live angefragt) und die Rechtstexte unvollständig sind. Sobald alles vollständig ist, verschwindet der Hinweis von selbst.
+  - Das Studio zeigt ihn dauerhaft, z. B. als Banner im Dashboard, mit Link zu den Rechtstexten.
+- **Tägliche Mail:** Cron `tix_legal_warning_daily` um 9 Uhr.
+  - Solange der Hinweis aktiv ist, geht „Erinnerung: Rechtstexte vervollständigen“ an die Inhaber (`_tix_site_owner`), sonst an bis zu 3 Admins.
+  - Schalter: Option `tix_legal_warning_mail`. Vorgabe ist **aus** (`'0'`, User-Entscheid 23.11.: Es bleibt beim Hinweis); einschalten mit `'1'`. `legal_warning.mail_daily` ist daher standardmäßig `false`.
+  - Nur auf Einzel-Seiten.
+- Tests: `tests/test-go-live-legal-risk-wp.php` (Kunden-Seite 12, Plattform 4) und `tests/test-go-live-wp.php` (Erwartung `overridable` angepasst).
