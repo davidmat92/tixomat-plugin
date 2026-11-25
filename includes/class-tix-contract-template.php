@@ -620,7 +620,7 @@ class TIX_Contract_Template {
         $n = 0;
         foreach (get_posts(['post_type' => 'tix_organizer', 'post_status' => 'publish', 'posts_per_page' => 1000, 'fields' => 'ids', 'no_found_rows' => true]) as $oid) {
             foreach (TIX_Org_Approval::manager_ids($oid) as $uid) {
-                TIX_Notifications::add_user_item($uid, $msg[0], $msg[1], ['type' => 'message', 'action' => 'organizer:approval']);
+                TIX_Notifications::add_user_item($uid, $msg[0], $msg[1], ['type' => 'message', 'action' => 'organizer:approval', 'category' => 'contract']);
                 $n++;
             }
         }

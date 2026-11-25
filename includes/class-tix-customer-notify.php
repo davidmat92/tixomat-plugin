@@ -47,8 +47,8 @@ class TIX_Customer_Notify {
         $u = self::user_for_email(get_post_meta($id, '_tix_sp_email', true));
         if (!$u) return;
         $subject = html_entity_decode(get_the_title($id), ENT_QUOTES, 'UTF-8');
-        self::add($u->ID, $new === 'tix_resolved' ? 'Deine Anfrage ist erledigt' : 'Deine Anfrage wurde geschlossen',
-            '#' . $id . ($subject !== '' ? ' · ' . $subject : ''), ['type' => 'support', 'action' => 'support:ticket:' . $id]);
+        self::add($u->ID, sprintf($new === 'tix_resolved' ? 'Deine Anfrage #%d ist erledigt' : 'Deine Anfrage #%d wurde geschlossen', $id),
+            $subject !== '' ? $subject : 'Anfrage #' . $id, ['type' => 'support', 'action' => 'support:ticket:' . $id]);
     }
 
     // ── Ticket umgeschrieben / erhalten ──

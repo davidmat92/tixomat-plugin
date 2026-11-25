@@ -1379,11 +1379,11 @@ class TIX_Sales_Previews {
         $owner = get_userdata(intval($d['owner']));
         if (!$owner) return;
         $name = (string) $d['name'];
-        $title = $what === 'opened' ? 'Vorschau geöffnet' : 'Vorschau übernommen';
+        $title = ($what === 'opened' ? 'Vorschau geöffnet: ' : 'Vorschau übernommen: ') . $name; // Name im Titel (1.38.917)
         $body = $what === 'opened'
             ? 'Die Vorschau für „' . $name . '“ wurde zum ersten Mal geöffnet.'
             : '„' . $name . '“ hat die Vorschau übernommen und ein Konto angelegt. Die Freigabe läuft.';
-        if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($owner->ID, $title, $body, ['type' => 'sales', 'action' => 'sales_preview:' . intval($d['id'])]);
+        if (class_exists('TIX_Notifications')) TIX_Notifications::add_user_item($owner->ID, $title, $body, ['type' => 'sales', 'action' => 'sales_preview:' . intval($d['id']), 'category' => 'sales_preview']);
         if (class_exists('TIX_Mail_Layout')) {
             TIX_Mail_Layout::send($owner->user_email, TIX_Mail_Layout::brand()['name'] . ' – ' . $title . ': ' . $name, [
                 'title' => $title,

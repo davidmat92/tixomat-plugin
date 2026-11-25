@@ -326,7 +326,7 @@ class TIX_Lineup_Reveal {
         $n = 0;
         foreach (array_keys($uids) as $uid) {
             if ($uid <= 0) continue;
-            TIX_Notifications::add_user_item($uid, $title, $body, ['type' => 'message', 'event_id' => intval($event_id), 'action' => 'event:' . intval($event_id), 'campaign' => $cmp]);
+            TIX_Notifications::add_user_item($uid, $title, $body, ['type' => 'message', 'event_id' => intval($event_id), 'action' => 'event:' . intval($event_id), 'campaign' => $cmp, 'category' => 'lineup']);
             $n++;
         }
         return $n;

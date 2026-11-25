@@ -405,7 +405,7 @@ class TIX_Wallet_Pay {
                 TIX_Settlement::add_cashless(intval($r['organizer_id']), -intval($tx['amount_paid']) - intval($tx['amount_bonus']), intval($tx['id']), (string) $r['station']);
             }
             if ($w && class_exists('TIX_Notifications')) {
-                TIX_Notifications::add_user_item(intval($w['user_id']), 'Bezahlt', TIX_Wallet_Balance::fmt($r['amount']) . ' bezahlt · ' . $r['station'], ['type' => 'wallet', 'action' => 'wallet']);
+                TIX_Notifications::add_user_item(intval($w['user_id']), 'Bezahlt mit Guthaben', TIX_Wallet_Balance::fmt($r['amount']) . ' bezahlt · ' . $r['station'], ['type' => 'wallet', 'action' => 'wallet']);
             }
         }
         return $tx;
@@ -454,7 +454,7 @@ class TIX_Wallet_Pay {
         $r = self::pay_row($c['device']['id'], $c['nonce']);
         if ($needs) {
             if (class_exists('TIX_Notifications')) {
-                TIX_Notifications::add_user_item(intval($c['wallet']['user_id']), 'Zahlung bestätigen?', TIX_Wallet_Balance::fmt($amount) . ' · ' . $station . ' – bitte in der App bestätigen', ['type' => 'wallet', 'action' => 'wallet']);
+                TIX_Notifications::add_user_item(intval($c['wallet']['user_id']), 'Guthaben-Zahlung bestätigen?', TIX_Wallet_Balance::fmt($amount) . ' · ' . $station . ' – bitte in der App bestätigen', ['type' => 'wallet', 'action' => 'wallet']);
             }
             return self::charge_result($r);
         }
@@ -496,7 +496,7 @@ class TIX_Wallet_Pay {
             TIX_Settlement::add_cashless(intval($tx['organizer_id']), -(intval($r['amount_paid']) + intval($r['amount_bonus'])), intval($r['id']), 'Storno ' . (string) $tx['station']);
         }
         if (empty($r['replay']) && class_exists('TIX_Notifications')) {
-            TIX_Notifications::add_user_item(intval($w['user_id']), 'Zahlung storniert', TIX_Wallet_Balance::fmt(-intval($tx['amount_paid']) - intval($tx['amount_bonus'])) . ' zurück · ' . $tx['station'], ['type' => 'wallet', 'action' => 'wallet']);
+            TIX_Notifications::add_user_item(intval($w['user_id']), 'Guthaben-Zahlung storniert', TIX_Wallet_Balance::fmt(-intval($tx['amount_paid']) - intval($tx['amount_bonus'])) . ' zurück · ' . $tx['station'], ['type' => 'wallet', 'action' => 'wallet']);
         }
         $w = TIX_Wallet_Balance::get_wallet($tx['wallet_id']);
         return self::out(['ok' => true, 'tx' => TIX_Wallet_Balance::tx_payload($r, true), 'balance' => TIX_Wallet_Balance::euro(intval($w['balance_paid']) + intval($w['balance_bonus']))]);

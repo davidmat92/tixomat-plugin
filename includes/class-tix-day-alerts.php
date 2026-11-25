@@ -184,6 +184,7 @@ class TIX_Day_Alerts {
                 'type'     => 'reminder',
                 'event_id' => $event_id,
                 'action'   => 'event:' . $event_id,
+                'category' => 'day_alert', // Etikett „Tages-Alarm“ (1.38.917)
             ]);
             $n++;
         }

@@ -366,7 +366,7 @@ class TIX_Contract {
         if (class_exists('TIX_Payout_Details')) TIX_Payout_Details::mail($to, 'Zusatzvereinbarung bitte bestätigen', 'Neue Konditionen', $body);
         foreach (TIX_Org_Approval::manager_ids($oid) as $uid) {
             if (class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'add_user_item')) {
-                TIX_Notifications::add_user_item($uid, 'Zusatzvereinbarung bestätigen', 'Neue Konditionen für ' . self::org_name($oid) . ' – bitte im Konto bestätigen.', ['type' => 'message', 'action' => 'organizer:approval']);
+                TIX_Notifications::add_user_item($uid, 'Zusatzvereinbarung bestätigen', 'Neue Konditionen für ' . self::org_name($oid) . ' – bitte im Konto bestätigen.', ['type' => 'message', 'action' => 'organizer:approval', 'category' => 'contract']);
             }
         }
     }

@@ -2894,10 +2894,11 @@ class TIX_Support {
             $text = rtrim(mb_substr($text, 0, 119)) . '…';
         }
         $subject = trim((string) $subject);
-        $body = ($subject !== '' ? '#' . $ticket_id . ' · ' . $subject : 'Anfrage #' . $ticket_id) . ': ' . $text;
+        // Nummer im Titel, Betreff im Text (1.38.917): „Antwort auf deine Anfrage #123“ · „Betreff: Text“
+        $body = ($subject !== '' ? $subject . ': ' : '') . $text;
 
         try {
-            TIX_Notifications::add_user_item($user->ID, 'Neue Antwort auf deine Anfrage', $body, [
+            TIX_Notifications::add_user_item($user->ID, 'Antwort auf deine Anfrage #' . $ticket_id, $body, [
                 'type'   => 'support',
                 'action' => 'support:ticket:' . $ticket_id,
             ]);

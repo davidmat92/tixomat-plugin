@@ -22,7 +22,8 @@ $t = wp_insert_post(['post_type' => 'tix_support_ticket', 'post_status' => 'tix_
 update_post_meta($t, '_tix_sp_email', $mail($kunde));
 TIX_Support::set_status($t, 'tix_resolved', false);
 $i = $last($kunde);
-cn_eq('Eintrag „erledigt“', 'Deine Anfrage ist erledigt', $i['title'] ?? null);
+cn_eq('Eintrag „erledigt“ mit Nummer (1.38.917)', 'Deine Anfrage #' . $t . ' ist erledigt', $i['title'] ?? null);
+cn_eq('Text = Betreff', 'CN Frage', $i['body'] ?? null);
 cn_eq('öffnet die Anfrage', 'support:ticket:' . $t, $i['action'] ?? null);
 TIX_Support::set_status($t, 'tix_closed', false);
 cn_eq('erledigt → geschlossen: kein zweiter Eintrag', 1, count($items($kunde)));

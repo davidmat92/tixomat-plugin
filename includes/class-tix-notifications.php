@@ -80,6 +80,7 @@ class TIX_Notifications {
             'campaign' => self::campaign_key($args['campaign'] ?? ''),
             'created'  => time(),
         ];
+        if (!empty($args['category'])) $item['category'] = sanitize_key((string) $args['category']); // 1.38.917
         $list = self::broadcasts();
         $list[] = $item;
         self::save_broadcasts($list);
@@ -90,6 +91,8 @@ class TIX_Notifications {
                 'event_id' => (string) $item['event_id'],
                 'action'   => $item['action'],
                 'campaign' => $item['campaign'],
+                'type'     => $item['type'],
+                'category' => self::category_of($item),
             ]);
         }
         return $item;
@@ -117,6 +120,7 @@ class TIX_Notifications {
             'campaign' => self::campaign_key($args['campaign'] ?? ''),
             'created'  => time(),
         ];
+        if (!empty($args['category'])) $item['category'] = sanitize_key((string) $args['category']); // 1.38.917
         $list = self::user_items($user_id);
         $list[] = $item;
         usort($list, fn($a, $b) => intval($b['created'] ?? 0) - intval($a['created'] ?? 0));
@@ -129,6 +133,8 @@ class TIX_Notifications {
                 'event_id' => (string) $item['event_id'],
                 'action'   => $item['action'],
                 'campaign' => $item['campaign'],
+                'type'     => $item['type'],
+                'category' => self::category_of($item),
             ]);
         }
         return $item;
@@ -148,6 +154,111 @@ class TIX_Notifications {
         if ($k === 'info' || $k === 'transactional') return $k;
         if (strpos((string) ($it['id'] ?? ''), 'b_') === 0) return 'info';
         return in_array((string) ($it['type'] ?? 'message'), self::INFO_TYPES, true) ? 'info' : 'transactional';
+    }
+
+    // ── Kategorie-Etikett (1.38.917) ──────────────────────────────
+    // Auf dem Sperrbildschirm soll sofort erkennbar sein, worum es geht. iPhone: APNs `aps.alert.subtitle`,
+    // Android: FCM kennt keinen Untertitel → „<Etikett> · <Titel>“. Kein App-Update nötig. Steht das Etikett
+    // schon im Titel (Veranstalter-App: „<Seite> · Storno“), entfällt es. Etiketten nennen nie die Marke.
+
+    /** Kategorie-Schlüssel → Etikett */
+    const CATEGORY_LABELS = [
+        'purchase'      => 'Ticketkauf',
+        'tickets'       => 'Tickets',
+        'reminder'      => 'Erinnerung',
+        'message'       => 'Nachricht vom Veranstalter',
+        'news'          => 'Neuigkeiten',
+        'lineup'        => 'Line-up',
+        'presale'       => 'Vorverkauf',
+        'new_event'     => 'Neues Event',
+        'event_tip'     => 'Event-Tipp',
+        'day_alert'     => 'Tages-Alarm',
+        'support'       => 'Support',
+        'giftcard'      => 'Gutschein',
+        'wallet'        => 'Guthaben',
+        'resale'        => 'Weiterverkauf',
+        'raffle'        => 'Gewinnspiel',
+        'awareness'     => 'Awareness',
+        'artist'        => 'Künstler',
+        'settlement'    => 'Abrechnung',
+        'approval'      => 'Konto-Prüfung',
+        'contract'      => 'Vertrag',
+        'co_event'      => 'Co-Veranstalter',
+        'website'       => 'Website',
+        'sales'         => 'Verkauf',
+        'sales_preview' => 'Vertrieb',
+        'refund'        => 'Storno',
+        'guestlist'     => 'Tischanfrage',
+        'waitlist'      => 'Warteliste',
+        'music'         => 'Musikwunsch',
+        'team'          => 'Team',
+        'promoter'      => 'Promoter',
+        'sold_out'      => 'Ausverkauft',
+        'low_stock'     => 'Kontingent knapp',
+    ];
+
+    /** Feed-/Push-Typ → Kategorie (Gast-App und Veranstalter-App, TIX_Staff_Push) */
+    const TYPE_CATEGORY = [
+        'ticket' => 'tickets', 'purchase' => 'purchase', 'reminder' => 'reminder',
+        'message' => 'message', 'promo' => 'news', 'news' => 'news', 'tip' => 'news',
+        'support' => 'support', 'support_inquiry' => 'support', 'support_team' => 'support',
+        'giftcard' => 'giftcard', 'giftcard_sold' => 'giftcard',
+        'wallet' => 'wallet', 'wallet_topup' => 'wallet',
+        'resale' => 'resale', 'raffle' => 'raffle', 'awareness' => 'awareness', 'artist' => 'artist',
+        'settlement' => 'settlement', 'organizer' => 'approval', 'admin' => 'approval', 'approval' => 'approval',
+        'sales' => 'sales', 'refund' => 'refund', 'guestlist' => 'guestlist', 'waitlist' => 'waitlist',
+        'music' => 'music', 'team' => 'team', 'promoter_signup' => 'promoter',
+        'sold_out' => 'sold_out', 'low_stock' => 'low_stock',
+    ];
+
+    /**
+     * Kategorie eines Eintrags/einer Push-Nutzlast ({category?, type, action, campaign}) → Schlüssel oder ''.
+     * Ausdrücklich gesetzte Kategorie gewinnt ('none' = bewusst ohne Etikett), sonst abgeleitet – auch für alte Einträge.
+     */
+    public static function category_of($it) {
+        $it = (array) $it;
+        $c = sanitize_key((string) ($it['category'] ?? ''));
+        if ($c === 'none') return '';
+        if ($c !== '' && isset(self::CATEGORY_LABELS[$c])) return $c;
+        $type = (string) ($it['type'] ?? '');
+        $action = (string) ($it['action'] ?? '');
+        $cmp = (string) ($it['campaign'] ?? '');
+        if ($type === 'awareness_guest') return ''; // Gast mit Hinweis: Sperrbildschirm bleibt diskret
+        if (strpos($cmp, 'reveal-') === 0) return 'lineup';
+        if (preg_match('/^flow-(presale|next|follower|thanks)-/', $cmp, $m)) {
+            return ['presale' => 'presale', 'next' => 'event_tip', 'follower' => 'new_event', 'thanks' => 'message'][$m[1]];
+        }
+        if ($action === 'organizer:approval') return 'approval';
+        if ($action === 'organizer:domain') return 'website';
+        if ($type === 'message' && strpos($action, 'staff:event:') === 0) return 'co_event';
+        return self::TYPE_CATEGORY[$type] ?? '';
+    }
+
+    public static function category_label($key) {
+        return (string) (self::CATEGORY_LABELS[(string) $key] ?? '');
+    }
+
+    /** Push-Daten um category/category_label ergänzen (vorhandene Werte bleiben). */
+    public static function with_category(array $data) {
+        if (!isset($data['category_label'])) {
+            $k = self::category_of($data);
+            $data['category'] = $k;
+            $data['category_label'] = self::category_label($k);
+        }
+        return $data;
+    }
+
+    /** Etikett für die Anzeige: '' ohne Kategorie oder wenn es schon im Titel steht. */
+    public static function push_label($title, array $data) {
+        $l = trim((string) (self::with_category($data)['category_label'] ?? ''));
+        if ($l === '') return '';
+        return mb_stripos((string) $title, $l) !== false ? '' : $l;
+    }
+
+    /** Android-Titel mit Etikett (FCM hat keinen Untertitel): „Support · Antwort auf deine Anfrage #12“ */
+    public static function android_title($title, array $data) {
+        $l = self::push_label($title, $data);
+        return $l === '' ? (string) $title : $l . ' · ' . $title;
     }
 
     private static function clean($s) {
@@ -207,6 +318,9 @@ class TIX_Notifications {
                 'action'   => (string) ($it['action'] ?? ''),
                 'campaign' => (string) ($it['campaign'] ?? ''),
                 'created'  => intval($it['created'] ?? 0),
+                // Kategorie-Etikett wie im Push-Untertitel (1.38.917), '' ohne Kategorie
+                'category'       => self::category_of($it),
+                'category_label' => self::category_label(self::category_of($it)),
             ];
         }, $items);
 
@@ -596,15 +710,35 @@ class TIX_Notifications {
         if ($kind === 'giftcard') {
             // Aktion giftcard:<Code> öffnet in der App genau den gekauften Gutschein (1.38.481; „giftcards“ öffnet die Kaufseite)
             $codes = class_exists('TIX_Giftcard_Gift') ? (array) TIX_Giftcard_Gift::codes_for_order($order_id) : [];
-            self::add_user_item($uid, 'Dein Gutschein ist da', 'Den Gutschein-Code findest du in der Bestätigung und unter Gutscheine in der App.', ['type' => 'giftcard', 'action' => $codes ? 'giftcard:' . $codes[0] : 'tab:tickets']);
+            self::add_user_item($uid, 'Dein Gutschein ist da', 'Bestellung ' . $order->get_order_number() . ' · Den Gutschein-Code findest du unter Gutscheine in der App.', ['type' => 'giftcard', 'action' => $codes ? 'giftcard:' . $codes[0] : 'tab:tickets']);
             return;
         }
-        self::add_user_item(
-            $uid,
-            'Deine Tickets liegen in der App',
-            'Öffne den Tickets-Tab, um deine QR-Codes jederzeit griffbereit zu haben.',
-            ['type' => 'ticket', 'action' => 'tab:tickets']
-        );
+        [$title, $body] = self::purchase_text($order);
+        self::add_user_item($uid, $title, $body, ['type' => 'ticket', 'action' => 'tab:tickets', 'category' => 'purchase']);
+    }
+
+    /**
+     * Titel/Text „Ticketkauf“ ohne Kontext verständlich (1.38.917): „2 Tickets für Sommerfest“ ·
+     * „Bestellung KK-1042 · Deine QR-Codes findest du im Tickets-Tab.“ Mehrere Events: „… und 1 weiteres Event“.
+     */
+    public static function purchase_text($order) {
+        $gc = class_exists('TIX_Giftcards') && method_exists('TIX_Giftcards', 'system_event_id') ? intval(TIX_Giftcards::system_event_id()) : 0;
+        $per = [];
+        foreach ((array) $order->get_items() as $it) {
+            $e = method_exists($it, 'get_event_id') ? intval($it->get_event_id()) : 0;
+            if (!$e || $e === $gc) continue;
+            $per[$e] = ($per[$e] ?? 0) + max(0, intval($it->get_quantity()));
+        }
+        $n = array_sum($per);
+        if (!$per || $n <= 0) {
+            return ['Deine Tickets liegen in der App', 'Bestellung ' . $order->get_order_number() . ' · Öffne den Tickets-Tab, um deine QR-Codes griffbereit zu haben.'];
+        }
+        arsort($per);
+        $first = html_entity_decode(get_the_title((int) array_key_first($per)), ENT_QUOTES, 'UTF-8');
+        $more = count($per) - 1;
+        $title = ($n === 1 ? '1 Ticket' : $n . ' Tickets') . ' für ' . $first
+            . ($more > 0 ? ' und ' . ($more === 1 ? '1 weiteres Event' : $more . ' weitere Events') : '');
+        return [$title, 'Bestellung ' . $order->get_order_number() . ' · Deine QR-Codes findest du im Tickets-Tab.'];
     }
 
     /** Stündlich: am Event-Tag einmal an das heutige Event erinnern. */
@@ -828,6 +962,12 @@ class TIX_Notifications {
      */
     public static function apns_payload($title, $body, $data = [], $badge = null) {
         $aps = ['alert' => ['title' => $title, 'body' => $body], 'sound' => 'default'];
+        // Kategorie-Etikett als Untertitel (1.38.917); nur wenn eine Kategorie bekannt ist und nicht schon im Titel steht
+        if ($data) {
+            $data = self::with_category((array) $data);
+            $sub = self::push_label($title, $data);
+            if ($sub !== '') $aps['alert']['subtitle'] = $sub;
+        }
         if ($badge !== null) $aps['badge'] = max(0, intval($badge));
         return ['aps' => $aps, 'data' => $data];
     }

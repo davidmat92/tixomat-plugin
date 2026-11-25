@@ -691,7 +691,7 @@ class TIX_Co_Money {
         if (!$u) { if ($party !== 'creator' && class_exists('TIX_Co_Sites') && TIX_Co_Sites::is_site_profile(self::pid($party))) TIX_Co_Sites::trigger_sync(self::pid($party)); return; }
         $title = self::dec(get_the_title($eid));
         if (class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'add_user_item')) {
-            TIX_Notifications::add_user_item($u->ID, 'Zustimmung nötig', $title . ' · Geldempfänger und Aufteilung', ['type' => 'message', 'action' => 'staff:event:' . intval($eid)]);
+            TIX_Notifications::add_user_item($u->ID, 'Zustimmung nötig: ' . $title, 'Geldempfänger und Aufteilung – bitte in der App bestätigen', ['type' => 'message', 'action' => 'staff:event:' . intval($eid)]);
         }
         $html = '<p>Hallo,</p><p>Für <strong>' . esc_html($title) . '</strong> wurde festgelegt, wer das Geld einnimmt und wie ihr das Netto aufteilt. Das gilt erst, wenn du zustimmst.</p><p>Im Studio findest du das beim Event unter „Co-Veranstalter“.</p>';
         $subject = 'Zustimmung nötig: ' . $title;

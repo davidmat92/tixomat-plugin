@@ -163,6 +163,11 @@ class TIX_FCM {
 
     /** Eine Nachricht für ein Gerät (JSON für messages:send). */
     public static function message($token, $title, $body, array $data = []) {
+        // Kategorie-Etikett (1.38.917): Android kennt keinen Untertitel → vor den Titel, dazu category/category_label in data
+        if ($data && class_exists('TIX_Notifications') && method_exists('TIX_Notifications', 'with_category')) {
+            $data = TIX_Notifications::with_category($data);
+            $title = TIX_Notifications::android_title($title, $data);
+        }
         $m = [
             'token'        => (string) $token,
             'notification' => ['title' => (string) $title, 'body' => (string) $body],

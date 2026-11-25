@@ -7684,3 +7684,50 @@ Vertrag (vollständig): `uebergaben/vertrag-vorkasse-ueberweisung-2026-11-23.md`
   - Beide Routen schreiben ins Audit-Protokoll: `ads_conversions_settings` und `ads_conversions_export` (nur Anzahlen).
 - **Löschfrist:** Der tägliche Cron `tix_ads_cleanup` leert alle Einträge, die älter als 90 Tage sind. Offene Einträge werden dabei `verfallen`. Logs, Mails und Audit enthalten nie Klick-ID oder Prüfwert.
 - Tests: `tests/test-ads-conversions-wp.php` und `tests/test-trial-wp.php` (Bestellung mit `ads` bis `kunde`).
+
+## 263. Push-Mitteilungen mit Kategorie-Etikett (ab 1.38.917, Auftrag Zentrale 25.11., Meldung KitchenKlub)
+Auf dem Sperrbildschirm war nicht erkennbar, worum es geht. Rein additiv, kein App-Update nötig.
+
+**Etikett (zentral in `TIX_Notifications`):** `category_of($it)` leitet aus `category` (ausdrücklich) bzw. `type`/`action`/`campaign` einen Schlüssel ab, `category_label($key)` liefert das Etikett. Ausdrückliches `category: "none"` = ohne Etikett. Alte Feed-Einträge werden genauso abgeleitet.
+- iPhone: `aps.alert.subtitle` = Etikett (`apns_payload`, gilt für Gast-App, Veranstalter-App und die Weiterleitung über evendis.de).
+- Android: FCM hat keinen Untertitel → Titel „<Etikett> · <Titel>“ (`TIX_FCM::message` über `TIX_Notifications::android_title`).
+- Steht das Etikett schon im Titel (Veranstalter-App „<Seite> · Storno“, „Guthaben gutgeschrieben“), entfällt es.
+- Push-`data` trägt zusätzlich `type`, `category`, `category_label`.
+- `GET /notifications`: je Eintrag `category` (Schlüssel | "") und `category_label` (Etikett | ""). Apps dürfen es später als Etikett zeigen.
+- Awareness-Gast (`awareness_guest`) bekommt bewusst kein Etikett (diskreter Sperrbildschirm), das Awareness-Team schon.
+- Etiketten nennen nie die Marke.
+
+| Schlüssel | Etikett | Quelle |
+|---|---|---|
+| purchase | Ticketkauf | Bestellung abgeschlossen |
+| tickets | Tickets | Ticket erhalten/umgeschrieben |
+| reminder | Erinnerung | „Heute: <Event>“ |
+| day_alert | Tages-Alarm | „Neu am …“ |
+| message | Nachricht vom Veranstalter | Broadcast, Danke-Nachricht |
+| news | Neuigkeiten | promo/news/tip |
+| lineup | Line-up | Act-Enthüllung |
+| presale / new_event / event_tip | Vorverkauf / Neues Event / Event-Tipp | Gast-Abläufe |
+| support | Support | Antwort, erledigt, Team-Anfragen |
+| giftcard, wallet, resale, raffle | Gutschein, Guthaben, Weiterverkauf, Gewinnspiel | |
+| awareness | Awareness | Team im Dienst |
+| artist | Künstler | Folgen, Termine |
+| settlement | Abrechnung | |
+| approval | Konto-Prüfung | organizer:approval, Admin |
+| contract | Vertrag | Vertragsfassungen, Zusatzvereinbarung |
+| co_event | Co-Veranstalter | staff:event-Nachrichten |
+| website | Website | eigene Domain aktiv |
+| sales / sales_preview | Verkauf / Vertrieb | |
+| refund, guestlist, waitlist, music, team, promoter, sold_out, low_stock | Storno, Tischanfrage, Warteliste, Musikwunsch, Team, Promoter, Ausverkauft, Kontingent knapp | Veranstalter-App |
+
+**Klarere Titel:**
+- Ticketkauf: „Deine Tickets liegen in der App“ → „2 Tickets für <Event>“ (mehrere Events: „… und 1 weiteres Event“), Text mit Bestellnummer (`purchase_text`).
+- Gutschein: Text mit Bestellnummer.
+- Support-Antwort: „Neue Antwort auf deine Anfrage“ → „Antwort auf deine Anfrage #<id>“, Text „<Betreff>: <Antwort>“.
+- Anfrage erledigt/geschlossen: „Deine Anfrage #<id> ist erledigt“, Text = Betreff.
+- Co-Veranstalter: „Zustimmung nötig“ → „Zustimmung nötig: <Event>“.
+- Guthaben-Zahlung: „Bezahlt“/„Zahlung bestätigen?“/„Zahlung storniert“ → „Bezahlt mit Guthaben“/„Guthaben-Zahlung bestätigen?“/„Guthaben-Zahlung storniert“.
+- Vertriebs-Vorschau: „Vorschau geöffnet: <Name>“.
+
+**Test:** `tests/test-push-category-wp.php`.
+
+**Umzug nach evendis-api:** `category_of` ist eine reine Funktion über {category, type, action, campaign}, die Tabelle der Etiketten wandert mit.
