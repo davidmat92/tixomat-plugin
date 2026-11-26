@@ -691,6 +691,8 @@ class TIX_Emails {
      * Bei Bestellabschluss: Erinnerungs- und Nachbefragungsmails planen
      */
     public static function schedule_event_emails($order_id) {
+        // Ab 1.38.919 plant der Sammel-Cron TIX_Event_Mails (alle 15 min) – keine Einzel-Events je Bestellung mehr
+        if (class_exists('TIX_Event_Mails')) return;
         $order = wc_get_order($order_id);
         if (!$order) return;
 
@@ -770,6 +772,8 @@ class TIX_Emails {
 
         // Prüfen ob Order noch gültig
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
+        // Höchstens einmal je Bestellung und Event (Sammel-Cron TIX_Event_Mails, 1.38.919)
+        if (class_exists('TIX_Event_Mails') && !TIX_Event_Mails::claim($order_id, $event_id, 'r')) return;
 
         $extra = [];
         $address = (string) get_post_meta($event_id, '_tix_address', true);
@@ -795,6 +799,8 @@ class TIX_Emails {
         if (!$order || !$event) return;
 
         if (!in_array($order->get_status(), ['completed', 'processing'])) return;
+        // Höchstens einmal je Bestellung und Event (Sammel-Cron TIX_Event_Mails, 1.38.919)
+        if (class_exists('TIX_Event_Mails') && !TIX_Event_Mails::claim($order_id, $event_id, 'f')) return;
 
         $s = self::get_settings();
         $followup_url = $s['email_followup_url'] ?: '';
@@ -966,6 +972,8 @@ class TIX_Emails {
      * Erinnerungs- und Nachbefragungsmails für native Orders planen.
      */
     private static function schedule_native_event_emails($order) {
+        // Ab 1.38.919 plant der Sammel-Cron TIX_Event_Mails (alle 15 min) – keine Einzel-Events je Bestellung mehr
+        if (class_exists('TIX_Event_Mails')) return;
         $s = self::get_settings();
         $reminder_active = !empty($s['email_reminder']);
         $followup_active = !empty($s['email_followup']);

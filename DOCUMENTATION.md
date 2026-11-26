@@ -7754,3 +7754,27 @@ Audit auf origin/main 1.38.917. Fixes mit `tests/test-audit-nacht-wp.php`, PHP-W
 - Login-Seite und Admin-Oberfläche: kein Tixomat-Logo von tixomat.de mehr; `TIX_Custom_Urls::logo_url()` = Admin-Logo → Marken-Logo → Theme-Logo → Seitenname als Text.
 
 **`tix_get_settings()`:** liest nach `add/update/delete_option_tix_settings` im selben Request neu (Zähler `$GLOBALS['tix_settings_gen']`). Vorher blieb der alte Stand bis Request-Ende.
+
+## 265. Erinnerung und Nachbefragung per Sammel-Cron (ab 1.38.919, Nachtschicht 26.11.)
+Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_reminder_email`, `tix_send_followup_email`). Auf evendis lagen 6.321 davon in der Autoload-Option `cron` (665 KB), die WordPress bei jedem Aufruf liest und bei jeder Planung neu schreibt. In den Demo-Shops, bei Mallorca und firstclass gab es dasselbe Muster.
+
+**Neu: `TIX_Event_Mails`** (includes/class-tix-event-mails.php):
+- Cron `tix_event_mails_cron`, alle 15 Minuten (`tix_15min`). Er sucht Events im Zeitfenster und deren bezahlte Bestellungen (`tix_orders` + `tix_order_items.event_id`, Status completed/processing) ohne Merker. Dann ruft er `TIX_Emails::send_reminder()`/`send_followup()` auf. Pro Lauf höchstens 200 Mails, der Rest folgt beim nächsten Lauf.
+- Erinnerung: ab Beginn − 24 h bis Beginn, nur für Bestellungen von vor Beginn − 24 h (wie vorher: nur geplant, wenn der Zeitpunkt noch kam).
+- Nachbefragung: ab Beginn + 24 h, höchstens 72 h verspätet.
+- Event-Beginn und Uhr genau wie vorher (`strtotime` aus `_tix_date_start`/`_tix_time_start`).
+- Schalter `email_reminder`/`email_followup` gelten jetzt zum Versandzeitpunkt.
+- Merker je Bestellung und Event: `_tix_evmail_r_<event>` und `_tix_evmail_f_<event>` (Bestell-Meta wie `_tix_completed_email_sent`, `add_post_meta` unique). Gesetzt in `send_reminder`/`send_followup` selbst, so geht jede Mail höchstens einmal raus, egal über welchen Weg.
+- `schedule_event_emails`/`schedule_native_event_emails` planen nichts mehr.
+
+**Migration** (einmal beim ersten Lauf, Option `tix_evmail_migrated` mit Zählern):
+- Alle alten Einzel-Events beider Hooks werden entfernt (`wp_unschedule_hook`, bei Action Scheduler `as_unschedule_all_actions`).
+- Liegt eine Bestellung gerade im offenen Fenster und hatte kein offenes Einzel-Event mehr, ist die Mail schon raus (oder war nie vorgesehen). Sie bekommt den Merker „migrated“, damit nichts doppelt kommt.
+- Offene, schon fällige Einzel-Events bleiben ohne Merker, die versendet der Sammel-Cron.
+- Künftige Fenster laufen normal.
+
+**Messung (Testseiten):** Cron-Option KK-Test 501 KB → 64 KB, Plattform-Test 334 KB → 51 KB. Im Test mit 2.000 Einzel-Events: 375 KB → 64 KB.
+
+**Test:** `tests/test-event-mails-wp.php`.
+
+**Umzug nach evendis-api:** Fenster-Regel und Bestell-Abfrage sind reine Funktionen (`events_in_window`, `due_orders`). Die Merker wandern als Tabelle (order_id, event_id, kind, at) mit.

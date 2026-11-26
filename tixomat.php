@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.918
+ * Version: 1.38.919
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.918');
+define('TIXOMAT_VERSION', '1.38.919');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -1732,6 +1732,8 @@ require_once TIXOMAT_PATH . 'includes/class-tix-mail-gallery.php';
 TIX_Mail_Gallery::init();                                           // evendis → E-Mails, GET /studio/mails (1.38.471)
 require_once TIXOMAT_PATH . 'includes/class-tix-emails.php';
 TIX_Emails::init();
+require_once TIXOMAT_PATH . 'includes/class-tix-event-mails.php'; // Erinnerung/Nachbefragung per Sammel-Cron (1.38.919)
+TIX_Event_Mails::init();
 
 // ── Brevo-Newsletter-Sync (immer laden, greift nur wenn enabled+configured) ──
 require_once TIXOMAT_PATH . 'includes/class-tix-brevo.php';
