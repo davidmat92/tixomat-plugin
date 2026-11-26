@@ -770,7 +770,7 @@ class TIX_Email_Log {
                     </div>
                     <div style="padding:20px;">
                         <?php if (strpos($log->body, '<') !== false && strpos($log->body, '>') !== false): ?>
-                            <iframe id="tix-email-preview" style="width:100%;border:none;min-height:500px;border-radius:8px;" srcdoc="<?php echo esc_attr($log->body); ?>"></iframe>
+                            <iframe id="tix-email-preview" sandbox="allow-same-origin allow-popups" style="width:100%;border:none;min-height:500px;border-radius:8px;" srcdoc="<?php echo esc_attr($log->body); ?>"></iframe>
                             <script>
                             (function(){
                                 var f = document.getElementById('tix-email-preview');

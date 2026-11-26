@@ -113,7 +113,10 @@ si_t('Admin: Zustand', $st === 200 && $d['available'] === true && $d['replies'][
 si_t('ungültige Adresse 400', $st === 400 && ($d['data']['field'] ?? '') === 'alias', $d);
 [$st, $d] = si_rest('POST', '/support/mail-inbox', ['alias' => $in]);
 si_t('Zieladresse als eigene Adresse abgelehnt', $st === 400, $d);
-[$st, $d] = si_rest('POST', '/support/mail-inbox', ['alias' => "Support$sfx@Club.test", 'provider' => 'gmail', 'show_contact' => true]);
+// „Als Kontakt zeigen“ erst nach geprüfter Weiterleitung (seit b04203e, 409 tix_alias_unverified) – Test war noch auf dem alten Stand (Audit 26.11.)
+[$st, $d] = si_rest('POST', '/support/mail-inbox', ['show_contact' => true]);
+si_t('Als Kontakt zeigen ohne geprüfte Adresse: 409', $st === 409 && ($d['code'] ?? '') === 'tix_alias_unverified', [$st, $d['code'] ?? null]);
+[$st, $d] = si_rest('POST', '/support/mail-inbox', ['alias' => "Support$sfx@Club.test", 'provider' => 'gmail']);
 si_t('Adresse gespeichert, wartet', $st === 200 && $d['alias']['address'] === "support$sfx@club.test" && $d['alias']['status'] === 'waiting' && $d['alias']['provider'] === 'gmail', $d['alias'] ?? $d);
 si_t('Kontakt erst nach Verbindung', TIX_Support_Inbound::contact_email() === '');
 $GLOBALS['si_out'] = [];
@@ -135,6 +138,8 @@ si_t('Bestätigung erledigt', $st === 200 && !$d['verifications'], $d['verificat
 $r = TIX_Support_Inbound::deliver_local(si_mail("Club <mail@club.test>", $in, (string) ($tm['subject'] ?? ''), 'Test', ['X-Forwarded-To: ' . $in]), $in);
 [$st, $d] = si_rest('GET', '/support/mail-inbox');
 si_t('Testmail angekommen → Verbunden', $r['result'] === 'test_ok' && $d['alias']['status'] === 'connected' && $d['alias']['connected_at'] !== '', [$r, $d['alias']]);
+[$st, $d] = si_rest('POST', '/support/mail-inbox', ['show_contact' => true]);
+si_t('Als Kontakt zeigen nach Verbindung', $st === 200, [$st, $d['code'] ?? null]);
 si_t('Kontakt-Adresse jetzt in /support/config', TIX_Support_Inbound::contact_email() === "support$sfx@club.test" && (si_rest('GET', '/support/config')[1]['contact_email'] ?? '') === "support$sfx@club.test");
 $r = TIX_Support_Inbound::deliver_local(si_mail("Neue Gästin <neu$sfx@example.test>", $in, 'Tisch für Samstag?', "Hallo,\nhabt ihr noch einen Tisch?"), $in);
 $nt = intval($r['ticket'] ?? 0); $posts[] = $nt;

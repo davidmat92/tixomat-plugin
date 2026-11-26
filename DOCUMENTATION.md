@@ -7731,3 +7731,26 @@ Auf dem Sperrbildschirm war nicht erkennbar, worum es geht. Rein additiv, kein A
 **Test:** `tests/test-push-category-wp.php`.
 
 **Umzug nach evendis-api:** `category_of` ist eine reine Funktion über {category, type, action, campaign}, die Tabelle der Etiketten wandert mit.
+
+## 264. Sicherheits-Audit Nachtschicht 26.11. (ab 1.38.918)
+Audit auf origin/main 1.38.917. Fixes mit `tests/test-audit-nacht-wp.php`, PHP-Warnungs-Scan `tests/scan-rest-warnings-wp.php`.
+
+**Einlass-Seite `[tix_checkin]` (kritisch):** Die AJAX-Aktionen (`tix_guest_validate`, `tix_guest_list_status`, `tix_guest_update_checkin`, `tix_checkin_combined_list`, `tix_ticket_toggle_checkin`) prüften ohne gesetztes Check-in-Passwort nur die öffentliche Nonce. Gästeliste mit E-Mails und Ticket-Codes jedes Events war lesbar, Ein-/Auschecken für jeden möglich. Jetzt `TIX_Checkin::door_ok()`: angemeldet mit `TIX_REST_API::can_access_event` **oder** richtiges Passwort. Ohne Passwort und ohne Anmeldung: Abweisung „Für dieses Event ist kein Einlass-Passwort gesetzt …“. Die App (REST `/checkin/*`) ist nicht betroffen.
+- Gutschein-Einlösung am Einlass (`tix_giftcard_redeem`) folgt derselben Regel und braucht die Nonce der Einlass-Seite (checkin.js schickt das Passwort mit).
+
+**Benutzer-Wechsel (hoch):** Rückweg-Cookie war `admin_id|HMAC` ohne Ablauf und funktionierte auch abgemeldet. Jetzt `admin|ziel|ablauf|token|HMAC`, Token-Hash in `_tix_user_switch_token` beim Admin (4 h), gilt nur in der Sitzung des Ziel-Kontos und wird beim Rückweg gelöscht. Alte Cookies gelten nicht mehr.
+
+**Bestellungen/Tickets (hoch):**
+- `POST /pos/orders/{id}/email`: Empfänger ändern nur bei Kassen-Bestellungen (`pos_*`), „Kasse & Bar“ nur eigene von heute, sonst 403 `tix_pos_email_locked`/`tix_cashier_scope`. Ohne Änderung weiter Versand an die hinterlegte Adresse.
+- Co-Sale-Status (`GET /customer/orders/{id}` für weitergereichte Bestellungen) und `POST /customer/tickets/{id}/holder`: nur bestätigte Konto-E-Mail (`TIX_App_Account::trusted_email`) oder eigenes Konto (Co-Sale-Zuordnung speichert jetzt `user`), sonst Schlüssel.
+- `POST /orders/{id}/resend-email`: E-Mail wird erst nach der Statusprüfung geändert.
+
+**Mittel/niedrig:**
+- `GET /wallet/admin/customers/{id}`: Bereich wird unabhängig von `page`/`from`/`to` geprüft (vorher Name/E-Mail fremder Kunden im Mehr-Veranstalter-Modus).
+- Meta-Ads-Dashboard, Werbebudget und Pixel-Test nur `manage_options`, Anzeigen-Assistent nur mit `edit_post` des Events (vorher reichte die Admin-Nonce, die auch Veranstalter haben).
+- `/meta-feed`: Schlüsselvergleich mit `hash_equals`.
+- Ticket-Übertragung (Formular): eine Meldung für „Bestellung unbekannt“ und „E-Mail passt nicht“.
+- Mail-Protokoll-Vorschau im iframe mit `sandbox` (keine Skripte).
+- Login-Seite und Admin-Oberfläche: kein Tixomat-Logo von tixomat.de mehr; `TIX_Custom_Urls::logo_url()` = Admin-Logo → Marken-Logo → Theme-Logo → Seitenname als Text.
+
+**`tix_get_settings()`:** liest nach `add/update/delete_option_tix_settings` im selben Request neu (Zähler `$GLOBALS['tix_settings_gen']`). Vorher blieb der alte Stand bis Request-Ende.

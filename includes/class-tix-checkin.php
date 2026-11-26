@@ -21,6 +21,24 @@ class TIX_Checkin {
         add_action('wp_ajax_nopriv_tix_ticket_toggle_checkin', [__CLASS__, 'ajax_ticket_toggle_checkin']);
     }
 
+    /**
+     * Zugang zur Einlass-Seite (Audit 26.11., kritisch): angemeldet mit Zugriff auf das Event (Admin, Team, Eingang,
+     * eigener Veranstalter – TIX_REST_API::can_access_event) ODER richtiges Check-in-Passwort des Events.
+     * Vorher reichte ohne gesetztes Passwort die öffentliche Nonce: Gästeliste samt E-Mails und Ticket-Codes jedes Events
+     * lesbar, Ein-/Auschecken für jeden. Ohne Passwort und ohne Anmeldung jetzt Abweisung mit klarem Hinweis.
+     */
+    public static function door_ok($event_id, $stored_pw, $password) {
+        $event_id = intval($event_id);
+        if (is_user_logged_in() && class_exists('TIX_REST_API') && method_exists('TIX_REST_API', 'can_access_event')
+            && TIX_REST_API::can_access_event($event_id)) return true;
+        $stored_pw = (string) $stored_pw;
+        if ($stored_pw === '') {
+            wp_send_json_error(['message' => 'Für dieses Event ist kein Einlass-Passwort gesetzt. Bitte mit dem Team-Konto anmelden oder im Event ein Check-in-Passwort festlegen.', 'status' => 'unauthorized']);
+            return false; // nur in Tests ohne exit erreichbar
+        }
+        return hash_equals($stored_pw, (string) $password);
+    }
+
     // ──────────────────────────────────────────
     // Shortcode: [tix_checkin]
     // ──────────────────────────────────────────
@@ -228,7 +246,7 @@ class TIX_Checkin {
         // Passwort prüfen
         $password  = sanitize_text_field($_POST['password'] ?? '');
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
@@ -314,7 +332,7 @@ class TIX_Checkin {
         // Passwort prüfen
         $password  = sanitize_text_field($_POST['password'] ?? '');
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
@@ -374,7 +392,7 @@ class TIX_Checkin {
         if (!$event_id || !$guest_id) wp_send_json_error(['message' => 'Ungültige Daten.']);
 
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
@@ -454,7 +472,7 @@ class TIX_Checkin {
 
         // Passwort prüfen
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
@@ -649,7 +667,7 @@ class TIX_Checkin {
         if ($event_id) {
             $password  = sanitize_text_field($_POST['password'] ?? '');
             $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-            if ($stored_pw && !hash_equals($stored_pw, $password)) {
+            if (!self::door_ok($event_id, $stored_pw, $password)) {
                 wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
             }
         }
@@ -775,7 +793,7 @@ class TIX_Checkin {
         // Passwort prüfen
         $password  = sanitize_text_field($_POST['password'] ?? '');
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 
@@ -900,7 +918,7 @@ class TIX_Checkin {
         // Passwort prüfen
         $event_id  = intval(get_post_meta($ticket_id, '_tix_ticket_event_id', true));
         $stored_pw = get_post_meta($event_id, '_tix_checkin_password', true);
-        if ($stored_pw && !hash_equals($stored_pw, $password)) {
+        if (!self::door_ok($event_id, $stored_pw, $password)) {
             wp_send_json_error(['message' => 'Falsches Passwort.', 'status' => 'unauthorized']);
         }
 

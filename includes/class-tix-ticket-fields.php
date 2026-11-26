@@ -648,8 +648,10 @@ class TIX_Ticket_Fields {
         $order = class_exists('TIX_Order') ? TIX_Order::get($oid) : null;
         $mine = false;
         if (is_user_logged_in()) {
-            $em = strtolower(wp_get_current_user()->user_email);
-            $mine = $em !== '' && ($em === strtolower((string) get_post_meta($tid, '_tix_ticket_owner_email', true)) || ($order && strtolower($order->get_billing_email()) === $em));
+            // Nur bestätigte Konto-E-Mail oder eigene Bestellung (Audit 26.11.: vorher reichte ein Konto mit fremder, unbestätigter E-Mail)
+            $em = class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'trusted_email') ? strtolower(TIX_App_Account::trusted_email(wp_get_current_user())) : '';
+            $mine = ($order && intval($order->get_customer_id()) > 0 && intval($order->get_customer_id()) === get_current_user_id())
+                || ($em !== '' && ($em === strtolower((string) get_post_meta($tid, '_tix_ticket_owner_email', true)) || ($order && strtolower($order->get_billing_email()) === $em)));
         }
         $key = (string) $req->get_param('key');
         if (!$mine && $key !== '' && $order && hash_equals((string) $order->get_order_key(), $key)) $mine = true;

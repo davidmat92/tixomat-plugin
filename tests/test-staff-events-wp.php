@@ -74,7 +74,23 @@ se_eq('Musikwunsch mit Titel', 'Mr. Brightside – The Killers', $sent[0]['body'
 $sent = [];
 do_action('tix_table_requested', $e1, 1);
 TIX_Staff_Push::flush_events();
-se_eq('Tischanfrage', true, strpos($sent[0]['title'] ?? '', 'Tischanfrage') !== false);
+// Tischanfrage gehört zum Modul „Saalplan & Tische“: auf Einzel-Seiten ohne das Modul keine Meldung (Audit 26.11.)
+$seat_on = $multi || !class_exists('TIX_Plan') || TIX_Plan::site_on('seating');
+se_eq('Tischanfrage' . ($seat_on ? '' : ' (Modul aus: keine Meldung)'), $seat_on, strpos($sent[0]['title'] ?? '', 'Tischanfrage') !== false);
+// Die echte Reservierung löst das Ereignis aus (vorher nie, Audit 26.11.)
+if (!class_exists('TIX_Table_Reservation') && defined('TIXOMAT_PATH')) require_once TIXOMAT_PATH . 'includes/class-tix-table-reservation.php'; // Modul auf der Testseite aus
+if (class_exists('TIX_Table_Reservation')) {
+    $fired = 0; $cb = function () use (&$fired) { $fired++; };
+    add_action('tix_table_requested', $cb, 5);
+    $te = wp_insert_post(['post_type' => 'event', 'post_status' => 'publish', 'post_title' => 'SE Tisch']);
+    update_post_meta($te, '_tix_table_reservation', ['enabled' => true, 'payment_mode' => 'on_site', 'categories' => [['name' => 'Lounge', 'quantity' => 3, 'min_guests' => 1, 'max_guests' => 6]]]);
+    $res = TIX_Table_Reservation::submit(['event_id' => $te, 'category_index' => 0, 'customer_name' => 'SE Gast', 'customer_email' => 'se-tisch@example.test', 'guest_count' => 2]);
+    se_eq('Reservierung löst tix_table_requested aus', 1, $fired);
+    remove_action('tix_table_requested', $cb, 5);
+    global $wpdb; $wpdb->delete($wpdb->prefix . TIX_Table_Reservation::TABLE, ['event_id' => $te]);
+    wp_delete_post($te, true);
+    delete_option(TIX_Staff_Push::OPT_EVENT_Q);
+}
 $o = TIX_Order::create_legacy(['status' => 'completed', 'total' => 20, 'date_created' => current_time('mysql')], [['event_id' => $e1, 'qty' => 2, 'price' => 10]]);
 $sent = [];
 do_action('tix_order_cancelled', $o);

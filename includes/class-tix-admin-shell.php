@@ -202,8 +202,7 @@ class TIX_Admin_Shell {
         ];
 
         // Logo URL (Custom oder Default)
-        $custom_logo = $s['admin_logo_url'] ?? '';
-        $logo_url = $custom_logo ?: 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
+        $logo_url = class_exists('TIX_Custom_Urls') && method_exists('TIX_Custom_Urls', 'logo_url') ? TIX_Custom_Urls::logo_url() : (string) ($s['admin_logo_url'] ?? ''); // Audit 26.11.: kein Tixomat-Logo mehr
 
         // Organizer-Check
         $is_organizer = class_exists('TIX_Organizer_Admin') && TIX_Organizer_Admin::is_organizer();
@@ -214,7 +213,7 @@ class TIX_Admin_Shell {
             <!-- ── Brand ── -->
             <div class="tix-shell-brand">
                 <a href="<?php echo esc_url(home_url('/')); ?>" style="display:inline-block;text-decoration:none;">
-                    <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>" class="tix-shell-logo-img">
+                    <?php if ($logo_url !== '') : ?><img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>" class="tix-shell-logo-img"><?php else : ?><strong style="font-size:16px;color:inherit;"><?php echo esc_html(get_bloginfo('name')); ?></strong><?php endif; ?>
                 </a>
                 <?php if (!$is_organizer) : ?>
                     <div class="tix-shell-version">v<?php echo esc_html(TIXOMAT_VERSION); ?></div>

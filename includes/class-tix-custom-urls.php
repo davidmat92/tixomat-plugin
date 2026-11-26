@@ -96,12 +96,23 @@ class TIX_Custom_URLs {
     }
 
     /**
+     * Logo der Seite (Audit 26.11.): eigenes Admin-Logo → Marken-Logo (Mails/Studio) → Theme-Logo → '' (dann Seitenname als Text).
+     * Vorher Rückfall auf das Tixomat-Logo von tixomat.de (Marke sichtbar + Abruf bei Dritten).
+     */
+    public static function logo_url() {
+        $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
+        $u = (string) ($s['admin_logo_url'] ?? '');
+        if ($u === '' && class_exists('TIX_Mail_Layout') && method_exists('TIX_Mail_Layout', 'brand')) $u = (string) (TIX_Mail_Layout::brand()['logo'] ?? '');
+        if ($u === '' && ($cl = intval(get_theme_mod('custom_logo')))) $u = (string) wp_get_attachment_image_url($cl, 'medium');
+        return $u;
+    }
+
+    /**
      * Login-Seite rendern.
      */
     private static function render_login_page() {
         $s = function_exists('tix_get_settings') ? tix_get_settings() : [];
-        $custom_logo = $s['admin_logo_url'] ?? '';
-        $logo_url = $custom_logo ?: 'https://tixomat.de/wp-content/uploads/2026/03/logo-tixomat-light-500px.png';
+        $logo_url = self::logo_url();
         $error = '';
 
         // Login verarbeiten
@@ -174,7 +185,7 @@ class TIX_Custom_URLs {
 <body>
     <div class="tix-login">
         <div class="tix-login-logo">
-            <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
+            <?php if ($logo_url !== '') : ?><img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>"><?php else : ?><strong style="font-size:22px;"><?php echo esc_html(get_bloginfo('name')); ?></strong><?php endif; ?>
         </div>
         <div class="tix-login-card">
             <h1 class="tix-login-title">Anmelden</h1>

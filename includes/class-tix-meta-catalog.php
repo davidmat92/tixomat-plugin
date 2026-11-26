@@ -24,7 +24,7 @@ class TIX_Meta_Catalog {
         $key = $request->get_param('key');
         $expected_key = $s['meta_feed_key'] ?? '';
 
-        if (empty($expected_key) || $key !== $expected_key) {
+        if (empty($expected_key) || !hash_equals((string) $expected_key, (string) $key)) { // Audit 26.11.: zeitsicher
             return new \WP_REST_Response(['error' => 'Invalid key'], 403);
         }
 

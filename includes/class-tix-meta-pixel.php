@@ -470,6 +470,7 @@ class TIX_Meta_Pixel {
      */
     public static function ajax_test_pixel() {
         check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.'], 403); // Audit 26.11.: Nonce allein reichte (auch Veranstalter haben sie)
 
         $s = tix_get_settings();
         $pixel_id = $s['meta_pixel_id'] ?? '';

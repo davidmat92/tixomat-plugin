@@ -2,7 +2,7 @@
 /**
  * Plugin Name: evendis – Event & Ticket Management
  * Description: Zentrales Event-Management mit eigenem Ticketsystem.
- * Version: 1.38.917
+ * Version: 1.38.918
  * Author: MDJ Veranstaltungs UG (haftungsbeschränkt)
  * Text Domain: tixomat
  * Update URI: https://veranstalter.evendis.de/tixomat
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('TIXOMAT_VERSION', '1.38.917');
+define('TIXOMAT_VERSION', '1.38.918');
 define('TIXOMAT_PATH', plugin_dir_path(__FILE__));
 define('TIXOMAT_URL', plugin_dir_url(__FILE__));
 
@@ -336,7 +336,10 @@ function tix_use_tickera() {
  * Cached im static-Scope für den Request.
  */
 function tix_get_settings($key = null) {
-    static $cache = null;
+    static $cache = null, $gen = -1;
+    // Nach Änderung von tix_settings im selben Request neu lesen (Audit 26.11.: vorher blieb der alte Stand bis Request-Ende,
+    // z. B. Schalter im Studio speichern und sofort nutzen; Tests brauchten zwei Läufe)
+    if ($gen !== ($GLOBALS['tix_settings_gen'] ?? 0)) { $cache = null; $gen = $GLOBALS['tix_settings_gen'] ?? 0; }
     if ($cache === null) {
         $cache = wp_parse_args(get_option('tix_settings', []), [
             // Texte
@@ -435,6 +438,11 @@ function tix_get_settings($key = null) {
     }
     return $key !== null ? ($cache[$key] ?? null) : $cache;
 }
+
+foreach (['add_option_tix_settings', 'update_option_tix_settings', 'delete_option_tix_settings'] as $tix_settings_hook) {
+    add_action($tix_settings_hook, function () { $GLOBALS['tix_settings_gen'] = ($GLOBALS['tix_settings_gen'] ?? 0) + 1; });
+}
+unset($tix_settings_hook);
 
 /** Primärfarbe (Kurzschreibweise). */
 function tix_primary() {

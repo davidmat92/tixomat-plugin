@@ -554,7 +554,7 @@
                     var msgEl = $result.querySelector('.tix-gc-msg');
                     if (!amount || amount <= 0) { msgEl.style.color = '#dc2626'; msgEl.textContent = 'Betrag eingeben.'; return; }
                     btn.disabled = true;
-                    ajax('tix_giftcard_redeem', { ticket_code: data.code, amount: amount }, function(r){
+                    ajax('tix_giftcard_redeem', { ticket_code: data.code, amount: amount, password: state.password }, function(r){
                         btn.disabled = false;
                         if (!r.success) {
                             msgEl.style.color = '#dc2626';

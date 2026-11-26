@@ -1493,6 +1493,10 @@ Bitte antworte auf diese Nachricht mit Kontoinhaber und IBAN, dann überweisen w
         list($from, $to) = self::admin_range($req);
         $time = ($from ? $wpdb->prepare(' AND t.created >= %s', $from) : '') . ($to ? $wpdb->prepare(' AND t.created < %s', $to) : '');
         $rows = self::ready() ? (array) $wpdb->get_results($wpdb->prepare("SELECT t.* FROM $T t JOIN $W w ON w.id = t.wallet_id WHERE {$sc['sql']} AND w.user_id = %d$time ORDER BY t.id DESC LIMIT %d OFFSET %d", $uid, self::PER_PAGE + 1, ($page - 1) * self::PER_PAGE), ARRAY_A) : [];
+        // Bereich unabhängig von Seite/Zeitraum prüfen (Audit 26.11.: mit ?page=2 oder ?from= kamen Name/E-Mail fremder Kunden)
+        if (!$sc['all'] && self::ready() && !intval($wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $T t JOIN $W w ON w.id = t.wallet_id WHERE {$sc['sql']} AND w.user_id = %d", $uid)))) {
+            return new WP_Error('tix_not_found', 'Für diesen Kunden gibt es hier keine Guthaben-Buchungen.', ['status' => 404]);
+        }
         if (!$rows && $page === 1 && !$time) return new WP_Error('tix_not_found', 'Für diesen Kunden gibt es hier keine Guthaben-Buchungen.', ['status' => 404]);
         $bal_sql = $sc['all'] ? '1=1' : ($sc['oid'] ? $wpdb->prepare('organizer_id = %d', $sc['oid']) : 'organizer_id = 0');
         $bal = self::ready() ? $wpdb->get_var($wpdb->prepare("SELECT SUM(balance_paid + balance_bonus) FROM $W WHERE $bal_sql AND user_id = %d AND status <> 'closed'", $uid)) : null;

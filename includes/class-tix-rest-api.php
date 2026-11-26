@@ -2532,11 +2532,23 @@ class TIX_REST_API {
         if (class_exists('TIX_App_Scope') && TIX_App_Scope::multi() && !TIX_App_Scope::order_allowed($order)) {
             return new WP_Error('forbidden', 'Kein Zugriff auf diese Bestellung.', ['status' => 403]);
         }
+        // Empfänger ändern (Rechnungs-E-Mail + Ticket-Inhaber) nur bei Kassen-Bestellungen, „Kasse & Bar“ nur eigene von heute
+        // (Audit 26.11.: vorher ließ sich jede fortlaufende Online-Bestellung samt Tickets auf eine fremde Adresse umleiten).
+        // Andere Bestellungen: nur erneut an die hinterlegte Adresse.
+        $changes = strcasecmp($email, (string) $order->get_billing_email()) !== 0;
+        if ($changes) {
+            if (strpos((string) $order->get_payment_method(), 'pos_') !== 0) {
+                return new WP_Error('tix_pos_email_locked', 'Die E-Mail-Adresse lässt sich nur bei Kassen-Bestellungen ändern.', ['status' => 403]);
+            }
+            if (self::is_cashier_only(wp_get_current_user()) && !self::pos_own_today($order)) {
+                return new WP_Error('tix_cashier_scope', 'Du kannst nur bei deinen eigenen Verkäufen von heute die E-Mail ändern.', ['status' => 403]);
+            }
+        }
         if (!class_exists('TIX_Emails') || !method_exists('TIX_Emails', 'send_native_completed')) {
             return new WP_Error('no_mail', 'E-Mail-Versand nicht verfügbar.', ['status' => 500]);
         }
         global $wpdb;
-        if (strcasecmp($email, (string) $order->get_billing_email()) !== 0) {
+        if ($changes) {
             $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_email' => $email], ['id' => $order_id]);
             foreach (self::get_order_tickets($order_id) as $t) {
                 update_post_meta($t['id'], '_tix_ticket_owner_email', $email);

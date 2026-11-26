@@ -592,6 +592,14 @@ class TIX_Giftcards {
             'meta_query' => [['key' => '_tix_ticket_code', 'value' => $ticket_code]],
         ]);
         if (empty($tickets)) wp_send_json_error(['message' => 'Ticket nicht gefunden.']);
+        // Wie der Einlass (Audit 26.11.): Nonce der Einlass-Seite und Anmeldung mit Event-Zugriff oder Check-in-Passwort –
+        // vorher konnte jeder mit einem Ticket-Code (Foto vom QR) das Guthaben abbuchen
+        check_ajax_referer('tix_checkin_action', 'nonce');
+        $ev = intval(get_post_meta($tickets[0], '_tix_ticket_event_id', true));
+        if (!class_exists('TIX_Checkin') || !method_exists('TIX_Checkin', 'door_ok')
+            || !TIX_Checkin::door_ok($ev, get_post_meta($ev, '_tix_checkin_password', true), sanitize_text_field($_POST['password'] ?? ''))) {
+            wp_send_json_error(['message' => 'Falsches Passwort.']);
+        }
         $gift_code = get_post_meta($tickets[0], '_tix_ticket_gift_code', true);
         if (!$gift_code) wp_send_json_error(['message' => 'Kein Gutschein-Ticket.']);
         // Gutschein eines Veranstalters: nur dessen Personal (bzw. Admin) löst ein

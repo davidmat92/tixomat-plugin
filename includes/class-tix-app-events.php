@@ -1384,12 +1384,13 @@ class TIX_App_Events {
         if (!is_email($email)) {
             return new WP_Error('no_email', 'Keine E-Mail-Adresse hinterlegt.', ['status' => 400]);
         }
+        // Status zuerst (Audit 26.11.): vorher wurde die E-Mail auch bei 409 schon geändert
+        if (!in_array($order->get_status(), ['completed', 'processing'], true)) {
+            return new WP_Error('not_paid', 'Die Bestellung ist nicht bezahlt – es gibt keine Tickets zum Senden.', ['status' => 409]);
+        }
         if (strcasecmp($email, (string) $order->get_billing_email()) !== 0) {
             global $wpdb;
             $wpdb->update($wpdb->prefix . 'tix_orders', ['billing_email' => $email], ['id' => $id]);
-        }
-        if (!in_array($order->get_status(), ['completed', 'processing'], true)) {
-            return new WP_Error('not_paid', 'Die Bestellung ist nicht bezahlt – es gibt keine Tickets zum Senden.', ['status' => 409]);
         }
         set_transient('_tix_skip_admin_email_' . $id, 1, 300);
         delete_post_meta($id, '_tix_completed_email_sent');

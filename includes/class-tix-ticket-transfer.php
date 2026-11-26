@@ -296,13 +296,9 @@ class TIX_Ticket_Transfer {
         if (!$order && class_exists('TIX_Order')) {
             $order = TIX_Order::get($order_id);
         }
-        if (!$order) {
-            wp_send_json_error('Bestellung nicht gefunden.');
-        }
-
-        // E-Mail prüfen
-        if (strtolower($order->get_billing_email()) !== strtolower($email)) {
-            wp_send_json_error('E-Mail-Adresse stimmt nicht mit der Bestellung überein.');
+        // Eine Meldung für beide Fälle (Audit 26.11.): vorher verriet „E-Mail stimmt nicht“, dass die Bestellnummer existiert
+        if (!$order || strtolower($order->get_billing_email()) !== strtolower($email)) {
+            wp_send_json_error('Bestellnummer und E-Mail-Adresse passen nicht zusammen.');
         }
 
         // ── Tickets laden (EH + TC je nach Modus) ──

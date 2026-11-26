@@ -190,7 +190,7 @@ class TIX_Co_Sale {
         if (empty($local)) {
             $local = max(self::ID_START - 1, $map ? max(array_map('intval', array_keys($map))) : 0) + 1;
             $map[$local] = ['pid' => $po, 'key' => (string) ($d['order']['key'] ?? ''), 'event' => intval($eid), 'base' => $base,
-                'email' => sanitize_email((string) ($d['order']['billing_email'] ?? ($b['billing']['email'] ?? ''))), 'created' => gmdate('c')];
+                'email' => sanitize_email((string) ($d['order']['billing_email'] ?? ($b['billing']['email'] ?? ''))), 'user' => get_current_user_id(), 'created' => gmdate('c')];
             update_option(self::MAP, $map, false);
         }
         return rest_ensure_response(self::local_response($local, $d));
@@ -201,7 +201,11 @@ class TIX_Co_Sale {
         $m = $map[intval($id)] ?? null;
         $key = (string) $req->get_param('key');
         $user = is_user_logged_in() ? wp_get_current_user() : null;
-        $mine = $user && !empty($m['email']) && strcasecmp((string) $user->user_email, (string) $m['email']) === 0;
+        // Nur bestätigte Konto-E-Mail oder das Konto, das gekauft hat (Audit 26.11.: vorher reichte ein frisch registriertes
+        // Konto mit fremder E-Mail, um fortlaufende IDs samt Ticket-Codes abzurufen)
+        $em = $user ? (class_exists('TIX_App_Account') && method_exists('TIX_App_Account', 'trusted_email') ? TIX_App_Account::trusted_email($user) : '') : '';
+        $mine = $user && $m && ((!empty($m['user']) && intval($m['user']) === intval($user->ID))
+            || ($em !== '' && !empty($m['email']) && strcasecmp($em, (string) $m['email']) === 0));
         if (!$m || (!$mine && ($key === '' || !hash_equals((string) $m['key'], $key)))) return new WP_Error('tix_order_missing', 'Bestellung nicht gefunden.', ['status' => 404]);
         $d = self::site_call('GET', (string) $m['base'] . '/orders/' . intval($m['pid']), null, ['key' => (string) $m['key']]);
         if (is_wp_error($d)) return $d;

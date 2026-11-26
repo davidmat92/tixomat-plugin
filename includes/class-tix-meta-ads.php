@@ -575,6 +575,7 @@ class TIX_Meta_Ads {
 
     public static function ajax_dashboard_data() {
         check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.'], 403); // Audit 26.11.: Nonce allein reichte (auch Veranstalter haben sie)
         global $wpdb;
         $table = $wpdb->prefix . 'tix_meta_conversions';
 
@@ -647,6 +648,7 @@ class TIX_Meta_Ads {
 
     public static function ajax_update_adspend() {
         check_ajax_referer('tix_admin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Keine Berechtigung.'], 403); // Audit 26.11.: Nonce allein reichte (auch Veranstalter haben sie)
         $event_id = intval($_POST['event_id'] ?? 0);
         $spend = floatval($_POST['spend'] ?? 0);
         if (!$event_id) wp_send_json_error();
@@ -693,6 +695,7 @@ class TIX_Meta_Ads {
         check_ajax_referer('tix_admin_nonce', 'nonce');
 
         $event_id = intval($_POST['event_id'] ?? 0);
+        if (!current_user_can('edit_post', $event_id)) wp_send_json_error(['message' => 'Keine Berechtigung.'], 403); // Audit 26.11.
         $template = sanitize_text_field($_POST['template'] ?? '');
 
         if (!$event_id || !$template) wp_send_json_error();

@@ -38,15 +38,24 @@ class TIX_User_Switch {
      * Wichtig: wp_create_nonce ist an current_user_id gebunden — nach dem Switch verifiziert
      * der neue (Kunden-)User die Signatur des Admins NICHT. Daher wp_salt() + hash_hmac.
      */
-    private static function sign($admin_id) {
-        return hash_hmac('sha256', 'tix-switch|' . intval($admin_id), wp_salt('auth'));
+    private static function sign($admin_id, $target_id = 0, $exp = 0, $token = '') {
+        return hash_hmac('sha256', 'tix-switch|' . intval($admin_id) . '|' . intval($target_id) . '|' . intval($exp) . '|' . $token, wp_salt('auth'));
     }
+
+    /** Serverseitiger Einmal-Schlüssel des Wechsels (Audit 26.11.): Rückweg nur, solange er beim Admin liegt. */
+    const META_TOKEN = '_tix_user_switch_token';
+    const TTL = 4 * HOUR_IN_SECONDS;
 
     /**
      * Cookie-Name für die Switch-Session inkl. der echten Admin-ID.
      */
-    private static function set_switch_cookie($admin_id) {
-        $payload = $admin_id . '|' . self::sign($admin_id);
+    private static function set_switch_cookie($admin_id, $target_id = 0) {
+        // Audit 26.11.: vorher nur admin_id + HMAC ohne Ablauf → dauerhaft gültiger Admin-Rückweg, auch für Abgemeldete.
+        // Jetzt mit Ziel-Konto, Ablauf und Einmal-Schlüssel (Hash beim Admin gespeichert, beim Rückweg gelöscht).
+        $exp = time() + self::TTL;
+        $token = wp_generate_password(32, false, false);
+        update_user_meta(intval($admin_id), self::META_TOKEN, ['hash' => hash('sha256', $token), 'target' => intval($target_id), 'exp' => $exp]);
+        $payload = intval($admin_id) . '|' . intval($target_id) . '|' . $exp . '|' . $token . '|' . self::sign($admin_id, $target_id, $exp, $token);
         setcookie(
             self::COOKIE_NAME,
             $payload,
@@ -76,13 +85,17 @@ class TIX_User_Switch {
      */
     public static function get_original_admin_id() {
         if (empty($_COOKIE[self::COOKIE_NAME])) return 0;
-        $parts = explode('|', $_COOKIE[self::COOKIE_NAME], 2);
-        if (count($parts) !== 2) return 0;
-        $admin_id = intval($parts[0]);
-        if (!$admin_id) return 0;
+        $parts = explode('|', (string) $_COOKIE[self::COOKIE_NAME]);
+        if (count($parts) !== 5) return 0; // altes Format (ohne Ablauf) gilt nicht mehr
+        [$admin_id, $target_id, $exp, $token, $sig] = [intval($parts[0]), intval($parts[1]), intval($parts[2]), (string) $parts[3], (string) $parts[4]];
+        if (!$admin_id || !$target_id || $exp < time()) return 0;
         // HMAC-Vergleich (timing-safe). User-unabhängig — funktioniert auch nach Switch.
-        $expected = self::sign($admin_id);
-        if (!hash_equals($expected, (string) $parts[1])) return 0;
+        if (!hash_equals(self::sign($admin_id, $target_id, $exp, $token), $sig)) return 0;
+        // Nur in der Sitzung des Kontos, in das gewechselt wurde (nicht abgemeldet, nicht in einem anderen Konto)
+        if (get_current_user_id() !== $target_id) return 0;
+        $m = get_user_meta($admin_id, self::META_TOKEN, true);
+        if (!is_array($m) || intval($m['target'] ?? 0) !== $target_id || intval($m['exp'] ?? 0) < time()
+            || !hash_equals((string) ($m['hash'] ?? ''), hash('sha256', $token))) return 0;
         // Zusätzlicher Check: ist dieser User wirklich Admin?
         $u = get_user_by('id', $admin_id);
         if (!$u || !user_can($u, 'manage_options')) return 0;
@@ -105,7 +118,7 @@ class TIX_User_Switch {
         }
 
         $admin_id = get_current_user_id();
-        self::set_switch_cookie($admin_id);
+        self::set_switch_cookie($admin_id, $target_id);
 
         // Logout + neu einloggen als Target
         wp_clear_auth_cookie();
@@ -126,6 +139,7 @@ class TIX_User_Switch {
         $admin_id = self::get_original_admin_id();
         if (!$admin_id) wp_die('Keine aktive Switch-Session gefunden.');
 
+        delete_user_meta($admin_id, self::META_TOKEN); // Einmal-Schlüssel verbraucht
         wp_clear_auth_cookie();
         wp_set_current_user($admin_id);
         wp_set_auth_cookie($admin_id, false);
