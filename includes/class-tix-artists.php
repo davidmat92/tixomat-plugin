@@ -32,7 +32,7 @@ class TIX_Artists {
     const KINDS = ['solo', 'band', 'comedian', 'dj', 'ensemble', 'show', 'host'];
     const ROLES = ['headliner', 'support', 'guest', 'dj', 'host']; // dj, host (Moderation): 1.38.739
     const MAX_PER_EVENT = 20;
-    const LINKS = ['website', 'instagram', 'tiktok', 'youtube', 'spotify', 'apple_music'];
+    const LINKS = ['website', 'instagram', 'facebook', 'tiktok', 'youtube', 'spotify', 'apple_music'];
 
     private static $cache = [];
     private static $quiet = false;
@@ -1100,6 +1100,14 @@ class TIX_Artists {
         return esc_url_raw($v, ['https']);
     }
 
+    /** Facebook-Link: Host facebook.com, fb.com oder fb.me (auch Subdomains wie m./www.) und ein Pfad (ab 1.38.922) */
+    public static function is_facebook_url($u) {
+        $p = wp_parse_url((string) $u);
+        $host = strtolower((string) ($p['host'] ?? ''));
+        if (!preg_match('/(^|\.)(facebook\.com|fb\.com|fb\.me)$/', $host)) return false;
+        return trim((string) ($p['path'] ?? ''), '/') !== '';
+    }
+
     private static function slugify($s) {
         $s = sanitize_title(str_replace(['ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'ß'], ['ae', 'oe', 'ue', 'ae', 'oe', 'ue', 'ss'], (string) $s));
         return $s;
@@ -1152,6 +1160,7 @@ class TIX_Artists {
                 if (!array_key_exists($k, $b['links'])) continue;
                 $u = self::clean_url($b['links'][$k], 'links.' . $k);
                 if (is_wp_error($u)) return $u;
+                if ($k === 'facebook' && $u !== null && !self::is_facebook_url($u)) return self::bad('links.facebook', 'Bitte einen Facebook-Link angeben (facebook.com/…, fb.com/… oder fb.me/…).');
                 $d['links'][$k] = $u;
             }
         }
@@ -1358,7 +1367,7 @@ class TIX_Artists {
     private static function jsonld(array $a, array $events, $url) {
         $type = ['band' => 'MusicGroup', 'ensemble' => 'PerformingGroup', 'show' => 'PerformingGroup', 'solo' => 'Person', 'comedian' => 'Person', 'dj' => 'Person', 'host' => 'Person'][$a['kind']] ?? 'PerformingGroup';
         $img = ($a['images']['cover']['large'] ?? null) ?: ($a['images']['portrait']['large'] ?? null);
-        $sameas = array_values(array_filter([$a['links']['website'], $a['links']['instagram'], $a['links']['tiktok'], $a['links']['youtube'], $a['links']['spotify'], $a['links']['apple_music']]));
+        $sameas = array_values(array_filter([$a['links']['website'], $a['links']['instagram'], $a['links']['facebook'] ?? null, $a['links']['tiktok'], $a['links']['youtube'], $a['links']['spotify'], $a['links']['apple_music']]));
         $ev = [];
         foreach ($events as $e) {
             $avail = ['soldout_waitlist' => 'https://schema.org/SoldOut', 'presale' => 'https://schema.org/PreOrder', 'cancelled' => 'https://schema.org/Discontinued'][$e['state']] ?? 'https://schema.org/InStock';
