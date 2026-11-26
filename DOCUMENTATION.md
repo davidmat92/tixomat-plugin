@@ -7778,3 +7778,10 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
 **Test:** `tests/test-event-mails-wp.php`.
 
 **Umzug nach evendis-api:** Fenster-Regel und Bestell-Abfrage sind reine Funktionen (`events_in_window`, `due_orders`). Die Merker wandern als Tabelle (order_id, event_id, kind, at) mit.
+
+## 266. Stripe: neue Konten und Mindestbetrag (ab 1.38.921, User 26.11., XXL)
+- **Anlass:** Auf xxl-schlagerparty.de (neues Stripe-Konto, eingeschränkter Schlüssel `rk_live_…`) scheiterte jede Stripe-Zahlung. Stripe-Konten mit neuer Standard-API lehnen `payment_method_types` beim Anlegen einer Checkout-Session ab („no longer supported … use allowed_payment_method_types“).
+- **Rückfall:** `TIX_Gateway_Stripe::process()` schickt die Anfrage zuerst wie bisher. Kommt 400 mit diesem Fehler (`is_pmt_unsupported`: `param = payment_method_types` oder Meldung „payment_method_types … no longer supported“), wiederholt es die Anfrage einmal mit Kopfzeile `Stripe-Version: 2024-06-20` (`API_VERSION_FALLBACK`) und eigenem Idempotency-Key. Bestehende Konten (KitchenKlub, Mallorca, evendis) laufen unverändert ohne zweite Anfrage.
+- **Mindestbetrag:** Stripe bucht in EUR erst ab 0,50 € ab. Unter `MIN_AMOUNT_CENTS` (50) ruft das Plugin Stripe gar nicht erst auf; das gilt auch, wenn Stripe `amount_too_small` meldet. Antwort `['error' => 'Kartenzahlung, Klarna & Co. gehen erst ab 0,50 €. Bitte wähle eine andere Zahlart.', 'code' => 'tix_stripe_amount_too_small']`; die Kasse gibt es wie jeden Zahlungsfehler als `tix_payment_failed` weiter.
+- **Geprüft** gegen das XXL-Konto (Sitzungen sofort beendet): ohne Version 400, mit `2024-06-20` Karte und Klarna 200, 0,27 € `amount_too_small`.
+- **Homepages:** Zahlungsfehler kamen bisher als 502 bei nginx an, und nginx ersetzte die Antwort durch eine HTML-Seite (`error_page 502 504`). marken-web schickt 502/503/504 seit 26.11. als 424, der echte Status bleibt im JSON.

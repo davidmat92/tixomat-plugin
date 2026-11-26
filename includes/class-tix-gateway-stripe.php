@@ -14,6 +14,10 @@ if (!defined('ABSPATH')) exit;
 class TIX_Gateway_Stripe {
 
     const API_URL           = 'https://api.stripe.com/v1';
+    /** Rückfall-Version für Konten mit neuer Standard-API (dort gibt es payment_method_types bei Checkout nicht mehr, §266) */
+    const API_VERSION_FALLBACK = '2024-06-20';
+    /** Stripe bucht in EUR erst ab 0,50 € ab (amount_too_small) */
+    const MIN_AMOUNT_CENTS  = 50;
     const METHODS_CACHE_KEY = 'tix_stripe_methods_v1';
     const METHODS_CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
@@ -259,6 +263,7 @@ class TIX_Gateway_Stripe {
 
         $amount_cents = intval(round(floatval($order->total) * 100));
         if ($amount_cents <= 0) return ['error' => 'Ungültiger Betrag.'];
+        if ($amount_cents < self::MIN_AMOUNT_CENTS) return ['error' => 'Kartenzahlung, Klarna & Co. gehen erst ab 0,50 €. Bitte wähle eine andere Zahlart.', 'code' => 'tix_stripe_amount_too_small'];
 
         // Methode (default card)
         $method = $preferred_method !== '' ? sanitize_text_field($preferred_method) : 'card';
@@ -318,15 +323,12 @@ class TIX_Gateway_Stripe {
         // (schuetzt vor Doppel-Klick auf "Zahlen"-Button).
         $idempotency_key = 'tix_' . $order_id . '_' . $stripe_method . '_' . intval($amount_cents);
 
-        $response = wp_remote_post(self::API_URL . '/checkout/sessions', [
-            'timeout' => 15,
-            'headers' => [
-                'Authorization'   => 'Bearer ' . $secret,
-                'Content-Type'    => 'application/x-www-form-urlencoded',
-                'Idempotency-Key' => $idempotency_key,
-            ],
-            'body' => $body,
-        ]);
+        $headers = [
+            'Authorization'   => 'Bearer ' . $secret,
+            'Content-Type'    => 'application/x-www-form-urlencoded',
+            'Idempotency-Key' => $idempotency_key,
+        ];
+        $response = wp_remote_post(self::API_URL . '/checkout/sessions', ['timeout' => 15, 'headers' => $headers, 'body' => $body]);
 
         if (is_wp_error($response)) {
             return ['error' => 'Stripe-Verbindungsfehler: ' . $response->get_error_message()];
@@ -334,6 +336,23 @@ class TIX_Gateway_Stripe {
 
         $code = wp_remote_retrieve_response_code($response);
         $data = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Neue Stripe-Konten (Standard-API ab 2025) kennen payment_method_types bei Checkout nicht mehr.
+        // Dann einmal mit fester älterer API-Version wiederholen – bestehende Konten bleiben unberührt (§266).
+        if ($code === 400 && self::is_pmt_unsupported($data)) {
+            $headers['Stripe-Version']  = self::API_VERSION_FALLBACK;
+            $headers['Idempotency-Key'] = $idempotency_key . '_v' . str_replace('-', '', self::API_VERSION_FALLBACK);
+            $response = wp_remote_post(self::API_URL . '/checkout/sessions', ['timeout' => 15, 'headers' => $headers, 'body' => $body]);
+            if (is_wp_error($response)) {
+                return ['error' => 'Stripe-Verbindungsfehler: ' . $response->get_error_message()];
+            }
+            $code = wp_remote_retrieve_response_code($response);
+            $data = json_decode(wp_remote_retrieve_body($response), true);
+        }
+
+        if ($code === 400 && (($data['error']['code'] ?? '') === 'amount_too_small')) {
+            return ['error' => 'Kartenzahlung, Klarna & Co. gehen erst ab 0,50 €. Bitte wähle eine andere Zahlart.', 'code' => 'tix_stripe_amount_too_small'];
+        }
 
         if ($code < 200 || $code >= 300) {
             $msg = $data['error']['message'] ?? ('HTTP ' . $code);
@@ -356,6 +375,13 @@ class TIX_Gateway_Stripe {
         update_option('_tix_stripe_method_' . $order_id, $method, false);
 
         return ['redirect' => $checkout_url];
+    }
+
+    /** Fehler „payment_method_types is no longer supported“ (neue Standard-API des Kontos) */
+    public static function is_pmt_unsupported($data): bool {
+        $msg = is_array($data) ? (string) ($data['error']['message'] ?? '') : '';
+        $param = is_array($data) ? (string) ($data['error']['param'] ?? '') : '';
+        return $param === 'payment_method_types' || (stripos($msg, 'payment_method_types') !== false && stripos($msg, 'no longer supported') !== false);
     }
 
     /* ────────────── WEBHOOK ────────────── */
