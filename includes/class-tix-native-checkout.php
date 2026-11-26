@@ -661,9 +661,14 @@ class TIX_Native_Checkout {
         $type = (string) ($coupon['discount_type'] ?? 'percent');
         $now  = time();
         if (!empty($coupon['expires'])) {
-            // Geschenkgutschein gilt bis Tagesende, andere Codes wie bisher bis Tagesbeginn
-            $ts = strtotime($coupon['expires'] . ($type === 'giftcard' && strlen((string) $coupon['expires']) <= 10 ? ' 23:59:59' : ''));
-            if ($ts && $ts < ($type === 'giftcard' ? current_time('timestamp') : $now)) return 'Dieser Gutschein ist abgelaufen.';
+            // Geschenkgutschein wie bisher; andere Codes seit 1.38.921 bis Tagesende Ortszeit (TIX_Coupons::expiry_ts, §266)
+            if ($type === 'giftcard') {
+                $ts = strtotime($coupon['expires'] . (strlen((string) $coupon['expires']) <= 10 ? ' 23:59:59' : ''));
+                if ($ts && $ts < current_time('timestamp')) return 'Dieser Gutschein ist abgelaufen.';
+            } else {
+                $ts = class_exists('TIX_Coupons') ? TIX_Coupons::expiry_ts($coupon['expires']) : strtotime((string) $coupon['expires']);
+                if ($ts && $ts < $now) return 'Dieser Gutschein ist abgelaufen.';
+            }
         }
         $max_uses = intval($coupon['max_uses'] ?? 0);
         if ($max_uses > 0 && intval($coupon['used'] ?? 0) >= $max_uses) return 'Dieser Gutschein wurde bereits eingelöst.';

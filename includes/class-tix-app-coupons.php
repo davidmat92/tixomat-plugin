@@ -222,7 +222,7 @@ class TIX_App_Coupons {
     public static function promoted_now($c) {
         if (empty($c['app_promote']) || ($c['discount_type'] ?? '') === 'giftcard' || !empty($c['is_promoter'])) return false;
         $now = time();
-        if (!empty($c['expires'])) { $ts = strtotime((string) $c['expires']); if ($ts && $ts < $now) return false; }
+        if (!empty($c['expires'])) { $ts = TIX_Coupons::expiry_ts($c['expires']); if ($ts && $ts < $now) return false; }
         $max = intval($c['max_uses'] ?? 0);
         if ($max > 0 && intval($c['used'] ?? 0) >= $max) return false;
         if (!empty($c['app_from']) && self::local_ts($c['app_from'], false) > $now) return false;
@@ -233,7 +233,7 @@ class TIX_App_Coupons {
     /** Ende (früheres von Ablauf und Werbe-Ende) als ISO 8601 oder null. */
     private static function ends_at($c) {
         $ts = [];
-        if (!empty($c['expires']) && ($t = strtotime((string) $c['expires']))) $ts[] = $t;
+        if (!empty($c['expires']) && ($t = TIX_Coupons::expiry_ts($c['expires']))) $ts[] = $t;
         if (!empty($c['app_until'])) $ts[] = self::local_ts($c['app_until'], true);
         return $ts ? wp_date('c', min($ts)) : null;
     }

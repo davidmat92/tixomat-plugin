@@ -140,6 +140,20 @@ class TIX_Coupons {
      * Findet einen Coupon case-insensitive in der tix_coupons-Option.
      * @return array|null Coupon-Definition mit gesetztem 'code'-Key oder null.
      */
+    /**
+     * Ablauf als Zeitstempel. Ein reines Datum („2026-11-27“) gilt bis 23:59:59 Ortszeit der Seite –
+     * vorher lief es zu Tagesbeginn UTC ab, also eine Stunde vor dem Tag (§266). Mit Uhrzeit wie angegeben.
+     */
+    public static function expiry_ts($expires) {
+        $e = trim((string) $expires);
+        if ($e === '') return 0;
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $e)) {
+            try { return (new DateTime($e . ' 23:59:59', wp_timezone()))->getTimestamp(); } catch (Exception $x) { return 0; }
+        }
+        $ts = strtotime($e);
+        return $ts ?: 0;
+    }
+
     public static function find_by_code(string $code) {
         $code = strtoupper(trim($code));
         if (!$code) return null;
@@ -150,7 +164,7 @@ class TIX_Coupons {
                 $c['code'] = strtoupper((string) $k);
                 // Expiry-Check
                 if (!empty($c['expires'])) {
-                    $ts = strtotime($c['expires']);
+                    $ts = self::expiry_ts($c['expires']);
                     if ($ts && $ts < time()) return null;
                 }
                 // Max-Uses-Check
@@ -303,7 +317,7 @@ class TIX_Coupons {
 
             // Expiry-Check
             if (!empty($c['expires'])) {
-                $ts = strtotime($c['expires']);
+                $ts = self::expiry_ts($c['expires']);
                 if ($ts && $ts < time()) continue;
             }
             // Max-Uses-Check
