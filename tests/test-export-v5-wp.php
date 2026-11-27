@@ -156,6 +156,30 @@ try {
     $hdr('1', $key);
     [, $d] = $get('/derived');
     $eq('derived.fees_site', true, is_array($d['fees_site'] ?? null) && array_key_exists('fee_mode', $d['fees_site']));
+    $eq('derived.locale (1.38.924)', get_locale(), $d['locale'] ?? null);
+
+    // ═══ Künstler: old_slugs (1.38.924) ═══
+    $hdr(null, null);
+    $art = wp_insert_post(['post_type' => 'tix_artist', 'post_status' => 'publish', 'post_title' => 'V5 Künstler', 'post_name' => 'v5-kuenstler-alt-' . substr(md5(microtime()), 0, 5)]);
+    $old_slug = get_post_field('post_name', $art);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes'); $hA = (string) ($d['cursor'] ?? '');
+    $hdr(null, null);
+    wp_update_post(['ID' => $art, 'post_name' => $old_slug . '-neu']); // WordPress merkt den alten Slug (_wp_old_slug)
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hA]);
+    $eq('Slug-Änderung → Änderung artists', 1, count($find($d['changes'] ?? [], 'artists', $art)) >= 1 ? 1 : 0);
+    [, $d] = $get('/artists', ['per_page' => 200]);
+    $row = array_values(array_filter((array) ($d['items'] ?? $d['rows'] ?? []), function ($r) use ($art) { return intval($r['id'] ?? 0) === $art; }))[0] ?? [];
+    $eq('artists-Zeile: old_slugs mit altem Slug', [true, true], [isset($row['old_slugs']), in_array($old_slug, (array) ($row['old_slugs'] ?? []), true)]);
+    [, $d] = $get('/events', ['per_page' => 5]);
+    $er = (array) (($d['items'] ?? $d['rows'] ?? [])[0] ?? []);
+    $eq('Event-Zeilen ohne old_slugs', false, array_key_exists('old_slugs', $er));
+    $hdr(null, null);
+    wp_delete_post($art, true);
+    $hdr('1', $key);
 
     // ═══ Löschen + 410 ═══
     $hdr(null, null);

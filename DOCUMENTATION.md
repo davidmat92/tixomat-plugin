@@ -7817,3 +7817,9 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
   - Zeile `updated` = `_tix_sp_last_reply` wie bisher.
 - **Test:** `tests/test-support-reply-notify-wp.php` (Einzel-Seite und Plattform je 19).
 
+## 269. Export V5: locale und alte Künstler-Slugs (ab 1.38.924, Wunsch evendis-api 27.11.)
+- **`GET /_export/derived`** zusätzlich `locale` (`get_locale()`, z. B. `de_DE`). Hintergrund: `remove_accents()` hängt von der Sprache ab (de_DE: Ä→Ae, ß→ss, sonst Ä→A, ß→s). Davon hängen in `TIX_Artists::rest_public_list` die Namenssuche (`norm`), der Buchstaben-Filter und die Sortierung ab.
+- **`GET /_export/artists`**: jede Zeile zusätzlich `old_slugs` (Liste aus `_wp_old_slug`, eindeutig, ohne Leere). Nur bei `tix_artist`, andere Entitäten unverändert. Damit kann `/public/artists/{slug}` mit altem Slug weiterleiten wie `rest_public_detail`.
+- **Änderungs-Log:** Hinzufügen, Ändern oder Löschen von `_wp_old_slug` an einem Künstler löst `touch('artists', id)` aus. Andere Meta außerhalb von `_tix_*` bleiben wie bisher unbeachtet.
+- Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+4, je 50 auf Einzel-Seite und Plattform).
+

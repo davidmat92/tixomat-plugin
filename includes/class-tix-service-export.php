@@ -238,6 +238,8 @@ class TIX_Service_Export {
 
     public static function on_post_meta($meta_id, $object_id, $meta_key) {
         $meta_key = (string) $meta_key;
+        // _wp_old_slug nur für Künstler (post_row old_slugs, 1.38.924)
+        if ($meta_key === '_wp_old_slug') { if (get_post_type($object_id) === 'tix_artist' && ($e = self::entity_of_type('tix_artist'))) self::touch($e, (int) $object_id); return; }
         if ($meta_key !== '_thumbnail_id' && strpos($meta_key, '_tix_') !== 0) return;
         if (in_array($meta_key, self::IGNORE_META, true)) return;
         $e = self::entity_of_type(get_post_type($object_id));
@@ -365,7 +367,10 @@ class TIX_Service_Export {
             'meta' => (object) self::post_meta($p->ID),
             'terms' => (object) $terms,
             'image' => $thumb ? self::media_row($thumb) : null,
-        ];
+        ] + ($p->post_type === 'tix_artist' ? [
+            // 1.38.924 (Wunsch evendis-api): alte Slugs (_wp_old_slug) – /public/artists/{slug} leitet zusammengeführte/umbenannte weiter
+            'old_slugs' => array_values(array_unique(array_filter(array_map('strval', (array) get_post_meta($p->ID, '_wp_old_slug', false))))),
+        ] : []);
     }
 
     // ═══════════════ Routen ═══════════════
@@ -559,6 +564,8 @@ class TIX_Service_Export {
             'plugin_version'     => defined('TIXOMAT_VERSION') ? TIXOMAT_VERSION : 'unknown',
             'site_name'          => get_bloginfo('name'),
             'timezone'           => wp_timezone_string(),
+            // 1.38.924 (Wunsch evendis-api): remove_accents() hängt an der Sprache (de_DE: Ä→Ae, ß→ss) – Künstler-Suche/Buchstabe/Sortierung
+            'locale'             => get_locale(),
             'modules'            => class_exists('TIX_Modules') ? TIX_Modules::info_payload() : null,
             'modules_source'     => class_exists('TIX_Modules') ? TIX_Modules::source() : 'all',
             'app_features_site'  => class_exists('TIX_Features') ? self::as_guest(function () { return TIX_Features::map(0); }) : null,
