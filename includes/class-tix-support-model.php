@@ -155,25 +155,100 @@ class TIX_Support_Model {
         }
     }
 
-    /** Team der zuständigen Stelle informieren: App-Feed + Push, Mail an die Ausgewählten (Inhalt nur Betreff). */
-    private static function notify_team_new($tid, array $r) {
+    /** Team der zuständigen Stelle (Push/Feed + Mail) oder [] – gleiche Regeln für neue Anfragen und Kunden-Antworten. */
+    private static function team_targets($tid, array $r) {
+        if ((string) get_post_meta($tid, '_tix_sp_category', true) === 'awareness') return []; // eigener Ablauf (TIX_Awareness_Live)
+        if (get_post_meta($tid, '_tix_sp_help', true)) return []; // Betreiber-Anfrage (TIX_Platform_Admin)
         if (!self::multi()) {
-            if (self::site_mode() !== 'self' && !self::is_platform_copy($tid)) return;
+            if (self::site_mode() !== 'self' && !self::is_platform_copy($tid)) return [];
         } elseif ($r['type'] !== 'evendis') {
-            return; // Partner-Anfragen benachrichtigt die Partner-Seite selbst
+            return []; // Partner-Anfragen benachrichtigt die Partner-Seite selbst
         }
+        return self::notify_ids(0);
+    }
+
+    /** Team der zuständigen Stelle informieren: App-Feed + Push, Mail an die Ausgewählten. */
+    private static function notify_team_new($tid, array $r) {
+        self::notify_team($tid, 'new', self::team_targets($tid, $r));
+    }
+
+    /**
+     * Kunden-Antwort (App, Website, Mail, Partner-Brücke; ab 1.38.923): Team wie bei einer neuen Anfrage – Push + Mail,
+     * der Feed-Eintrag der Anfrage rückt nach oben (ein Eintrag je Anfrage). $admin: Hinweis-Mail auch an admin_email (wie bisher).
+     */
+    public static function on_customer_reply($tid, $content = '', $admin = true) {
+        $tid = intval($tid);
+        if (get_post_type($tid) !== self::CPT) return;
+        if (in_array($tid, self::$new, true)) return; // im selben Aufruf angelegt → process_new meldet „neu“
+        if (get_post_meta($tid, '_tix_sp_help', true)) return; // Betreiber-Anfrage: eigener Ablauf (TIX_Platform_Admin)
+        $team = self::team_targets($tid, self::responsible($tid));
+        if ($admin) self::mail_team($tid, 'reply', [(string) get_option('admin_email')], $content);
+        self::notify_team($tid, 'reply', $team, $content);
+    }
+
+    /** Push/Feed (ein Eintrag je Anfrage, ersetzt den älteren) + Mail an die Team-Empfänger. */
+    private static function notify_team($tid, $kind, array $uids, $content = '') {
         $subject = (string) get_the_title($tid);
-        $admin_mail = strtolower((string) get_option('admin_email'));
-        foreach (self::notify_ids(0) as $uid) {
+        $mails = [];
+        foreach ($uids as $uid) {
             if (class_exists('TIX_Notifications')) {
-                try { TIX_Notifications::add_user_item($uid, 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject, ['type' => 'support_team', 'action' => 'staff:support:' . $tid]); } catch (\Throwable $e) {}
+                try {
+                    TIX_Notifications::add_user_item($uid, $kind === 'reply' ? 'Neue Antwort' : 'Neue Support-Anfrage', '#' . $tid . ' · ' . $subject,
+                        ['type' => 'support_team', 'action' => 'staff:support:' . $tid, 'replace' => true]);
+                } catch (\Throwable $e) {}
             }
             $u = get_userdata($uid);
-            // admin_email bekommt die Hinweis-Mail schon von TIX_Support
-            if ($u && is_email($u->user_email) && strtolower($u->user_email) !== $admin_mail) {
-                wp_mail($u->user_email, 'Neue Support-Anfrage #' . $tid . ': ' . $subject, "Hallo,\n\nes gibt eine neue Support-Anfrage (#{$tid}): {$subject}\n\nDu findest sie im Support-Postfach.\n");
-            }
+            if ($u) $mails[] = (string) $u->user_email;
         }
+        self::mail_team($tid, $kind, $mails, $content);
+    }
+
+    /** Studio-Link zur Anfrage (Option tix_studio_url), sonst die Verwaltung. */
+    public static function ticket_link($tid) {
+        if (class_exists('TIX_Studio') && TIX_Studio::active()) return TIX_Studio::url('/anfragen/' . intval($tid) . '/');
+        return admin_url('admin.php?page=tix-support&ticket=' . intval($tid));
+    }
+
+    /** Bereits versandte Team-Mails dieses Aufrufs: "tid|kind" => [E-Mail => true] */
+    private static $mailed = [];
+
+    /**
+     * Einzige Team-Mail zu Anfragen (ab 1.38.923, ersetzt TIX_Support::send_email_new_ticket_admin/…customer_reply_admin
+     * und die Text-Mail aus notify_team_new): CI der Team-Mails, Knopf zur Anfrage im Studio, je Empfänger eine Mail,
+     * jede Adresse je Anfrage und Art höchstens einmal pro Aufruf.
+     */
+    public static function mail_team($tid, $kind, array $emails, $content = '') {
+        $tid = intval($tid);
+        $key = $tid . '|' . $kind;
+        $done = self::$mailed[$key] ?? [];
+        $to = [];
+        foreach ($emails as $e) {
+            $e = strtolower(trim((string) $e));
+            if ($e === '' || !is_email($e) || isset($done[$e])) continue;
+            $to[$e] = true;
+        }
+        if (!$to) return 0;
+        self::$mailed[$key] = $done + $to;
+        $subject = (string) get_the_title($tid);
+        $name = (string) get_post_meta($tid, '_tix_sp_name', true);
+        $cust = (class_exists('TIX_Awareness_Live') && TIX_Awareness_Live::hide_email($tid)) ? '' : (string) get_post_meta($tid, '_tix_sp_email', true);
+        $who = esc_html($name !== '' ? $name : ($cust !== '' ? $cust : 'Kunde'));
+        $btn = '<p><a href="' . esc_url(self::ticket_link($tid)) . '" style="display:inline-block;padding:12px 24px;' . (function_exists('tix_btn_style') ? tix_btn_style() : '') . 'text-decoration:none;font-weight:700;">Anfrage öffnen</a></p>';
+        if ($kind === 'reply') {
+            $heading = 'Neue Antwort';
+            $mail_subject = 'Neue Antwort #' . $tid . ': ' . $subject;
+            $body = '<p>Neue Antwort von <strong>' . $who . '</strong> zu Anfrage <strong>#' . $tid . '</strong>:</p>';
+            if (trim((string) $content) !== '') $body .= '<div style="background:#FAF8F4;border-left:4px solid #3b82f6;padding:16px;border-radius:8px;margin:16px 0;">' . nl2br(esc_html((string) $content)) . '</div>';
+        } else {
+            $heading = 'Neue Support-Anfrage';
+            $mail_subject = 'Neue Support-Anfrage #' . $tid . ': ' . $subject;
+            $body = '<p>Neue Support-Anfrage von <strong>' . $who . '</strong></p><p><strong>Betreff:</strong> ' . esc_html($subject) . '</p><p><strong>Anfrage-Nr:</strong> #' . $tid . '</p>';
+        }
+        $body .= $btn;
+        $html = class_exists('TIX_Emails') ? TIX_Emails::build_generic_email_html($heading, $body, '#' . $tid . ' – ' . $subject) : $body;
+        $headers = class_exists('TIX_Support_Mail') ? TIX_Support_Mail::team_headers() : ['Content-Type: text/html; charset=UTF-8'];
+        foreach (array_keys($to) as $rcpt) wp_mail($rcpt, $mail_subject, $html, $headers);
+        return count($to);
     }
 
     // ── Wer wird benachrichtigt (/support/notify) ──
@@ -257,6 +332,7 @@ class TIX_Support_Model {
 
     /** Neue Nachricht: Kunde (evendis) → Kopie beim Partner; Team (Partner-Kopie) → evendis; evendis-Team → Notiz beim Partner. */
     public static function on_message($tid, $msg) {
+        if (in_array((string) ($msg['type'] ?? ''), ['customer', 'admin'], true)) self::touch($tid, strtotime((string) ($msg['date'] ?? '')) ?: time());
         if (self::$bridge) return;
         $type = (string) ($msg['type'] ?? '');
         if (self::is_platform_copy($tid)) {
@@ -275,6 +351,44 @@ class TIX_Support_Model {
     public static function on_status($tid, $new, $old) {
         if (self::$bridge || !self::is_platform_copy($tid) || $new === $old) return;
         self::bridge_send($tid, ['to' => 'platform', 'route' => '/syndicate/support/' . intval(get_post_meta($tid, '_tix_sp_remote_id', true)) . '/status', 'body' => ['status' => self::status_key($new)]]);
+    }
+
+    /**
+     * Letzte Aktivität (ab 1.38.923): post_modified der Anfrage auf den Zeitpunkt der Nachricht vorziehen (nie zurück), damit
+     * „Anfragen“ (orderby modified) nach letzter Aktivität sortiert. Direkt per SQL – Nachrichten liegen in der Meta und
+     * änderten das Datum bisher nicht; keine save_post-Hooks.
+     */
+    public static function touch($tid, $ts = 0) {
+        global $wpdb;
+        $tid = intval($tid); $ts = intval($ts) ?: time();
+        $p = get_post($tid);
+        if (!$p || $p->post_type !== self::CPT) return false;
+        if ((strtotime($p->post_modified_gmt . ' UTC') ?: 0) >= $ts) return false;
+        $wpdb->update($wpdb->posts, ['post_modified_gmt' => gmdate('Y-m-d H:i:s', $ts), 'post_modified' => wp_date('Y-m-d H:i:s', $ts)], ['ID' => $tid]);
+        clean_post_cache($tid);
+        return true;
+    }
+
+    /** Einmal: Datum aller Anfragen auf die letzte Nachricht (_tix_sp_last_reply) vorziehen. → Zahl der geänderten */
+    public static function migrate_activity() {
+        global $wpdb;
+        if (get_option('tix_sp_activity_migrated')) return 0;
+        update_option('tix_sp_activity_migrated', gmdate('c'), false);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT p.ID, p.post_modified_gmt, m.meta_value FROM {$wpdb->posts} p JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_tix_sp_last_reply' WHERE p.post_type = %s",
+            self::CPT
+        ));
+        $n = 0;
+        foreach ((array) $rows as $r) {
+            $ts = strtotime((string) $r->meta_value) ?: 0;
+            if ($ts && $ts > (strtotime($r->post_modified_gmt . ' UTC') ?: 0) && $ts <= time() + 300) {
+                $wpdb->update($wpdb->posts, ['post_modified_gmt' => gmdate('Y-m-d H:i:s', $ts), 'post_modified' => wp_date('Y-m-d H:i:s', $ts)], ['ID' => intval($r->ID)]);
+                clean_post_cache(intval($r->ID));
+                $n++;
+            }
+        }
+        update_option('tix_sp_activity_migrated', gmdate('c') . ' ' . $n, false);
+        return $n;
     }
 
     /** Über die Brücke senden; schlägt es fehl, kommt die Nachricht in die Warteschlange der Anfrage (Cron, bis zu 6 Versuche). */
@@ -451,6 +565,7 @@ class TIX_Support_Model {
 
     /** GET /support/inbox?status&event_id&order_id&category&assignee&search&page&per_page */
     public static function rest_list(WP_REST_Request $req) {
+        if (!get_option('tix_sp_activity_migrated')) self::migrate_activity();
         $per = max(1, min(100, intval($req->get_param('per_page') ?: 25)));
         $page = max(1, intval($req->get_param('page') ?: 1));
         $st = sanitize_key((string) $req->get_param('status'));

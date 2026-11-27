@@ -959,6 +959,8 @@ class TIX_Support {
         update_post_meta(intval($ticket_id), '_tix_sp_last_reply', current_time('c'));
         $p = get_post(intval($ticket_id));
         if ($p && in_array($p->post_status, ['tix_resolved', 'tix_closed'], true)) wp_update_post(['ID' => $p->ID, 'post_status' => 'tix_open']);
+        // Team benachrichtigen (1.38.923; z. B. Kunden-Antwort über die Partner-Brücke auf der Partner-Kopie)
+        if (class_exists('TIX_Support_Model')) TIX_Support_Model::on_customer_reply(intval($ticket_id), (string) $content, true);
         return $msg;
     }
 
@@ -2690,6 +2692,8 @@ class TIX_Support {
      * Neue Anfrage → Admin benachrichtigen
      */
     private static function send_email_new_ticket_admin($ticket_id, $subject, $customer_email, $customer_name) {
+        // Ab 1.38.923 eine Team-Mail für alle Wege (Studio-Link, keine Doppel-Mail mit dem Team-Hinweis)
+        if (class_exists('TIX_Support_Model')) { TIX_Support_Model::mail_team($ticket_id, 'new', [(string) get_option('admin_email')]); return; }
         $admin_email = get_option('admin_email');
         $body = '<p>Neue Support-Anfrage von <strong>' . esc_html($customer_name ?: $customer_email) . '</strong></p>';
         $body .= '<p><strong>Betreff:</strong> ' . esc_html($subject) . '</p>';
@@ -2911,6 +2915,8 @@ class TIX_Support {
      * Kunden-Antwort → Admin benachrichtigen
      */
     private static function send_email_customer_reply_admin($ticket_id, $subject, $customer_email, $reply_content) {
+        // Ab 1.38.923: Admin-Mail + Team (Push, Feed-Eintrag nach oben, Mail) an einer Stelle
+        if (class_exists('TIX_Support_Model')) { TIX_Support_Model::on_customer_reply($ticket_id, (string) $reply_content, true); return; }
         $admin_email = get_option('admin_email');
         $name = get_post_meta($ticket_id, '_tix_sp_name', true);
         $body = '<p>Neue Antwort von <strong>' . esc_html($name ?: $customer_email) . '</strong> zu Anfrage <strong>#' . $ticket_id . '</strong>:</p>';

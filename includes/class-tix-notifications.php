@@ -122,6 +122,11 @@ class TIX_Notifications {
         ];
         if (!empty($args['category'])) $item['category'] = sanitize_key((string) $args['category']); // 1.38.917
         $list = self::user_items($user_id);
+        // replace (1.38.923): ein Eintrag je Aktion – älteren mit gleicher action entfernen; der neue (neue id, created jetzt)
+        // steht oben und gilt in den Apps wieder als ungelesen (gelesen = id lokal gemerkt)
+        if (!empty($args['replace']) && $item['action'] !== '') {
+            $list = array_values(array_filter($list, function ($it) use ($item) { return (string) ($it['action'] ?? '') !== $item['action']; }));
+        }
         $list[] = $item;
         usort($list, fn($a, $b) => intval($b['created'] ?? 0) - intval($a['created'] ?? 0));
         if (count($list) > self::MAX_USER) $list = array_slice($list, 0, self::MAX_USER);

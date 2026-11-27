@@ -7797,3 +7797,23 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
 - **JSON-LD:** `sameAs` der Künstlerseite enthält den Facebook-Link (nach Instagram).
 - **Additiv:** Bestehende Künstler haben `links.facebook: null`, andere Felder unverändert.
 - **Test:** `tests/test-artist-facebook-wp.php` (Plattform 14, Einzel-Seite 13).
+
+## 268. Support: Kunden-Antwort meldet das Team, Sortierung nach letzter Aktivität (ab 1.38.923, Auftrag Zentrale 27.11.)
+- **Anlass (KitchenKlub-App, Veranstalter-Mitteilungen):** „Neue Support-Anfrage #…“ stand nur beim Anlegen im Feed. Eine spätere Kunden-Antwort (z. B. #1237 nach #1238) brachte weder Push noch Mail, und der Eintrag blieb unten.
+- **Kunden-Antwort → Team** (`TIX_Support_Model::on_customer_reply`): gilt für Antworten über die App (`app_reply`), die Website (`ajax_customer_reply`), per Mail (`add_email_message` mit `notify`) und über die Partner-Brücke (`add_customer_message`).
+  - Empfänger wie beim Neuanlegen (`team_targets`): `notify_ids(0)` nach den bisherigen Regeln. Einzel-Seite nur im Modus `self` bzw. bei Plattform-Kopien, Plattform nur bei evendis-Zuständigkeit. Awareness und Betreiber-Anfragen (`_tix_sp_help`) bleiben außen vor.
+  - Push und Feed: Titel „Neue Antwort“, Text „#<id> · <Betreff>“, `type support_team`, `action staff:support:<id>`.
+  - Mail an das Team und wie bisher an `admin_email`.
+  - Antworten des Teams und Mail-Importe ohne `notify` lösen nichts aus. Im selben Aufruf neu angelegte Anfragen meldet weiter `process_new` als „neu“.
+- **Ein Feed-Eintrag je Anfrage:** `TIX_Notifications::add_user_item(…, ['replace' => true])` entfernt ältere Einträge des Nutzers mit gleicher `action`. Der neue Eintrag hat eine neue `id` und `created` = jetzt, steht also oben und gilt in den Apps wieder als ungelesen. Die Apps merken „gelesen“ lokal je `id` und sortieren nicht selbst, sie zeigen die Reihenfolge von `GET /notifications` (dort absteigend nach `created`). Eine App-Änderung ist nicht nötig. Gilt auch für „Neue Support-Anfrage“.
+- **Eine Team-Mail** (`TIX_Support_Model::mail_team($tid, 'new'|'reply', $emails, $content)`):
+  - Ersetzt `TIX_Support::send_email_new_ticket_admin` / `send_email_customer_reply_admin` (die rufen jetzt `mail_team` bzw. `on_customer_reply` auf) und die bisherige Text-Mail aus `notify_team_new`.
+  - CI der Team-Mails (`TIX_Emails::build_generic_email_html`, `TIX_Support_Mail::team_headers`), Knopf „Anfrage öffnen“ → `TIX_Support_Model::ticket_link`: `TIX_Studio::url('/anfragen/<id>/')` (Option `tix_studio_url`; ohne Studio die Verwaltung).
+  - Je Empfänger eine eigene Mail, jede Adresse je Anfrage und Art höchstens einmal pro Aufruf: Admin und Team bekommen keine Doppel-Mail mehr.
+  - Betreff „Neue Support-Anfrage #<id>: …“ bzw. „Neue Antwort #<id>: …“. Die Antwort-Mail enthält den Text der Antwort (wie die bisherige Admin-Mail).
+- **„Anfragen“ nach letzter Aktivität:** `GET /support/inbox` sortiert nach `post_modified`. Nachrichten liegen in der Meta und änderten das Datum bisher nicht, nur Statuswechsel taten es.
+  - Jetzt zieht jede Kunden- oder Team-Nachricht das Datum der Anfrage vor (`TIX_Support_Model::touch`, nie zurück, direkt per SQL ohne save_post-Hooks).
+  - Einmalig beim ersten Abruf der Liste übernimmt `migrate_activity()` `_tix_sp_last_reply` in das Datum aller Anfragen (Option `tix_sp_activity_migrated`).
+  - Zeile `updated` = `_tix_sp_last_reply` wie bisher.
+- **Test:** `tests/test-support-reply-notify-wp.php` (Einzel-Seite und Plattform je 19).
+
