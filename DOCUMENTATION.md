@@ -7835,3 +7835,15 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
 - **Event-Zeilen `raffle_entries`** = `TIX_Raffle::count_entries()` (nur die Zahl), nur wenn `_tix_raffle_max_entries > 0`, sonst fehlt das Feld. Signal `events|<id>` bei jeder Teilnahme (`tix_raffle_entered`) und wenn die Aufbewahrung Teilnahmen löscht (neue Action `tix_raffle_entries_changed`), beides nur bei Höchstzahl > 0. Ohne Höchstzahl gibt es also keine zusätzliche Schreiblast.
 - `tix_collection` hängt an `event` und steht schon in `terms` der Event-Zeile.
 - Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+12, je 62 auf Einzel-Seite und Plattform).
+
+## 271. Export V5: fertiges HTML `rendered` (ab 1.38.926, Wunsch evendis-api 27.11., Nachtrag 3)
+- Grundsatz: Bereinigen gehört zum Speichern. Der Dienst baut `wp_kses_post`/`wpautop` nicht nach; bis WordPress weg ist, liefert der Export das fertige HTML.
+- **Event-Zeilen `rendered`** = `TIX_Public_Events::rendered_texts($id)`, gleiche Werte wie `payload($id, true)`:
+  - `description`, `lineup`, `specials`, `extra_info`: `wp_kses_post` ohne autop; leerer Text ergibt `''`.
+  - `artist`: wie oben, aber unabhängig von der Sichtbarkeit (`TIX_Event_Texts::is_visible` rechnet der Dienst).
+  - `entry_rules`, `ticket_notes`: aus `TIX_Event_Extras::notes()` (mit autop).
+  - `faq`: Liste der `answer`-Werte in der Reihenfolge von `TIX_Event_Extras::faq()`; Fragen ohne Text fallen weg, wie dort.
+  - `info_sections`: `TIX_Event_Texts::sections($id)`, also `[{key, label, html}]`, nur sichtbare und nicht leere Abschnitte in der gespeicherten Reihenfolge.
+- **Orts-Zeilen `rendered.description`** = `wp_kses_post(wpautop(_tix_loc_description))`, leerer Text ergibt `''` (gleich wie `venue_info.description`).
+- Signal: Alles hängt an `_tix_*`-Meta, die schon `touch` auslösen. Ausnahme ist `info_sections.accessibility`, das auf `TIX_Event_Facts::accessibility` beruht; es kommt dort ebenfalls aus `_tix_*`-Meta des Events.
+- Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+8, je 70 auf Einzel-Seite und Plattform).

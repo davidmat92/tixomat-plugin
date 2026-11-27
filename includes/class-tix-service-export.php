@@ -394,7 +394,19 @@ class TIX_Service_Export {
         ] + ($p->post_type === 'tix_artist' ? [
             // 1.38.924 (Wunsch evendis-api): alte Slugs (_wp_old_slug) – /public/artists/{slug} leitet zusammengeführte/umbenannte weiter
             'old_slugs' => array_values(array_unique(array_filter(array_map('strval', (array) get_post_meta($p->ID, '_wp_old_slug', false))))),
-        ] : []) + ($p->post_type === 'event' ? self::raffle_fields($p->ID) : []);
+        ] : []) + ($p->post_type === 'event' ? self::raffle_fields($p->ID) + self::rendered_event($p->ID) : [])
+          + ($p->post_type === 'tix_location' ? ['rendered' => ['description' => self::loc_description($p->ID)]] : []);
+    }
+
+    /** 1.38.926 (Wunsch evendis-api, Nachtrag 3): fertiges HTML wie /public/events-Detail – Bereinigen bleibt beim Speichern. */
+    private static function rendered_event($id) {
+        return class_exists('TIX_Public_Events') ? ['rendered' => TIX_Public_Events::rendered_texts($id)] : [];
+    }
+
+    /** Wie TIX_Event_Extras::venue_info()['description']: wp_kses_post(wpautop()) oder '' bei leerem Text. */
+    private static function loc_description($id) {
+        $d = (string) get_post_meta($id, '_tix_loc_description', true);
+        return trim(wp_strip_all_tags($d)) !== '' ? wp_kses_post(wpautop($d)) : '';
     }
 
     /** 1.38.925 (Wunsch evendis-api): Teilnehmerzahl für TIX_Raffle::status() – nur die Zahl, nur bei Höchstzahl > 0. */

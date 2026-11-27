@@ -185,6 +185,30 @@ class TIX_Public_Events {
         return wp_kses_post($v);
     }
 
+    /**
+     * Fertiges HTML der Event-Texte genau wie payload($id, true) (Export für evendis-api, 1.38.926): Bereinigen gehört
+     * zum Speichern, der Dienst baut wp_kses_post/wpautop nicht nach. `artist` unabhängig von der Sichtbarkeit,
+     * `faq` = nur die Antworten in der Reihenfolge von TIX_Event_Extras::faq().
+     */
+    public static function rendered_texts($id) {
+        $id = intval($id);
+        $out = [
+            'description' => self::html($id, '_tix_info_description'),
+            'lineup'      => self::html($id, '_tix_info_lineup'),
+            'specials'    => self::html($id, '_tix_info_specials'),
+            'extra_info'  => self::html($id, '_tix_info_extra_info'),
+            'artist'      => self::html($id, '_tix_info_artist'),
+        ];
+        if (class_exists('TIX_Event_Extras')) {
+            $notes = TIX_Event_Extras::notes($id);
+            $out['entry_rules']  = $notes['entry_rules'];
+            $out['ticket_notes'] = $notes['ticket_notes'];
+            $out['faq'] = array_map(function ($f) { return (string) $f['answer']; }, TIX_Event_Extras::faq($id));
+        }
+        if (class_exists('TIX_Event_Texts')) $out['info_sections'] = TIX_Event_Texts::sections($id);
+        return $out;
+    }
+
     /** {label, per_ticket, per_order, max_per_order} – immer vorhanden (Vertrag servicegebuehr §5a). */
     private static function service_fee($id, array $cats) {
         $cfg = class_exists('TIX_Fees') ? TIX_Fees::display_config($id) : [];
