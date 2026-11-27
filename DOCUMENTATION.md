@@ -7823,3 +7823,15 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
 - **Änderungs-Log:** Hinzufügen, Ändern oder Löschen von `_wp_old_slug` an einem Künstler löst `touch('artists', id)` aus. Andere Meta außerhalb von `_tix_*` bleiben wie bisher unbeachtet.
 - Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+4, je 50 auf Einzel-Seite und Plattform).
 
+
+## 270. Export V5: Awareness, artist_links, raffle_entries (ab 1.38.925, Wunsch evendis-api 27.11., Nachtrag 2)
+- **Awareness trotz DENY-Liste, nur bereinigt:** `_tix_awareness` (Event, Veranstalter) und Option `tix_awareness` gehen in der Form `TIX_Awareness::sanitize()` in den Export: genau `enabled, team, sign, point, codeword, areas, drink_tests, taxi, rules, alarm_enabled`, also nur die Felder, die `public_info` sowieso öffentlich zeigt, plus `enabled`. `_tix_awareness_mode` kommt als String mit (Rohwert, `event_mode()` macht aus allem außer custom/off ein inherit).
+  - Rohdaten geprüft: Gespeichert wird immer über `sanitize()` (Formular, Studio-REST, Syndikation). Fremde Felder fallen spätestens hier heraus.
+  - Andere Awareness-Felder bleiben draußen: `_tix_awareness_feedback_sum`, `_tix_awareness_test`, Meldungen und Alarme (eigene Tabellen).
+  - `config.tix_awareness`: nicht gesetzt ergibt `value: null` (das Plugin rechnet dann `sanitize([])`).
+  - Signal: Option → `config|tix_awareness`; Meta → Event bzw. Veranstalter (lief über `_tix_*` schon).
+- **Neue Entität `artist_links`** = Zeilen von `{prefix}tix_artist_links` (TIX_Lineup_Links): `{id: name_key, name, spotify, apple_music, photo_id}`, ohne `spotify_at`/`apple_at`. Abruf per `?ids=<name_key,…>` oder `?page=&per_page=` (Reihenfolge nach Tabellen-id). Tabelle noch nicht angelegt: leer.
+  - Signal `artist_links|<name_key>` (Action `tix_artist_link_changed`): neue Zeile aus dem Line-up, Cron-Abgleich nur bei geändertem Link (erneute Suche ohne Treffer schreibt nicht), Foto übernehmen oder entfernen.
+- **Event-Zeilen `raffle_entries`** = `TIX_Raffle::count_entries()` (nur die Zahl), nur wenn `_tix_raffle_max_entries > 0`, sonst fehlt das Feld. Signal `events|<id>` bei jeder Teilnahme (`tix_raffle_entered`) und wenn die Aufbewahrung Teilnahmen löscht (neue Action `tix_raffle_entries_changed`), beides nur bei Höchstzahl > 0. Ohne Höchstzahl gibt es also keine zusätzliche Schreiblast.
+- `tix_collection` hängt an `event` und steht schon in `terms` der Event-Zeile.
+- Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+12, je 62 auf Einzel-Seite und Plattform).

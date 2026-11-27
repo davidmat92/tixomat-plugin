@@ -70,6 +70,11 @@ class TIX_Lineup_Links {
         return $wpdb->prefix . 'tix_artist_links';
     }
 
+    /** Zeile in tix_artist_links geändert → Signal (Export für evendis-api, 1.38.925). */
+    private static function changed($name_key) {
+        do_action('tix_artist_link_changed', (string) $name_key);
+    }
+
     private static function ready() {
         return get_option('tix_artist_links_db') === self::DB_VER;
     }
@@ -555,7 +560,7 @@ class TIX_Lineup_Links {
             $key  = self::norm($name);
             if ($key === '' || mb_strlen($key) < 2) continue;
             $wpdb->query($wpdb->prepare("INSERT IGNORE INTO " . self::t() . " (name_key, name, created) VALUES (%s, %s, %s)", $key, mb_substr($name, 0, 190), current_time('mysql')));
-            if ($wpdb->rows_affected) $new = true;
+            if ($wpdb->rows_affected) { $new = true; self::changed($key); }
         }
         if ($new) wp_schedule_single_event(time() + 60, self::CRON); // WordPress verwirft Doppelte innerhalb von 10 Minuten
     }
@@ -582,6 +587,7 @@ class TIX_Lineup_Links {
                 $url = self::find_apple($r->name);
                 if ($url === false) break; // Rate-Limit/Fehler: später weiter
                 $wpdb->update(self::t(), ['apple_music' => $url, 'apple_at' => current_time('mysql')], ['id' => $r->id]);
+                if ((string) $url !== (string) $r->apple_music) self::changed($r->name_key);
                 $done['apple']++;
             }
         }
@@ -590,6 +596,7 @@ class TIX_Lineup_Links {
                 $url = self::find_spotify($r->name);
                 if ($url === false) break;
                 $wpdb->update(self::t(), ['spotify' => $url, 'spotify_at' => current_time('mysql')], ['id' => $r->id]);
+                if ((string) $url !== (string) $r->spotify) self::changed($r->name_key);
                 $done['spotify']++;
             }
         }
@@ -789,11 +796,13 @@ class TIX_Lineup_Links {
         self::maybe_install();
         if ($att) {
             $wpdb->query($wpdb->prepare("INSERT INTO " . self::t() . " (name_key, name, photo_id, created) VALUES (%s, %s, %d, %s) ON DUPLICATE KEY UPDATE photo_id = VALUES(photo_id)", $k, mb_substr(self::artist($name), 0, 190), $att, current_time('mysql')));
+            if ($wpdb->rows_affected) self::changed($k);
             // Eine Bildquelle (1.38.669): Künstler des Bereichs ohne eigenes Bild bekommt das Act-Foto als Porträt
             if (class_exists('TIX_Artists')) { TIX_Artists::flush_cache(); TIX_Artists::adopt_photo($event_id, self::artist($name), $att); }
         } elseif ($prev) {
             // falsches Foto: auch als Vorgabe für andere Events entfernen, wenn es von hier stammte
             $wpdb->query($wpdb->prepare("UPDATE " . self::t() . " SET photo_id = 0 WHERE name_key = %s AND photo_id = %d", $k, $prev));
+            if ($wpdb->rows_affected) self::changed($k);
         }
         if (class_exists('TIX_Artists')) TIX_Artists::flush_cache();
         if (class_exists('TIX_Public_Events')) TIX_Public_Events::flush();

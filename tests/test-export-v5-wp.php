@@ -181,6 +181,82 @@ try {
     wp_delete_post($art, true);
     $hdr('1', $key);
 
+    // ═══ 1.38.925: Awareness bereinigt, artist_links, raffle_entries ═══
+    global $wpdb;
+    $rows_of = function ($d) { return (array) ($d['items'] ?? []); };
+    [, $d] = $get('/changes'); $hB = (string) ($d['cursor'] ?? '');
+    $hdr(null, null);
+    $aw_keep = get_option('tix_awareness', null);
+    $raw = ['enabled' => 1, 'team' => 1, 'sign' => 'Lila Weste', 'codeword' => 'Luisa', 'intern_notiz' => $secret, 'areas' => ['Bar']];
+    update_post_meta($ev, '_tix_awareness', $raw);
+    update_post_meta($ev, '_tix_awareness_mode', 'custom');
+    update_post_meta($ev, '_tix_awareness_feedback_sum', ['n' => 3]);
+    update_post_meta($org, '_tix_awareness', $raw);
+    update_option('tix_awareness', $raw, false);
+    // Künstler-Links: neue Zeile über das Line-up, Foto übernehmen
+    $an = 'V5 Band ' . substr(md5(microtime()), 0, 6);
+    update_post_meta($ev, '_tix_info_lineup', '<p>' . $an . '</p>');
+    TIX_Lineup_Links::enqueue_event($ev);
+    $ak = TIX_Lineup_Links::norm(TIX_Lineup_Links::artist($an));
+    $att = wp_insert_attachment(['post_mime_type' => 'image/png', 'post_title' => 'V5 Foto', 'post_status' => 'inherit'], 'v5-foto.png');
+    // Gewinnspiel: Höchstzahl 5, eine Teilnahme
+    update_post_meta($ev, '_tix_raffle_max_entries', 5);
+    $rm = new ReflectionMethod("TIX_Raffle", "ensure_table"); $rm->setAccessible(true); $rm->invoke(null);
+    $rt = $wpdb->prefix . TIX_Raffle::TABLE;
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes'); $hC = (string) ($d['cursor'] ?? '');
+    $hdr(null, null);
+    TIX_Lineup_Links::set_photo($ev, $an, $att);
+    $wpdb->insert($rt, ['event_id' => $ev, 'name' => 'V5', 'email' => 'v5-raffle@example.test', 'ip' => 'x', 'created_at' => current_time('mysql')]);
+    do_action('tix_raffle_entered', $ev);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hB]);
+    $eq('Signale: config tix_awareness, organizers, artist_links (neu)', [1, 1, 1],
+        [count($find($d['changes'] ?? [], 'config', 'tix_awareness')), count($find($d['changes'] ?? [], 'organizers', $org)), count($find($d['changes'] ?? [], 'artist_links', $ak))]);
+    [, $d] = $get('/changes', ['since' => $hC]);
+    $eq('Foto übernommen + Teilnahme → artist_links + events', [1, 1], [count($find($d['changes'] ?? [], 'artist_links', $ak)), count($find($d['changes'] ?? [], 'events', $ev))]);
+    $san = TIX_Awareness::sanitize($raw);
+    [, $d] = $get('/events', ['ids' => (string) $ev]);
+    $er = (array) ($rows_of($d)[0] ?? []);
+    $m = (array) ($er['meta'] ?? []);
+    $eq('Event: _tix_awareness = sanitize(), ohne fremde Felder', [$san, false], [isset($m['_tix_awareness']) ? (array) $m['_tix_awareness'] : null, strpos(wp_json_encode($er), $secret) !== false]);
+    $eq('Event: _tix_awareness_mode als String, Feedback-Summe nicht', ['custom', false], [$m['_tix_awareness_mode'] ?? null, array_key_exists('_tix_awareness_feedback_sum', $m)]);
+    $eq('Event: raffle_entries = 1 (Höchstzahl 5)', 1, $er['raffle_entries'] ?? null);
+    [, $d] = $get('/organizers', ['ids' => (string) $org]);
+    $om = (array) ((array) ($rows_of($d)[0] ?? []))['meta'] ?? [];
+    $eq('Veranstalter: _tix_awareness = sanitize()', $san, isset($om['_tix_awareness']) ? (array) $om['_tix_awareness'] : null);
+    [, $d] = $get('/config', ['ids' => 'tix_awareness']);
+    $eq('config tix_awareness = sanitize(), ohne Notiz', [$san, false], [(array) (($rows_of($d)[0] ?? [])['value'] ?? []), strpos(wp_json_encode($d), $secret) !== false]);
+    [$s, $d] = $get('/artist_links', ['ids' => $ak . ',gibtsnicht-v5']);
+    $al = (array) ($rows_of($d)[0] ?? []);
+    $eq('artist_links per ids: Felder + missing', [200, $ak, $an, (int) $att, true, true, ['gibtsnicht-v5']],
+        [$s, $al['id'] ?? null, $al['name'] ?? null, $al['photo_id'] ?? null, array_key_exists('spotify', $al) && array_key_exists('apple_music', $al), ($al['version'] ?? 0) > 0, $d['missing'] ?? null]);
+    $eq('artist_links ohne spotify_at/apple_at', [false, false], [array_key_exists('spotify_at', $al), array_key_exists('apple_at', $al)]);
+    [$s, $d] = $get('/artist_links', ['per_page' => 1]);
+    $eq('artist_links per page', [200, 1, true], [$s, count($rows_of($d)), ($d['total'] ?? 0) >= 1]);
+    // Höchstzahl 0 → kein Feld, kein Signal
+    $hdr(null, null);
+    update_post_meta($ev, '_tix_raffle_max_entries', 0);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes'); $hD = (string) ($d['cursor'] ?? '');
+    $hdr(null, null);
+    do_action('tix_raffle_entered', $ev);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hD]);
+    $eq('ohne Höchstzahl: Teilnahme ohne Signal', 0, count($find($d['changes'] ?? [], 'events', $ev)));
+    [, $d] = $get('/events', ['ids' => (string) $ev]);
+    $eq('ohne Höchstzahl: kein raffle_entries', false, array_key_exists('raffle_entries', (array) ($rows_of($d)[0] ?? [])));
+    $hdr(null, null);
+    $wpdb->delete($rt, ['event_id' => $ev]);
+    $wpdb->delete($wpdb->prefix . 'tix_artist_links', ['name_key' => $ak]);
+    wp_delete_attachment($att, true);
+    if ($aw_keep === null) delete_option('tix_awareness'); else update_option('tix_awareness', $aw_keep, false);
+    $hdr('1', $key);
+
     // ═══ Löschen + 410 ═══
     $hdr(null, null);
     [, $d] = (function () use ($get, $hdr, $key) { $hdr('1', $key); $r = $get('/changes'); $hdr(null, null); return $r; })();

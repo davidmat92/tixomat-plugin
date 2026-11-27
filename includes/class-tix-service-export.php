@@ -5,7 +5,7 @@
  *
  *   GET /_export/changes?since=<cursor>&limit=500   Änderungs-Signale aus Tabelle tix_export_log
  *   GET /_export/<entity>?ids=…|?page=&per_page=   Roh-Daten: events, ticket_categories, organizers, artists, locations,
- *                                                  tips, sponsors, config, terms, media
+ *                                                  tips, sponsors, config, terms, media, artist_links (1.38.925)
  *   GET /_export/derived                           berechnete Teile aus /info (Übergang Phase 2)
  *
  * Zugang nur mit `X-Evendis-Export: 1` + `X-Evendis-Shadow-Key` (Schlüssel der Schatten-Kennung, TIX_Shadow::key()).
@@ -34,7 +34,12 @@ class TIX_Service_Export {
 
     /** Entität → Post-Typ */
     const POST_TYPES = ['events' => 'event', 'organizers' => 'tix_organizer', 'artists' => 'tix_artist', 'locations' => 'tix_location', 'tips' => 'tix_app_tip'];
-    const ENTITIES = ['events', 'ticket_categories', 'organizers', 'artists', 'locations', 'tips', 'sponsors', 'config', 'terms', 'media'];
+    const ENTITIES = ['events', 'ticket_categories', 'organizers', 'artists', 'locations', 'tips', 'sponsors', 'config', 'terms', 'media', 'artist_links'];
+
+    /** Awareness (1.38.925, Wunsch evendis-api): trotz „awareness“ in der DENY-Liste, aber nur in der bereinigten Form
+     *  TIX_Awareness::sanitize() (genau die öffentlichen Felder von public_info + enabled). Andere Awareness-Felder
+     *  (_tix_awareness_feedback_sum, _tix_awareness_test, Meldungen) bleiben draußen. */
+    const AWARENESS_META = ['_tix_awareness', '_tix_awareness_mode'];
 
     /** Meta ohne Signal (Sperren, Zähler, Protokolle) */
     const IGNORE_META = ['_tix_ticket_shared_count', '_tix_last_sync_time', '_tix_last_sync_log', '_tix_artist_log', '_tix_artist_norm',
@@ -59,6 +64,9 @@ class TIX_Service_Export {
         add_action('delete_attachment', [__CLASS__, 'on_attachment_delete'], 99, 1);
         foreach (['added_option', 'updated_option', 'deleted_option'] as $h) add_action($h, [__CLASS__, 'on_option'], 99, 1);
         add_action('tix_sponsor_logos_changed', [__CLASS__, 'on_sponsors'], 99, 2);
+        add_action('tix_artist_link_changed', [__CLASS__, 'on_artist_link'], 99, 1);   // 1.38.925
+        add_action('tix_raffle_entered', [__CLASS__, 'on_raffle'], 99, 1);             // 1.38.925: raffle_entries
+        add_action('tix_raffle_entries_changed', [__CLASS__, 'on_raffle'], 99, 1);
         // Aufräumen
         add_action(self::CRON, [__CLASS__, 'cleanup']);
         add_action('init', function () { if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 3600, 'daily', self::CRON); });
@@ -270,6 +278,14 @@ class TIX_Service_Export {
 
     public static function on_sponsors($scope, $owner) { self::touch('sponsors', $scope . ':' . intval($owner)); }
 
+    public static function on_artist_link($name_key) { self::touch('artist_links', (string) $name_key); }
+
+    /** Teilnehmerzahl zählt nur bei Höchstzahl (status() closed) → nur dann Signal, sonst keine Schreiblast. */
+    public static function on_raffle($event_id) {
+        $event_id = (int) $event_id;
+        if ($event_id && (int) get_post_meta($event_id, '_tix_raffle_max_entries', true) > 0) self::touch('events', $event_id);
+    }
+
     // ═══════════════ Listen ═══════════════
 
     /** Optionen der Entität config (Erlaubnisliste; DENY-Namen fallen immer heraus). */
@@ -289,11 +305,13 @@ class TIX_Service_Export {
               // 1.38.897 (Paket 2.3 Events/Preise): Lesestellen von TIX_Public_Events::payload, TIX_Fees, TIX_Customer_URL
               'tix_multi_organizer', 'tix_org_domains_active', 'tix_ticket_fields_default', 'tix_org_approval_settings', 'tix_demo_organizer_id',
               'permalink_structure', 'category_base', 'tag_base', // 1.38.898: Adressen
-              'tix_org_approval_db']; // 1.38.900: TIX_Org_Approval::status() ohne Status-Meta (pending bei aktueller DB-Version, sonst approved)
+              'tix_org_approval_db', // 1.38.900: TIX_Org_Approval::status() ohne Status-Meta (pending bei aktueller DB-Version, sonst approved)
+              'tix_awareness']; // 1.38.925: Seiten-Vorgabe Awareness, nur bereinigt (config_row)
         $l = (array) apply_filters('tix_export_config_options', $l);
         $list = array_values(array_filter(array_unique(array_map('strval', $l)), function ($o) {
             // tix_awareness_flags: nur die öffentlichen Schalter report_enabled/alarm_live (Name enthält „awareness“ aus der DENY-Liste)
-            return $o !== '' && ($o === 'tix_awareness_flags' || !(class_exists('TIX_Mirror_Map') && TIX_Mirror_Map::is_sensitive($o)));
+            // tix_awareness (1.38.925): nur TIX_Awareness::sanitize()
+            return $o !== '' && ($o === 'tix_awareness_flags' || $o === 'tix_awareness' || !(class_exists('TIX_Mirror_Map') && TIX_Mirror_Map::is_sensitive($o)));
         }));
         return $list;
     }
@@ -316,6 +334,12 @@ class TIX_Service_Export {
     private static function post_meta($id) {
         $out = [];
         foreach ((array) get_post_meta($id) as $k => $vals) {
+            if (in_array($k, self::AWARENESS_META, true)) {
+                $v = maybe_unserialize(((array) $vals)[0] ?? '');
+                if ($k === '_tix_awareness_mode') $out[$k] = is_scalar($v) ? (string) $v : '';
+                elseif (class_exists('TIX_Awareness')) $out[$k] = TIX_Mirror_Map::clean(TIX_Awareness::sanitize($v));
+                continue;
+            }
             if (strpos($k, '_tix_') !== 0 || strpos($k, '_tix_payout_') === 0 || TIX_Mirror_Map::is_sensitive($k)) continue;
             $vals = array_map('maybe_unserialize', (array) $vals);
             $out[$k] = self::clean(count($vals) > 1 ? $vals : ($vals[0] ?? null));
@@ -370,7 +394,17 @@ class TIX_Service_Export {
         ] + ($p->post_type === 'tix_artist' ? [
             // 1.38.924 (Wunsch evendis-api): alte Slugs (_wp_old_slug) – /public/artists/{slug} leitet zusammengeführte/umbenannte weiter
             'old_slugs' => array_values(array_unique(array_filter(array_map('strval', (array) get_post_meta($p->ID, '_wp_old_slug', false))))),
-        ] : []);
+        ] : []) + ($p->post_type === 'event' ? self::raffle_fields($p->ID) : []);
+    }
+
+    /** 1.38.925 (Wunsch evendis-api): Teilnehmerzahl für TIX_Raffle::status() – nur die Zahl, nur bei Höchstzahl > 0. */
+    private static function raffle_fields($id) {
+        if (!class_exists('TIX_Raffle') || (int) get_post_meta($id, '_tix_raffle_max_entries', true) <= 0) return [];
+        global $wpdb;
+        $prev = $wpdb->suppress_errors(true);
+        $n = (int) TIX_Raffle::count_entries($id);
+        $wpdb->suppress_errors($prev);
+        return ['raffle_entries' => $n];
     }
 
     // ═══════════════ Routen ═══════════════
@@ -431,6 +465,7 @@ class TIX_Service_Export {
         elseif ($entity === 'sponsors') $res = self::read_sponsors($sel);
         elseif ($entity === 'config') $res = self::read_list('config', self::config_options(), $sel, [__CLASS__, 'config_row']);
         elseif ($entity === 'terms') $res = self::read_list('terms', self::taxonomies(), $sel, [__CLASS__, 'terms_row']);
+        elseif ($entity === 'artist_links') $res = self::read_artist_links($sel);
         else {
             if (!isset($sel['ids'])) return self::bad('tix_export_ids_required', 'media nur mit ids.', 400, 'ids');
             $res = self::read_list('media', $sel['ids'], $sel, [__CLASS__, 'media_row']);
@@ -505,6 +540,10 @@ class TIX_Service_Export {
 
     public static function config_row($name) {
         $v = get_option($name, null);
+        if ($name === 'tix_awareness') {
+            // nicht gesetzt = null (wie andere Optionen; TIX_Awareness::site() rechnet sanitize([]))
+            return ['id' => 'tix_awareness', 'value' => ($v === null || !class_exists('TIX_Awareness')) ? null : TIX_Mirror_Map::clean(TIX_Awareness::sanitize(maybe_unserialize($v))), 'modified_gmt' => null];
+        }
         return ['id' => (string) $name, 'value' => self::clean(maybe_unserialize($v)), 'modified_gmt' => null];
     }
 
@@ -516,6 +555,28 @@ class TIX_Service_Export {
             return ['id' => (int) $t->term_id, 'slug' => (string) $t->slug, 'name' => html_entity_decode((string) $t->name, ENT_QUOTES, 'UTF-8'),
                     'parent' => (int) $t->parent, 'description' => (string) $t->description, 'count' => (int) $t->count];
         }, array_values($ts))];
+    }
+
+    /** Tabelle {prefix}tix_artist_links (TIX_Lineup_Links: Auto-Links + Foto je Künstlername), id = name_key (1.38.925). */
+    private static function read_artist_links(array $sel) {
+        global $wpdb;
+        $t = $wpdb->prefix . 'tix_artist_links';
+        $empty = isset($sel['ids']) ? [] : ['page' => $sel['page'], 'per_page' => $sel['per_page'], 'total' => 0, 'total_pages' => 0];
+        if (!get_option('tix_artist_links_db')) return self::finish('artist_links', [], $sel['ids'] ?? null) + $empty;
+        $cols = "name_key, name, spotify, apple_music, photo_id";
+        $meta = [];
+        if (isset($sel['ids'])) {
+            $rs = $sel['ids'] ? (array) $wpdb->get_results($wpdb->prepare("SELECT $cols FROM $t WHERE name_key IN (" . implode(',', array_fill(0, count($sel['ids']), '%s')) . ") ORDER BY id ASC", ...$sel['ids']), ARRAY_A) : [];
+        } else {
+            $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $t");
+            $rs = (array) $wpdb->get_results($wpdb->prepare("SELECT $cols FROM $t ORDER BY id ASC LIMIT %d OFFSET %d", $sel['per_page'], ($sel['page'] - 1) * $sel['per_page']), ARRAY_A);
+            $meta = ['page' => $sel['page'], 'per_page' => $sel['per_page'], 'total' => $total, 'total_pages' => (int) ceil($total / $sel['per_page'])];
+        }
+        $rows = array_map(function ($r) {
+            return ['id' => (string) $r['name_key'], 'name' => (string) $r['name'], 'spotify' => (string) $r['spotify'], 'apple_music' => (string) $r['apple_music'],
+                    'photo_id' => (int) $r['photo_id'], 'modified_gmt' => null];
+        }, $rs);
+        return self::finish('artist_links', TIX_Mirror_Map::clean($rows), $sel['ids'] ?? null) + $meta;
     }
 
     private static function read_sponsors(array $sel) {

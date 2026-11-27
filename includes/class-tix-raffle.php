@@ -92,10 +92,12 @@ class TIX_Raffle {
             if (!get_post($eid)) $ref = 1; // Event gelöscht → sofort
             if (!$ref || $ref + $keep > $now) continue;
             $n = intval($wpdb->query($wpdb->prepare("DELETE FROM $t WHERE event_id = %d AND is_winner = 0", $eid)));
+            if ($n) do_action('tix_raffle_entries_changed', $eid); // Teilnehmerzahl (Export, 1.38.925)
             $out['entries'] += $n;
             $wref = max($ref, $ev_end);
             if ($wref + $keep <= $now) {
                 $w = intval($wpdb->query($wpdb->prepare("DELETE FROM $t WHERE event_id = %d", $eid)));
+                if ($w) do_action('tix_raffle_entries_changed', $eid);
                 $out['winners'] += $w;
                 $list = get_post_meta($eid, '_tix_raffle_winners', true);
                 if (is_array($list) && $list) {
