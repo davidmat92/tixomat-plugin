@@ -67,6 +67,9 @@ class TIX_Service_Export {
         add_action('tix_artist_link_changed', [__CLASS__, 'on_artist_link'], 99, 1);   // 1.38.925
         add_action('tix_raffle_entered', [__CLASS__, 'on_raffle'], 99, 1);             // 1.38.925: raffle_entries
         add_action('tix_raffle_entries_changed', [__CLASS__, 'on_raffle'], 99, 1);
+        // 1.38.927: abgeleitete Event-Felder seatmap_flags/specials_offer
+        add_action('tix_order_status_changed', [__CLASS__, 'on_order_status'], 99, 1);
+        add_action('update_option_tix_settings', [__CLASS__, 'on_settings'], 99, 2);
         // Aufräumen
         add_action(self::CRON, [__CLASS__, 'cleanup']);
         add_action('init', function () { if (!wp_next_scheduled(self::CRON)) wp_schedule_event(time() + 3600, 'daily', self::CRON); });
@@ -234,11 +237,13 @@ class TIX_Service_Export {
 
     public static function on_transition($new, $old, $post) {
         if ($new === $old || !$post || $new === 'auto-draft') return;
+        self::on_dependency((int) $post->ID, $post->post_type);
         if ($e = self::entity_of_type($post->post_type)) self::touch($e, $post->ID);
     }
 
     public static function on_deleted_post($post_id, $post = null) {
         $type = $post ? $post->post_type : '';
+        self::on_dependency((int) $post_id, $type);
         if (!($e = self::entity_of_type($type))) return;
         self::touch($e, $post_id, 'delete');
         if ($e === 'events') self::touch('ticket_categories', $post_id, 'delete');
@@ -246,6 +251,9 @@ class TIX_Service_Export {
 
     public static function on_post_meta($meta_id, $object_id, $meta_key) {
         $meta_key = (string) $meta_key;
+        // 1.38.927: Special-Vorlagen (tix_special) und Saalplan-Freischaltung je Veranstalter
+        if (strpos($meta_key, '_tix_special_') === 0 && get_post_type($object_id) === 'tix_special') { self::on_dependency((int) $object_id, 'tix_special'); return; }
+        if (in_array($meta_key, self::ORG_FLAG_META, true) && get_post_type($object_id) === 'tix_organizer') self::touch('reload', 'event_flags');
         // _wp_old_slug nur für Künstler (post_row old_slugs, 1.38.924)
         if ($meta_key === '_wp_old_slug') { if (get_post_type($object_id) === 'tix_artist' && ($e = self::entity_of_type('tix_artist'))) self::touch($e, (int) $object_id); return; }
         if ($meta_key !== '_thumbnail_id' && strpos($meta_key, '_tix_') !== 0) return;
@@ -274,6 +282,56 @@ class TIX_Service_Export {
     public static function on_option($name) {
         if (in_array((string) $name, self::config_options(), true)) self::touch('config', (string) $name);
         if (in_array((string) $name, self::URL_OPTIONS, true)) self::touch('reload', 'urls');
+        if (in_array((string) $name, self::FLAG_OPTIONS, true)) self::touch('reload', 'event_flags');
+    }
+
+    /**
+     * 1.38.927: Eingaben von seatmap_flags/specials_offer außerhalb der Event-Meta → Signal `reload|event_flags`
+     * (Dienst lädt die Event-Zeilen neu). Seiten-weit: Saalplan-Buchung/Test/Altbestand, Module, Seiten-Schalter.
+     */
+    const FLAG_OPTIONS = ['tix_seating_booked', 'tix_seating_trial_until', 'tix_seating_legacy', 'tix_plan_site', 'tix_modules_entitled', 'tix_modules_entitled_v'];
+    const ORG_FLAG_META = ['_tix_seating_trial_until', '_tix_seating_legacy', '_tix_org_modules'];
+
+    /** tix_settings: nur der Specials-Schalter wirkt auf specials_offer. */
+    public static function on_settings($old, $new) {
+        $o = is_array($old) ? !empty($old['specials_enabled']) : false;
+        $n = is_array($new) ? !empty($new['specials_enabled']) : false;
+        if ($o !== $n) self::touch('reload', 'event_flags');
+    }
+
+    /** Saalplan- oder Special-Post geändert/gelöscht → Events, die ihn nutzen. */
+    private static function on_dependency($id, $type) {
+        global $wpdb;
+        if (!$id) return;
+        if ($type === 'tix_seatmap') {
+            foreach ((array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_tix_seatmap_id' AND meta_value = %s", (string) $id)) as $e) self::touch('events', (int) $e);
+        } elseif ($type === 'tix_special') {
+            foreach (self::events_with_special($id) as $e) self::touch('events', $e);
+        }
+    }
+
+    public static function events_with_special($sid) {
+        global $wpdb;
+        $out = [];
+        $rows = (array) $wpdb->get_results($wpdb->prepare("SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_tix_specials' AND meta_value LIKE %s", '%special_id%'));
+        foreach ($rows as $r) {
+            $v = maybe_unserialize($r->meta_value);
+            if (!is_array($v)) continue;
+            if (isset($v['special_id'])) $v = [$v];
+            foreach ($v as $es) if (is_array($es) && intval($es['special_id'] ?? 0) === intval($sid)) { $out[] = (int) $r->post_id; break; }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** Verkaufte Specials ändern quantity_available → Event der Positionen mit Special. */
+    public static function on_order_status($order_id) {
+        global $wpdb;
+        if (!class_exists('TIX_Order')) return;
+        $I = TIX_Order::items_table_name();
+        $prev = $wpdb->suppress_errors(true);
+        $ids = (array) $wpdb->get_col($wpdb->prepare("SELECT DISTINCT event_id FROM $I WHERE order_id = %d AND meta LIKE %s", (int) $order_id, '%' . $wpdb->esc_like('"special":1') . '%'));
+        $wpdb->suppress_errors($prev);
+        foreach ($ids as $e) if ((int) $e) self::touch('events', (int) $e);
     }
 
     public static function on_sponsors($scope, $owner) { self::touch('sponsors', $scope . ':' . intval($owner)); }
@@ -394,8 +452,29 @@ class TIX_Service_Export {
         ] + ($p->post_type === 'tix_artist' ? [
             // 1.38.924 (Wunsch evendis-api): alte Slugs (_wp_old_slug) – /public/artists/{slug} leitet zusammengeführte/umbenannte weiter
             'old_slugs' => array_values(array_unique(array_filter(array_map('strval', (array) get_post_meta($p->ID, '_wp_old_slug', false))))),
-        ] : []) + ($p->post_type === 'event' ? self::raffle_fields($p->ID) + self::rendered_event($p->ID) : [])
+        ] : []) + ($p->post_type === 'event' ? self::raffle_fields($p->ID) + self::rendered_event($p->ID) + self::event_flags($p->ID) : [])
           + ($p->post_type === 'tix_location' ? ['rendered' => ['description' => self::loc_description($p->ID)]] : []);
+    }
+
+    /**
+     * 1.38.927 (Nachtrag 4, Übergang bis Phase 3): abgeleitete Felder, deren Eingaben nicht im Export stehen.
+     * seatmap_flags = {tables, seatmap} wie /public/events-Detail + recheck_at (Ende einer Saalplan-Testphase: ab dann kann
+     * der Schalter ohne Schreibvorgang kippen). specials_offer = TIX_App_Checkout::specials() (Vorlagen tix_special + Verkaufszahlen).
+     */
+    private static function event_flags($id) {
+        $out = [];
+        if (class_exists('TIX_Public_Events')) {
+            $f = TIX_Public_Events::seatmap_flags($id);
+            $recheck = null;
+            if (class_exists('TIX_Seating')) {
+                $multi = class_exists('TIX_App_Scope') && TIX_App_Scope::multi();
+                $t = TIX_Seating::trial_until($multi ? (int) get_post_meta($id, '_tix_organizer_id', true) : 0);
+                if ($t > time()) $recheck = gmdate('Y-m-d\TH:i:s\Z', $t);
+            }
+            $out['seatmap_flags'] = ['tables' => (bool) $f['tables'], 'seatmap' => (bool) $f['seatmap'], 'recheck_at' => $recheck];
+        }
+        if (class_exists('TIX_App_Checkout')) $out['specials_offer'] = TIX_App_Checkout::specials($id);
+        return $out;
     }
 
     /** 1.38.926 (Wunsch evendis-api, Nachtrag 3): fertiges HTML wie /public/events-Detail – Bereinigen bleibt beim Speichern. */

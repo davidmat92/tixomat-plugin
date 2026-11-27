@@ -284,6 +284,64 @@ try {
     $eq('locations.rendered.description leer → ""', '', ((array) ((array) ($rows_of($d)[0] ?? []))['rendered'] ?? [])['description'] ?? null);
     $hdr(null, null);
     wp_delete_post($loc, true);
+
+    // ═══ 1.38.927: seatmap_flags, specials_offer + Signale ═══
+    $hdr(null, null);
+    $sset = get_option('tix_settings', null); $ss = is_array($sset) ? $sset : []; $ss['specials_enabled'] = 1; update_option('tix_settings', $ss);
+    $sp = wp_insert_post(['post_type' => 'tix_special', 'post_status' => 'publish', 'post_title' => 'V5 Special']);
+    update_post_meta($sp, '_tix_special_price', '9'); update_post_meta($sp, '_tix_special_qty', '10');
+    update_post_meta($ev, '_tix_specials', [['special_id' => $sp, 'enabled' => 1]]); update_post_meta($ev, '_tix_specials_in_selector', '1');
+    $sm = wp_insert_post(['post_type' => 'tix_seatmap', 'post_status' => 'publish', 'post_title' => 'V5 Saal']);
+    update_post_meta($ev, '_tix_seatmap_id', $sm);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    $pl = TIX_Public_Events::payload($ev, true);
+    [, $d] = $get('/events', ['ids' => (string) $ev]);
+    $er = (array) ($rows_of($d)[0] ?? []);
+    $eq('seatmap_flags = Detail tables/seatmap, recheck_at vorhanden', [$pl['tables'] ?? 'x', $pl['seatmap'] ?? 'x', true],
+        [$er['seatmap_flags']['tables'] ?? null, $er['seatmap_flags']['seatmap'] ?? null, array_key_exists('recheck_at', (array) ($er['seatmap_flags'] ?? []))]);
+    $eq('specials_offer = Detail (1 Special)', [json_decode(wp_json_encode($pl['specials_offer'] ?? null), true), 1], [json_decode(wp_json_encode($er['specials_offer'] ?? null), true), count((array) ($er['specials_offer'] ?? []))]);
+    [, $d] = $get('/changes'); $hE = (string) ($d['cursor'] ?? '');
+    $hdr(null, null);
+    update_post_meta($sp, '_tix_special_price', '11');      // Vorlage geändert → Event
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hE]);
+    $eq('Special-Vorlage geändert → events|id', 1, count($find($d['changes'] ?? [], 'events', $ev)));
+    $hE = (string) ($d['cursor'] ?? $hE);
+    $hdr(null, null);
+    wp_delete_post($sm, true);                               // Saalplan gelöscht → Event
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hE]);
+    $eq('Saalplan gelöscht → events|id', 1, count($find($d['changes'] ?? [], 'events', $ev)));
+    $hE = (string) ($d['cursor'] ?? $hE);
+    $hdr(null, null);
+    $seat_keep = get_option('tix_seating_booked', null);
+    update_option('tix_seating_booked', $seat_keep === '1' ? '0' : '1', false);
+    $ss['specials_enabled'] = 0; update_option('tix_settings', $ss);
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hE]);
+    $eq('Saalplan-Buchung/Specials-Schalter → reload|event_flags', 1, count($find($d['changes'] ?? [], 'reload', 'event_flags')));
+    $hE = (string) ($d['cursor'] ?? $hE);
+    // Verkauf mit Special → Event
+    $hdr(null, null);
+    $OT = TIX_Order::table_name(); $OI = TIX_Order::items_table_name();
+    $wpdb->insert($OT, ['order_number' => 'V5SP-' . substr(md5(microtime()), 0, 6), 'status' => 'pending', 'total' => 9, 'payment_method' => 'mollie', 'billing_email' => 'v5sp@example.test',
+        'order_key' => 'k' . wp_generate_password(16, false, false), 'date_created' => current_time('mysql'), 'date_modified' => current_time('mysql')]);
+    $oid = (int) $wpdb->insert_id;
+    $wpdb->insert($OI, ['order_id' => $oid, 'event_id' => $ev, 'quantity' => 1, 'total' => 9, 'name' => 'V5 Special', 'meta' => wp_json_encode(['special' => 1, 'special_id' => $sp])]);
+    do_action('tix_order_status_changed', $oid, 'completed', 'pending', 'mollie');
+    TIX_Service_Export::flush();
+    $hdr('1', $key);
+    [, $d] = $get('/changes', ['since' => $hE]);
+    $eq('Bestellung mit Special → events|id', 1, count($find($d['changes'] ?? [], 'events', $ev)));
+    $hdr(null, null);
+    $wpdb->delete($OI, ['order_id' => $oid]); $wpdb->delete($OT, ['id' => $oid]);
+    wp_delete_post($sp, true);
+    if ($seat_keep === null) delete_option('tix_seating_booked'); else update_option('tix_seating_booked', $seat_keep, false);
+    if ($sset === null) delete_option('tix_settings'); else update_option('tix_settings', $sset);
     $hdr(null, null);
     $wpdb->delete($rt, ['event_id' => $ev]);
     $wpdb->delete($wpdb->prefix . 'tix_artist_links', ['name_key' => $ak]);

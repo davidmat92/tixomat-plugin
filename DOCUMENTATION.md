@@ -7847,3 +7847,21 @@ Vorher plante jede Bestellung je Event zwei WP-Cron-Einzel-Events (`tix_send_rem
 - **Orts-Zeilen `rendered.description`** = `wp_kses_post(wpautop(_tix_loc_description))`, leerer Text ergibt `''` (gleich wie `venue_info.description`).
 - Signal: Alles hängt an `_tix_*`-Meta, die schon `touch` auslösen. Ausnahme ist `info_sections.accessibility`, das auf `TIX_Event_Facts::accessibility` beruht; es kommt dort ebenfalls aus `_tix_*`-Meta des Events.
 - Additiv, nur Schatten-Betrieb. Test: `tests/test-export-v5-wp.php` (+8, je 70 auf Einzel-Seite und Plattform).
+
+## 272. Export V5: seatmap_flags, specials_offer, neue Fixtures (ab 1.38.927, Wunsch evendis-api 27.11., Nachtrag 4)
+- **Event-Zeilen `seatmap_flags`** `{tables, seatmap, recheck_at}`. `tables`/`seatmap` sind dieselben Werte wie im Detail von `/public/events` (`TIX_Public_Events::seatmap_flags`, auch dort genutzt).
+  - Abgeleitet als Übergang bis Phase 3: Saalpläne (CPT `tix_seatmap`), Freischaltung (Buchung, Testphase, Altbestand, Module, Seiten-Schalter) und `upstream()` stehen nicht im Export.
+  - `recheck_at` (ISO, oder null) = Ende einer laufenden Saalplan-Testphase. Ab dann kann der Schalter ohne Schreibvorgang kippen.
+- **Event-Zeilen `specials_offer`** = `TIX_App_Checkout::specials()`. Abgeleitet, weil die Vorlagen (`tix_special`) und die Verkaufszahlen (Bestell-Tabellen) nicht im Export stehen.
+- **Signale:**
+  - `events|<id>` bei: Saalplan-Post geändert oder gelöscht (Events mit dieser `_tix_seatmap_id`), Special-Vorlage samt `_tix_special_*` geändert (Events, die sie in `_tix_specials` führen), Bestellstatus geändert bei Positionen mit Special.
+  - `reload|event_flags` (Dienst lädt die Event-Zeilen neu) bei: Optionen `tix_seating_booked`, `tix_seating_trial_until`, `tix_seating_legacy`, `tix_plan_site`, `tix_modules_entitled(_v)`; Veranstalter-Meta `_tix_seating_trial_until`, `_tix_seating_legacy`, `_tix_org_modules`; `tix_settings.specials_enabled` geändert.
+- **Ohne Ergänzung nachrechenbar:**
+  - `combos`: Meta des Events und der Partner-Events (Status, Verkauf an, gespiegelt, Freigabe, Vorverkauf, Kategorien). Ändert sich ein Partner-Event, muss der Dienst die Kombis der verbundenen Events neu rechnen.
+  - `ticket_fields`: Event-Meta, sonst Vorgabe des Veranstalters bzw. `config.tix_ticket_fields_default`.
+  - `ticket_transfer_hours`: dasselbe plus `tix_settings.ticket_transfer_enabled` und `_tix_ticket_transfer`.
+  - `sponsors`: Entität `sponsors` (event/organizer/site, mit Logos), Bilder über `media`, Quelle über `_tix_syndicated`/`_tix_platform_co`. Bei Spiegel oder Kopie gilt `settings.mode = snapshot` mit `settings.pub`, ohne Schnappschuss `null`.
+- **Fixtures:** `wp tixomat export-fixtures seed` mit 12 weiteren Fällen: info_texts, awareness_custom/_org/_site/_off, venue_info, timetable_overnight, raffle_max, group_discount, upsell, specials, seating.
+  - Nur auf lokalen Testseiten. seed schaltet dort Seiten-Awareness, Specials und (Einzel-Seite) eine Saalplan-Testphase ein.
+  - Aufgenommen mit 1.38.927 in `uebergaben/plan-wordpress/fixtures-927/{kk,plat}`.
+- Test: `tests/test-export-v5-wp.php` (+6, je 76 auf Einzel-Seite und Plattform).

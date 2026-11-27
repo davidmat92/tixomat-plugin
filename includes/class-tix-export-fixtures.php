@@ -122,6 +122,7 @@ class TIX_Export_Fixtures {
     private static function clear() {
         global $wpdb;
         $ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s", self::META)));
+        if ($ids && class_exists('TIX_Raffle')) { $prev = $wpdb->suppress_errors(true); $wpdb->query("DELETE FROM {$wpdb->prefix}" . TIX_Raffle::TABLE . " WHERE event_id IN (" . implode(',', $ids) . ")"); $wpdb->suppress_errors($prev); }
         foreach ($ids as $p) {
             if (get_post_type($p) === 'attachment') wp_delete_attachment($p, true); else wp_delete_post($p, true);
         }
@@ -160,6 +161,86 @@ class TIX_Export_Fixtures {
             update_post_meta($id, $k, $v);
         }
         return (int) $id;
+    }
+
+    /**
+     * Fälle ab 1.38.927 (Nachtrag 4 evendis-api): Info-Texte/FAQ, Awareness (custom/Veranstalter/Seite/off), Ort mit
+     * Beschreibung+Bild+Barrierefreiheit, Programm über Mitternacht, Gewinnspiel mit Höchstzahl, Mengenrabatt, Empfehlungen,
+     * Specials. Schaltet auf der (lokalen!) Testseite Seiten-Awareness und Specials ein.
+     */
+    private static function seed_v4(callable $base, callable $cat, callable $day, $img, $multi) {
+        global $wpdb;
+        $E = [];
+        $aw = ['enabled' => 1, 'team' => 1, 'sign' => 'Lila Weste', 'point' => 'Neben der Garderobe', 'codeword' => 'Ist Luisa hier?',
+               'areas' => ['Tanzfläche', 'Bar', 'Toiletten'], 'drink_tests' => 1, 'taxi' => '040 211211', 'rules' => "Kein Platz für Übergriffe.\nSprich uns an.", 'alarm_enabled' => 0];
+        if (class_exists('TIX_Awareness')) update_option('tix_awareness', TIX_Awareness::sanitize(['sign' => 'Seiten-Vorgabe: Team in Orange'] + $aw), false);
+        $s = (array) get_option('tix_settings', []);
+        if (empty($s['specials_enabled'])) { $s['specials_enabled'] = 1; update_option('tix_settings', $s); }
+
+        // Ort mit Beschreibung, Bild, Kurztext, Barrierefreiheit (Vorgabe für Events ohne eigene Angabe)
+        $loc2 = wp_insert_post(['post_type' => 'tix_location', 'post_status' => 'publish', 'post_title' => 'Fixture Club']);
+        update_post_meta($loc2, self::META, 'location_venue');
+        foreach (['_tix_loc_address' => 'Hafenweg 5, 20457 Hamburg', '_tix_loc_city' => 'Hamburg', '_tix_loc_short_desc' => 'Club am Hafen',
+                  '_tix_loc_description' => "Der Club liegt direkt am Wasser.\n\nEinlass über die <strong>Rampe</strong>.<script>x()</script>",
+                  '_tix_loc_image_id' => $img, '_tix_accessibility' => ['items' => ['step_free', 'wheelchair_wc'], 'note' => 'Aufzug zur Galerie']] as $k => $v) update_post_meta($loc2, $k, $v);
+        $o_aw = self::org('awareness', ['_tix_awareness' => class_exists('TIX_Awareness') ? TIX_Awareness::sanitize(['sign' => 'Veranstalter-Team in Grün'] + $aw) : []]);
+
+        $E['info_texts'] = self::event('info_texts', $base(35, [
+            '_tix_info_description' => "<p>Die lange <strong>Beschreibung</strong>.</p><script>alert(1)</script><p onclick=\"x()\">Klick</p>",
+            '_tix_info_lineup' => "<p>Headliner</p><p>Support</p>",
+            '_tix_info_artist' => "Die Künstler-Info (ausgeblendet).",
+            '_tix_info_specials' => "<ul><li>Freigetränk</li></ul>",
+            '_tix_info_extra_info' => "Garderobe 2 €\n\nKein Rucksack",
+            '_tix_info_extra_info_label' => 'Gut zu wissen',
+            '_tix_info_entry_rules' => "Ab 18 Jahren\n\nAusweis mitbringen",
+            '_tix_info_ticket_notes' => "Tickets nicht übertragbar",
+            '_tix_info_dresscode' => 'Schick',
+            '_tix_info_sections' => ['extra_info', 'description', 'specials', 'lineup', 'accessibility'],
+            '_tix_accessibility_mode' => 'custom', '_tix_accessibility' => ['items' => ['seats', 'hearing_loop', 'companion'], 'note' => 'Plätze bitte vorab melden'],
+            '_tix_faq' => [['q' => 'Gibt es eine Garderobe?', 'a' => "Ja.\n\nKostet 2 €."], ['q' => '', 'a' => 'Antwort ohne Frage (fällt weg)'], ['q' => 'Parken?', 'a' => 'Im <a href="https://example.test/p">Parkhaus</a><iframe src="x"></iframe>']],
+            '_tix_ticket_categories' => [$cat('Normal', 15)]]));
+        $E['awareness_custom'] = self::event('awareness_custom', $base(36, ['_tix_awareness_mode' => 'custom',
+            '_tix_awareness' => class_exists('TIX_Awareness') ? TIX_Awareness::sanitize(['sign' => 'Event-eigenes Team'] + $aw) : [], '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        $E['awareness_org']  = self::event('awareness_org', $base(37, ['_tix_organizer_id' => $o_aw, '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        $E['awareness_site'] = self::event('awareness_site', $base(38, ['_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        $E['awareness_off']  = self::event('awareness_off', $base(39, ['_tix_awareness_mode' => 'off', '_tix_organizer_id' => $o_aw, '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        $E['venue_info']     = self::event('venue_info', $base(40, ['_tix_location_id' => $loc2, '_tix_location' => 'Fixture Club', '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        $E['timetable_overnight'] = self::event('timetable_overnight', $base(41, ['_tix_time_start' => '22:00', '_tix_date_end' => $day(42), '_tix_time_end' => '06:00',
+            '_tix_stages' => [['name' => 'Main', 'color' => '#FF5500'], ['name' => 'Floor 2', 'color' => '#3355FF']],
+            '_tix_timetable' => [$day(41) => [
+                ['time' => '22:00', 'end' => '23:30', 'stage' => 0, 'title' => 'Opener', 'desc' => 'Warm-up'],
+                ['time' => '23:30', 'end' => '01:30', 'stage' => 0, 'title' => 'Headliner', 'desc' => ''],
+                ['time' => '01:30', 'end' => '04:00', 'stage' => 0, 'title' => 'Closing', 'desc' => ''],
+                ['time' => '00:00', 'end' => '06:00', 'stage' => 1, 'title' => 'Floor-2-Resident', 'desc' => 'die ganze Nacht'],
+            ]],
+            '_tix_ticket_categories' => [$cat('Normal', 18)]]));
+        $E['raffle_max'] = self::event('raffle_max', $base(43, ['_tix_raffle_enabled' => '1', '_tix_raffle_title' => 'Gewinne 2 VIP-Tickets',
+            '_tix_raffle_description' => "Mitmachen und gewinnen.\n\nAuslosung am Event-Tag.", '_tix_raffle_end_date' => $day(42) . 'T18:00', '_tix_raffle_max_entries' => 50,
+            '_tix_raffle_prizes' => [['name' => 'VIP-Ticket', 'qty' => 2, 'per_winner' => 1, 'type' => 'ticket'], ['name' => 'Merch-Paket', 'qty' => 1, 'type' => 'text']],
+            '_tix_raffle_consent_text' => 'Ich bin einverstanden.', '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        if (class_exists('TIX_Raffle')) {
+            $prev = $wpdb->suppress_errors(true);
+            foreach ([1, 2, 3] as $i) $wpdb->insert($wpdb->prefix . TIX_Raffle::TABLE, ['event_id' => $E['raffle_max'], 'name' => 'Fixture ' . $i, 'email' => "fixture$i@example.test", 'ip' => 'fixture', 'created_at' => current_time('mysql')]);
+            $wpdb->suppress_errors($prev);
+        }
+        $E['group_discount'] = self::event('group_discount', $base(44, ['_tix_group_discount' => ['enabled' => 1, 'tiers' => [['min_qty' => 10, 'percent' => 15], ['min_qty' => 5, 'percent' => 10], ['min_qty' => 0, 'percent' => 5]], 'combine_bundle' => 1],
+            '_tix_ticket_categories' => [$cat('Normal', 20), $cat('Gruppe', 15, ['bundle_buy' => 4, 'bundle_pay' => 3, 'bundle_label' => '4 für 3'])]]));
+        $E['upsell'] = self::event('upsell', $base(45, ['_tix_upsell_events' => [$E['venue_info'], $E['raffle_max'], 999999999], '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        // Special-Vorlage (tix_special) + Event-Zuordnung mit Preis-Überschreibung
+        $sp = wp_insert_post(['post_type' => 'tix_special', 'post_status' => 'publish', 'post_title' => 'Fixture Getränke-Paket', 'post_content' => 'Drei Getränke deiner Wahl.']);
+        update_post_meta($sp, self::META, 'special');
+        foreach (['_tix_special_price' => '12', '_tix_special_value' => '18', '_tix_special_qty' => '40'] as $k => $v) update_post_meta($sp, $k, $v);
+        $E['specials'] = self::event('specials', $base(46, ['_tix_specials' => [['special_id' => $sp, 'enabled' => 1, 'price_override' => '10']], '_tix_specials_in_selector' => '1',
+            '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        // Saalplan + Tische (seatmap_flags; an, sofern das Modul auf der Testseite freigeschaltet ist)
+        $sm = wp_insert_post(['post_type' => 'tix_seatmap', 'post_status' => 'publish', 'post_title' => 'Fixture Saal']);
+        update_post_meta($sm, self::META, 'seatmap');
+        // Freischaltung per Testphase (20 Tage) → seatmap_flags.recheck_at; Plattform: je Veranstalter, Einzel-Seite: Seite
+        $trial = time() + 20 * DAY_IN_SECONDS;
+        $o_seat = self::org('seating', $multi ? ['_tix_seating_trial_until' => $trial] : []);
+        if (!$multi && intval(get_option('tix_seating_trial_until', 0)) <= time() && get_option('tix_seating_booked', '0') !== '1') update_option('tix_seating_trial_until', $trial, false);
+        $E['seating'] = self::event('seating', $base(47, ['_tix_organizer_id' => $o_seat, '_tix_seatmap_id' => $sm, '_tix_table_reservation' => ['enabled' => 1], '_tix_ticket_categories' => [$cat('Normal', 10)]]));
+        return $E;
     }
 
     public static function seed() {
@@ -221,6 +302,7 @@ class TIX_Export_Fixtures {
         $E['syndicated']       = self::event('syndicated', $base(34, ['_tix_syndicated' => '1', '_tix_source_site' => 'Partner-Club', '_tix_source_url' => 'https://partner.example.test/event/1/',
             '_tix_source_fee' => ['fixed' => 1.0, 'percent' => 0, 'mode' => 'customer', 'label' => 'Servicegebühr', 'max_per_ticket' => 0, 'max_per_order' => 3.0],
             '_tix_ticket_categories' => [$cat('Normal', 22)]]));
+        $E += self::seed_v4($base, $cat, $day, $img, $multi);
         foreach ($E as $e) clean_post_cache($e);
         if (class_exists('TIX_Public_Events') && method_exists('TIX_Public_Events', 'flush')) TIX_Public_Events::flush();
         return ['events' => $E, 'organizers' => ['plain' => $o_plain, 'fee_customer' => $o_cust, 'fee_split' => $o_split, 'demo' => $o_demo], 'location' => (int) $loc, 'image' => $img];

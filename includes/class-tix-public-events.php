@@ -185,6 +185,20 @@ class TIX_Public_Events {
         return wp_kses_post($v);
     }
 
+    /** {tables, seatmap} wie im Detail (auch Export für evendis-api, 1.38.927). */
+    public static function seatmap_flags($id) {
+        $id = intval($id);
+        // Tischreservierung: true → Kategorien über /public/events/{id}/tables, Buchung per /customer/table-reservations
+        $tr = get_post_meta($id, '_tix_table_reservation', true);
+        // Modul „Saalplan & Tische“ (1.38.659): ohne Modul beides false
+        $sm_on = !class_exists('TIX_Seatmap') || TIX_Seatmap::module_on($id);
+        return [
+            'tables'  => $sm_on && class_exists('TIX_Table_Reservation') && is_array($tr) && !empty($tr['enabled']),
+            // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen; auch Spiegel/Kopie (1.38.798)
+            'seatmap' => class_exists('TIX_Seatmap') && (method_exists('TIX_Seatmap', 'sale_flag') ? TIX_Seatmap::sale_flag($id) : ($sm_on && TIX_Seatmap::event_seatmap($id) > 0)),
+        ];
+    }
+
     /**
      * Fertiges HTML der Event-Texte genau wie payload($id, true) (Export für evendis-api, 1.38.926): Bereinigen gehört
      * zum Speichern, der Dienst baut wp_kses_post/wpautop nicht nach. `artist` unabhängig von der Sichtbarkeit,
@@ -396,13 +410,7 @@ class TIX_Public_Events {
             $out['group_discount'] = class_exists('TIX_Cart_Pricing') ? TIX_Cart_Pricing::group_discount($id) : null;
             $out['specials_offer'] = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::specials($id) : [];
             $out['combos']         = class_exists('TIX_App_Checkout') ? TIX_App_Checkout::combos($id) : [];
-            // Tischreservierung: true → Kategorien über /public/events/{id}/tables, Buchung per /customer/table-reservations
-            $tr = get_post_meta($id, '_tix_table_reservation', true);
-            // Modul „Saalplan & Tische“ (1.38.659): ohne Modul beides false
-            $sm_on = !class_exists('TIX_Seatmap') || TIX_Seatmap::module_on($id);
-            $out['tables'] = $sm_on && class_exists('TIX_Table_Reservation') && is_array($tr) && !empty($tr['enabled']);
-            // Saalplan: true → Plätze über /public/events/{id}/seatmap wählen
-            $out['seatmap'] = class_exists('TIX_Seatmap') && (method_exists('TIX_Seatmap', 'sale_flag') ? TIX_Seatmap::sale_flag($id) : ($sm_on && TIX_Seatmap::event_seatmap($id) > 0)); // auch Spiegel/Kopie (1.38.798)
+            $out = array_merge($out, self::seatmap_flags($id));
         }
         return $out;
     }
